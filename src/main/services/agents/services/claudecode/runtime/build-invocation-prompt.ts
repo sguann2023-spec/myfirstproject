@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto'
-
 import { CHANNEL_SECURITY_PROMPT } from '@shared/agents/claudecode/constants'
 
 import type { GetAgentSessionResponse } from '../..'
+import type { AgentInvocationIds } from '../../../interfaces/AgentStreamInterface'
 import { agentArtifactRepository } from '../../../database/repositories/agentArtifactRepository'
+import { SqlitePiSessionStorage } from '../../../database/repositories/piSessionStorage'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
 import { channelService } from '../../ChannelService'
 import { PromptBuilder, type ToolGuidanceOptions } from '../../cherryclaw/prompt'
@@ -22,8 +22,6 @@ import type { ToolSurface } from '../tool-surface'
 const promptBuilder = new PromptBuilder()
 const DEFAULT_SEGMENT_RECENT_TURNS = 20
 const CONTINUED_SEGMENT_RECENT_TURNS = 2
-
-const buildTraceId = () => `trace_${randomUUID()}`
 
 const getSegmentRecentTurnLimit = (continuationSummary?: string): number =>
   continuationSummary ? CONTINUED_SEGMENT_RECENT_TURNS : DEFAULT_SEGMENT_RECENT_TURNS
@@ -75,6 +73,7 @@ export async function buildInvocationPromptState(input: {
   isAssistant: boolean
   agentConfig: Parameters<PromptBuilder['buildSystemPrompt']>[1]
   lastAgentSessionId?: string
+  invocationIds: AgentInvocationIds
 }): Promise<InvocationPromptState> {
   const {
     session,
@@ -86,7 +85,8 @@ export async function buildInvocationPromptState(input: {
     toolGuidanceOptions,
     isAssistant,
     agentConfig,
-    lastAgentSessionId
+    lastAgentSessionId,
+    invocationIds
   } = input
 
   const linkedChannel = await channelService.findBySessionId(session.id)
@@ -112,9 +112,9 @@ export async function buildInvocationPromptState(input: {
         .filter(Boolean)
         .join('\n\n')
 
-  const traceId = buildTraceId()
+  const traceId = invocationIds.traceId
   let activeSegment = await conversationSegmentService.getActiveSegment(session.id)
-  if (!activeSegment && lastAgentSessionId) {
+  if (!activeSegment) {
     activeSegment = await conversationSegmentService.createRootSegment({
       topicId: session.id,
       sdkSessionId: lastAgentSessionId,
@@ -124,15 +124,25 @@ export async function buildInvocationPromptState(input: {
     })
   }
 
+  const durablePiHistoryAvailable = await SqlitePiSessionStorage.hasDurableConversation({
+    topicId: session.id,
+    excludeMessageIds: [invocationIds.userMessageId, invocationIds.assistantMessageId]
+  })
   const recentTurnLimit = getSegmentRecentTurnLimit(activeSegment?.continuationSummary)
-  const recentTurns = activeSegment ? await agentTurnRepository.listBySegmentId(activeSegment.id, recentTurnLimit) : []
-  const referencedArtifacts = (
-    await Promise.all(recentTurns.map(async (turn) => agentArtifactRepository.listByTurnId(turn.id)))
-  )
-    .flat()
-    .filter((artifact) => artifact.sourceType === 'tool_result')
+  const recentTurns = durablePiHistoryAvailable
+    ? []
+    : activeSegment
+      ? await agentTurnRepository.listBySegmentId(activeSegment.id, recentTurnLimit)
+      : []
+  const referencedArtifacts = durablePiHistoryAvailable
+    ? []
+    : (
+        await Promise.all(recentTurns.map(async (turn) => agentArtifactRepository.listByTurnId(turn.id)))
+      )
+        .flat()
+        .filter((artifact) => artifact.sourceType === 'tool_result')
   const promptView = await promptViewBuilder.build({
-    continuationSummary: activeSegment?.continuationSummary,
+    continuationSummary: durablePiHistoryAvailable ? undefined : activeSegment?.continuationSummary,
     recentTurns,
     currentPrompt: sdkPrompt,
     referencedArtifacts
@@ -150,11 +160,12 @@ export async function buildInvocationPromptState(input: {
 
   const currentTurn = activeSegment
     ? await agentTurnRepository.save({
-        id: `turn_${randomUUID()}`,
+        id: invocationIds.turnId,
         topicId: session.id,
         segmentId: activeSegment.id,
         traceId,
-        userMessageId: '',
+        userMessageId: invocationIds.userMessageId,
+        assistantMessageId: invocationIds.assistantMessageId,
         userText: requestPrompt,
         startedAt: new Date().toISOString(),
         status: 'running'

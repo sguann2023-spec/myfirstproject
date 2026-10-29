@@ -24,7 +24,7 @@ type ExecutionExtra = {
 }
 const TOOL: Tool = {
   name: 'render_draft',
-  description: 'Cloud render an existing cloud draft_id for short preview verification only (draft <=5 seconds). Rejects local assets; full video/audio sources must be <=20 seconds and images <=20 MiB. No draft JSON, local output path, or MP4 download. Returns a cloud video URL and actual billing when reported.',
+  description: '草稿渲染（云渲染 / 渲染 / 预渲染，cloud draft render / preview）：用于字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面的真实效果验收。Verify subtitles, animation timing, track layering, audio effects and volume, fonts, transitions and compositing. Prefer lightweight preview tools first; use render_draft as a last resort when those cannot verify the actual result. Render an existing cloud draft_id. If the working draft exceeds the limits, create a separate cloud test draft <=5 seconds reproducing the relevant layers, timing, styles and audio, then render it without changing the working draft; do not abandon verification because the working draft is too long. Use cloud-accessible HTTP(S) assets; full video/audio sources must be <=20 seconds and images <=20 MiB. Prepare eligible short source assets when needed: timeline trimming alone does not shorten the full source. No draft JSON, local output path, or MP4 download. Returns a cloud video URL and actual billing when reported.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -64,32 +64,28 @@ export async function validateRenderDraft(script: ObjectValue, signal: AbortSign
   const media: Array<{ value: ObjectValue; location: string; kind: string }> = []
   const references: Array<{ url: string; location: string; kind: string; owner: ObjectValue }> = []
   const referenceKey = /^(?:(?:.*_)?(?:path|url|uri)|.*(?:Path|Url|URL|Uri)|src|source|filename|file_name)$/
-  function visit(value: unknown, location: string, kind = 'asset', inMaterials = false) {
-    if (!value || typeof value !== 'object') return
-    if (Array.isArray(value)) {
-      value.forEach((item, i) => visit(item, `${location}[${i}]`, kind, inMaterials))
-      return
-    }
-    const object = value as ObjectValue
-    const type = String(object.type || '').toLowerCase()
-    const resolvedKind = /^(photo|image|still)$/.test(type) ? 'image' : /^(video|audio)$/.test(type) ? type : kind
-    if (inMaterials && ['image', 'video', 'audio'].includes(resolvedKind) && /\[\d+\]$/.test(location)) {
+  for (const [group, kind] of Object.entries({ videos: 'video', audios: 'audio', images: 'image', photos: 'image' })) {
+    const items = script.materials?.[group]
+    if (!Array.isArray(items)) continue
+    for (const [index, object] of items.entries()) {
+      if (!object || typeof object !== 'object') continue
+      const location = `materials.${group}[${index}]`
+      const type = String(object.type || '').toLowerCase()
+      const resolvedKind = /^(photo|image|still)$/.test(type) ? 'image' : kind
       media.push({ value: object, location, kind: resolvedKind })
-    }
-    for (const [key, child] of Object.entries(object)) {
-      const field = location ? `${location}.${key}` : key
-      if (typeof child === 'string' && child.trim() && referenceKey.test(key) && (inMaterials || resolvedKind !== 'asset')) {
+      // Only source fields on media records are checked; effect/template dependencies
+      // may use local cache paths that the render service resolves by resource id.
+      for (const [key, child] of Object.entries(object)) {
+        if (typeof child !== 'string' || !child.trim() || !referenceKey.test(key)) continue
+        const field = `${location}.${key}`
         if (!remoteUrl(child)) {
           // Never echo user directory names, credentials, or unbounded source values.
           throw new Error(`Local or unverifiable ${resolvedKind} asset at ${field}: [redacted local reference]. Replace it with a cloud-accessible HTTP(S) URL.`)
         }
         references.push({ url: child, location: field, kind: resolvedKind, owner: object })
       }
-      const groupKind = key === 'videos' ? 'video' : key === 'audios' ? 'audio' : /^(images|photos)$/.test(key) ? 'image' : key === 'stickers' ? 'sticker' : resolvedKind
-      visit(child, field, groupKind, inMaterials || key === 'materials')
     }
   }
-  visit(script, '')
   // Explicit material records must prove their source, not just carry an opaque material id.
   for (const item of media) {
     if (!references.some(ref => ref.location.startsWith(`${item.location}.`))) {

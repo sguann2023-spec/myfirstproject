@@ -20,10 +20,14 @@ const mocks = vi.hoisted(() => ({
   toast: vi.fn()
 }))
 
+vi.mock('../../../../../../../shared/openCreditsPayment', () => ({ openCreditsPayment: vi.fn() }))
 vi.mock('@renderer/store', () => ({
   default: {},
   useAppDispatch: () => mocks.dispatch,
   useAppSelector: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state)
+}))
+vi.mock('@renderer/store/messageBlock', () => ({
+  messageBlocksSelectors: { selectById: (state: any, id: string) => state.messageBlocks?.entities?.[id] }
 }))
 vi.mock('@renderer/services/SpanManagerService', () => ({ restartTrace: mocks.restartTrace }))
 vi.mock('@renderer/store/thunk/messageThunk', () => ({ regenerateAssistantResponseThunk: vi.fn() }))

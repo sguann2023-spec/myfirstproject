@@ -46,14 +46,14 @@ describe('isTurnEligibleForRecentContext', () => {
     ).toBe(true)
   })
 
-  it('excludes cancelled requests even when user text or partial replies remain', () => {
+  it('includes cancelled turns when user text or partial replies remain', () => {
     expect(
       isTurnEligibleForRecentContext({
         status: 'cancelled',
         userText: '继续',
         assistantText: ''
       })
-    ).toBe(false)
+    ).toBe(true)
 
     expect(
       isTurnEligibleForRecentContext({
@@ -61,7 +61,7 @@ describe('isTurnEligibleForRecentContext', () => {
         userText: '',
         assistantText: '部分回答'
       })
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it('excludes cancelled turns without any user or assistant text', () => {
@@ -80,6 +80,16 @@ describe('isTurnEligibleForRecentContext', () => {
         status: 'failed',
         userText: '用户问题',
         assistantText: '助手回答'
+      })
+    ).toBe(true)
+  })
+
+  it('includes interrupted turns when partial factual context remains', () => {
+    expect(
+      isTurnEligibleForRecentContext({
+        status: 'interrupted',
+        userText: '用户问题',
+        assistantText: '部分回答'
       })
     ).toBe(true)
   })

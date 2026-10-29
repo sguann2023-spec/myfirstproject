@@ -27,6 +27,7 @@ declare global {
         join: (...args: string[]) => string
       }
       cherryChatStream: {
+        renameWorkspace: (payload: { source: string; name: string }) => Promise<any>
         createSession: (payload: any) => Promise<any>
         getSession: (sessionId: string) => Promise<any>
         updateSession: (payload: any) => Promise<any>

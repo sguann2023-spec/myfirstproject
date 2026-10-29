@@ -288,6 +288,33 @@ describe('processPiHarnessQuery', () => {
     expect(stream.events.map(event => event.type)).toEqual(['cancelled'])
   })
 
+  it('acknowledges cancellation only after old MCP clients finish closing', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const harnessStub = createHarnessStub()
+    const stream = createStreamRecorder()
+    let releaseClose!: () => void
+    let startedClose!: () => void
+    const closing = new Promise<void>((resolve) => { startedClose = resolve })
+    harnessStub.harness.runtimeBridge.mcpClients = [{ close: () => {
+      startedClose()
+      return new Promise<void>((resolve) => { releaseClose = resolve })
+    } }]
+    const run = processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn,
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness, prompt: 'hello', abortSignal: controller.signal
+    })
+    await closing
+    expect(stream.events).toEqual([])
+    releaseClose()
+    await run
+    expect(stream.events.map(event => event.type)).toEqual(['cancelled'])
+  })
+
   it('aborts the PI harness and emits cancelled when the external signal aborts', async () => {
     const abortController = new AbortController()
     let aborted = false
@@ -407,16 +434,16 @@ describe('processPiHarnessQuery', () => {
       prompt: 'hello'
     })
 
-    await vi.advanceTimersByTimeAsync(20_000)
+    await vi.runAllTimersAsync()
     await runPromise
 
-    expect(harnessStub.abort).toHaveBeenCalledTimes(4)
+    expect(harnessStub.abort).toHaveBeenCalledTimes(6)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
-    expect(retryStatusChunks).toHaveLength(3)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
-    expect(String(retryStatusChunks[2]?.chunk?.text || '')).toBe('第3/3次重试')
+    expect(retryStatusChunks).toHaveLength(5)
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[4]?.chunk?.text || '')).toBe('第5/5次重试')
     expect(agentTurnRepository.update).toHaveBeenCalledWith(
       'turn-1',
       expect.objectContaining({
@@ -429,6 +456,7 @@ describe('processPiHarnessQuery', () => {
   })
 
   it('recovers a missing toolcall_end from the final assistant snapshot before surfacing terminated', async () => {
+    vi.useFakeTimers()
     const harnessStub = createHarnessStub({
       prompt: async () => {
         await harnessStub.emitAgentEvent({
@@ -508,7 +536,7 @@ describe('processPiHarnessQuery', () => {
     })
     const stream = createStreamRecorder()
 
-    await processPiHarnessQuery({
+    const runPromise = processPiHarnessQuery({
       stream,
       sessionId: 'session-1',
       agentId: 'agent-1',
@@ -528,6 +556,8 @@ describe('processPiHarnessQuery', () => {
       harness: harnessStub.harness,
       prompt: 'hello'
     })
+    await vi.runAllTimersAsync()
+    await runPromise
 
     const chunkTypes = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: { type: string } } => event.type === 'chunk' && Boolean(event.chunk))
@@ -715,7 +745,7 @@ describe('processPiHarnessQuery', () => {
       harness: harnessStub.harness,
       prompt: 'hello'
     })
-    await vi.advanceTimersByTimeAsync(800)
+    await vi.runAllTimersAsync()
     await runPromise
 
     expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
@@ -723,11 +753,12 @@ describe('processPiHarnessQuery', () => {
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
   })
 
-  it('does not retry retriable upstream errors after visible text has already streamed', async () => {
+  it('bounds retries for transient upstream errors after visible text has streamed', async () => {
+    vi.useFakeTimers()
     const harnessStub = createHarnessStub({
       prompt: async () => {
         await harnessStub.emitAgentEvent({
@@ -776,7 +807,7 @@ describe('processPiHarnessQuery', () => {
     })
     const stream = createStreamRecorder()
 
-    await processPiHarnessQuery({
+    const runPromise = processPiHarnessQuery({
       stream,
       sessionId: 'session-1',
       agentId: 'agent-1',
@@ -796,12 +827,16 @@ describe('processPiHarnessQuery', () => {
       harness: harnessStub.harness,
       prompt: 'hello'
     })
+    await vi.runAllTimersAsync()
+    await runPromise
 
-    expect(harnessStub.prompt).toHaveBeenCalledTimes(1)
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(6)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
-    expect(retryStatusChunks).toHaveLength(0)
+    expect(retryStatusChunks).toHaveLength(5)
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[4]?.chunk?.text || '')).toBe('第5/5次重试')
     expect(stream.events.map((event) => event.type)).toContain('error')
   })
 
@@ -912,7 +947,7 @@ describe('processPiHarnessQuery', () => {
       harness: harnessStub.harness,
       prompt: 'hello'
     })
-    await vi.advanceTimersByTimeAsync(800)
+    await vi.runAllTimersAsync()
     await runPromise
 
     expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
@@ -920,7 +955,7 @@ describe('processPiHarnessQuery', () => {
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
   })
 
@@ -1033,7 +1068,7 @@ describe('processPiHarnessQuery', () => {
       harness: harnessStub.harness,
       prompt: 'hello'
     })
-    await vi.advanceTimersByTimeAsync(800)
+    await vi.runAllTimersAsync()
     await runPromise
 
     expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
@@ -1041,7 +1076,7 @@ describe('processPiHarnessQuery', () => {
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
       .filter((event) => String(event.chunk.type || '') === 'retry-status')
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
   })
 
@@ -1135,7 +1170,7 @@ describe('processPiHarnessQuery', () => {
         harness: harnessStub.harness,
         prompt: 'hello'
       })
-      await vi.advanceTimersByTimeAsync(800)
+      await vi.runAllTimersAsync()
       await runPromise
 
       expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
@@ -1143,7 +1178,7 @@ describe('processPiHarnessQuery', () => {
         .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
         .filter((event) => String(event.chunk.type || '') === 'retry-status')
       expect(retryStatusChunks).toHaveLength(1)
-      expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/3次重试')
+      expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
       expect(stream.events.map((event) => event.type)).toContain('complete')
     }
   })

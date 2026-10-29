@@ -47,6 +47,16 @@ const DATA_MIGRATIONS: DataMigration[] = [
         logger.warn('Some messages failed to migrate', { errors: result.errors })
       }
     }
+  },
+  {
+    version: 10002,
+    tag: 'data_0002_backfill_canonical_transcript',
+    description: 'Backfill canonical transcript and deterministic legacy turn projections',
+    migrate: async (db) => {
+      const { backfillCanonicalTranscript } = await import('./canonicalTranscriptMigration')
+      const result = await backfillCanonicalTranscript(db)
+      logger.info('Canonical transcript backfill result', result)
+    }
   }
 ]
 

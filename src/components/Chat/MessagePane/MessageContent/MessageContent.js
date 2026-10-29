@@ -8,6 +8,12 @@ import appStore from '../../../../renderer/src/store';
 import { upsertManyBlocks } from '../../../../renderer/src/store/messageBlock';
 import Markdown from '../Markdown/Markdown';
 import './MessageContent.css';
+import { shouldSuppressCancelledTurnError } from '../../../../shared/chatError';
+
+const isCancelledTurn = (message) => Boolean(message?.aborted)
+  || ['cancelled', 'aborted', 'interrupted'].includes(String(message?.status || '').toLowerCase());
+const visibleTurnError = (message) => shouldSuppressCancelledTurnError(message?.error, isCancelledTurn(message))
+  ? null : message?.error;
 
 const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
@@ -64,7 +70,8 @@ const normalizeBlockStatus = (value, { isLoading = false, blockType = MessageBlo
 };
 
 const buildAssistantMessageStatus = ({ message, isLoading, entities, blockIds }) => {
-  if (message?.error) return 'error';
+  if (visibleTurnError(message)) return 'error';
+  if (isCancelledTurn(message)) return 'success';
   if (isLoading) return 'processing';
   const hasActiveBlock = blockIds.some((id) => {
     const status = entities[id]?.status;
@@ -98,6 +105,7 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
     if (!rawBlock || typeof rawBlock !== 'object') return;
     const id = String(rawBlock?.id || `${messageId}-block-${index}`);
     const type = normalizeBlockType(rawBlock?.type);
+    if (type === MessageBlockType.ERROR && shouldSuppressCancelledTurnError(rawBlock.error, isCancelledTurn(message))) return;
     entities[id] = {
       ...rawBlock,
       id,
@@ -129,7 +137,7 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
     }
   }
 
-  if (message?.error) {
+  if (visibleTurnError(message)) {
     const errorId = `${messageId}-error`;
     entities[errorId] = {
       id: errorId,
@@ -224,7 +232,7 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
         : (storeMessage?.status || fallbackAssistantStatus),
       blocks: shouldUseTerminalFallback ? fallbackAssistantState.blockIds : storeMessage?.blocks,
       error: fallbackMessage?.error || storeMessage?.error || null,
-      aborted: Boolean(fallbackMessage?.aborted || storeMessage?.aborted),
+      aborted: isCancelledTurn(fallbackMessage) || isCancelledTurn(storeMessage),
       retryStatusText: fallbackMessage?.retryStatusText || storeMessage?.retryStatusText || ''
     }
     : {
@@ -235,7 +243,8 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
       createdAt: fallbackAssistantCreatedAt,
       status: fallbackAssistantStatus,
       blocks: fallbackAssistantState.blockIds,
-      error: fallbackMessage?.error || null,
+      error: visibleTurnError(fallbackMessage) || null,
+      aborted: isCancelledTurn(fallbackMessage),
       retryStatusText: fallbackMessage?.retryStatusText || ''
     };
   const blocks = React.useMemo(() => {
@@ -248,14 +257,19 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
     });
     const merged = [...resolvedBlockIds, ...extraFallbackIds.filter((id) => !resolvedBlockIds.includes(id))];
     // 无论是否 loading，都需要合并 ERROR；UNKNOWN 只在 loading 时保留
+    const cancelled = isCancelledTurn(fallbackMessage) || isCancelledTurn(storeMessage);
+    const visible = merged.filter((id) => {
+      const block = storeBlockEntities[id] || fallbackAssistantState.entities[id];
+      return block?.type !== MessageBlockType.ERROR || !shouldSuppressCancelledTurnError(block.error, cancelled);
+    });
     return isLoading
-      ? merged
-      : merged.filter((id) => {
+      ? visible
+      : visible.filter((id) => {
           const block = fallbackAssistantState.entities[id];
           if (block?.type === MessageBlockType.UNKNOWN) return false;
           return true;
         });
-  }, [resolvedMessage?.blocks, fallbackAssistantState, isLoading]);
+  }, [resolvedMessage?.blocks, fallbackAssistantState, isLoading, fallbackMessage, storeMessage, storeBlockEntities]);
 
   return (
     <div className="chat-message-content tw-scope chat-tool-layout-fix">
@@ -308,8 +322,9 @@ const MessageContent = ({ message, isLoading = false }) => {
     createdAt: assistantCreatedAt,
     status: assistantStatus,
     blocks: assistantState.blockIds,
+    aborted: isCancelledTurn(message),
     retryStatusText: message?.retryStatusText || ''
-  }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds, message?.retryStatusText]);
+  }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds, message?.retryStatusText, message?.aborted, message?.status]);
 
   React.useEffect(() => {
     if (!isAssistant) return;
@@ -378,7 +393,7 @@ const MessageContent = ({ message, isLoading = false }) => {
     <Provider store={appStore}>
       <div className="chat-message-content tw-scope chat-tool-layout-fix">
         <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} fallbackBlockEntities={assistantState.entities} />
-        <InterruptedNotice visible={!isLoading && message?.aborted} />
+        <InterruptedNotice visible={!isLoading && isCancelledTurn(message)} />
       </div>
     </Provider>
   );

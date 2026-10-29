@@ -20,6 +20,7 @@ import { BaseService } from '../BaseService'
 import { agentsTable, type InsertSessionRow, type SessionRow, sessionsTable } from '../database/schema'
 import type { AgentModelField } from '../errors'
 import { builtinSlashCommands } from './claudecode/commands'
+import { remapWorkspacePath, validateWorkspaceRename, workspaceRenameError } from './workspaceRename'
 
 const logger = loggerService.withContext('SessionService')
 
@@ -285,6 +286,61 @@ export class SessionService extends BaseService {
     )
 
     return { sessions, total }
+  }
+
+  async renameWorkspace(source: string, name: string, isBusy: () => boolean) {
+    const database = await this.getDatabase()
+    // The caller holds the shared execution gate until SQL commit or rollback.
+    // Filesystem rollback also covers a failed transaction commit.
+    let movedTarget = ''
+    try {
+      return await database.transaction(async (tx) => {
+        const rows = await tx.select().from(sessionsTable)
+        // Reject stale requests BEFORE touching the filesystem, even if the old
+        // pathname has since been reused by an unrelated folder.
+        const associated = rows.some((row) => {
+          const session = this.deserializeJsonFields(row) as AgentSessionEntity
+          return [...(session.accessible_paths || []), (session.configuration as any)?.selected_workspace_path]
+            .some((value) => typeof value === 'string' && remapWorkspacePath(value, source, '/__renamed_workspace__') !== value)
+        })
+        if (!associated) throw new Error('工作空间信息已过期，请刷新后重试')
+        const target = validateWorkspaceRename(source, name)
+        if (isBusy()) throw new Error('存在运行中的会话，请等待所有任务结束后重命名工作空间')
+        if (target === path.resolve(source)) return { source, target, sessions: [] }
+        const affected = rows.flatMap((row) => {
+          const session = this.deserializeJsonFields(row) as AgentSessionEntity
+          const configuration = { ...(session.configuration || {}) } as Record<string, any>
+          const accessible_paths = (session.accessible_paths || []).map((p) => remapWorkspacePath(p, source, target))
+          if (typeof configuration.selected_workspace_path === 'string') {
+            configuration.selected_workspace_path = remapWorkspacePath(configuration.selected_workspace_path, source, target)
+          }
+          return JSON.stringify(accessible_paths) !== JSON.stringify(session.accessible_paths)
+            || configuration.selected_workspace_path !== (session.configuration as any)?.selected_workspace_path
+            ? [{ session, accessible_paths, configuration }] : []
+        })
+        if (!affected.length) throw new Error('工作空间未关联任何会话')
+        fs.renameSync(source, target)
+        movedTarget = target
+        for (const item of affected) {
+          await tx.update(sessionsTable).set(this.serializeJsonFields({
+            accessible_paths: item.accessible_paths, configuration: item.configuration
+          })).where(eq(sessionsTable.id, item.session.id))
+        }
+        return { source, target, sessions: affected.map(({ session, ...updates }) => ({ ...session, ...updates })) }
+      })
+    } catch (error) {
+      if (movedTarget) {
+        try {
+          try { fs.lstatSync(source); throw new Error('source reused') } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          }
+          fs.renameSync(movedTarget, source)
+        } catch {
+          throw new Error('重命名失败且目录恢复失败，请停止操作并联系支持人员')
+        }
+      }
+      throw workspaceRenameError(error)
+    }
   }
 
   async updateSession(

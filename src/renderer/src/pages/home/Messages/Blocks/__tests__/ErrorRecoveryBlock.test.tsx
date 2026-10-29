@@ -22,12 +22,17 @@ const mocks = vi.hoisted(() => ({
   restartTrace: vi.fn(),
   regenerate: vi.fn(),
   classifyByAI: vi.fn(),
+  openCreditsPayment: vi.fn().mockResolvedValue(undefined),
   toast: vi.fn()
 }))
 
+vi.mock('../../../../../../../shared/openCreditsPayment', () => ({ openCreditsPayment: mocks.openCreditsPayment }))
 vi.mock('@renderer/store', () => ({
   useAppDispatch: () => mocks.dispatch,
   useAppSelector: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state)
+}))
+vi.mock('@renderer/store/messageBlock', () => ({
+  messageBlocksSelectors: { selectById: (state: any, id: string) => state.messageBlocks?.entities?.[id] }
 }))
 vi.mock('@renderer/services/SpanManagerService', () => ({ restartTrace: mocks.restartTrace }))
 vi.mock('@renderer/store/thunk/messageThunk', () => ({ regenerateAssistantResponseThunk: mocks.regenerate }))
@@ -99,6 +104,16 @@ afterEach(async () => {
 })
 
 describe('ErrorRecoveryBlock', () => {
+  it.each([
+    { name: 'AbortError', message: 'Stopped' },
+    { name: 'Error', message: 'Request aborted by client' },
+    { name: 'Error', message: 'Paused', i18nKey: 'stream_paused' }
+  ])('hides historical cancellation blocks without diagnosis: %j', async (error) => {
+    await render({ ...block, error } as ErrorMessageBlock)
+    expect(container.innerHTML).toBe('')
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
+  })
+
   it('shows the requested banner and plain response without the raw error', async () => {
     await render()
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('网络连接失败，请检查网络后重试')
@@ -117,7 +132,45 @@ describe('ErrorRecoveryBlock', () => {
     expect(mocks.classifyByAI).not.toHaveBeenCalled()
   })
 
-  it('explains expired sessions and offers a direct re-login route', async () => {
+  it('renders upstream quota failures with only the unified actions and without exposing the raw payload', async () => {
+    const quotaMessage = '403: {"code":"insufficient_user_quota","message":"Insufficient balance, please top up. remaining: $0.02"}'
+    const quotaBlock = {
+      ...block,
+      error: { name: 'Error', message: quotaMessage, statusCode: 403 }
+    } as ErrorMessageBlock
+
+    await render(quotaBlock)
+
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(zhCN.error.diagnosis.quota)
+    expect(container.textContent).not.toContain('insufficient_user_quota')
+    expect(container.textContent).not.toContain('remaining:')
+    expect(container.textContent).not.toContain(zhCN.error.diagnosis.go_to_settings)
+    expect([...container.querySelectorAll('.error-recovery__actions button')].map((item) => item.textContent))
+      .toEqual([zhCN.common.retry, zhCN.error.diagnosis.buy_credits])
+    await act(async () => button('购买积分').click())
+    expect(mocks.openCreditsPayment).toHaveBeenCalledExactlyOnceWith()
+  })
+
+  it.each(['zh-CN', 'en-US', 'zh-TW'])('offers payment for the screenshot 400 error in %s without AI diagnosis', async (language) => {
+    await i18n.changeLanguage(language)
+    await render({ ...block, error: {
+      name: 'Error', statusCode: 400,
+      message: '400: {"error":{"message":"Insufficient remaining points (剩余点数不足)","type":"invalid_request_error"}}'
+    } } as ErrorMessageBlock)
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(i18n.t('error.diagnosis.quota'))
+    await act(async () => button(i18n.t('error.diagnosis.buy_credits')).click())
+    expect(mocks.openCreditsPayment).toHaveBeenCalledExactlyOnceWith()
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
+  })
+
+  it.each(['rate limit exceeded', 'quota exceeded', 'insufficient_quota'])('keeps network action for 429 %s', async (message) => {
+    await render({ ...block, error: { name: 'Error', statusCode: 429, message } } as ErrorMessageBlock)
+    expect(button('检测网络')).toBeDefined()
+    expect(container.textContent).not.toContain('购买积分')
+    expect(mocks.openCreditsPayment).not.toHaveBeenCalled()
+  })
+
+  it('explains expired sessions while preserving the same unified actions', async () => {
     const expiredToken = {
       ...block,
       error: {
@@ -126,15 +179,12 @@ describe('ErrorRecoveryBlock', () => {
         statusCode: 400
       }
     } as ErrorMessageBlock
-    const navigate = vi.fn()
-    ;(window as any).navigate = navigate
     await render(expiredToken)
 
     expect(container.querySelector('p')?.textContent).toBe(zhCN.error.diagnosis.session_expired_reply)
     expect(container.querySelector('.error-recovery__title')?.textContent).toBe(zhCN.error.diagnosis.session_expired)
-    expect(button(zhCN.error.diagnosis.relogin)).toBeTruthy()
-    await act(async () => button(zhCN.error.diagnosis.relogin).click())
-    expect(navigate).toHaveBeenCalledWith('/settings/provider')
+    expect([...container.querySelectorAll('.error-recovery__actions button')].map((item) => item.textContent))
+      .toEqual([zhCN.common.retry, zhCN.network_check.button])
   })
 
   it('retries the failed message once even on repeated clicks', async () => {

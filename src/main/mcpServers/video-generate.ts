@@ -63,11 +63,13 @@ const VIDEO_GENERATE_TOOL: Tool = {
       },
       generateAudio: {
         type: 'boolean',
-        description: 'Alias of generate_audio. Whether the generated video should include audio when the chosen model supports it.'
+        description:
+          'Alias of generate_audio. Set true to request audio or false to request a silent video. In capabilities, generate_audio_supported indicates support for silent video generation (disabling audio), not support for audio generation. A false capability value does not mean the model cannot output audio.'
       },
       generate_audio: {
         type: 'boolean',
-        description: 'Whether the generated video should include audio when the chosen model supports it.'
+        description:
+          'Set true to request audio or false to request a silent video. In capabilities, generate_audio_supported indicates support for silent video generation (disabling audio), not support for audio generation. A false capability value does not mean the model cannot output audio.'
       },
       super_resolve: {
         type: 'boolean',
@@ -99,7 +101,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
 const VIDEO_CAPABILITIES_TOOL: Tool = {
   name: 'get_video_capabilities',
   description:
-    'Get supported AI video generation models, generation duration options, supported resolutions, first-frame or first-last-frame support, multimodal reference support, audio generation support, super-resolution support, and optional pricing information from VectCut.',
+    'Get supported AI video generation models, generation duration options, supported resolutions, first-frame or first-last-frame support, multimodal reference support, silent video generation support, super-resolution support, and optional pricing information from VectCut. The generate_audio_supported field indicates whether the model supports generating silent videos (disabling audio), NOT whether it can generate audio. A false value must not be interpreted as silent-only output or lack of audio/voice generation support.',
   inputSchema: {
     type: 'object',
     properties: {

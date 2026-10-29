@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 
 import { loggerService } from '@logger'
 import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
@@ -304,12 +303,19 @@ async function ensurePiSegmentAndTurn(input: {
   }
 
   if (!currentTurn) {
+    const turnId = harness.invokeContext.projection.turnId
+    const userMessageId = harness.invokeContext.projection.userMessageId
+    const assistantMessageId = harness.invokeContext.projection.assistantMessageId
+    if (!turnId || !userMessageId || !assistantMessageId) {
+      throw new Error('PI invocation projection is missing stable turn or message IDs')
+    }
     currentTurn = await agentTurnRepository.save({
-      id: `turn_${randomUUID()}`,
+      id: turnId,
       topicId: architectureContext.topicId,
       segmentId: currentSegment.id,
       traceId: architectureContext.traceId,
-      userMessageId: '',
+      userMessageId,
+      assistantMessageId,
       userText: architectureContext.currentPrompt,
       startedAt: new Date().toISOString(),
       status: 'running'
@@ -376,6 +382,7 @@ export async function processPiHarnessQuery(input: {
   let terminalTimeoutTriggered = false
   let idleTimeoutTriggered = false
   let externalAbortRequested = abortSignal?.aborted === true
+  let cancellationPending = false
   const compactionTriggerTokens =
     runtimeBridge.tokenLimits?.compactionTriggerTokens ??
     (runtimeBridge.tokenLimits?.maxInputTokens
@@ -918,25 +925,19 @@ export async function processPiHarnessQuery(input: {
 
   try {
     let result: unknown
-    // 连续重试计数：一旦本次 attempt 期间收到过新的 chunk（视为「已恢复」），
-    // 就在下次失败时把计数清零，避免整次任务把重试次数一路累加到上限。
-    // 循环退出条件也用它 —— 只有「连续失败」达到上限才真正放弃。
-    let consecutiveRetryCount = 0
+    // Retry attempts are bounded for the whole prompt invocation. A failed attempt may emit
+    // progress before its terminal error, but that must not reset the budget: providers that
+    // repeatedly stream the same partial response would otherwise retry forever.
+    let retryCount = 0
     let progressSnapshot = { textDeltaCount, reasoningDeltaCount, toolCallCount, toolResultCount }
     const hasMadeProgressSinceSnapshot = (): boolean =>
       textDeltaCount > progressSnapshot.textDeltaCount
       || reasoningDeltaCount > progressSnapshot.reasoningDeltaCount
       || toolCallCount > progressSnapshot.toolCallCount
       || toolResultCount > progressSnapshot.toolResultCount
-    // 计算「若本轮失败，将会成为的连续失败次数」；本轮有进展则从 1 重新开始计。
-    const computeNextRetryCount = (): number =>
-      hasMadeProgressSinceSnapshot() ? 1 : consecutiveRetryCount + 1
-    // 提交一次失败：更新连续失败计数与进度快照，供下一轮判断。
+    const computeNextRetryCount = (): number => retryCount + 1
     const commitFailedAttempt = (): void => {
-      if (hasMadeProgressSinceSnapshot()) {
-        consecutiveRetryCount = 0
-      }
-      consecutiveRetryCount += 1
+      retryCount += 1
       progressSnapshot = { textDeltaCount, reasoningDeltaCount, toolCallCount, toolResultCount }
     }
 
@@ -1014,7 +1015,7 @@ export async function processPiHarnessQuery(input: {
         logger.warn('[PiQuery] prompt attempt failed, scheduling retry', {
           sessionId,
           traceId: architectureContext.traceId,
-          attempt: consecutiveRetryCount,
+          attempt: retryCount,
           maxRetries: PI_NETWORK_RETRY_LIMIT,
           error: errorObj.message,
           currentAttempt,
@@ -1023,8 +1024,8 @@ export async function processPiHarnessQuery(input: {
           toolCallCount,
           toolResultCount
         })
-        emitRetryStatusChunk(consecutiveRetryCount)
-        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
+        emitRetryStatusChunk(retryCount)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryCount, abortSignal)
         continue
       }
 
@@ -1049,13 +1050,13 @@ export async function processPiHarnessQuery(input: {
         logger.warn('[PiQuery] prompt attempt timed out, scheduling retry', {
           sessionId,
           traceId: architectureContext.traceId,
-          attempt: consecutiveRetryCount,
+          attempt: retryCount,
           maxRetries: PI_NETWORK_RETRY_LIMIT,
           timeoutMs: terminalTimeoutMs,
           madeProgressSinceLastFailure: madeProgress
         })
-        emitRetryStatusChunk(consecutiveRetryCount)
-        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
+        emitRetryStatusChunk(retryCount)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryCount, abortSignal)
         continue
       }
       if (externalAbortRequested || abortSignal?.aborted || resultStopReason === 'aborted') {
@@ -1072,13 +1073,13 @@ export async function processPiHarnessQuery(input: {
           logger.warn('[PiQuery] prompt attempt aborted by idle timeout, scheduling retry', {
             sessionId,
             traceId: architectureContext.traceId,
-            attempt: consecutiveRetryCount,
+            attempt: retryCount,
             maxRetries: PI_NETWORK_RETRY_LIMIT,
             idleTimeoutMs,
             madeProgressSinceLastFailure: madeProgress
           })
-          emitRetryStatusChunk(consecutiveRetryCount)
-          await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
+          emitRetryStatusChunk(retryCount)
+          await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryCount, abortSignal)
           continue
         }
         await agentTurnRepository.update(currentTurn.id, {
@@ -1087,7 +1088,7 @@ export async function processPiHarnessQuery(input: {
           status: 'cancelled',
           cumulativeInputTokens: latestInputTokens
         })
-        emitCancelled(stream, new Error('Request aborted by client'), harness)
+        cancellationPending = true
         return
       }
       if (resultStopReason === 'error') {
@@ -1108,13 +1109,13 @@ export async function processPiHarnessQuery(input: {
         logger.warn('[PiQuery] prompt attempt ended with retriable stopReason=error, scheduling retry', {
           sessionId,
           traceId: architectureContext.traceId,
-          attempt: consecutiveRetryCount,
+          attempt: retryCount,
           maxRetries: PI_NETWORK_RETRY_LIMIT,
           error: resultError.message,
           madeProgressSinceLastFailure: madeProgress
         })
-        emitRetryStatusChunk(consecutiveRetryCount)
-        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * consecutiveRetryCount, abortSignal)
+        emitRetryStatusChunk(retryCount)
+        await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryCount, abortSignal)
         continue
       }
 
@@ -1206,7 +1207,7 @@ export async function processPiHarnessQuery(input: {
     })
 
     if (isAborted) {
-      emitCancelled(stream, new Error('Request aborted by client'), harness)
+      cancellationPending = true
       return
     }
 
@@ -1225,5 +1226,10 @@ export async function processPiHarnessQuery(input: {
     unsubscribe()
     unsubscribeNestedTools()
     await Promise.allSettled((runtimeBridge.mcpClients ?? []).map((client) => client.close()))
+    // A cancellation acknowledgement can immediately unlock the next request.
+    // Detach listeners and close the old clients before advertising completion.
+    if (cancellationPending) {
+      emitCancelled(stream, new Error('Request aborted by client'), harness)
+    }
   }
 }

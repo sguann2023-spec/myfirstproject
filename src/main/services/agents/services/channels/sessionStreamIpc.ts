@@ -45,7 +45,9 @@ import { windowService } from '../../../WindowService'
 import { agentsTable } from '../../database/schema'
 import { agentMessageRepository } from '../../database/sessionMessageRepository'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
+import { allocateAgentInvocationIds } from '../agent-invocation-ids'
 import { sessionService } from '../SessionService'
+import { workspaceActivity } from '../workspaceRename'
 import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { conversationSegmentService } from '../claudecode/session-architecture/ConversationSegmentService'
 import { sessionStreamBus, type SessionStreamChunk } from './SessionStreamBus'
@@ -2304,6 +2306,11 @@ function isRetriableSessionStartError(error: Error): boolean {
     || normalized.includes('enotfound')
     || normalized.includes('getaddrinfo')
     || normalized.includes('upstream request failed')
+    || normalized.includes('database is locked')
+    || normalized.includes('sqlite_busy')
+    || normalized.includes('unique constraint failed: agent_messages')
+    || normalized.includes('unique constraint failed: agent_message_parts')
+    || normalized.includes('unique constraint failed: pi_session_entries')
     || normalized.includes('上游请求失败')
     || normalized.includes('timed out')
     || normalized.includes('timeout')
@@ -2731,8 +2738,18 @@ export function registerSessionStreamIpc(): void {
     try {
       const sessionId = String(payload?.sessionId || '').trim()
       if (!sessionId) return { ok: false, error: 'sessionId is required', messages: [] }
-      const sessionMessageService = await getSessionMessageService()
-      const { messages } = await sessionMessageService.listSessionMessages(sessionId)
+      const { agentHistoryService } = await import('../../database/agentHistoryService')
+      const history = await agentHistoryService.getHistory(sessionId)
+      const messages = history.messages.map((content, index) => ({
+        id: Number.isFinite((content.message as any)?.sequence) ? Number((content.message as any).sequence) : index,
+        session_id: sessionId,
+        role: content.message.role,
+        content,
+        agent_session_id: '',
+        metadata: { sequence: history.sequences[index], canonical: true },
+        created_at: content.message.createdAt,
+        updated_at: content.message.updatedAt ?? content.message.createdAt
+      }))
       return { ok: true, messages }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error), messages: [] }
@@ -2744,6 +2761,8 @@ export function registerSessionStreamIpc(): void {
       const sessionId = String(payload?.sessionId || '').trim()
       const content = String(payload?.content || '').trim()
       const requestId = String(payload?.requestId || '').trim() || randomUUID()
+      const invocationIds = allocateAgentInvocationIds()
+      invocationIds.traceId = requestId
       const createdAt =
         typeof payload?.createdAt === 'number' && Number.isFinite(payload.createdAt)
           ? Math.floor(payload.createdAt)
@@ -2836,7 +2855,8 @@ export function registerSessionStreamIpc(): void {
                 userMessageExtras: {
                   ...(draftInspectRequest ? { draftInspectRequest } : {}),
                   ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest } : {})
-                }
+                },
+                invocationIds
               }
             ),
             SESSION_MESSAGE_START_TIMEOUT_MS,
@@ -5171,34 +5191,56 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
-  ipcMain.handle(LegacyChannels.SessionCreate, handleSessionCreate)
-  ipcMain.handle(LegacyChannels.SessionGet, handleSessionGet)
-  ipcMain.handle(LegacyChannels.SessionList, handleSessionList)
-  ipcMain.handle(LegacyChannels.SessionMessageList, handleSessionMessageList)
-  ipcMain.handle(LegacyChannels.SessionMessageCreate, handleSessionMessageCreate)
+  let workspaceMutationPending = false
+  let pendingWorkspaceRequests = 0
+  const guardWorkspaceRequest = (handler: (...args: any[]) => any) => async (...args: any[]) => {
+    if (workspaceMutationPending) return { ok: false, error: '工作空间正在重命名，请稍后重试' }
+    pendingWorkspaceRequests++
+    try { return await handler(...args) } finally { pendingWorkspaceRequests-- }
+  }
+  ipcMain.handle(IpcChannel.CherryChatStream_WorkspaceRename, async (_event, payload = {}) => {
+    if (workspaceMutationPending || pendingWorkspaceRequests || activeAbortControllers.size || workspaceActivity.runs) {
+      return { ok: false, error: '存在运行中的会话，请等待所有任务结束后重命名工作空间' }
+    }
+    workspaceMutationPending = true
+    workspaceActivity.renaming = true
+    try {
+      const result = await sessionService.renameWorkspace(payload.source, payload.name,
+        () => pendingWorkspaceRequests > 0 || activeAbortControllers.size > 0)
+      for (const session of result.sessions) broadcastSessionChanged(session.agent_id, session.id, true)
+      return { ok: true, ...result }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    } finally { workspaceMutationPending = false; workspaceActivity.renaming = false }
+  })
+  ipcMain.handle(LegacyChannels.SessionCreate, guardWorkspaceRequest(handleSessionCreate))
+  ipcMain.handle(LegacyChannels.SessionGet, guardWorkspaceRequest(handleSessionGet))
+  ipcMain.handle(LegacyChannels.SessionList, guardWorkspaceRequest(handleSessionList))
+  ipcMain.handle(LegacyChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList))
+  ipcMain.handle(LegacyChannels.SessionMessageCreate, guardWorkspaceRequest(handleSessionMessageCreate))
 
-  ipcMain.handle(CherryChannels.SessionCreate, handleSessionCreate)
-  ipcMain.handle(CherryChannels.SessionGet, handleSessionGet)
-  ipcMain.handle(CherryChannels.SessionUpdate, handleSessionUpdate)
-  ipcMain.handle(CherryChannels.SessionList, handleSessionList)
-  ipcMain.handle(CherryChannels.SessionMessageList, handleSessionMessageList)
-  ipcMain.handle(CherryChannels.SessionMessageCreate, handleSessionMessageCreate)
-  ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, handleDraftRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, handleDraftModifyRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, handleTextAddRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_PresetAddRequest, handlePresetAddRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_AudioAddRequest, handleAudioAddRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_ImageAddRequest, handleImageAddRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_SpeechRequest, handleSpeechRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_SeedAudioRequest, handleSeedAudioRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_VoiceConversionRequest, handleVoiceConversionRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_AiVideoRequest, handleAiVideoRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_ImageGenerateRequest, handleImageGenerateRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_DigitalHumanRequest, handleDigitalHumanRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, handleReversePromptRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, handleReversePromptRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, handleDraftExportRequest)
-  ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, handleDraftDownloadRequest)
+  ipcMain.handle(CherryChannels.SessionCreate, guardWorkspaceRequest(handleSessionCreate))
+  ipcMain.handle(CherryChannels.SessionGet, guardWorkspaceRequest(handleSessionGet))
+  ipcMain.handle(CherryChannels.SessionUpdate, guardWorkspaceRequest(handleSessionUpdate))
+  ipcMain.handle(CherryChannels.SessionList, guardWorkspaceRequest(handleSessionList))
+  ipcMain.handle(CherryChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList))
+  ipcMain.handle(CherryChannels.SessionMessageCreate, guardWorkspaceRequest(handleSessionMessageCreate))
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, guardWorkspaceRequest(handleDraftRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, guardWorkspaceRequest(handleDraftModifyRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_TextAddRequest, guardWorkspaceRequest(handleTextAddRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_PresetAddRequest, guardWorkspaceRequest(handlePresetAddRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_AudioAddRequest, guardWorkspaceRequest(handleAudioAddRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_ImageAddRequest, guardWorkspaceRequest(handleImageAddRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_SpeechRequest, guardWorkspaceRequest(handleSpeechRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_SeedAudioRequest, guardWorkspaceRequest(handleSeedAudioRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_VoiceConversionRequest, guardWorkspaceRequest(handleVoiceConversionRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_AiVideoRequest, guardWorkspaceRequest(handleAiVideoRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_ImageGenerateRequest, guardWorkspaceRequest(handleImageGenerateRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_DigitalHumanRequest, guardWorkspaceRequest(handleDigitalHumanRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_ReversePromptRequest, guardWorkspaceRequest(handleReversePromptRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_SubtitleRecognitionRequest, guardWorkspaceRequest(handleReversePromptRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftExportRequest, guardWorkspaceRequest(handleDraftExportRequest))
+  ipcMain.handle(IpcChannel.CherryChatStream_DraftDownloadRequest, guardWorkspaceRequest(handleDraftDownloadRequest))
 
   sessionStreamIpcRegistered = true
   logger.info('[SessionStreamIpc] IPC registration completed')

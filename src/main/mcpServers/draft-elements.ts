@@ -27,6 +27,7 @@ const ENDPOINTS = {
   remove_text: '/cut_jianying/remove_text',
   modify_text: '/cut_jianying/modify_text',
   add_subtitle: '/cut_jianying/add_subtitle',
+  add_text_template: '/cut_jianying/add_text_template',
   get_text_intro_types: '/cut_jianying/get_text_intro_types',
   get_text_outro_types: '/cut_jianying/get_text_outro_types',
   get_text_loop_anim_types: '/cut_jianying/get_text_loop_anim_types',
@@ -34,6 +35,7 @@ const ENDPOINTS = {
   get_text_outro_previews: '/cut_jianying/get_text_outro_previews',
   get_text_loop_anim_previews: '/cut_jianying/get_text_loop_anim_previews',
   get_font_previews: '/cut_jianying/get_font_previews',
+  get_text_template_previews: '/cut_jianying/get_text_template_previews',
   add_image: '/cut_jianying/add_image',
   add_batch_image: '/cut_jianying/add_batch_image',
   add_preset: '/cut_jianying/add_preset',
@@ -89,7 +91,7 @@ const readonlyTool = (name: string, description: string): Tool => ({
 const TOOLS: Tool[] = [
   toolWithArgs(
     'add_text',
-    'Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview — it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. If you absolutely must confirm the final rendered result, render_draft can cloud-render the actual draft as a real preview, but it is a real billed render and very time-consuming — prefer the lightweight preview tools and use render_draft only as a last resort (its preview verification requires drafts <= 5 seconds).',
+    'Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. Preview uncertain text_styles runs with get_text_style_preview, which accepts the same text_styles shape. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. Prefer the lightweight preview tools first; use render_draft (草稿渲染 / 云渲染 / 预渲染) as a last resort when they cannot verify the actual result: 字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面. If the working draft exceeds the render limits, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.',
     {
       text: { type: 'string', description: 'Required text content.' },
       start: { type: 'number', description: 'Required start time in seconds.' },
@@ -161,7 +163,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_text',
-    'Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview — it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. If you absolutely must confirm the final rendered result, render_draft can cloud-render the actual draft as a real preview, but it is a real billed render and very time-consuming — prefer the lightweight preview tools and use render_draft only as a last resort (its preview verification requires drafts <= 5 seconds).',
+    'Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview — it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. Prefer the lightweight preview tools first; use render_draft (草稿渲染 / 云渲染 / 预渲染) as a last resort when they cannot verify the actual result: 字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面. If the working draft exceeds the render limits, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.',
     {
       texts: { type: 'array', items: { type: 'string' }, description: 'Required text contents.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Required start times in seconds.' },
@@ -240,7 +242,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'modify_text',
-    'Modify an existing text material in a VectCut draft by material ID. If you are unsure what the resulting text position, size, or font will look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview — it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. If you absolutely must confirm the final rendered result, render_draft can cloud-render the actual draft as a real preview, but it is a real billed render and very time-consuming — prefer the lightweight preview tools and use render_draft only as a last resort (its preview verification requires drafts <= 5 seconds).',
+    'Modify an existing text material in a VectCut draft by material ID. If you are unsure what the resulting text position, size, or font will look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview — it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. Prefer the lightweight preview tools first; use render_draft (草稿渲染 / 云渲染 / 预渲染) as a last resort when they cannot verify the actual result: 字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面. If the working draft exceeds the render limits, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.',
     {
       draftId: { type: 'string', description: 'Required draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Required draft ID.' },
@@ -307,7 +309,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_subtitle',
-    'Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. If you are unsure what the subtitle font, size, or position will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. If you absolutely must confirm the final rendered result, render_draft can cloud-render the actual draft as a real preview, but it is a real billed render and very time-consuming — prefer the lightweight preview tools and use render_draft only as a last resort (its preview verification requires drafts <= 5 seconds).',
+    'Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. If you are unsure what the subtitle font, size, or position will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. Verification is recommended, not mandatory, when values look extreme: font_size below 3 or above 20; pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000; or the font is a guessed generic family name such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. Such values are not rejected, but preview them to confirm the visual effect. Prefer the lightweight preview tools first; use render_draft (草稿渲染 / 云渲染 / 预渲染) as a last resort when they cannot verify the actual result: 字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面. If the working draft exceeds the render limits, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.',
     {
       srt: { type: 'string', description: 'Required SRT content or URL.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
@@ -340,6 +342,29 @@ const TOOLS: Tool[] = [
       transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' }
     },
     ['srt']
+  ),
+  toolWithArgs(
+    'add_text_template',
+    'Add a JianYing text template (文字模版) effect into a VectCut draft. Use this to quickly create styled titles, 花字, or card-style text; when the user asks to 使用剪映文字模版, prefer this tool over hand-assembling styles. Before adding a template, check its look with get_text_template_previews first (browse the sprite previews, note orientation and texts_count, and pass the chosen id as template_id). Prefer lightweight sprite previews first; use render_draft (草稿渲染 / 预渲染) as a last resort when they cannot verify the real text, font effects, position, size, animation timing or track compositing. Create a separate cloud test draft <=5 seconds reproducing the relevant template and layers if the working draft exceeds the limits; render the test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; timeline trimming alone does not satisfy the source limit. Prepare an eligible test draft rather than skipping render verification.',
+    {
+      template_id: { type: 'string', description: 'Required text template id from get_text_template_previews.' },
+      texts: { type: 'array', items: { type: 'string' }, description: 'Optional text array for the template slots; length should match the template texts_count.' },
+      draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
+      draft_id: { type: 'string', description: 'Optional draft ID. Empty means create a new draft.' },
+      start: { type: 'number', description: 'Optional target track start time in seconds. Default 0.' },
+      end: { type: 'number', description: 'Optional target track end time in seconds. Default is the template duration.' },
+      transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
+      transform_x: { type: 'number', description: 'Optional X transform ratio.' },
+      rotation: { type: 'number', description: 'Optional rotation in degrees.' },
+      scale_x: { type: 'number', description: 'Optional X scale.' },
+      scale_y: { type: 'number', description: 'Optional Y scale.' },
+      track_name: { type: 'string', description: 'Optional track name.' },
+      width: { type: 'integer', description: 'Optional canvas width in pixels.' },
+      height: { type: 'integer', description: 'Optional canvas height in pixels.' },
+      transform_y_px: { type: 'integer', description: 'Optional Y transform in pixels.' },
+      transform_x_px: { type: 'integer', description: 'Optional X transform in pixels.' }
+    },
+    ['template_id']
   ),
   readonlyTool(
     'get_text_intro_types',
@@ -1181,6 +1206,21 @@ const TOOLS: Tool[] = [
       }
     },
     []
+  ),
+  toolWithArgs(
+    'get_text_template_previews',
+    'Browse the text template library (文字模版) with visual sprite previews. Each returned image is one template\'s preview sprite from the backend; treat the sprite as the source of truth for the template look and do not pick a template by id alone. Each item reports text_template_id, orientation (portrait for vertical 竖屏 drafts, landscape for horizontal 横屏 drafts) and texts_count (how many text slots the template holds); preview_video_url links an animated mp4 preview of the same template. Filter by orientation to match the draft aspect ratio. Use text_template_id when applying a text template effect (see add_text_template). Supports page and page_size (1-8, default 8; each item returns one inline sprite image). Prefer lightweight sprite previews first; use render_draft (草稿渲染 / 预渲染) as a last resort when they cannot verify the real text, font effects, animation timing or track compositing. If the working draft exceeds the limits, create a separate cloud test draft <=5 seconds reproducing the relevant template and layers, then render it without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; timeline trimming alone does not satisfy the source limit. Prepare an eligible test draft rather than skipping render verification.',
+    {
+      page: { type: 'integer', description: 'Optional 1-based page index. Default 1.' },
+      page_size: { type: 'integer', description: 'Optional page size (1-8). Default 8. Hard-capped at 8 inline sprite images per call.' },
+      text_template_id: { type: 'string', description: 'Optional text template id to fetch and confirm a single known template.' },
+      orientation: {
+        type: 'string',
+        enum: ['portrait', 'landscape'],
+        description: 'Optional orientation filter: portrait for vertical 竖屏 drafts, landscape for horizontal 横屏 drafts.'
+      }
+    },
+    []
   )
 ]
 
@@ -1190,6 +1230,8 @@ const ARG_ALIASES: Record<string, string> = {
   draftId: 'draft_id',
   materialId: 'material_id',
   pageSize: 'page_size',
+  templateId: 'template_id',
+  textTemplateId: 'text_template_id',
   timeOffset: 'time_offset',
   trackName: 'track_name',
   relativeIndex: 'relative_index',
@@ -1322,7 +1364,7 @@ const READONLY_TOOL_NAMES = new Set([
   'get_combo_animation_types'
 ])
 
-const DRAFT_PREVIEW_TOOL_NAMES = new Set(['add_text', 'add_image', 'add_audio'])
+const DRAFT_PREVIEW_TOOL_NAMES = new Set(['add_text', 'add_text_template', 'add_image', 'add_audio'])
 
 type PendingToken = {
   accessToken: string
@@ -1385,6 +1427,10 @@ class DraftElementsServer {
 
         if (toolName === 'get_font_previews') {
           return await this.callGetFontPreviews(args as Record<string, unknown>)
+        }
+
+        if (toolName === 'get_text_template_previews') {
+          return await this.callGetTextTemplatePreviews(args as Record<string, unknown>)
         }
 
         if (
@@ -1924,6 +1970,136 @@ class DraftElementsServer {
       content: [
         { type: 'text' as const, text: summary.join('\n') },
         { type: 'image' as const, data: sprite.base64, mimeType: 'image/png' }
+      ]
+    }
+  }
+
+  private async callGetTextTemplatePreviews(args: Record<string, unknown>) {
+    const normalized = this.normalizeArgs('get_text_template_previews', args)
+
+    const toInt = (value: unknown, fallback: number, min: number, max: number) => {
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed)) return fallback
+      return Math.max(min, Math.min(max, Math.round(parsed)))
+    }
+
+    const page = toInt(normalized.page, 1, 1, 10000)
+    // 每个 preview_url 是单个模板的雪碧图，每页内嵌图片数量封顶 8，避免一次返回过多图片。
+    const pageSize = toInt(normalized.page_size, 8, 1, 8)
+    const textTemplateId = typeof normalized.text_template_id === 'string' ? normalized.text_template_id.trim() : ''
+    const orientation = typeof normalized.orientation === 'string' ? normalized.orientation.trim() : ''
+    if (orientation && orientation !== 'portrait' && orientation !== 'landscape') {
+      throw new McpError(ErrorCode.InvalidParams, "'orientation' must be 'portrait' or 'landscape' for get_text_template_previews")
+    }
+
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('page_size', String(pageSize))
+    if (textTemplateId) params.set('text_template_id', textTemplateId)
+    if (orientation) params.set('orientation', orientation)
+    logger.info('get_text_template_previews: fetching', { path: ENDPOINTS.get_text_template_previews, query: params.toString() })
+
+    let response: Response
+    try {
+      response = await this.requestWithAuth(ENDPOINTS.get_text_template_previews, { method: 'GET', query: params })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new McpError(ErrorCode.InternalError, `Failed to fetch text template previews: ${message}`)
+    }
+    if (!response.ok) {
+      throw new McpError(ErrorCode.InternalError, `Text template previews request failed: HTTP ${response.status}`)
+    }
+
+    const payload = (await response.json()) as {
+      success?: boolean
+      error?: string
+      output?: {
+        items?: Array<{
+          orientation?: string
+          preview_url?: string
+          preview_video_url?: string
+          text_template_id?: string
+          texts_count?: number
+        }>
+        page?: number
+        page_size?: number
+        total?: number
+        total_pages?: number
+      }
+    }
+    if (payload.success === false) {
+      throw new McpError(ErrorCode.InternalError, `Text template previews API error: ${payload.error || 'unknown'}`)
+    }
+
+    const items = Array.isArray(payload.output?.items) ? payload.output!.items : []
+    logger.info('get_text_template_previews: items received', { count: items.length, page, pageSize, orientation, textTemplateId })
+    if (items.length === 0) {
+      return {
+        content: [
+          { type: 'text' as const, text: `No text templates returned for page=${page} page_size=${pageSize}${orientation ? ` orientation=${orientation}` : ''}${textTemplateId ? ` text_template_id=${textTemplateId}` : ''}.` }
+        ]
+      }
+    }
+
+    // 复用动画预览下载管线：preview_url 本身就是单模板雪碧图，不再二次拼接。
+    const previews = await fetchTextAnimationPreviewImages(
+      items
+        .filter((it) => typeof it.text_template_id === 'string' && it.text_template_id && typeof it.preview_url === 'string' && it.preview_url)
+        .map((it) => ({ name: it.text_template_id as string, preview_url: it.preview_url as string }))
+    )
+    const total = payload.output?.total ?? items.length
+    const totalPages = payload.output?.total_pages ?? 1
+    const summary = [
+      `Text templates page ${page}/${totalPages} (page_size=${pageSize}, total=${total}).`,
+      "Each image below is one template's backend preview sprite; treat the sprite as the source of truth for the template look and do not pick a template by id alone.",
+      items
+        .map((it) => `text_template_id=${it.text_template_id ?? ''} orientation=${it.orientation ?? ''} texts_count=${it.texts_count ?? ''}${it.preview_video_url ? ` motion_preview=${it.preview_video_url}` : ''}`)
+        .join('\n')
+    ]
+    if (totalPages > page) {
+      summary.push(`Call get_text_template_previews again with page=${page + 1} to see more templates.`)
+    }
+    if (previews.failed.length) {
+      summary.push(`Failed previews: ${previews.failed.map((f) => f.name).join(', ')}`)
+    }
+
+    const imageContents = previews.rendered.map((preview) => ({
+      type: 'image' as const,
+      data: preview.base64,
+      mimeType: preview.mimeType
+    }))
+
+    const workspaceRoot = this.resolveWorkspaceRoot()
+    if (workspaceRoot) {
+      try {
+        const artifactDir = path.join(workspaceRoot, 'get_text_template_previews')
+        await fsPromises.mkdir(artifactDir, { recursive: true })
+        const savedLines: string[] = []
+        for (const [index, preview] of previews.rendered.entries()) {
+          const fileName = `template-p${page}-${index + 1}-${preview.item.name}-${Date.now()}-${randomUUID().slice(0, 8)}.png`
+          const filePath = path.join(artifactDir, fileName)
+          await fsPromises.writeFile(filePath, preview.buffer)
+          savedLines.push(`${preview.item.name}: ${filePath}`)
+        }
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `${summary.join('\n')}\nSaved files:\n${savedLines.join('\n')}\nInline PNG images are included below so the current model turn can inspect each template sprite directly.`
+            },
+            ...imageContents
+          ]
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.warn('Failed to persist text template previews to workspace, fallback to inline images', { error: message })
+      }
+    }
+
+    return {
+      content: [
+        { type: 'text' as const, text: summary.join('\n') },
+        ...imageContents
       ]
     }
   }

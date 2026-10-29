@@ -24,10 +24,16 @@ import fs from 'fs'
 import path from 'path'
 
 import { DataMigrationService } from './DataMigrationService'
+import { reconcileInterruptedAgentWork } from './canonicalTranscriptMigration'
 import { MigrationService } from './MigrationService'
 import * as schema from './schema'
 
 const dbPath = path.join(app.getPath('userData'), 'Data', 'agents.db')
+
+// Watermark for deferred crash reconciliation: rows created or updated at or
+// after this moment belong to the current process and must never be settled
+// as interrupted while their turn may still be live.
+const PROCESS_STARTED_AT = new Date().toISOString()
 
 function getOldDbPath() {
   return path.join(app.getPath('userData'), 'agents.db')
@@ -147,16 +153,22 @@ export class DatabaseManager {
       // Create drizzle instance
       this.db = drizzle(this.client, { schema })
 
-      // Run schema migrations
+      // Run schema migrations (fast; required before any table access)
       const migrationService = new MigrationService(this.db, this.client)
       await migrationService.runMigrations()
 
-      // Run data migrations (must run after schema migrations)
-      const dataMigrationService = new DataMigrationService(this.db, this.client)
-      await dataMigrationService.runDataMigrations()
-
       this.state = InitState.INITIALIZED
       logger.info('Database initialized successfully')
+
+      // Heavy maintenance (legacy transcript backfill + crash reconciliation)
+      // runs in the background so window creation, login, and the API server
+      // are not blocked behind multi-second scans on large histories. Reads
+      // fall back to legacy storage until the backfill finishes, and
+      // reconciliation is watermarked to this process's start time so it can
+      // never settle a live turn started by the current process. Data
+      // migrations are idempotent and re-run on the next startup if this is
+      // interrupted.
+      void this.runDeferredAgentMaintenance()
     } catch (error) {
       const err = error as Error
       logger.error('Database initialization failed:', {
@@ -170,6 +182,26 @@ export class DatabaseManager {
       // Set failed state
       this.state = InitState.FAILED
       throw new Error(`Database initialization failed: ${err.message || 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Background maintenance started right after initialization is published:
+   * idempotent data migrations (legacy transcript backfill) followed by crash
+   * reconciliation of state left by previous processes. Never fails startup.
+   */
+  private async runDeferredAgentMaintenance(): Promise<void> {
+    try {
+      const dataMigrationService = new DataMigrationService(this.db!, this.client!)
+      await dataMigrationService.runDataMigrations()
+      const reconciliation = await reconcileInterruptedAgentWork(this.db!, {
+        beforeTimestamp: PROCESS_STARTED_AT
+      })
+      logger.info('Agent deferred maintenance completed', reconciliation)
+    } catch (error) {
+      logger.error('Agent deferred maintenance failed; will retry on next startup', {
+        error: error as Error
+      })
     }
   }
 

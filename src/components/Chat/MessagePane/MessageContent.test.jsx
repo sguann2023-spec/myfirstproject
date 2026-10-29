@@ -2,6 +2,8 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import MessageContent from './MessageContent/MessageContent';
+import { readFileSync } from 'node:fs';
+import { shouldSuppressCancelledTurnError } from '../../../shared/chatError';
 
 const store = vi.hoisted(() => {
   const listeners = new Set();
@@ -53,7 +55,10 @@ vi.mock('@renderer/pages/home/Messages/Blocks/MainTextBlock', () => ({
 vi.mock('@renderer/pages/home/Messages/Blocks/BlockErrorFallback', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/CitationBlock', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/CompactBlock', () => ({ default: () => null }));
-vi.mock('@renderer/pages/home/Messages/Blocks/ErrorBlock', () => ({ default: () => null }));
+// Keep error blocks observable: a null mock previously hid this regression.
+vi.mock('@renderer/pages/home/Messages/Blocks/ErrorBlock', () => ({
+  default: ({ block }) => <div role="alert">本次请求未能完成，请重试或切换模型 / {block.error?.message || '未收到具体错误原因，请稍后重试或新建任务'}</div>,
+}));
 vi.mock('@renderer/pages/home/Messages/Blocks/FileBlock', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/ImageBlock', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/PlaceholderBlock', () => ({ default: () => null }));
@@ -184,4 +189,82 @@ it('keeps an interrupted assistant turn visible when no answer text was produced
   await act(async () => root.render(<Probe value={value} />));
 
   expect(container.textContent).toBe('已停止生成');
+});
+
+for (const live of [false, true]) {
+  for (const error of [{}, { message: 'Unknown error', category: 'unknown' }]) {
+    it(`suppresses generic errors on cancelled ${live ? 'live' : 'historical'} legacy turns`, async () => {
+      const value = {
+        id: 'reply', role: 'assistant', content: '', aborted: true, error,
+        blocks: [{ id: 'stale-error', type: 'error', status: 'error', error }],
+        ...(live ? { storeAssistantMessageId: 'liveMessage' } : {}),
+      };
+      if (live) store.state = {
+        messageBlocks: { entities: { 'stale-error': value.blocks[0] } },
+        messages: { entities: { liveMessage: { id: 'liveMessage', role: 'assistant', status: 'error', blocks: ['stale-error'], error } } },
+      };
+      await act(async () => root.render(<Probe value={value} />));
+      expect(container.textContent).toBe('已停止生成');
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+    });
+  }
+}
+
+it('retains concrete failures even when a historical turn was stopped', async () => {
+  await act(async () => root.render(<Probe value={{
+    id: 'reply', role: 'assistant', aborted: true, blocks: [],
+    error: { message: 'Invalid API key', status: 401 },
+  }} />));
+  expect(container.textContent).toContain('Invalid API key');
+  expect(container.textContent).toContain('已停止生成');
+});
+
+it('retains generic failures when the turn was not cancelled', async () => {
+  await act(async () => root.render(<Probe value={{
+    id: 'reply', role: 'assistant', blocks: [], error: {},
+  }} />));
+  expect(container.textContent).toContain('本次请求未能完成');
+  expect(container.textContent).not.toContain('已停止生成');
+});
+
+it('recognizes persisted cancellation status without an aborted flag', async () => {
+  await act(async () => root.render(<Probe value={{
+    id: 'reply', role: 'assistant', status: 'cancelled', blocks: [], error: {},
+  }} />));
+  expect(container.textContent).toBe('已停止生成');
+});
+
+it('keeps stop visible when a late stream-close error replaces the live snapshot', async () => {
+  const stopped = { id: 'reply', role: 'assistant', blocks: [], aborted: true };
+  await act(async () => root.render(<Probe value={stopped} />));
+  await act(async () => root.render(<Probe value={{
+    ...stopped, error: { message: 'agent request failed', category: 'unknown' },
+    blocks: [{ id: 'late-error', type: 'error', error: {} }],
+  }} />));
+  expect(firstLayouts).toEqual(['已停止生成', '已停止生成']);
+  expect(container.textContent).toBe('已停止生成');
+});
+
+it('HomePage finalization preserves cancellation across the stop/error race', () => {
+  // Exercise the real callback without mounting HomePage's unrelated editor/runtime.
+  const source = readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
+  const start = source.indexOf('    updateChatAssistantMessage(chatId, assistantMessageId, (message) => {', source.indexOf('const finalizeChatAssistantMessageLocally'));
+  const end = source.indexOf('\n    });', start);
+  const update = source.slice(start, end + '\n    });'.length);
+  let message = { role: 'assistant', aborted: true, content: '', blocks: [] };
+  const finalize = (error, aborted = false) => {
+    Function('updateChatAssistantMessage', 'chatId', 'assistantMessageId', 'snapshot', 'error', 'aborted',
+      'hasInterruptedAssistantState', 'shouldSuppressCancelledTurnError', 'finalizeStructuredBlocks',
+      'buildAssistantDisplayContentFromBlocks', 'normalizeMessageModelMeta', 'resolveMessageModelId',
+      'chatModelOptionsRef', 'chatModelMetaRef', 'chatModelMeta', 'chatModel', update)(
+      (_chat, _id, change) => { message = change(message); }, 'chat', 'reply', null, error, aborted,
+      (value) => value.aborted, shouldSuppressCancelledTurnError, (blocks) => blocks,
+      () => '', () => null, () => '', { current: [] }, { current: null }, null, 'model');
+  };
+  finalize({ message: 'agent request failed', category: 'unknown' });
+  expect(message).toMatchObject({ aborted: true, error: null });
+  finalize({ message: 'Invalid API key', status: 401 });
+  expect(message).toMatchObject({ aborted: true, error: { status: 401 } });
+  finalize(null, true);
+  expect(message.error).toMatchObject({ status: 401 });
 });

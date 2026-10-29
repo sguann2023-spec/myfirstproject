@@ -19,6 +19,7 @@ import { buildVectcutMcpToolName } from '@shared/mcp'
 import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
+import { SqlitePiSessionStorage } from '../../../database/repositories/piSessionStorage'
 import { windowService } from '@main/services/WindowService'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
@@ -93,8 +94,8 @@ type PiApiModule = {
   streamSimple: unknown
 }
 type PiSession = import('@earendil-works/pi-agent-core').Session
+type PiSessionStorage = import('@earendil-works/pi-agent-core').SessionStorage
 type PiAgentHarness = import('@earendil-works/pi-agent-core').AgentHarness
-type PiInMemorySessionStorage = import('@earendil-works/pi-agent-core').InMemorySessionStorage
 type PiMutableModels = import('@earendil-works/pi-ai').MutableModels
 type PiModel = import('@earendil-works/pi-ai').Model<string>
 type PiProvider = import('@earendil-works/pi-ai').Provider<string>
@@ -131,7 +132,7 @@ function resolveRuntimeMcpNamespace(serverKey: string): string {
 }
 
 type PiRuntimeBridge = {
-  storage: PiInMemorySessionStorage
+  storage: PiSessionStorage
   session: PiSession
   models: PiMutableModels
   provider: PiProvider
@@ -924,7 +925,7 @@ export async function buildMcpTools(input: {
 
     for (const tool of listedTools) {
       const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
-      if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model.supportsImageInput) {
+      if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model?.supportsImageInput === true) {
         logger.info('[AgentCore] skipped image-understand MCP tool for multimodal model', {
           traceId: invokeContext.runtime.traceId,
           topicId: invokeContext.projection.topicId,
@@ -1379,6 +1380,46 @@ function describePiRequestTarget(input: {
   }
 }
 
+/** Repair only adjacent OpenAI tool-result blocks; never borrow results across turns.
+ * The returned array is new; input messages (including real failure/empty results) are untouched.
+ */
+export function normalizeOpenAiMessages(messages: readonly unknown[]): unknown[] {
+  const normalized: unknown[] = []
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown> : undefined
+
+  for (let index = 0; index < messages.length; index++) {
+    const message = asRecord(messages[index])
+    // Orphans, duplicates and late results must not leak into a different turn.
+    if (message?.role === 'tool') continue
+    normalized.push(messages[index])
+    if (message?.role !== 'assistant' || !Array.isArray(message.tool_calls) || !message.tool_calls.length) continue
+
+    const pending = new Set<string>()
+    for (const call of message.tool_calls) {
+      const id = asRecord(call)?.id
+      if (typeof id === 'string' && id.length > 0) pending.add(id)
+    }
+    while (index + 1 < messages.length) {
+      const result = asRecord(messages[index + 1])
+      if (result?.role !== 'tool') break
+      index++
+      if (typeof result.tool_call_id === 'string' && pending.delete(result.tool_call_id)) {
+        normalized.push(messages[index])
+      }
+    }
+    for (const id of pending) {
+      normalized.push({
+        role: 'tool',
+        tool_call_id: id,
+        content: 'Tool failed or was interrupted: no result was received. Execution success is unknown; do not assume the tool completed successfully.'
+      })
+    }
+  }
+  return normalized
+}
+
 function normalizeProviderPayload(input: {
   payload: unknown
   providerApiType: 'anthropic-messages' | 'openai-completions'
@@ -1394,6 +1435,10 @@ function normalizeProviderPayload(input: {
   delete record.reasoning_effort
   delete record.chat_template_kwargs
 
+  if (input.providerApiType === 'openai-completions' && Array.isArray(record.messages)) {
+    record.messages = normalizeOpenAiMessages(record.messages)
+  }
+
   const tools = Array.isArray(record.tools) ? record.tools : []
   if (tools.length === 0) return
   if (record.tool_choice !== undefined) return
@@ -1401,7 +1446,7 @@ function normalizeProviderPayload(input: {
   record.tool_choice = 'auto'
 }
 
-function wrapPiApiModuleWithLogging(input: {
+export function wrapPiApiModuleWithLogging(input: {
   apiModule: PiApiModule
   invokeContext: ClaudeCodeInvokeContext
   providerApiType: 'anthropic-messages' | 'openai-completions'
@@ -1430,13 +1475,9 @@ function wrapPiApiModuleWithLogging(input: {
       const requestOptions = {
         ...typedOptions,
         onPayload: async (payload: unknown, payloadModel: unknown) => {
-          normalizeProviderPayload({
-            payload,
-            providerApiType,
-            invokeContext
-          })
           const originalOnPayload = typeof typedOptions.onPayload === "function" ? typedOptions.onPayload : undefined
           const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
           logger.info('[AgentCore] pi provider payload', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1491,13 +1532,9 @@ function wrapPiApiModuleWithLogging(input: {
       const requestOptions = {
         ...typedOptions,
         onPayload: async (payload: unknown, payloadModel: unknown) => {
-          normalizeProviderPayload({
-            payload,
-            providerApiType,
-            invokeContext
-          })
           const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
           const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+          normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
           logger.info('[AgentCore] pi provider payload', {
             traceId: invokeContext.runtime.traceId,
             topicId: invokeContext.projection.topicId,
@@ -1652,10 +1689,13 @@ async function buildPiRuntimeBridge(input: {
   })
   models.setProvider(provider)
 
-  const storage = new packageBridge.agentCore.InMemorySessionStorage({
+  const storage = await SqlitePiSessionStorage.openOrCreate({
+    topicId: invokeContext.projection.topicId,
+    requestedSessionId: invokeContext.projection.piSessionId,
+    invocationId: invokeContext.projection.userMessageId ?? invokeContext.runtime.traceId,
     metadata: {
-      id: invokeContext.projection.piSessionId,
-      createdAt: new Date().toISOString()
+      agentId: invokeContext.runtime.agentId,
+      workspacePath: invokeContext.runtime.workspacePath
     }
   })
   const session = new packageBridge.agentCore.Session(storage)

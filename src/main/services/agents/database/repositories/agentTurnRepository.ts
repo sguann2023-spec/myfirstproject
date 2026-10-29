@@ -19,8 +19,7 @@ export function isTurnEligibleForRecentContext(
   if (turn.status === 'completed') {
     return true
   }
-  // Cancelled requests remain in history, but must not become instructions again.
-  if (turn.status !== 'failed') {
+  if (turn.status !== 'failed' && turn.status !== 'cancelled' && turn.status !== 'interrupted') {
     return false
   }
   return Boolean(String(turn.userText || '').trim() || String(turn.assistantText || '').trim())
@@ -61,13 +60,19 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
   }
 
   async save(turn: AgentTurn): Promise<AgentTurn> {
+    if (!String(turn.userMessageId || '').trim()) {
+      throw new Error(`Agent turn ${turn.id || '<new>'} requires a nonempty userMessageId`)
+    }
+    if (!String(turn.assistantMessageId || '').trim()) {
+      throw new Error(`Agent turn ${turn.id || '<new>'} requires a nonempty assistantMessageId`)
+    }
     const database = await this.getDatabase()
     const insertData: InsertAgentTurnRow = {
       id: turn.id || `turn_${randomUUID()}`,
       topic_id: turn.topicId,
       segment_id: turn.segmentId,
       trace_id: turn.traceId,
-      user_message_id: turn.userMessageId || '',
+      user_message_id: turn.userMessageId,
       assistant_message_id: turn.assistantMessageId,
       user_text: turn.userText,
       assistant_text: turn.assistantText,
@@ -76,7 +81,24 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
       completed_at: turn.completedAt,
       status: turn.status
     }
-    const [saved] = await database.insert(agentTurnsTable).values(insertData).returning()
+    const [saved] = await database
+      .insert(agentTurnsTable)
+      .values(insertData)
+      .onConflictDoUpdate({
+        target: agentTurnsTable.id,
+        set: {
+          segment_id: insertData.segment_id,
+          trace_id: insertData.trace_id,
+          user_message_id: insertData.user_message_id,
+          assistant_message_id: insertData.assistant_message_id,
+          user_text: insertData.user_text,
+          assistant_text: insertData.assistant_text,
+          cumulative_input_tokens: insertData.cumulative_input_tokens,
+          completed_at: insertData.completed_at,
+          status: insertData.status
+        }
+      })
+      .returning()
     return this.deserialize(saved)!
   }
 
@@ -103,7 +125,12 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
     const rows = await database
       .select()
       .from(agentTurnsTable)
-      .where(and(eq(agentTurnsTable.segment_id, segmentId), inArray(agentTurnsTable.status, ['completed', 'failed'])))
+      .where(
+        and(
+          eq(agentTurnsTable.segment_id, segmentId),
+          inArray(agentTurnsTable.status, ['completed', 'failed', 'cancelled', 'interrupted'])
+        )
+      )
       .orderBy(desc(agentTurnsTable.started_at))
     return rows
       .map((row) => this.deserialize(row)!)

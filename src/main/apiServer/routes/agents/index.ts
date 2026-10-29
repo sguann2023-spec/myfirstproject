@@ -275,6 +275,34 @@ const agentsRouter = express.Router()
  *       required:
  *         - content
  *
+ *     AgentPersistedMessage:
+ *       type: object
+ *       description: Renderer-compatible persisted transcript entry
+ *       required: [message, blocks]
+ *       properties:
+ *         message:
+ *           type: object
+ *           additionalProperties: true
+ *         blocks:
+ *           type: array
+ *           items:
+ *             type: object
+ *             additionalProperties: true
+ *
+ *     SessionMessageHistoryResponse:
+ *       type: object
+ *       required: [messages, has_more]
+ *       properties:
+ *         messages:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/AgentPersistedMessage'
+ *         has_more:
+ *           type: boolean
+ *         next_after_sequence:
+ *           type: integer
+ *           nullable: true
+ *
  *     PaginationQuery:
  *       type: object
  *       properties:
@@ -886,6 +914,41 @@ const createMessagesRouter = (): express.Router => {
   /**
    * @swagger
    * /agents/{agentId}/sessions/{sessionId}/messages:
+   *   get:
+   *     summary: Get persisted session message history
+   *     tags: [Messages]
+   *     parameters:
+   *       - in: path
+   *         name: agentId
+   *         required: true
+   *         schema: { type: string }
+   *       - in: path
+   *         name: sessionId
+   *         required: true
+   *         schema: { type: string }
+   *       - in: query
+   *         name: after_sequence
+   *         schema: { type: integer, minimum: -1 }
+   *         description: Return messages with a deterministic sequence greater than this cursor
+   *       - in: query
+   *         name: limit
+   *         schema: { type: integer, minimum: 1, maximum: 500 }
+   *     responses:
+   *       200:
+   *         description: Canonical-first transcript history with legacy fallback
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/SessionMessageHistoryResponse'
+   *       400:
+   *         description: Invalid pagination cursor
+   *       404:
+   *         description: Agent or session not found
+   */
+  messagesRouter.get('/', messageHandlers.getMessages)
+  /**
+   * @swagger
+   * /agents/{agentId}/sessions/{sessionId}/messages:
    *   post:
    *     summary: Create a new message in a session
    *     tags: [Messages]
@@ -979,7 +1042,7 @@ const createMessagesRouter = (): express.Router => {
    *         name: messageId
    *         required: true
    *         schema:
-   *           type: integer
+   *           type: string
    *         description: Message ID
    *     responses:
    *       204:

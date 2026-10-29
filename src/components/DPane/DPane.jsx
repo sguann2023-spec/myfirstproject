@@ -1,8 +1,7 @@
 // DPane 组件
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { tokenStore } from '../../auth';
-import { electronStore } from '../../shared/electronStore';
+import { openCreditsPayment } from '../../shared/openCreditsPayment';
 import './DPane.css';
 import DraftIcon from '../../../public/draft_icon.svg';
 import DraftSelectedIcon from '../../../public/draft_selected_icon.svg';
@@ -18,7 +17,6 @@ import SkillIcon from '../../../public/skill.svg';
 import SkillSelectedIcon from '../../../public/skill_selected.svg';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('DPane');
-const REDEEM_PAYMENT_URL = 'https://www.vectcut.com/redeem/payment';
 
 const DPane = ({
   children,
@@ -50,58 +48,7 @@ const DPane = ({
     }
   };
 
-  const handleOpenCredits = async () => {
-    let paymentUrl = REDEEM_PAYMENT_URL;
-
-    if (typeof onRefreshCredits === 'function') {
-      void Promise.resolve(onRefreshCredits()).catch((error) => {
-        logger.warn('Failed to refresh credits after opening redeem payment window.', error);
-      });
-    }
-
-    try {
-      const accessToken = await tokenStore.ensureValidAccessToken();
-      if (typeof accessToken === 'string' && accessToken.trim()) {
-        const currentUser = electronStore.get('user') || {};
-        const paymentUrlObject = new URL(REDEEM_PAYMENT_URL);
-        const hashParams = new URLSearchParams({
-          jwt: accessToken.trim(),
-        });
-        if (typeof currentUser?.name === 'string' && currentUser.name.trim()) {
-          hashParams.set('name', currentUser.name.trim());
-        }
-        if (typeof currentUser?.avatar === 'string' && currentUser.avatar.trim()) {
-          hashParams.set('avatar', currentUser.avatar.trim());
-        }
-        if (typeof currentUser?.email === 'string' && currentUser.email.trim()) {
-          hashParams.set('email', currentUser.email.trim());
-        }
-        paymentUrlObject.hash = hashParams.toString();
-        paymentUrl = paymentUrlObject.toString();
-      }
-    } catch (error) {
-      logger.warn('Failed to resolve access token for redeem payment window.', error);
-    }
-
-    try {
-      if (window.api?.openInternalWebsite) {
-        window.api.openInternalWebsite(paymentUrl);
-        return;
-      }
-    } catch {}
-
-    try {
-      const { shell } = window.require('electron');
-      if (shell?.openExternal) {
-        shell.openExternal(paymentUrl);
-        return;
-      }
-    } catch (error) {
-      logger.warn('Electron shell is not available. Falling back to window.open.', error);
-    }
-
-    window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-  };
+  const handleOpenCredits = () => openCreditsPayment(onRefreshCredits);
 
   // 新增：下载队列角标计数（默认读取全局暂存队列长度）
   const [downloadCount, setDownloadCount] = useState(() =>

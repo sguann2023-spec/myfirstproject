@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createHighlighter } from 'shiki';
 import { Plus, RefreshCw, X } from 'lucide-react';
 import { Button, Input, Popover } from 'antd';
+import ImageContextMenu from './ImageContextMenu';
 import './TextFilePreview.css';
 
 const PREVIEW_THEME = 'one-light';
@@ -186,6 +187,7 @@ const TextFilePreview = ({
   onRefresh,
   onSaveEdit,
   onSubmitComment,
+  onDownloadImage,
   submittingComment = false
 }) => {
   if (!preview) return null;
@@ -227,6 +229,7 @@ const TextFilePreview = ({
   const [isEditing, setIsEditing] = React.useState(false);
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [mediaError, setMediaError] = React.useState(false);
+  const [imageContextMenu, setImageContextMenu] = React.useState(null);
   const supportsLineComments = supportsContentPreview && !isMediaPreview && !isEditing;
   const [commentPopover, setCommentPopover] = React.useState({
     open: false,
@@ -248,7 +251,24 @@ const TextFilePreview = ({
     setSavingEdit(false);
     setCommentDraft('');
     setCommentPopover({ open: false, lineNumber: null, top: 0, left: 0, height: 1 });
+    setImageContextMenu(null);
   }, [content, path]);
+
+  const closeImageContextMenu = React.useCallback(() => {
+    setImageContextMenu(null);
+  }, []);
+
+  const handleImageContextMenu = React.useCallback((event) => {
+    if (!src) return;
+    event.preventDefault();
+    setImageContextMenu({
+      visible: true,
+      x: event.clientX,
+      y: event.clientY,
+      src,
+      fileName: name
+    });
+  }, [src, name]);
 
   const closeCommentPopover = React.useCallback(() => {
     setCommentPopover((prev) => ({ ...prev, open: false }));
@@ -449,6 +469,7 @@ const TextFilePreview = ({
                 src={src}
                 alt={name || '图片预览'}
                 draggable={false}
+                onContextMenu={handleImageContextMenu}
                 onError={() => setMediaError(true)}
               />
             )}
@@ -504,6 +525,11 @@ const TextFilePreview = ({
           </Popover>
         )}
       </div>
+      <ImageContextMenu
+        state={imageContextMenu}
+        onClose={closeImageContextMenu}
+        onDownload={onDownloadImage}
+      />
     </div>
   );
 };

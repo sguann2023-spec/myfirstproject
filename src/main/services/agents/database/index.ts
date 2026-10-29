@@ -15,6 +15,11 @@ export * from './schema'
 
 // Repository helpers
 export * from './sessionMessageRepository'
+export * from './agentHistoryMapper'
+export * from './agentHistoryService'
+export * from './repositories/agentTranscriptRepository'
+export * from './repositories/agentTranscript.types'
 
 // Migration Service
 export * from './MigrationService'
+export * from './canonicalTranscriptMigration'

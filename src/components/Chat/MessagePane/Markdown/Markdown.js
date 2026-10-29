@@ -6,6 +6,7 @@ import remarkMath from 'remark-math';
 import 'katex/dist/katex.min.css';
 import { ChatTaskContext } from '../../ChatShell/ChatTaskContext';
 import CodeBlock from './CodeBlock';
+import { markdownUrlTransform, openMarkdownFileLink } from '../../../../shared/markdownFileLinks';
 import './Markdown.css';
 
 const normalizeLatexBrackets = (text) => {
@@ -17,7 +18,7 @@ const normalizeLatexBrackets = (text) => {
 };
 
 const Markdown = ({ content, components }) => {
-  const { openWebUrl } = React.useContext(ChatTaskContext);
+  const { openWebUrl, openFilePath } = React.useContext(ChatTaskContext);
   const normalizedContent = React.useMemo(() => normalizeLatexBrackets(content), [content]);
   const Link = React.useCallback(({ href, children, node: _node, ...props }) => {
     const normalizedHref = String(href || '').trim();
@@ -48,6 +49,7 @@ const Markdown = ({ content, components }) => {
             openWebUrl(normalizedHref, props.title || '');
             return;
           }
+          if (openMarkdownFileLink(normalizedHref, openFilePath)) return;
           if (normalizedHref) {
             window.open(normalizedHref, '_blank', 'noopener,noreferrer');
           }
@@ -55,7 +57,7 @@ const Markdown = ({ content, components }) => {
         {children}
       </a>
     );
-  }, [openWebUrl]);
+  }, [openWebUrl, openFilePath]);
   const mergedComponents = React.useMemo(() => ({
     a: Link,
     code: (props) => <CodeBlock {...props} />,
@@ -69,6 +71,7 @@ const Markdown = ({ content, components }) => {
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={mergedComponents}
+        urlTransform={markdownUrlTransform}
       >
         {normalizedContent}
       </ReactMarkdown>

@@ -1,8 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '../../../../../../components/Chat/MessagePane/markdown-links.test-utils'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import Link from '../Link'
+import ReactMarkdown from 'react-markdown'
+import { ChatTaskContext } from '../../../../../../components/Chat/ChatShell/ChatTaskContext'
+import { markdownUrlTransform } from '../../../../../../shared/markdownFileLinks'
 
 const mocks = vi.hoisted(() => ({
   parseJSON: vi.fn(),
@@ -14,9 +17,9 @@ const mocks = vi.hoisted(() => ({
     safeParse: vi.fn((input: any) => ({ success: !!input, data: input }))
   },
   Hyperlink: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <div data-testid="hyperlink" data-href={href}>
+    <span data-testid="hyperlink" data-href={href}>
       {children}
-    </div>
+    </span>
   )
 }))
 
@@ -38,8 +41,28 @@ vi.mock('../Hyperlink', () => ({
 }))
 
 describe('Link', () => {
+  it.each(['file:///tmp/中文%20a%23b%3Fc.png', './视频.mp4', '/tmp/a.pdf', 'sandbox:/mnt/data/a.pdf'])('routes sanitized local link %s to context, never window.open', (href) => {
+    const openFilePath = vi.fn()
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    render(<ChatTaskContext.Provider value={{ openFilePath } as any}>
+      <ReactMarkdown urlTransform={markdownUrlTransform} components={{ a: Link }}>{`[file](${href})`}</ReactMarkdown>
+    </ChatTaskContext.Provider>)
+    fireEvent.click(screen.getByText('file'))
+    expect(decodeURIComponent(openFilePath.mock.calls[0][0])).toBe(decodeURIComponent(href))
+    expect(open).not.toHaveBeenCalled()
+    open.mockRestore()
+  })
+
+  it('retains HTTP preview behavior', () => {
+    const openWebUrl = vi.fn()
+    render(<ChatTaskContext.Provider value={{ openWebUrl } as any}><Link href="https://example.com">web</Link></ChatTaskContext.Provider>)
+    fireEvent.click(screen.getByText('web'))
+    expect(openWebUrl).toHaveBeenCalledWith('https://example.com', '')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(window, 'open').mockImplementation(() => null)
   })
 
   it('should match snapshot', () => {
@@ -51,7 +74,7 @@ describe('Link', () => {
     const { container } = render(<Link href="#section-1">Go to section</Link>)
     expect(container.querySelector('span.link')).not.toBeNull()
     expect(container.querySelector('a')).toBeNull()
-    expect(screen.getByText('Go to section')).toBeInTheDocument()
+    expect(screen.getByText('Go to section')).not.toBeNull()
   })
 
   it('should wrap with CitationTooltip when children include <sup> and citation data exists', () => {
@@ -68,11 +91,11 @@ describe('Link', () => {
       </div>
     )
 
-    expect(screen.getByTestId('citation-tooltip')).toBeInTheDocument()
+    expect(screen.getByTestId('citation-tooltip')).not.toBeNull()
 
     const anchor = container.querySelector('a') as HTMLAnchorElement
     expect(anchor).not.toBeNull()
-    expect(anchor.getAttribute('target')).toBe('_blank')
+    expect(anchor.getAttribute('target')).toBeNull()
     expect(anchor.getAttribute('rel')).toBe('noreferrer')
 
     fireEvent.click(anchor)
@@ -90,7 +113,7 @@ describe('Link', () => {
       </Link>
     )
 
-    expect(screen.getByTestId('hyperlink')).toBeInTheDocument()
+    expect(screen.getByTestId('hyperlink')).not.toBeNull()
     expect(screen.queryByTestId('citation-tooltip')).toBeNull()
   })
 
@@ -101,12 +124,12 @@ describe('Link', () => {
     const { container } = render(<Link href="https://domain.com/path">Open</Link>)
 
     const wrapper = screen.getByTestId('hyperlink')
-    expect(wrapper).toBeInTheDocument()
-    expect(wrapper).toHaveAttribute('data-href', 'https://domain.com/path')
+    expect(wrapper).not.toBeNull()
+    expect(wrapper.getAttribute('data-href')).toBe('https://domain.com/path')
 
     const anchor = container.querySelector('a') as HTMLAnchorElement
     expect(anchor.getAttribute('href')).toBe('https://domain.com/path')
-    expect(anchor.getAttribute('target')).toBe('_blank')
+    expect(anchor.getAttribute('target')).toBeNull()
     expect(anchor.getAttribute('rel')).toBe('noreferrer')
   })
 

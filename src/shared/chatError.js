@@ -29,6 +29,24 @@ export const isAbortError = (error) => {
 const classifyError = ({ message = '', status } = {}) => {
   const lower = String(message || '').toLowerCase();
 
+  // A number of compatible gateways use HTTP 403 for exhausted balance.
+  // Explicit upstream quota signals must win over the generic status code.
+  if (
+    status === 429
+    || lower.includes('quota')
+    || lower.includes('rate limit')
+    || lower.includes('rate_limit')
+    || lower.includes('insufficient_balance')
+    || lower.includes('insufficient balance')
+    || lower.includes('insufficient_quota')
+    || lower.includes('insufficient_user_quota')
+  ) {
+    return {
+      category: 'quota',
+      title: '请求频率或额度已达上限，请稍后重试。',
+    };
+  }
+
   if (
     status === 401
     || status === 403
@@ -63,20 +81,6 @@ const classifyError = ({ message = '', status } = {}) => {
     return {
       category: 'mcp',
       title: '工具参数配置异常，请更新客户端或联系技术支持。',
-    };
-  }
-
-  if (
-    status === 429
-    || lower.includes('quota')
-    || lower.includes('rate limit')
-    || lower.includes('rate_limit')
-    || lower.includes('insufficient_quota')
-    || lower.includes('insufficient_balance')
-  ) {
-    return {
-      category: 'quota',
-      title: '请求频率或额度已达上限，请稍后重试。',
     };
   }
 
@@ -160,6 +164,19 @@ export const normalizeChatError = (error) => {
     status,
     code,
   };
+};
+
+// Old cancelled turns can contain a synthetic empty failure from the stream closing.
+// Only discard that placeholder: a concrete provider/tool failure remains actionable.
+export const shouldSuppressCancelledTurnError = (error, cancelled) => {
+  if (!cancelled) return false;
+  if (isAbortError(error) || error?.category === 'aborted') return true;
+  if (error?.status || error?.statusCode || error?.code) return false;
+  if (error?.cause || error?.responseBody || error?.data || error?.toolName) return false;
+  if (error?.name && !['Error', 'UnknownError'].includes(error.name)) return false;
+  if (error?.category && !['unknown', 'generic'].includes(error.category)) return false;
+  const reason = String(error?.detail || error?.message || '').trim();
+  return !reason || /^(unknown error|agent request failed|request failed|error)$/i.test(reason);
 };
 
 export const buildErrorSignature = (error) => {

@@ -3,6 +3,21 @@ export type ChatSessionCompletionFlags = {
   isFulfilled?: boolean | null
 }
 
+/** List-only indicator; permission submission remains waiting until the result arrives. */
+export function isChatSessionAwaitingConfirmation(
+  session: { runtimeSessionId?: string; isPending?: boolean },
+  requests: Record<string, { toolName: string; toolCallId: string; status: string; autoApprove?: boolean }> = {}
+): boolean {
+  const runtimeSessionId = String(session.runtimeSessionId || '').trim()
+  if (!session.isPending || !runtimeSessionId) return false
+  return Object.values(requests).some((entry) =>
+    entry.toolName === 'AskUserQuestion' &&
+    !entry.autoApprove &&
+    entry.toolCallId?.startsWith(`${runtimeSessionId}:`) &&
+    ['pending', 'submitting-allow', 'submitting-deny'].includes(entry.status)
+  )
+}
+
 export function isChatSessionPending(flags: ChatSessionCompletionFlags = {}): boolean {
   return Boolean(flags.isPending)
 }

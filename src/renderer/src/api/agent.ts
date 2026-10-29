@@ -265,7 +265,7 @@ export class AgentApiClient {
     }
   }
 
-  public async deleteSessionMessage(agentId: string, sessionId: string, messageId: number): Promise<void> {
+  public async deleteSessionMessage(agentId: string, sessionId: string, messageId: string | number): Promise<void> {
     const url = this.getSessionMessagesPaths(agentId, sessionId).withId(messageId)
     try {
       await this.axios.delete(url)

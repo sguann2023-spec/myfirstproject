@@ -32,6 +32,7 @@ import TemplatePickerDialog from '../../../page/TemplateEditPage/TemplatePickerD
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
+import { filterTreeNodesByQuery } from './referenceTree';
 import {
   SKILL_EXAMPLE_APPLY_EVENT,
   clearPendingSkillExample,
@@ -262,29 +263,6 @@ const buildTreeFromEntries = (rootPath, entries, directoryFlags) => {
     });
 
   return sortTreeRecursively(rootNodes);
-};
-const filterTreeNodesByQuery = (nodes, query) => {
-  const normalizedQuery = String(query || '').trim().toLowerCase();
-  if (!normalizedQuery) return Array.isArray(nodes) ? nodes : [];
-
-  return (Array.isArray(nodes) ? nodes : []).reduce((accumulator, node) => {
-    const matchesSelf = String(node?.name || '').toLowerCase().includes(normalizedQuery);
-    if (node?.type === 'directory') {
-      const matchedChildren = filterTreeNodesByQuery(node.children, normalizedQuery);
-      if (matchesSelf || matchedChildren.length > 0) {
-        accumulator.push({
-          ...node,
-          children: matchedChildren,
-        });
-      }
-      return accumulator;
-    }
-
-    if (matchesSelf) {
-      accumulator.push(node);
-    }
-    return accumulator;
-  }, []);
 };
 const createLocalReferenceFile = ({ rootPath, node, sourceType = 'workspace', sourceLabel = '' }) => {
   const sourcePath = resolveListedEntryPath(rootPath, node?.path);
@@ -2326,6 +2304,16 @@ const Composer = ({
     end: -1,
     activeIndex: 0,
   });
+  React.useEffect(() => {
+    const invalidate = () => {
+      setWorkspaceReferenceTrees({});
+      setSkillReferenceTrees({});
+      setExpandedReferenceNodeKeys(new Set());
+      setMentionState((previous) => ({ ...previous, open: false }));
+    };
+    window.addEventListener('workspace-renamed', invalidate);
+    return () => window.removeEventListener('workspace-renamed', invalidate);
+  }, []);
   const [mentionPanelPosition, setMentionPanelPosition] = React.useState({
     left: MENTION_PANEL_EDGE_OFFSET,
     top: 8,

@@ -5,7 +5,8 @@ import { messageBlocksSelectors } from '@renderer/store/messageBlock'
 import { regenerateAssistantResponseThunk } from '@renderer/store/thunk/messageThunk'
 import type { ErrorMessageBlock, Message } from '@renderer/types/newMessage'
 import { MessageBlockType } from '@renderer/types/newMessage'
-import type { ErrorClassification } from '@renderer/utils/errorClassifier'
+import { isInsufficientBalanceError, type ErrorClassification } from '@renderer/utils/errorClassifier'
+import { openCreditsPayment } from '../../../../../../shared/openCreditsPayment'
 import { CircleAlert, LoaderCircle, X } from 'lucide-react'
 import React, { useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -59,7 +60,9 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
   const retryDisabled = retrying || message.role !== 'assistant' || (
     hostRetry ? hostRetry.disabled : topicLoading || !assistant || !message.askId
   )
-  const needsExplanation = classification.i18nKey === 'error.diagnosis.unknown'
+  const isAborted = classification.category === 'aborted'
+  const needsCredits = isInsufficientBalanceError(block.error)
+  const needsExplanation = !isAborted && !needsCredits && classification.i18nKey === 'error.diagnosis.unknown'
   const requiresRelogin = classification.category === 'auth_session'
   const errorMessage = block.error?.message?.trim() || ''
   const summaryKey = JSON.stringify([block.error?.name, errorMessage, i18n.language])
@@ -120,6 +123,10 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
     }
   }
 
+  // Old persisted pause blocks must not offer failure recovery or diagnosis.
+  // Keep this after the hooks so live classification changes remain safe.
+  if (isAborted) return null
+
   return (
     <div className="error-recovery">
       {!messageHasPriorContent && (
@@ -155,18 +162,6 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
             </div>
           </div>
           <div className="error-recovery__actions">
-            {requiresRelogin && classification.navTarget && (
-              <button
-                type="button"
-                className="error-recovery__retry"
-                onClick={() => {
-                  const navigate = (window as Window & { navigate?: (path: string) => void }).navigate
-                  if (navigate) navigate(classification.navTarget!)
-                  else window.location.hash = classification.navTarget!
-                }}>
-                {t('error.diagnosis.relogin')}
-              </button>
-            )}
             <button
               type="button"
               className="error-recovery__retry"
@@ -179,8 +174,8 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
             <button
               type="button"
               className="error-recovery__retry error-recovery__network"
-              onClick={() => setNetworkCheckOpen(true)}>
-              {t('network_check.button')}
+              onClick={() => needsCredits ? void openCreditsPayment() : setNetworkCheckOpen(true)}>
+              {t(needsCredits ? 'error.diagnosis.buy_credits' : 'network_check.button')}
             </button>
           </div>
         </div>

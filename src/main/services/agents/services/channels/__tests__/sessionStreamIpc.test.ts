@@ -36,9 +36,13 @@ vi.mock('@shared/IpcChannel', () => ({
 
 vi.mock('electron', () => ({
   ipcMain: {
-    handle: handleMock
-  }
+    handle: handleMock,
+    on: vi.fn()
+  },
+  app: { getPath: vi.fn(() => '/tmp') }
 }))
+
+vi.mock('@mcp-trace/trace-core', () => ({ TraceMethod: () => () => undefined }), { virtual: true })
 
 vi.mock('@main/apiServer/services/models', () => ({
   modelsService: {
@@ -46,9 +50,30 @@ vi.mock('@main/apiServer/services/models', () => ({
   }
 }))
 
+vi.mock('@main/mcpServers/draft-download', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/draft-elements', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/draft-management', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/digital-human', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/koubo-template', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/seed-audio', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/speech-generate', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/image-generate', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/video-generate', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/voice-conversion', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/social-copywriting', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/subtitle-recognition', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/video-understand', () => ({ default: class MockMcpServer {} }))
+
 vi.mock('@main/utils', () => ({
   getDataPath: vi.fn(() => '/tmp/data')
 }))
+vi.mock('@main/utils/locales', () => ({ t: vi.fn((key: string) => key) }))
+
+vi.mock('../../database/schema', () => ({ agentsTable: {} }))
+vi.mock('../../database/sessionMessageRepository', () => ({ agentMessageRepository: {} }))
+vi.mock('../../database/repositories/agentTurnRepository', () => ({ agentTurnRepository: {} }))
+vi.mock('../builtin/BuiltinAgentIds', () => ({ CHERRY_CLAW_AGENT_ID: 'builtin-agent' }))
+vi.mock('../claudecode/session-architecture/ConversationSegmentService', () => ({ conversationSegmentService: {} }))
 
 vi.mock('../../../../WindowService', () => ({
   windowService: {
@@ -120,6 +145,34 @@ describe('sessionStreamIpc abort handling', () => {
   afterEach(async () => {
     await vi.runOnlyPendingTimersAsync()
     vi.useRealTimers()
+  })
+
+  it('reuses stable invocation IDs across startup retries', async () => {
+    const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
+    handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => {
+      handlers.set(channel, handler)
+    })
+    const stream = new ReadableStream({ start(controller) { controller.close() } })
+    createSessionMessageMock
+      .mockRejectedValueOnce(new Error('database is locked'))
+      .mockResolvedValue({ stream, streamFinished: Promise.resolve(), completion: Promise.resolve({}) })
+
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const createHandler = handlers.get('CherryChatStream_MessageCreate')
+    const pending = createHandler?.(null, {
+      sessionId: 'session-1',
+      agent_id: 'agent-1',
+      content: 'hello',
+      requestId: 'request-stable'
+    })
+    await vi.runAllTimersAsync()
+    expect(await pending).toEqual({ ok: true, requestId: 'request-stable' })
+    expect(createSessionMessageMock).toHaveBeenCalledTimes(2)
+    const firstIds = createSessionMessageMock.mock.calls[0]?.[3]?.invocationIds
+    const secondIds = createSessionMessageMock.mock.calls[1]?.[3]?.invocationIds
+    expect(secondIds).toEqual(firstIds)
+    expect(firstIds).toMatchObject({ traceId: 'request-stable' })
   })
 
   it('suppresses late chunk, stream-finished, and complete after abort', async () => {

@@ -281,6 +281,29 @@ describe('MessagePane auto-scroll', () => {
     expect(scroller().scrollTop).toBe(800);
   });
 
+  it('reaches the new session bottom after its virtual height settles', async () => {
+    await render();
+    await flushFrames();
+    await wheelUp();
+    await scroll(200);
+
+    layout.height = 1600;
+    messages = [{ id: 'new', role: 'assistant', content: 'A much longer restored session' }];
+    await render('session-2');
+
+    // The first frame uses the height available when the session changed.
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(1200);
+
+    // Virtual-list measurement may settle after that first scroll.
+    layout.height = 2200;
+    const observer = [...observers].find((entry) => entry.element !== scroller());
+    vi.spyOn(observer.element, 'getBoundingClientRect').mockReturnValue({ height: 2176 });
+    await act(async () => observer.callback());
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(1800);
+  });
+
   it('cancels pending animation frames when unmounted', async () => {
     await render();
     expect(frames.size).toBeGreaterThan(0);

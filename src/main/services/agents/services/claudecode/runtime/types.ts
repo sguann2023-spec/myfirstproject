@@ -87,6 +87,8 @@ export type ProjectionContext = {
   traceId: string
   topicId: string
   turnId?: string
+  userMessageId?: string
+  assistantMessageId?: string
   segmentId?: string
   piSessionId: string
   artifactStrategy: 'none' | 'summary' | 'store_large_results'

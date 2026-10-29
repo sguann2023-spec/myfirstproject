@@ -28,6 +28,13 @@ export interface AgentThinkingOptions {
   thinking?: Options['thinking']
 }
 
+export interface AgentInvocationIds {
+  turnId: string
+  traceId: string
+  userMessageId: string
+  assistantMessageId: string
+}
+
 // Base agent service interface
 export interface AgentServiceInterface {
   invoke(
@@ -37,6 +44,7 @@ export interface AgentServiceInterface {
     lastAgentSessionId?: string,
     thinkingOptions?: AgentThinkingOptions,
     modelOverride?: string,
-    images?: Array<{ data: string; media_type: string }>
+    images?: Array<{ data: string; media_type: string }>,
+    invocationIds?: AgentInvocationIds
   ): Promise<AgentStream>
 }

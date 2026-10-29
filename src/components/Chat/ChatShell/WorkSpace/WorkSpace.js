@@ -499,6 +499,16 @@ const WorkSpace = ({
     };
   }, [workspaceStorePathSignature]);
 
+  React.useEffect(() => {
+    const invalidate = () => {
+      setWorkspaceStore(readWorkspaceStore());
+      setWorkspaceTrees({});
+      setWorkspaceTreeLoading({});
+    };
+    window.addEventListener('workspace-renamed', invalidate);
+    return () => window.removeEventListener('workspace-renamed', invalidate);
+  }, []);
+
   const persistVisitedWorkspace = React.useCallback((workspacePath, visitedAt = Date.now()) => {
     const nextStore = markWorkspaceVisited(readWorkspaceStore(), workspacePath, visitedAt);
     writeWorkspaceStore(nextStore);
