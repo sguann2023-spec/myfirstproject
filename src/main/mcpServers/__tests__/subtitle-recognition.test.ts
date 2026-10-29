@@ -749,3 +749,49 @@ describe('SubtitleRecognitionServer', () => {
     expect(mockNetFetch).not.toHaveBeenCalled()
   })
 })
+
+
+describe('SubtitleRecognitionServer external', () => {
+  beforeEach(() => vi.resetAllMocks())
+  it('exposes only submit/status and blocks the legacy name', async () => {
+    const server = new SubtitleRecognitionServer(undefined, { external: true })
+    expect((await listTools(server)).tools.map((t: any) => t.name)).toEqual(['submit', 'task_status'])
+    expect((await callTool(server, 'submit_subtitle_recognition_task', { url: 'https://example.com/a' })).isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+  it.each(['/tmp/a', 'data:audio/wav;base64,abcd', 'file:///a', 'http://10.0.0.1/a', 'http://[::ffff:127.0.0.1]/a', 'https://u:p@example.com/a'])('rejects %s without I/O', async url => {
+    const result = await callTool(new SubtitleRecognitionServer(undefined, { external: true }), 'submit', { url })
+    expect(result.isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+    expect(mockDownloadFetch).not.toHaveBeenCalled()
+  })
+  it('submits directly without preprocessing or polling, status queries once retaining billing/results', async () => {
+    const server = new SubtitleRecognitionServer(undefined, { external: true })
+    const request = vi.fn().mockResolvedValueOnce(mockJsonResponse({ task_id: 'asr1', success: true }))
+      .mockResolvedValueOnce(mockJsonResponse({ status: 'failed', result: { billing: { amount: 3 }, segments: [1], error: 'failed after charge' } }))
+    ;(server as any).requestWithAuth = request
+    const submitted = await callTool(server, 'submit', { url: 'https://example.com/a', content: 'align me', effectMode: 'llm' })
+    expect(JSON.parse(submitted.content[0].text)).toMatchObject({ task_id: 'asr1', task_mode: 'sta', effect_mode: 'llm' })
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request.mock.calls[0][1].body.url).toBe('https://example.com/a')
+    expect(mockDownloadFetch).not.toHaveBeenCalled()
+    expect(mockPrepareSubtitleAudio).not.toHaveBeenCalled()
+    expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    const status = await callTool(server, 'task_status', { task_id: 'asr1' })
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(status.isError).toBe(true)
+    expect(JSON.parse(status.content[0].text)).toMatchObject({ billing: { amount: 3 }, result: { segments: [1], error: 'failed after charge' } })
+  })
+  it('preserves JSON billing on HTTP failure and requires task_id before querying', async () => {
+    const server = new SubtitleRecognitionServer(undefined, { external: true })
+    const request = vi.fn().mockResolvedValue(mockJsonResponse({ error: 'charged failure', billing: { amount: 4 } }, false, 500))
+    ;(server as any).requestWithAuth = request
+    expect((await callTool(server, 'task_status', {})).isError).toBe(true)
+    expect(request).not.toHaveBeenCalled()
+    const failed = await callTool(server, 'task_status', { task_id: 'task1' })
+    expect(failed.isError).toBe(true)
+    expect(JSON.parse(failed.content[0].text)).toMatchObject({ error: 'charged failure', billing: { amount: 4 } })
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+})

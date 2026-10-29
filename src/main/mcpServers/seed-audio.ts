@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import ipaddr from 'ipaddr.js'
 import { stat as fsStat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -167,6 +169,28 @@ const GENERATE_SEED_AUDIO_TOOL: Tool = {
   }
 }
 
+// Validate aliases before normalization; never probe user URLs. DNS/redirect
+// enforcement remains the backend downloader's responsibility.
+function validateExternalMedia(value: unknown, field = '') {
+  const media = /url|reference|image|audio|source|path|file|data/i.test(field)
+  if (/data|path|file/i.test(field) && value != null) throw new Error(`'${field}' is not allowed externally; use public HTTP(S) URLs`)
+  if (Array.isArray(value)) { value.forEach(item => validateExternalMedia(item, field)); return }
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) validateExternalMedia(item, key)
+    return
+  }
+  if (!media || /^(voice_id|speaker)$/i.test(field)) return
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires public HTTP(S) URLs`)
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error(`'${field}' requires public HTTP(S) URLs`) }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+      (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+    throw new Error(`'${field}' requires public HTTP(S) URLs, not local/private addresses`)
+  }
+}
+
 type PendingToken = {
   accessToken: string
   expiresAt: number
@@ -225,8 +249,15 @@ class SeedAudioServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
-    this.mcpServer = new McpServer(
+  // Bounded per-instance fallback: no upstream async endpoint is documented in this integration.
+  private readonly tasks = new Map<string, { status: string; updatedAt: number; result?: Record<string, unknown> }>()
+
+  constructor(private readonly options: { external?: boolean } = {}) {
+    this.mcpServer = this.createMcpServer()
+  }
+
+  public createMcpServer(): McpServer {
+    const mcpServer = new McpServer(
       {
         name: 'seed-audio',
         version: '1.0.0'
@@ -237,19 +268,34 @@ class SeedAudioServer {
         }
       }
     )
-    this.setupHandlers()
+    this.setupHandlers(mcpServer)
+    return mcpServer
   }
 
-  private setupHandlers() {
-    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [GENERATE_SEED_AUDIO_TOOL]
+  private setupHandlers(mcpServer: McpServer) {
+    mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: this.options.external ? [
+        { ...GENERATE_SEED_AUDIO_TOOL, name: 'submit', description: 'Start audio generation and immediately return a process-local task_id. Public HTTP(S) references only. Tasks expire after 1 hour; server restart loses tasks; maximum 100 retained tasks. No durable backend async API is documented in this integration.', inputSchema: { ...GENERATE_SEED_AUDIO_TOOL.inputSchema, properties: Object.fromEntries(Object.entries(GENERATE_SEED_AUDIO_TOOL.inputSchema.properties || {}).filter(([key]) => !/data/i.test(key)).map(([key, schema]) => [key, /url|reference/i.test(key) ? { ...schema, description: 'Optional publicly accessible HTTP(S) reference URL(s) only; no local paths, file URLs, or data.' } : schema])) } },
+        { name: 'task_status', description: 'Read one process-local task snapshot without waiting. Returns full result, billing, or failure. Only available on the submitting server instance.', inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] } }
+      ] : [GENERATE_SEED_AUDIO_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) {
+          if (toolName === 'submit') return await this.submitExternalTask(args)
+          if (toolName === 'task_status') {
+            const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
+            const task = this.tasks.get(taskId)
+            if (!task || Date.now() - task.updatedAt > 3600_000) throw new Error('Unknown or expired process-local task_id; tasks do not survive restart')
+            const failed = task.status === 'failed'
+            return { ...this.formatJsonResult({ ...task.result, task_id: taskId, status: task.status, success: !failed, action: 'task_status', tracking: 'process_local' }), ...(failed ? { isError: true } : {}) }
+          }
+          throw new Error(`Unknown external tool: ${toolName}`)
+        }
         switch (toolName) {
           case 'generate_seed_audio':
             return await this.generateSeedAudio(args as Record<string, unknown>)
@@ -259,12 +305,46 @@ class SeedAudioServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
+        if (this.options.external) return { ...this.formatJsonResult({ action: toolName, success: false, status: 'unknown', error: message }), isError: true }
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           isError: true
         }
       }
     })
+  }
+
+  private async submitExternalTask(args: Record<string, unknown>) {
+    validateExternalMedia(args)
+    // Validate and normalize before allocating a task; URL inputs require no I/O.
+    const prepared = await this.buildSeedAudioPayload(args)
+    for (const [id, task] of this.tasks) {
+      if (task.status !== 'running' && Date.now() - task.updatedAt > 3600_000) this.tasks.delete(id)
+    }
+    if (this.tasks.size >= 100) throw new Error('Process-local task capacity reached; retry after completed tasks expire')
+    const taskId = randomUUID()
+    const task: { status: string; updatedAt: number; result?: Record<string, unknown> } = { status: 'running', updatedAt: Date.now() }
+    this.tasks.set(taskId, task)
+    void (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        // Bound the entire operation, including token refresh and response body parsing.
+        const { response, result } = await Promise.race([
+          (async () => {
+            const response = await this.requestWithAuth(prepared.payload)
+            const result = await response.json() as Record<string, unknown>
+            return { response, result }
+          })(),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Generation tracking timed out; backend completion and billing are unknown')), 35 * 60 * 1000) })
+        ])
+        task.result = result
+        task.status = !response.ok || result.success === false || ['failed', 'error', 'cancelled'].includes(String(result.status)) ? 'failed' : 'completed'
+      } catch (error) {
+        task.status = 'failed'
+        task.result = { error: error instanceof Error ? error.message : String(error) }
+      } finally { if (timer) clearTimeout(timer); task.updatedAt = Date.now() }
+    })()
+    return this.formatJsonResult({ task_id: taskId, status: 'submitted', action: 'submit', tracking: 'process_local', expires_in_seconds: 3600, polling_hint: 'Call task_status on this server instance. Restart loses tasks.' })
   }
 
   private async ensureValidAccessToken(forceRefresh = false): Promise<string> {
@@ -345,7 +425,8 @@ class SeedAudioServer {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        ...(this.options.external ? { signal: AbortSignal.timeout(35 * 60 * 1000) } : {})
       })
 
     let response = await doFetch(token)

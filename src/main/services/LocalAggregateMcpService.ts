@@ -91,8 +91,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/zhipu-search')
     ])
 
-    const imageGenerateServer = new ImageGenerateServer()
-    const videoGenerateServer = new VideoGenerateServer()
+    const imageGenerateServer = new ImageGenerateServer({ external: true })
+    const videoGenerateServer = new VideoGenerateServer({ external: true })
+    const seedAudioServer = new SeedAudioServer({ external: true })
+    const videoUnderstandServer = new VideoUnderstandServer(workspacePath, { external: true })
+    const draftRenderServer = new DraftRenderServer(workspacePath, { external: true })
 
     const entries: AggregateServerEntry[] = [
       {
@@ -148,7 +151,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'voice-conversion',
         serverName: 'voice-conversion',
-        createInstance: () => new VoiceConversionServer(workspacePath).mcpServer
+        createInstance: () => new VoiceConversionServer(workspacePath, { external: true }).mcpServer
       },
       {
         serverId: 'scrapt',
@@ -158,7 +161,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'seed-audio',
         serverName: 'seed-audio',
-        createInstance: () => new SeedAudioServer().mcpServer
+        createInstance: () => seedAudioServer.createMcpServer()
       },
       {
         serverId: 'ffmpeg-media',
@@ -173,7 +176,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'draft-render',
         serverName: 'draft-render',
-        createInstance: () => new DraftRenderServer(workspacePath).mcpServer
+        createInstance: () => draftRenderServer.createMcpServer()
       },
       {
         serverId: 'draft-download',
@@ -188,17 +191,17 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'audio-understand',
         serverName: 'audio-understand',
-        createInstance: () => new AudioUnderstandServer(workspacePath).mcpServer
+        createInstance: () => new AudioUnderstandServer(workspacePath, { external: true }).mcpServer
       },
       {
         serverId: 'subtitle-recognition',
         serverName: 'subtitle-recognition',
-        createInstance: () => new SubtitleRecognitionServer(workspacePath).mcpServer
+        createInstance: () => new SubtitleRecognitionServer(workspacePath, { external: true }).mcpServer
       },
       {
         serverId: 'remove-bg',
         serverName: 'remove-bg',
-        createInstance: () => new RemoveBgServer().mcpServer
+        createInstance: () => new RemoveBgServer({ external: true }).mcpServer
       },
       {
         serverId: 'storyboard-editor',
@@ -208,12 +211,12 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'video-understand',
         serverName: 'video-understand',
-        createInstance: () => new VideoUnderstandServer(workspacePath).mcpServer
+        createInstance: () => videoUnderstandServer.createMcpServer()
       },
       {
         serverId: 'subtitle-template',
         serverName: 'subtitle-template',
-        createInstance: () => new SubtitleTemplateServer().mcpServer
+        createInstance: () => new SubtitleTemplateServer({ external: true }).mcpServer
       },
       {
         serverId: 'cut-workflow',
@@ -228,12 +231,12 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       {
         serverId: 'digital-human',
         serverName: 'digital-human',
-        createInstance: () => new DigitalHumanServer().mcpServer
+        createInstance: () => new DigitalHumanServer({ external: true }).mcpServer
       },
       {
         serverId: 'koubo-template',
         serverName: 'koubo-template',
-        createInstance: () => new KouboTemplateServer().mcpServer
+        createInstance: () => new KouboTemplateServer({ external: true }).mcpServer
       },
       {
         serverId: 'system',

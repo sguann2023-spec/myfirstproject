@@ -151,3 +151,116 @@ describe('音频理解 MCP', () => {
     }
   })
 })
+
+
+describe('external asynchronous boundary', () => {
+  const valid = { url: 'https://media.example.com/a.mp3', prompt: 'Listen' }
+  const call = async (server: AudioUnderstandServer, name: string, args: Record<string, unknown>) =>
+    (server.mcpServer.server as any)._requestHandlers.get('tools/call')(
+      { method: 'tools/call', params: { name, arguments: args } },
+      {}
+    )
+  const parse = (reply: any) => JSON.parse(reply.content[0].text)
+  const serverFor = () => {
+    const server = new AudioUnderstandServer('/tmp/external-unused-workspace', {
+      external: true
+    })
+    mocks.auth.mockResolvedValue('token')
+    return server
+  }
+  beforeEach(() => vi.resetAllMocks())
+
+  it('lists only submit/status and forbids legacy calls', async () => {
+    const server = serverFor()
+    const listed = await (server.mcpServer.server as any)._requestHandlers.get('tools/list')(
+      { method: 'tools/list' },
+      {}
+    )
+    expect(listed.tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+    for (const name of ['submit_audio_understanding_task', 'get_voice_conversion_task_status'])
+      expect((await call(server, name, valid)).isError).toBe(true)
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+
+  it('submits directly once and never preprocesses or queries', async () => {
+    const server = serverFor()
+    mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ task_id: 'real-task', success: true })))
+    const reply = await call(server, 'submit', valid)
+    expect(reply.isError).toBeUndefined()
+    expect(parse(reply)).toMatchObject({
+      task_id: 'real-task',
+      status: 'submitted'
+    })
+    expect(mocks.fetch).toHaveBeenCalledOnce()
+    const body = JSON.parse(mocks.fetch.mock.calls[0][1].body)
+    expect(body.messages[0].content[0].audio_url.url).toBe(valid.url)
+    expect(mocks.prepare).not.toHaveBeenCalled()
+    expect(mocks.upload).not.toHaveBeenCalled()
+  })
+
+  it.each(['running', 'success', 'failed', 'cancelled'])(
+    'queries %s exactly once preserving result and billing',
+    async (status) => {
+      const server = serverFor()
+      const data = {
+        status,
+        result: {
+          converted_url: 'https://media.example.com/out',
+          billing: { points: 7 },
+          error: 'detail'
+        },
+        billing: { points: 8 },
+        error_code: 'code'
+      }
+      mocks.fetch.mockResolvedValue(new Response(JSON.stringify(data)))
+      const reply = await call(server, 'task_status', { task_id: 'real-task' })
+      expect(parse(reply)).toEqual({ ...data, task_id: 'real-task' })
+      expect(Boolean(reply.isError)).toBe(['failed', 'cancelled'].includes(status))
+      expect(mocks.fetch).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('marks query exceptions unknown rather than terminal failure', async () => {
+    const server = serverFor()
+    mocks.fetch.mockRejectedValue(new Error('offline'))
+    expect(parse(await call(server, 'task_status', { task_id: 'real-task' }))).toMatchObject({
+      task_id: 'real-task',
+      status: 'unknown',
+      error: 'offline'
+    })
+    expect(mocks.fetch).toHaveBeenCalledOnce()
+  })
+
+  it.each([{ success: false, task_id: 'rejected', billing: { points: 2 } }, { success: true }])(
+    'rejects invalid backend submission without losing details',
+    async (data) => {
+      const server = serverFor()
+      mocks.fetch.mockResolvedValue(new Response(JSON.stringify(data)))
+      const reply = await call(server, 'submit', valid)
+      expect(reply.isError).toBe(true)
+      expect(parse(reply)).toMatchObject(data.success === false ? data : { success: false })
+      expect(mocks.fetch).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each([
+    '/tmp/a.mp3',
+    'file:///tmp/a',
+    'data:audio/wav;base64,AA',
+    'http://127.1/a',
+    'http://10.0.0.1/a',
+    'http://[::1]/a',
+    'http://[::ffff:127.0.0.1]/a',
+    'https://user:pass@media.example.com/a',
+    'https://host.internal/a',
+    { url: 'https://media.example.com/a' },
+    ['https://media.example.com/a'],
+    '',
+    null
+  ])('rejects unsafe or nested source %j before network', async (url) => {
+    const server = serverFor()
+    const reply = await call(server, 'submit', { ...valid, url: url })
+    expect(reply.isError).toBe(true)
+    expect(mocks.fetch).not.toHaveBeenCalled()
+  })
+})

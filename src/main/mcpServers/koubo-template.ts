@@ -1,5 +1,6 @@
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
+import ipaddr from 'ipaddr.js'
 import { fileURLToPath } from 'node:url'
 
 import { loggerService } from '@logger'
@@ -164,6 +165,54 @@ const GET_KOUBO_TEMPLATE_JOB_TOOL: Tool = backgroundStatusTool(
   'Immediately read a packaging job. running: wait poll_after_seconds and query again; success: use result.output.draft_id for export_draft; failed/interrupted: inspect message and task_id, do not resubmit. Known upstream tasks resume polling after Desktop restarts.'
 )
 
+const EXTERNAL_MEDIA_FIELDS = new Set([
+  'videoUrl', 'videoUrls', 'video_url', 'video_urls', 'mediaUrl', 'mediaUrls', 'media_url', 'media_urls',
+  'cover', 'coverUrl', 'coverUrls', 'cover_url', 'cover_urls',
+  'kongjingUrl', 'kongjingUrls', 'kongjing_url', 'kongjing_urls',
+  'audioUrl', 'audioUrls', 'audio_url', 'audio_urls'
+])
+
+// Check all aliases before normalization, including values in raw nested params.
+// DNS resolution, redirects and actual reachability must be enforced by the backend.
+function validateExternalMedia(value: unknown, field = '') {
+  if (EXTERNAL_MEDIA_FIELDS.has(field)) {
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      if (typeof entry !== 'string' || !entry || /[\\\s]/.test(entry)) {
+        throw new Error(`'${field}' requires public HTTP(S) URLs only`)
+      }
+      const url = new URL(entry)
+      const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+          (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+          (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+        throw new Error(`'${field}' requires public HTTP(S) URLs, not local/private addresses`)
+      }
+    }
+  } else if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) validateExternalMedia(entry, key)
+  }
+}
+
+const EXTERNAL_KOUBO_TOOLS: Tool[] = [
+  {
+    name: 'submit',
+    description: 'Submit talking-head packaging to the backend and immediately return task_id. All video, cover and kongjing inputs must be public HTTP(S) URLs. Poll task_status; no local upload or waiting.',
+    inputSchema: {
+      ...SUBMIT_KOUBO_TEMPLATE_TASK_TOOL.inputSchema,
+      properties: Object.fromEntries(Object.entries(SUBMIT_KOUBO_TEMPLATE_TASK_TOOL.inputSchema.properties ?? {}).map(([key, schema]) => [
+        key, EXTERNAL_MEDIA_FIELDS.has(key)
+          ? { ...schema as object, description: 'Public HTTP(S) URL(s) only. Local paths, file and data URLs are rejected.' }
+          : schema
+      ]))
+    }
+  },
+  {
+    name: 'task_status',
+    description: 'Query backend task status once. Returns results, billing and errors without downloading media or waiting.',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string', minLength: 1 } }, required: ['task_id'], additionalProperties: false }
+  }
+]
+
 type PendingToken = {
   accessToken: string
   expiresAt: number
@@ -208,7 +257,7 @@ type KouboTemplateStatusResponse = {
     [key: string]: unknown
   }
   purchase_link?: string
-  status?: 'processing' | 'success' | 'failed'
+  status?: 'processing' | 'success' | 'failed' | 'unknown'
   success?: boolean
   task_id?: string
   [key: string]: unknown
@@ -222,7 +271,7 @@ class KouboTemplateServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(private readonly options: { external?: boolean } = {}) {
     this.mcpServer = new McpServer(
       {
         name: 'koubo-template',
@@ -239,7 +288,7 @@ class KouboTemplateServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_KOUBO_TEMPLATE_TASK_TOOL, START_KOUBO_TEMPLATE_JOB_TOOL, GET_KOUBO_TEMPLATE_JOB_TOOL]
+      tools: this.options.external ? EXTERNAL_KOUBO_TOOLS : [SUBMIT_KOUBO_TEMPLATE_TASK_TOOL, START_KOUBO_TEMPLATE_JOB_TOOL, GET_KOUBO_TEMPLATE_JOB_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -247,6 +296,16 @@ class KouboTemplateServer {
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) {
+          if (toolName === 'submit') return await this.submitExternalTask(args)
+          if (toolName === 'task_status') {
+            const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
+            if (!taskId) throw new Error("'task_id' is required")
+            const result = await this.queryKouboTemplateTaskStatus(taskId)
+            return this.formatExternalResult(result, 'task_status', taskId)
+          }
+          throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
+        }
         switch (toolName) {
           case 'start_koubo_template_job':
             return this.startBackgroundJob(args as Record<string, unknown>)
@@ -260,6 +319,15 @@ class KouboTemplateServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
+        if (this.options.external) return {
+          ...this.formatJsonResult({
+            provider: 'vectcut', action: toolName, success: false,
+            status: toolName === 'task_status' ? 'unknown' : 'failed',
+            ...(typeof args.task_id === 'string' ? { task_id: args.task_id.trim() } : {}),
+            error: message
+          }),
+          isError: true
+        }
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           isError: true
@@ -304,7 +372,8 @@ class KouboTemplateServer {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
     })
 
     if (!response.ok) {
@@ -361,7 +430,8 @@ class KouboTemplateServer {
           Authorization: `Bearer ${accessToken}`,
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
-        ...(options.body ? { body: JSON.stringify(options.body) } : {})
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+        ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
       })
 
     return requestWithVectcutAuth(this.store, (force) => this.ensureValidAccessToken(force), doFetch)
@@ -553,6 +623,54 @@ class KouboTemplateServer {
     }
   }
 
+  private formatExternalResult(result: Record<string, unknown>, action: string, taskId?: string) {
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid backend response')
+    const status = typeof result.status === 'string' ? result.status.trim().toLowerCase() : ''
+    const unknown = action === 'task_status' && (!status || status === 'unknown')
+    const failed = unknown || result.success === false || ['failed', 'error', 'cancelled', 'canceled'].includes(status)
+    const output = result.output as Record<string, unknown> | undefined
+    const nested = result.result as Record<string, unknown> | undefined
+    return {
+      ...this.formatJsonResult({
+        ...result, provider: 'vectcut', mode: 'koubo_template', action,
+        ...(taskId ? { task_id: taskId } : {}),
+        status: unknown ? 'unknown' : failed ? (status || 'failed') : status || (action === 'submit' ? 'submitted' : 'unknown'),
+        success: !failed,
+        ...(failed ? { error: result.error || output?.error || nested?.error || result.message || (unknown ? 'Backend task status is unknown' : 'Koubo template task failed') } : {})
+      }),
+      ...(failed ? { isError: true } : {})
+    }
+  }
+
+  private async submitExternalTask(args: Record<string, unknown>) {
+    validateExternalMedia(args)
+    const params = args.params && typeof args.params === 'object' && !Array.isArray(args.params)
+      ? args.params as Record<string, unknown> : {}
+    // Normalize external aliases only; the internal payload/behavior stays unchanged.
+    const normalized: Record<string, unknown> & { params: Record<string, unknown> } = { ...args, params: { ...params } }
+    for (const aliases of [
+      ['video_url', 'videoUrl', 'videoUrls', 'video_urls', 'mediaUrl', 'mediaUrls', 'media_url', 'media_urls'],
+      ['cover', 'coverUrl', 'coverUrls', 'cover_url', 'cover_urls'],
+      ['kongjing_urls', 'kongjingUrl', 'kongjingUrls', 'kongjing_url']
+    ]) {
+      const values = aliases.flatMap((key) => [args[key], params[key]]).filter((value) => value !== undefined)
+      for (const key of aliases) { delete normalized[key]; delete normalized.params[key] }
+      if (values.length) normalized.params[aliases[0]] = values.flatMap((value) => this.getStringArray(value))
+    }
+    const payload = await this.buildSubmitPayload(normalized)
+    const response = await this.requestWithAuth(KOUBO_TEMPLATE_SUBMIT_ENDPOINT, { method: 'POST', body: payload.body })
+    const result = await response.json() as Record<string, unknown>
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid backend submission response')
+    const taskId = typeof result.task_id === 'string' ? result.task_id.trim() : ''
+    return this.formatExternalResult({
+      ...result,
+      ...(!response.ok || !taskId ? {
+        success: false, status: 'failed',
+        error: result.error || result.message || `Koubo template submission failed (${response.status}): no task ID`
+      } : {})
+    }, 'submit', taskId)
+  }
+
   private async sleep(ms: number) {
     await new Promise((resolve) => setTimeout(resolve, ms))
   }
@@ -581,6 +699,16 @@ class KouboTemplateServer {
         task_id: taskId
       }
     })
+
+    if (this.options.external) {
+      const result = await response.json() as KouboTemplateStatusResponse
+      if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('Invalid backend status response')
+      if (!response.ok) return {
+        ...result, status: 'unknown' as const, success: false,
+        error: result.error || result.message || `Koubo template status query failed (${response.status})`
+      }
+      return result
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '')

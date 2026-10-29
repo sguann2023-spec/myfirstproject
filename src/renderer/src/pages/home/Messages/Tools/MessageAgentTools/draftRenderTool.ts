@@ -18,7 +18,7 @@ export function sanitizeDraftRenderError(value: unknown): string | null {
   const record = asRecord(value)
   const text = typeof value === 'string' ? value : typeof record?.message === 'string' ? record.message : ''
   if (!text.trim()) return null
-  if (/[{}]/.test(text)) return '云渲染失败，请检查草稿后重试。'
+  if (/[{}]/.test(text)) return '预渲染失败，请检查草稿后重试。'
   return text
     .replace(/(?:https?:\/\/|file:\/\/)[^\s<>"'，。；]+/gi, '[引用已隐藏]')
     .replace(/(?:[a-zA-Z]:[\\/]|\.{1,2}[\\/]|~?\/)[^\s<>"'，。；]+/g, '[路径已隐藏]')
@@ -89,6 +89,6 @@ export function extractDraftRenderSummary(output: unknown, input?: unknown): Dra
   }
   visit(output)
   summary.draftId ??= safeIdentifier(args?.draftId) ?? safeIdentifier(args?.draft_id)
-  if (summary.isError && !summary.error) summary.error = '云渲染失败，请检查草稿后重试。'
+  if (summary.isError && !summary.error) summary.error = '预渲染失败，请检查草稿后重试。'
   return summary
 }

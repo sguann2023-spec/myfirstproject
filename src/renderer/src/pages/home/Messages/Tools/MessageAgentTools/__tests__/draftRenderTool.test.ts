@@ -5,7 +5,7 @@ const payload = { provider: 'vectcut', action: 'render_draft', draft_id: 'dfd_te
 const content = (value: unknown) => ({ content: [{ type: 'text', text: JSON.stringify(value) }] })
 
 describe('draft render result parsing', () => {
-  it('matches only the cloud render tool and legacy alias', () => {
+  it('matches only the pre-render tool and legacy alias', () => {
     expect(isDraftRenderToolName('mcp__vectcut__draft-render__render_draft')).toBe(true)
     expect(isDraftRenderToolName('mcp__draft-render__render_draft')).toBe(true)
     expect(isDraftRenderToolName('mcp__other__render_draft')).toBe(false)

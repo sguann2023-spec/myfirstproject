@@ -80,6 +80,97 @@ async function listTools(server: VideoUnderstandServerInstance) {
   return listHandler({ method: 'tools/list', params: {} }, {})
 }
 
+describe('VideoUnderstandServer external', () => {
+  it('keeps internal tools and workspace constructor compatible; external rejects legacy tools', async () => {
+    const internal = new VideoUnderstandServer('/workspace')
+    expect((await listTools(internal)).tools.map((tool: any) => tool.name)).toEqual(['submit_video_detail_task'])
+    const external = new VideoUnderstandServer('/workspace', { external: true })
+    expect((external as any).workspacePath).toBe('/workspace')
+    expect((await listTools(external)).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+    expect((await callTool(external, 'submit_video_detail_task', { videoUrl: 'https://example.com/video.mp4' })).isError).toBe(true)
+  })
+
+  it('returns before work, shares tasks across MCP servers, and reads snapshots only', async () => {
+    const server = new VideoUnderstandServer({ external: true, workspacePath: '/workspace' })
+    let finish!: (value: any) => void
+    const work = vi.spyOn(server as any, 'submitVideoDetailTask').mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const submitted = JSON.parse((await callTool(server, 'submit', { video_url: 'https://example.com/video.mp4' })).content[0].text)
+    expect(submitted.status).toBe('running')
+    expect(work).not.toHaveBeenCalled()
+    const second = server.createMcpServer()
+    const status = () => (second.server as any)._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'task_status', arguments: { task_id: submitted.task_id } } }, {})
+    expect(JSON.parse((await status()).content[0].text).status).toBe('running')
+    await new Promise((resolve) => setImmediate(resolve))
+    finish({ content: [{ text: JSON.stringify({ video_summaries: ['done'], billing: { total_consumed_points: 1 } }) }] })
+    await new Promise((resolve) => setImmediate(resolve))
+    const done = JSON.parse((await status()).content[0].text)
+    expect(done.status).toBe('success')
+    expect(done.result.video_summaries).toEqual(['done'])
+    await status()
+    expect(work).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    '/tmp/video.mp4', 'file:///tmp/video.mp4', 'data:video/mp4;base64,AAAA',
+    'http://127.0.0.1/a', 'http://2130706433/a', 'http://[::1]/a', 'http://[::ffff:127.0.0.1]/a',
+    'https://user:password@example.com/a', 'http://10.0.0.1/a', 'http://169.254.169.254/a', 'http://foo.local/a',
+  ])('rejects private/local/credential URL %s even in unused nested aliases', async (source) => {
+    const server = new VideoUnderstandServer({ external: true })
+    const work = vi.spyOn(server as any, 'submitVideoDetailTask')
+    const result = await callTool(server, 'submit', { videoUrl: 'https://example.com/a.mp4', video_url: source, extra: { reference: { url: source } } })
+    expect(result.isError).toBe(true)
+    expect(work).not.toHaveBeenCalled()
+  })
+
+  it('validates nested references and every array alias without probing URLs', async () => {
+    const { net } = await import('electron')
+    vi.mocked(net.fetch).mockClear()
+    const server = new VideoUnderstandServer({ external: true })
+    for (const extra of [
+      { extra: { reference: { url: 'http://192.168.1.2/video.mp4' } } },
+      { video_urls: ['https://example.com/a', 'file:///tmp/a'] },
+      { videoUrls: [{ url: 'http://localhost/a' }] },
+    ]) {
+      expect((await callTool(server, 'submit', { videoUrl: 'https://example.com/a', ...extra })).isError).toBe(true)
+    }
+    expect(net.fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['throw', 'parse', 'failure'])('retains %s failure snapshots', async (mode) => {
+    const server = new VideoUnderstandServer({ external: true })
+    vi.spyOn(server as any, 'submitVideoDetailTask').mockImplementation(async () => {
+      if (mode === 'throw') throw new Error('analysis failed')
+      return { content: [{ text: mode === 'parse' ? 'not json' : JSON.stringify({ success: false, error: 'failed', billing: { total_consumed_points: 2 } }) }] }
+    })
+    const task = JSON.parse((await callTool(server, 'submit', { videoUrl: 'https://example.com/a.mp4' })).content[0].text)
+    await new Promise((resolve) => setImmediate(resolve))
+    const result = await callTool(server, 'task_status', { task_id: task.task_id })
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text).status).toBe('failed')
+    expect((await callTool(server, 'task_status', { task_id: task.task_id })).content).toEqual(result.content)
+  })
+
+  it('times out and expires terminal tasks without evicting running work', async () => {
+    vi.useFakeTimers()
+    try {
+      const server = new VideoUnderstandServer({ external: true })
+      vi.spyOn(server as any, 'submitVideoDetailTask').mockImplementation(() => new Promise(() => {}))
+      const task = JSON.parse((await callTool(server, 'submit', { videoUrl: 'https://example.com/a.mp4' })).content[0].text)
+      await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1)
+      expect(JSON.parse((await callTool(server, 'task_status', { task_id: task.task_id })).content[0].text).error).toContain('timed out')
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+      expect((await callTool(server, 'task_status', { task_id: task.task_id })).isError).toBe(true)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('bounds task capacity and rejects malformed inputs before scheduling', async () => {
+    const server = new VideoUnderstandServer({ external: true })
+    expect((await callTool(server, 'submit', { videoUrl: 'https://example.com/a', fps: -1 })).isError).toBe(true)
+    for (let i = 0; i < 100; i++) (server as any).externalTasks.set(String(i), { status: 'running' })
+    expect((await callTool(server, 'submit', { videoUrl: 'https://example.com/a' })).isError).toBe(true)
+  })
+})
+
 describe('VideoUnderstandServer', () => {
   let workspaceRoot: string
 

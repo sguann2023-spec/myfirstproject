@@ -1,5 +1,6 @@
 import { readFile, stat as fsStat } from 'node:fs/promises'
 import path from 'node:path'
+import ipaddr from 'ipaddr.js'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { loggerService } from '@logger'
@@ -126,6 +127,55 @@ const IMAGE_GENERATE_TOOL: Tool = {
       }
     },
     additionalProperties: true
+  }
+}
+
+// External clients get a separate, URL-only asynchronous surface. Never reuse the
+// internal tool descriptions here (they advertise local uploads and inline images).
+const externalSubmitProperties = Object.fromEntries(
+  Object.entries(IMAGE_GENERATE_TOOL.inputSchema.properties ?? {})
+    .filter(([key]) => !['action', 'taskId'].includes(key))
+    .map(([key, schema]) => [key, ['referenceImages', 'sourceImage', 'sourceImages', 'baseImage', 'editImage'].includes(key)
+      ? { ...schema as object, description: 'Publicly accessible HTTP(S) image URL(s) only; local files and data URLs are not accepted.' }
+      : schema])
+)
+const EXTERNAL_IMAGE_TOOLS: Tool[] = [
+  {
+    name: 'submit',
+    description: 'Submit an image generation/editing task and return its backend task_id immediately, without waiting for generation. References must be publicly accessible HTTP(S) URLs. Poll task_status for progress and results.',
+    inputSchema: { type: 'object', properties: externalSubmitProperties, required: ['prompt'], additionalProperties: true }
+  },
+  {
+    name: 'task_status',
+    description: 'Query an existing image task once by task_id. Returns backend status, progress, result URLs, billing and failure details; does not download images or wait for completion.',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string', minLength: 1 } }, required: ['task_id'], additionalProperties: false }
+  }
+]
+
+const EXTERNAL_REFERENCE_FIELDS = new Set([
+  'reference_images', 'referenceImages', 'referenceImage', 'sourceImage', 'sourceImages', 'baseImage', 'editImage'
+])
+
+// Validate every alias before payload normalization can overwrite one. Do not
+// probe URLs here: reachability/content validation belongs to the backend, which
+// must also enforce DNS/redirect SSRF policy at the actual download boundary.
+function validateExternalReferences(args: Record<string, unknown>) {
+  for (const [field, value] of Object.entries(args)) {
+    if (!EXTERNAL_REFERENCE_FIELDS.has(field)) continue
+    const values = Array.isArray(value) ? value : [value]
+    for (const entry of values) {
+      if (typeof entry !== 'string' || !entry.trim() || /[\\\s]/.test(entry)) {
+        throw new Error(`'${field}' must contain publicly accessible HTTP(S) image URLs only`)
+      }
+      let url: URL
+      try { url = new URL(entry) } catch { throw new Error(`'${field}' must contain HTTP(S) URLs only`) }
+      const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+          (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+          (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+        throw new Error(`'${field}' must contain public HTTP(S) image URLs, not local/private addresses`)
+      }
+    }
   }
 }
 
@@ -325,7 +375,7 @@ class ImageGenerateServer {
   private capabilitiesCache: CachedImageCapabilities | null = null
   private imageModelListCache: CachedImageModelList | null = null
 
-  constructor() {
+  constructor(private readonly options: { external?: boolean } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -347,7 +397,7 @@ class ImageGenerateServer {
 
   private setupHandlers(mcpServer: McpServer) {
     mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [IMAGE_GENERATE_TOOL]
+      tools: this.options.external ? EXTERNAL_IMAGE_TOOLS : [IMAGE_GENERATE_TOOL]
     }))
 
     mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -355,6 +405,30 @@ class ImageGenerateServer {
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) {
+          if (toolName === 'submit') {
+            validateExternalReferences(args)
+            return await this.submitImageTask(args)
+          }
+          if (toolName === 'task_status') {
+            const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
+            if (!taskId) throw new McpError(ErrorCode.InvalidParams, "'task_id' is required")
+            const result = await this.queryImageTaskStatus(taskId)
+            const failed = this.isImageTaskFailed(result) || result.success === false
+            return {
+              ...this.formatJsonResult({
+                ...this.buildImageTaskSuccessPayload({ action: 'status', result }),
+                action: 'task_status',
+                task_id: taskId,
+                status: this.normalizeImageTaskStatus(result.status) || (failed ? 'failed' : 'unknown'),
+                success: !failed,
+                ...(failed ? { error: result.error || result.result?.error || result.message || 'Image generation task failed' } : {})
+              }),
+              ...(failed ? { isError: true } : {})
+            }
+          }
+          throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
+        }
         switch (toolName) {
           case PRIMARY_IMAGE_TOOL_NAME:
           case LEGACY_IMAGE_TOOL_NAME:
@@ -365,6 +439,20 @@ class ImageGenerateServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
+        if (this.options.external) {
+          return {
+            ...this.formatJsonResult({
+              provider: 'vectcut',
+              action: toolName,
+              success: false,
+              // Query/transport errors do not imply that the backend task failed.
+              status: toolName === 'task_status' ? 'unknown' : 'failed',
+              ...(typeof args.task_id === 'string' ? { task_id: args.task_id.trim() } : {}),
+              error: message
+            }),
+            isError: true
+          }
+        }
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           isError: true
@@ -409,7 +497,8 @@ class ImageGenerateServer {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
     })
 
     if (!response.ok) {
@@ -468,7 +557,8 @@ class ImageGenerateServer {
           'X-Client-Type': 'pc',
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
-        ...(options.body ? { body: JSON.stringify(options.body) } : {})
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+        ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
       })
 
     let response = await doFetch(token)
@@ -629,11 +719,13 @@ class ImageGenerateServer {
       provider: 'vectcut',
       action: 'submit',
       estimated_wait_time: IMAGE_TASK_WAIT_TIME,
-      polling_hint: 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
-      success: result.success,
+      polling_hint: this.options.external
+        ? 'Call task_status with task_id to query progress and results.'
+        : 'AI image tasks are asynchronous and usually finish in 3-5 minutes. Use action="status" with taskId to query progress.',
+      success: this.options.external ? result.success !== false && Boolean(result.task_id) : result.success,
       task_id: result.task_id,
       message_id: result.message_id,
-      status: result.status,
+      status: this.options.external ? this.normalizeImageTaskStatus(result.status) || 'submitted' : result.status,
       queue_name: result.queue_name,
       error: result.error
     }
@@ -1161,6 +1253,17 @@ class ImageGenerateServer {
     }
 
     const result = (await response.json()) as ImageSubmitResponse
+    if (this.options.external && (result.success === false || !String(result.task_id || '').trim())) {
+      return {
+        ...this.formatJsonResult({
+          ...this.buildImageTaskSubmitPayload({ result, modelResolution }),
+          success: false,
+          status: 'failed',
+          error: result.error || 'Image task submission returned no task ID'
+        }),
+        isError: true
+      }
+    }
 
     logger.info('AI image generation task submitted', {
       taskId: result.task_id,

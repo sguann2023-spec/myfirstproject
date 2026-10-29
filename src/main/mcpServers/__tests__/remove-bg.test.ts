@@ -34,8 +34,8 @@ const response = (payload: unknown) => ({
   ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload)
 }) as Response
 
-function handlers() {
-  const server = new RemoveBgServer()
+function handlers(external = false) {
+  const server = new RemoveBgServer({ external })
   const map = (server.mcpServer.server as any)._requestHandlers
   return {
     list: () => map.get('tools/list')({ method: 'tools/list', params: {} }, {}),
@@ -180,4 +180,58 @@ describe('RemoveBgServer', () => {
     expect(result.isError).toBe(true)
     expect(JSON.parse(result.content[0].text)).toMatchObject({ billing: { consume: 2.75 } })
   })
+  it('isolates external tools and rejects old long-running names', async () => {
+    const api = handlers(true)
+    expect((await api.list()).tools.map((tool: { name: string }) => tool.name)).toEqual(['submit', 'task_status'])
+    for (const name of ['submit_remove_bg_task', 'submit_remove_bg_text_behind_task', 'submit_remove_bg_pip_task']) {
+      expect((await api.call(name, { video_url: 'https://example.com/a.mp4' })).isError).toBe(true)
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['remove_bg', {}, 'submit_remove_bg_task'],
+    ['text_behind', { text: 'hello' }, 'submit_remove_bg_text_behind_task'],
+    ['pip', { background_image_url: 'https://example.com/bg.png', template: 'left_down' }, 'submit_remove_bg_pip_task']
+  ])('routes external %s immediately without probing or waiting', async (mode, fields, endpoint) => {
+    const result = await handlers(true).call('submit', { mode, video_url: 'https://example.com/a.mp4', ...fields })
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ mode, task_id: 'task-123', status: 'queued' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[1][0]).toContain(endpoint)
+    expect(probeVideoMock).not.toHaveBeenCalled()
+    expect(uploadMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['/tmp/a.mp4', 'file:///tmp/a.mp4', 'data:video/mp4;base64,AA', 'http://127.1/a', 'https://10.0.0.1/a', 'http://[::1]/a', 'http://localhost/a', 'http://user:pass@example.com/a'])('rejects external unsafe media %s', async video_url => {
+    expect((await handlers(true).call('submit', { mode: 'remove_bg', video_url })).isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('queries once, preserves backend failure billing, and reports query exceptions as unknown', async () => {
+    fetchMock.mockImplementation(async (url: string) => url.includes('/oidc/token') ? response({ access_token: 'access-token' }) : response({ status: 'failed', error: 'draft failed', billing: { consume: 2 }, result: { mask_url: 'https://example.com/mask' } }))
+    const api = handlers(true)
+    const failed = await api.call('task_status', { task_id: 'task-123', mode: 'pip' })
+    expect(failed.isError).toBe(true)
+    expect(JSON.parse(failed.content[0].text)).toMatchObject({ mode: 'pip', billing: { consume: 2 }, result: { mask_url: 'https://example.com/mask' } })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    fetchMock.mockRejectedValue(new Error('offline'))
+    expect(JSON.parse((await api.call('task_status', { task_id: 'task-123' })).content[0].text)).toMatchObject({ status: 'unknown', error: 'offline' })
+  })
+
+  it('rejects external endpoints on internal instances and validates required external arguments', async () => {
+    for (const name of ['submit', 'task_status']) expect((await handlers().call(name, {})).isError).toBe(true)
+    expect((await handlers(true).call('task_status', { task_id: '' })).isError).toBe(true)
+    expect((await handlers(true).call('submit', { mode: 'other', video_url: 'https://example.com/a' })).isError).toBe(true)
+    expect((await handlers(true).call('submit', { mode: 'remove_bg', video_url: 'https://example.com/a', source: { nested: ['/tmp/a'] } })).isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('retains HTTP submission failures and billing instead of polling', async () => {
+    fetchMock.mockResolvedValueOnce(response({ access_token: 'token' })).mockResolvedValueOnce({ ...response({ success: false, status: 'failed', billing: { consume: 3 }, error: 'charged then failed' }), ok: false, status: 422 })
+    const result = await handlers(true).call('submit', { mode: 'remove_bg', video_url: 'https://example.com/a' })
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ billing: { consume: 3 }, error: 'charged then failed', mode: 'remove_bg' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
 })

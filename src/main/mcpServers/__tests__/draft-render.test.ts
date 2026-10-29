@@ -34,14 +34,14 @@ function setup(draft = script(), generated: any = { success: true, output: { tas
 }
 beforeEach(() => { vi.clearAllMocks(); setup() })
 afterEach(() => vi.useRealTimers())
-describe('cloud draft render', () => {
+describe('draft pre-render', () => {
   it('advertises draft rendering and acceptance needs before constraints, with a separate test-draft fallback', async () => {
     const server = new DraftRenderServer('/workspace')
     const handler = (server.mcpServer.server as any)._requestHandlers.get('tools/list')
     const { tools } = await handler({ method: 'tools/list', params: {} })
     const tool = tools.find((item: any) => item.name === 'render_draft')
     const summary = tool.description.slice(0, 240)
-    for (const keyword of ['草稿渲染', '云渲染', '预渲染', '字幕验收', '动画时序', '轨道层叠', '声音效果', '声音大小', '字体效果', '转场效果', '组合画面']) {
+    for (const keyword of ['草稿预渲染', '预渲染', '字幕验收', '动画时序', '轨道层叠', '声音效果', '声音大小', '字体效果', '转场效果', '组合画面']) {
       expect(summary).toContain(keyword)
     }
     expect(tool.description).toContain('Prefer lightweight preview tools first')
@@ -369,4 +369,138 @@ describe('cloud draft render', () => {
     await expect(server.queryScriptInMemory('cloud')).rejects.toThrow('invalid JSON')
     expect(persistMock).not.toHaveBeenCalled()
   })
+})
+
+
+describe('external 预渲染', () => {
+  function external(mcpServer = new DraftRenderServer('/workspace', { external: true }).mcpServer) {
+    const handlers = (mcpServer.server as any)._requestHandlers
+    return {
+      list: () => handlers.get('tools/list')({ method: 'tools/list' }),
+      call: async (name: string, args: any) => {
+        const result = await handlers.get('tools/call')({ method: 'tools/call', params: { name, arguments: args } }, {})
+        return { ...result, data: JSON.parse(result.content[0].text) }
+      }
+    }
+  }
+  it('exposes only submit/status and rejects render_draft', async () => {
+    const api = external()
+    expect((await api.list()).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+    expect((await api.call('render_draft', { draft_id: 'cloud' })).isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it('returns before slow preparation, submits once and queries once per status call', async () => {
+    const original = fetchMock.getMockImplementation()!
+    let finish!: () => void
+    const blocked = new Promise<void>(resolve => { finish = resolve })
+    fetchMock.mockImplementation(async (url, options) => {
+      if (url.endsWith('/query_script')) await blocked
+      return original(url, options)
+    })
+    const api = external()
+    const submitted = await api.call('submit', { draft_id: 'cloud', resolution: '1080P', framerate: '30' })
+    expect(submitted.data.status).toBe('PREPARING')
+    expect((await api.call('task_status', { task_id: submitted.data.task_id })).data.status).toBe('PREPARING')
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/generate_video'))).toHaveLength(0)
+    finish()
+    await new Promise(resolve => setImmediate(resolve))
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/generate_video'))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/task_status'))).toHaveLength(0)
+    const result = await api.call('task_status', { task_id: submitted.data.task_id })
+    expect(result.data).toMatchObject({ task_id: 'task', status: 'SUCCESS', video_url: 'https://cdn/render.mp4', billing: { total_consumed_points: 0 } })
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/task_status'))).toHaveLength(1)
+  })
+  it('rejects local assets during preparation before paid submission', async () => {
+    setup(script({ images: [{ path: '/private/secret.png' }] }))
+    const api = external()
+    const submitted = await api.call('submit', { draft_id: 'cloud' })
+    await new Promise(resolve => setImmediate(resolve))
+    const result = await api.call('task_status', { task_id: submitted.data.task_id })
+    expect(result.isError).toBe(true)
+    expect(result.data.error).toContain('[redacted local reference]')
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/generate_video'))).toBe(false)
+  })
+  it('preserves failure billing and reports query errors as unknown', async () => {
+    setup(script(), undefined, { success: true, output: { status: 'FAILURE', billing: 3 } })
+    const api = external()
+    const failed = await api.call('task_status', { task_id: 'existing' })
+    expect(failed.data).toMatchObject({ status: 'FAILURE', billing: { total_consumed_points: 3 } })
+    setup(script(), undefined, { success: false, billing: 4 })
+    expect((await api.call('task_status', { task_id: 'existing' })).data).toMatchObject({ status: 'unknown', billing: { total_consumed_points: 4 } })
+  })
+  it('does not supplement missing billing or wait on processing', async () => {
+    const api = external()
+    for (const status of ['PROCESSING', 'SUCCESS']) {
+      setup(script(), undefined, { success: true, output: { status, result: 'https://cdn/video.mp4' } })
+      fetchMock.mockClear()
+      expect((await api.call('task_status', { task_id: 'existing' })).data).toMatchObject({ status, billing: null })
+      expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/task_status'))).toHaveLength(1)
+    }
+  })
+  it('rejects malformed status args and unknown preparation handles without a backend request', async () => {
+    const api = external()
+    for (const args of [{}, { task_id: ' ' }, { task_id: 'task', extra: true }, { task_id: 'prepare_missing' }]) {
+      expect((await api.call('task_status', args)).data.status).toBe('unknown')
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+  it('retains submission billing across missing billing and query exceptions', async () => {
+    setup(script(), { success: true, billing: 7, output: { task_id: 'task' } }, { success: true, output: { status: 'PROCESSING', success: false } })
+    const api = external()
+    const submitted = await api.call('submit', { draft_id: 'cloud' })
+    await new Promise(resolve => setImmediate(resolve))
+    expect((await api.call('task_status', { task_id: submitted.data.task_id })).data).toMatchObject({ status: 'PROCESSING', billing: { total_consumed_points: 7 } })
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url, options) => {
+      if (url.endsWith('/task_status')) throw new Error('private network detail')
+      return original(url, options)
+    })
+    const result = await api.call('task_status', { task_id: submitted.data.task_id })
+    expect(result.data).toMatchObject({ status: 'unknown', billing: { total_consumed_points: 7 } })
+    expect(result.data.error).not.toContain('private network detail')
+  })
+  it('bounds a hung external status query without polling or claiming task failure', async () => {
+    vi.useFakeTimers()
+    const api = external()
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url, options) => {
+      if (url.endsWith('/task_status')) return new Promise(() => {})
+      return original(url, options)
+    })
+    const pending = api.call('task_status', { task_id: 'existing' })
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect((await pending).data.status).toBe('unknown')
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/task_status'))).toHaveLength(1)
+  })
+
+  it('shares preparation tasks across servers created by the same instance', async () => {
+    const owner = new DraftRenderServer('/workspace', { external: true })
+    const first = owner.createMcpServer()
+    const second = owner.createMcpServer()
+    expect(first).not.toBe(second)
+    expect(first).not.toBe(owner.mcpServer)
+    const submitter = external(first)
+    const observer = external(second)
+    expect((await observer.list()).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+    const original = fetchMock.getMockImplementation()!
+    let finish!: () => void
+    const blocked = new Promise<void>(resolve => { finish = resolve })
+    fetchMock.mockImplementation(async (url, options) => {
+      if (url.endsWith('/query_script')) await blocked
+      return original(url, options)
+    })
+    const submitted = await submitter.call('submit', { draft_id: 'cloud' })
+    const args = { task_id: submitted.data.task_id }
+    expect((await observer.call('task_status', args)).data.status).toBe('PREPARING')
+    finish()
+    await new Promise(resolve => setImmediate(resolve))
+    // Closing one transport's server must not erase the owner's preparation map.
+    await first.close()
+    const result = await observer.call('task_status', args)
+    expect(result.data).toMatchObject({ status: 'SUCCESS', task_id: 'task', video_url: 'https://cdn/render.mp4' })
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/generate_video'))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/task_status'))).toHaveLength(1)
+    expect((await external(owner.mcpServer).call('task_status', args)).data.status).toBe('SUCCESS')
+  })
+
 })

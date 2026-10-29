@@ -8,6 +8,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
+import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
 import { ossUploadService } from '@main/services/OssUploadService'
@@ -33,7 +34,7 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const VIDEO_GENERATE_TOOL: Tool = {
   name: PRIMARY_VIDEO_TOOL_NAME,
   description:
-    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility. Submission payloads must use the unified content array format, with items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"image_url", image_url:{url:"..."}, role:"first_frame"}, {type:"image_url", image_url:{url:"..."}, role:"last_frame"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside the nested url fields are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot, base64/data URL, or other inline attachment payload without a stable local file path, or when the user explicitly wants a reusable public URL.',
+    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Model selection priority: MiniMax series first, then Wan 3.0, then Seedance Mini, then Seedance Fast, and finally standard Seedance. Choose the highest-priority available model that supports the required inputs and generation settings; use get_video_capabilities to confirm exact model IDs and capabilities. If the prompt or any input/reference involves human faces or copyright-sensitive content, NEVER use any Seedance model, including Mini, Fast, and standard variants, even if explicitly requested; use an eligible non-Seedance model instead. If no eligible model supports the request, explain the limitation rather than falling back to Seedance. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility. Submission payloads must use the unified content array format, with items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"image_url", image_url:{url:"..."}, role:"first_frame"}, {type:"image_url", image_url:{url:"..."}, role:"last_frame"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside the nested url fields are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot, base64/data URL, or other inline attachment payload without a stable local file path, or when the user explicitly wants a reusable public URL.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -51,7 +52,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
       model: {
         type: 'string',
         description:
-          'Optional video model, such as seedance-2.0, seedance-2.0-fast, veo3.1, veo3.1-pro, or grok-video-3. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities.'
+          'Optional video model. Prefer MiniMax series > Wan 3.0 > Seedance Mini > Seedance Fast > standard Seedance, subject to availability and required capabilities. Use get_video_capabilities for exact supported model IDs. NEVER select any Seedance variant when the prompt or any input/reference involves human faces or copyright-sensitive content, even if explicitly requested. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities.'
       },
       resolution: {
         type: 'string',
@@ -123,6 +124,25 @@ const VIDEO_CAPABILITIES_TOOL: Tool = {
       }
     },
     additionalProperties: false
+  }
+}
+
+// Lexical validation only; backend owns DNS, redirects and download policy.
+function validateExternalMedia(value: unknown, field = '') {
+  if (Array.isArray(value)) { value.forEach((item) => validateExternalMedia(item, field)); return }
+  if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) validateExternalMedia(entry, key)
+    return
+  }
+  if (!/(url|image|video|audio|frame|source|reference)/i.test(field) || ['type', 'role', 'generateAudio', 'generate_audio'].includes(field)) return
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error(`'${field}' requires a public HTTP(S) URL`) }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+      (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+    throw new Error(`'${field}' requires a public HTTP(S) URL, not a local/private address`)
   }
 }
 
@@ -264,7 +284,7 @@ class VideoGenerateServer {
   private capabilitiesCache: CachedVideoCapabilities | null = null
   private videoModelListCache: CachedVideoModelList | null = null
 
-  constructor() {
+  constructor(private readonly options: { external?: boolean } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -286,7 +306,11 @@ class VideoGenerateServer {
 
   private setupHandlers(mcpServer: McpServer) {
     mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [VIDEO_GENERATE_TOOL, VIDEO_CAPABILITIES_TOOL]
+      tools: this.options.external ? [
+        { name: 'submit', description: 'Submit a backend video task immediately; no polling. Media must be public HTTP(S) URLs. Use get_video_capabilities for supported models.', inputSchema: { ...VIDEO_GENERATE_TOOL.inputSchema, properties: Object.fromEntries(Object.entries(VIDEO_GENERATE_TOOL.inputSchema.properties || {}).filter(([key]) => !['action', 'taskId'].includes(key)).map(([key, schema]) => [key, key === 'content' ? { type: 'array', items: { type: 'object' }, description: 'Unified text/image_url/video_url/audio_url content. Every media URL must be public HTTP(S); local paths, file and data URLs are forbidden.' } : schema])) } },
+        { name: 'task_status', description: 'Query a backend task once, preserving results, errors and billing.', inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] } },
+        VIDEO_CAPABILITIES_TOOL
+      ] : [VIDEO_GENERATE_TOOL, VIDEO_CAPABILITIES_TOOL]
     }))
 
     mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -294,6 +318,18 @@ class VideoGenerateServer {
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) {
+          if (toolName === 'submit') {
+            validateExternalMedia(args)
+            return await this.submitVideoTask(args)
+          }
+          if (toolName === 'task_status') {
+            const taskId = String(args.task_id || args.taskId || '').trim()
+            if (!taskId) throw new Error('task_id is required')
+            return await this.getVideoTaskStatus(taskId)
+          }
+          if (toolName !== 'get_video_capabilities') throw new Error(`Unknown external tool: ${toolName}`)
+        }
         switch (toolName) {
           case PRIMARY_VIDEO_TOOL_NAME:
             return await this.generateVideo(args as Record<string, unknown>, extra as ToolExecutionExtra)
@@ -305,6 +341,10 @@ class VideoGenerateServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
+        if (this.options.external) return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ provider: 'vectcut', action: toolName, task_id: args.task_id ?? args.taskId, success: false, status: toolName === 'task_status' ? 'unknown' : 'failed', error: message }) }],
+          isError: true
+        }
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           isError: true
@@ -349,7 +389,8 @@ class VideoGenerateServer {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
     })
 
     if (!response.ok) {
@@ -408,7 +449,8 @@ class VideoGenerateServer {
           'X-Client-Type': 'pc',
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
-        ...(options.body ? { body: JSON.stringify(options.body) } : {})
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+        ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
       })
 
     let response = await doFetch(token)
@@ -869,7 +911,10 @@ class VideoGenerateServer {
       modelMatchType: modelResolution?.matchType
     })
 
-    return this.formatJsonResult({
+    const format = this.options.external
+      ? (payload: Record<string, unknown>) => this.formatExternalResult(payload, true)
+      : (payload: Record<string, unknown>) => this.formatJsonResult(payload)
+    return format({
       provider: 'vectcut',
       action: 'submit',
       estimated_wait_time: VIDEO_TASK_WAIT_TIME,
@@ -887,7 +932,8 @@ class VideoGenerateServer {
             prepared_references: preparedReferenceAssets
           }
         : {}),
-      ...result
+      ...result,
+      ...(this.options.external ? { polling_hint: 'Call task_status with task_id.' } : {})
     })
   }
 
@@ -912,7 +958,10 @@ class VideoGenerateServer {
       progress: result.progress
     })
 
-    return this.formatJsonResult({
+    const format = this.options.external
+      ? (payload: Record<string, unknown>) => this.formatExternalResult(payload)
+      : (payload: Record<string, unknown>) => this.formatJsonResult(payload)
+    return format({
       provider: 'vectcut',
       action: 'status',
       ...(result.status && !['succeeded', 'failed', 'not_found'].includes(result.status)
@@ -924,6 +973,20 @@ class VideoGenerateServer {
       ...result,
       ...(result.task_id ? {} : { task_id: taskId })
     })
+  }
+
+  private formatExternalResult(payload: Record<string, unknown>, submission = false) {
+    const missingTaskId = submission && (typeof payload.task_id !== 'string' || !payload.task_id.trim())
+    const status = String(payload.status || '').trim().toLowerCase()
+    const failed = payload.success === false || ['failed', 'error', 'cancelled', 'not_found'].includes(status) || missingTaskId
+    const normalized = failed ? {
+      ...payload,
+      success: false,
+      error: payload.error || payload.message || (missingTaskId
+        ? 'Video submission returned no task_id'
+        : `Video task failed (${payload.status || 'success=false'})`)
+    } : { ...payload, ...(submission ? { success: true } : {}) }
+    return { ...this.formatJsonResult(normalized), ...(failed ? { isError: true } : {}) }
   }
 
   private async queryVideoTaskStatus(taskId: string): Promise<VideoTaskStatusResponse> {

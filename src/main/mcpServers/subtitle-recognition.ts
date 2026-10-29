@@ -1,3 +1,4 @@
+import ipaddr from 'ipaddr.js'
 import fsPromises from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import os from 'node:os'
@@ -81,6 +82,28 @@ const SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL: Tool = {
   }
 }
 
+// Validate aliases before normalization; never probe user URLs. DNS/redirect
+// enforcement remains the backend downloader's responsibility.
+function validateExternalMedia(value: unknown, field = '') {
+  const media = /url|reference|image|audio|source|path|file|data/i.test(field)
+  if (/data|path|file/i.test(field) && value != null) throw new Error(`'${field}' is not allowed externally; use public HTTP(S) URLs`)
+  if (Array.isArray(value)) { value.forEach(item => validateExternalMedia(item, field)); return }
+  if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) validateExternalMedia(item, key)
+    return
+  }
+  if (!media || /^(voice_id|speaker)$/i.test(field)) return
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires public HTTP(S) URLs`)
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error(`'${field}' requires public HTTP(S) URLs`) }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+      (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+    throw new Error(`'${field}' requires public HTTP(S) URLs, not local/private addresses`)
+  }
+}
+
 type PendingToken = {
   accessToken: string
   expiresAt: number
@@ -148,7 +171,7 @@ class SubtitleRecognitionServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(workspacePath?: string) {
+  constructor(workspacePath?: string, private readonly options: { external?: boolean } = {}) {
     this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
@@ -166,7 +189,10 @@ class SubtitleRecognitionServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL]
+      tools: this.options.external ? [
+        { ...SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL, name: 'submit', description: 'Submit ASR or STA recognition using a public HTTP(S) media URL without downloading or waiting. Returns backend task_id; poll task_status.', inputSchema: { ...SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL.inputSchema, properties: { ...SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL.inputSchema.properties, url: { type: 'string', description: 'Required publicly accessible HTTP(S) media URL. No local processing or duration check; backend validates media.' } } }, },
+        { name: 'task_status', description: 'Query one backend recognition task once, retaining full results and billing.', inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] } }
+      ] : [SUBMIT_SUBTITLE_RECOGNITION_TASK_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -174,6 +200,21 @@ class SubtitleRecognitionServer {
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) {
+          if (toolName === 'submit') {
+            validateExternalMedia(args)
+            return await this.submitSubtitleRecognitionTask(args)
+          }
+          if (toolName === 'task_status') {
+            const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
+            if (!taskId) throw new Error("'task_id' is required")
+            const result = await this.querySubtitleRecognitionTaskStatus(taskId)
+            const failed = this.isTaskFailed(result) || result.success === false
+            return this.formatJsonResult({ ...result, provider: 'vectcut', action: 'task_status', task_id: taskId,
+              billing: result.result?.billing ?? result.billing, success: failed ? false : result.success }, failed)
+          }
+          throw new Error(`Unknown external tool: ${toolName}`)
+        }
         switch (toolName) {
           case 'submit_subtitle_recognition_task':
             return await this.submitSubtitleRecognitionTask(args as Record<string, unknown>, extra as ToolExecutionExtra)
@@ -183,6 +224,7 @@ class SubtitleRecognitionServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
+        if (this.options.external) return this.formatJsonResult({ action: toolName, success: false, status: 'unknown', error: message }, true)
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           isError: true
@@ -280,7 +322,8 @@ class SubtitleRecognitionServer {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: init.body ? JSON.stringify(init.body) : undefined
+        body: init.body ? JSON.stringify(init.body) : undefined,
+        ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
       })
 
     let response = await doFetch(token)
@@ -399,6 +442,7 @@ class SubtitleRecognitionServer {
   }
 
   private async buildSubmitPayload(args: Record<string, unknown>) {
+    if (this.options.external) validateExternalMedia(args)
     const url = typeof args.url === 'string' ? args.url.trim() : ''
     if (!url) {
       throw new McpError(ErrorCode.InvalidParams, "'url' is required for submit_subtitle_recognition_task")
@@ -426,7 +470,9 @@ class SubtitleRecognitionServer {
       throw new McpError(ErrorCode.InvalidParams, "'maxSentenceLength' must be an integer between 3 and 80 in nlp mode")
     }
 
-    const preparedSource = await this.prepareSource(url)
+    const preparedSource: PreparedSubtitleRecognitionSource = this.options.external
+      ? { originalInput: url, submittedUrl: url, sourceKind: 'remote_media' }
+      : await this.prepareSource(url)
 
     const payload: Record<string, unknown> = {
       url: preparedSource.submittedUrl,
@@ -510,6 +556,14 @@ class SubtitleRecognitionServer {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '')
+      if (this.options.external) {
+        try {
+          const failure = JSON.parse(body)
+          if (failure && typeof failure === 'object') {
+            return { ...failure, success: false }
+          }
+        } catch { /* Non-JSON HTTP error falls through to the normal error. */ }
+      }
       throw new Error(`Subtitle recognition status query failed (${response.status}): ${body || 'unknown error'}`)
     }
 
@@ -583,6 +637,14 @@ class SubtitleRecognitionServer {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '')
+      if (this.options.external) {
+        try {
+          const failure = JSON.parse(body)
+          if (failure && typeof failure === 'object') {
+            return this.formatJsonResult({ ...failure, action: 'submit', success: false, status: 'failed' }, true)
+          }
+        } catch { /* Non-JSON HTTP error falls through to the normal error. */ }
+      }
       throw new Error(`Subtitle recognition submit failed (${response.status}): ${body || 'unknown error'}`)
     }
 
@@ -595,8 +657,18 @@ class SubtitleRecognitionServer {
     })
 
     const taskId = typeof result.task_id === 'string' ? result.task_id.trim() : ''
+    if (this.options.external && (result.success === false || !taskId)) {
+      return this.formatJsonResult({ ...result, action: 'submit', success: false, status: 'failed' }, true)
+    }
     if (!taskId) {
       throw new Error(`Subtitle recognition submission returned no task ID: ${JSON.stringify(result)}`)
+    }
+
+    if (this.options.external) {
+      const failed = result.success === false
+      return this.formatJsonResult({ ...result, provider: 'vectcut', action: 'submit', task_id: taskId,
+        task_mode: typeof payload.content === 'string' ? 'sta' : 'asr', effect_mode: payload.effect_mode,
+        status: result.status || 'submitted', polling_hint: 'Call task_status with task_id.' }, failed)
     }
 
     await this.reportProgress(extra, 12, '字幕识别任务已提交，正在处理中')

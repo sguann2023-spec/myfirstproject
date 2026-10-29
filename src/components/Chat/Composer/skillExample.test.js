@@ -1,8 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SKILL_EXAMPLE_APPLY_EVENT,
   SKILL_EXAMPLE_FILENAME,
   buildSkillExampleApplyDetail,
+  buildSkillExampleGroupSlotId,
   clearPendingSkillExample,
   consumePendingSkillExample,
   dispatchSkillExampleApply,
@@ -38,7 +40,7 @@ const buildExamplePayload = (overrides = {}) => ({
           id: 'soup_a_01',
           label: '成品特写',
           filename: 'soup_a_01.mp4',
-          uri: 'https://example.com/soup_a_01.mp4',
+          url: 'https://example.com/soup_a_01.mp4',
           duration_seconds: 5.066667,
           continuity_group: 'soup_a',
           description: '用于开场和收尾'
@@ -46,14 +48,14 @@ const buildExamplePayload = (overrides = {}) => ({
         {
           id: 'soup_b_01',
           filename: 'soup_b_01.mp4',
-          uri: 'https://example.com/soup_b_01.mp4'
+          url: 'https://example.com/soup_b_01.mp4'
         }
       ],
       cooking: [
         {
           id: 'soup_a_04',
           filename: 'soup_a_04.mp4',
-          uri: 'https://example.com/soup_a_04.mp4',
+          url: 'https://example.com/soup_a_04.mp4',
           duration_seconds: 5
         }
       ]
@@ -88,7 +90,7 @@ describe('parseSkillExample', () => {
       groupLabel: '成品特写',
       id: 'soup_a_01',
       filename: 'soup_a_01.mp4',
-      uri: 'https://example.com/soup_a_01.mp4',
+      url: 'https://example.com/soup_a_01.mp4',
       durationSeconds: 5.066667,
       continuityGroup: 'soup_a',
       description: '用于开场和收尾'
@@ -125,7 +127,7 @@ describe('parseSkillExample', () => {
   it('keeps input-only groups with a fallback label', () => {
     const payload = buildExamplePayload();
     payload.inputs.videos.extra_group = [
-      { id: 'extra', filename: 'extra.mp4', uri: 'https://example.com/extra.mp4' }
+      { id: 'extra', filename: 'extra.mp4', url: 'https://example.com/extra.mp4' }
     ];
 
     const example = parseSkillExample(payload);
@@ -159,7 +161,7 @@ describe('parseSkillExample', () => {
     const payload = buildExamplePayload();
     payload.inputs.videos = {
       unknown_group: [
-        { id: 'clip', filename: 'clip.mp4', uri: 'https://example.com/clip.mp4' }
+        { id: 'clip', filename: 'clip.mp4', url: 'https://example.com/clip.mp4' }
       ]
     };
 
@@ -173,21 +175,55 @@ describe('parseSkillExample', () => {
     expect(parseSkillExample('[]')).toBeNull();
   });
 
-  it('returns null when the prompt or all videos are missing', () => {
+  it('returns null when the prompt is missing', () => {
     const withoutPrompt = buildExamplePayload();
     delete withoutPrompt.inputs.prompt;
     delete withoutPrompt.parameters.prompt;
     expect(parseSkillExample(withoutPrompt)).toBeNull();
+  });
 
-    const withoutVideos = buildExamplePayload();
-    withoutVideos.inputs.videos = {};
-    expect(parseSkillExample(withoutVideos)).toBeNull();
+  it('accepts prompt-only examples without media', () => {
+    const example = parseSkillExample({ inputs: { prompt: '生成餐厅引流文案' } });
+    expect(example).toMatchObject({ prompt: '生成餐厅引流文案', videos: [], groups: [] });
+  });
 
-    const withUrilessVideos = buildExamplePayload();
-    withUrilessVideos.inputs.videos = {
+  it('accepts empty video groups and preserves their constraints', () => {
+    const payload = buildExamplePayload();
+    payload.inputs.videos = {};
+    const example = parseSkillExample(payload);
+    expect(example.videos).toEqual([]);
+    expect(example.groups).toHaveLength(2);
+  });
+
+  it('accepts image-only examples without requiring videos', () => {
+    const example = parseSkillExample({
+      inputs: {
+        prompt: '用这张图生成餐厅视频',
+        images: { hero: [{ url: 'https://example.com/hero.jpg' }] }
+      }
+    });
+    expect(example).toMatchObject({ prompt: '用这张图生成餐厅视频', videos: [], images: [expect.objectContaining({ url: 'https://example.com/hero.jpg' })] });
+  });
+
+  it.each(['images', 'videos'])('normalizes legacy URI and prefers URL for %s', (kind) => {
+    const example = parseSkillExample({ inputs: { prompt: '使用素材', [kind]: { hero: [
+      { uri: 'https://example.com/legacy' },
+      { url: ' https://example.com/preferred ', uri: 'https://example.com/ignored' },
+      { url: '  ', uri: 'https://example.com/fallback' }
+    ] } } });
+    expect(example[kind].map((file) => file.url)).toEqual([
+      'https://example.com/legacy', 'https://example.com/preferred', 'https://example.com/fallback'
+    ]);
+    expect(example[kind].every((file) => !Object.hasOwn(file, 'uri'))).toBe(true);
+    expect(buildSkillExampleApplyDetail(example)[kind]).toEqual(example[kind]);
+  });
+
+  it('skips videos without a URL without rejecting the example', () => {
+    const payload = buildExamplePayload();
+    payload.inputs.videos = {
       finished_food: [{ id: 'no-uri', filename: 'a.mp4' }]
     };
-    expect(parseSkillExample(withUrilessVideos)).toBeNull();
+    expect(parseSkillExample(payload).videos).toEqual([]);
   });
 });
 
@@ -312,5 +348,115 @@ describe('apply detail lifecycle', () => {
     expect(consumePendingSkillExample()).toBeNull();
 
     window.removeEventListener(SKILL_EXAMPLE_APPLY_EVENT, listener);
+  });
+});
+
+
+describe('image example groups', () => {
+  const payload = () => ({ parameters: { images: { type: 'image_groups', groups: [
+    { id: 'hero', label: '主图', required: true, min_count: 1, max_count: 2 }
+  ] } }, inputs: { prompt: '使用主图', images: { hero: [
+    { id: 'cover', filename: 'hero.webp', url: 'https://example.com/hero.webp' }
+  ] } } });
+  it('parses image definitions, URLs and constraints through apply detail', () => {
+    const example = parseSkillExample(JSON.stringify(payload()));
+    expect(example.groups).toEqual([expect.objectContaining({ id: 'hero', kind: 'image', label: '主图', required: true, minCount: 1, maxCount: 2 })]);
+    expect(example.images).toEqual([expect.objectContaining({ groupId: 'hero', groupLabel: '主图', filename: 'hero.webp', url: 'https://example.com/hero.webp' })]);
+    expect(buildSkillExampleApplyDetail(example).images).toEqual(example.images);
+    expect(example.videos).toEqual([]);
+  });
+  it('preserves empty groups and input-only groups, skipping invalid files', () => {
+    const raw = payload();
+    raw.inputs.images = { extra: [{ url: 'https://example.com/a.png' }, {}, null] };
+    const example = parseSkillExample(raw);
+    expect(example.groups.map(({ id, kind }) => [id, kind])).toEqual([['hero', 'image'], ['extra', 'image']]);
+    expect(example.images).toHaveLength(1);
+    expect(example.images[0].groupLabel).toBe('extra');
+  });
+  it('separates same-name image and video groups and unusual ids', () => {
+    const raw = payload();
+    raw.parameters.videos = { groups: [{ id: 'hero', label: '视频' }] };
+    raw.inputs.videos = { hero: [{ url: 'https://example.com/v.mp4' }] };
+    const example = parseSkillExample(raw);
+    expect(example.groups).toHaveLength(2);
+    expect(new Set(example.groups.map((g) => buildSkillExampleGroupSlotId(g.id, g.kind))).size).toBe(2);
+    expect(buildSkillExampleGroupSlotId('hero', 'image')).not.toBe(buildSkillExampleGroupSlotId('image:hero', 'video'));
+    expect(example.videos[0].groupLabel).toBe('视频');
+  });
+});
+
+
+describe('Composer example attachment construction', () => {
+  // Exercise the production helper without mounting the entire Electron editor.
+  const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
+  const helper = source.slice(source.indexOf('const createSkillExampleAttachmentEntries ='), source.indexOf('const renderFilePreviewContent ='));
+  const create = new Function('buildSkillExampleGroupSlotId', 'createRemoteAttachmentEntry', 'guessFileTypeFromName', 'getRemoteMediaUrlFileName', 'formatSkillExampleDuration', `${helper}; return createSkillExampleAttachmentEntries;`)(
+    buildSkillExampleGroupSlotId, async (entry) => ({ ...entry }),
+    (name) => name.endsWith('.webp') ? 'image/webp' : 'text/plain',
+    (url) => String(url).split('/').pop(), formatSkillExampleDuration
+  );
+  it('creates real image metadata and separates mixed group slots and identities', async () => {
+    const entries = await create({ groups: [{ id: 'hero', kind: 'image' }, { id: 'hero', kind: 'video' }],
+      images: [{ id: 'same', groupId: 'hero', url: 'https://example.com/a.webp' }],
+      videos: [{ id: 'same', groupId: 'hero', url: 'https://example.com/a.mp4', durationSeconds: 3 }] });
+    expect(entries.map((e) => e.fileType)).toEqual(['video/mp4', 'image/webp']);
+    expect(new Set(entries.map((e) => e.uid)).size).toBe(2);
+    expect(new Set(entries.map((e) => e.slotId)).size).toBe(2);
+    expect(entries[0].durationLabel).toBe('00:03');
+    expect(entries[1]).toMatchObject({ sourceType: 'skill_example', url: 'https://example.com/a.webp' });
+  });
+  it.each(['images', 'videos'])('accepts legacy URI and prefers URL when constructing %s', async (kind) => {
+    const entries = await create({ [kind]: [
+      { uri: 'https://example.com/legacy.webp' },
+      { url: ' https://example.com/preferred.webp ', uri: 'https://example.com/ignored.png' },
+      { url: ' ', uri: 'https://example.com/fallback.webp' }
+    ] });
+    expect(entries.map((entry) => entry.url)).toEqual([
+      'https://example.com/legacy.webp', 'https://example.com/preferred.webp', 'https://example.com/fallback.webp'
+    ]);
+    expect(entries.map((entry) => entry.fileType)).toEqual(Array(3).fill(kind === 'images' ? 'image/webp' : 'video/mp4'));
+  });
+  it('handles prompt-only examples without creating attachments', async () => {
+    expect(await create({ prompt: '只填文本' })).toEqual([]);
+  });
+});
+
+
+describe('Composer typed group upload handling', () => {
+  const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
+  const branch = source.slice(source.indexOf('    if (skillExamplePendingGroup) {'), source.indexOf('    const uploadableFiles ='));
+  const upload = new Function('skillExamplePendingGroup', 'resolvedAcceptedFiles', 'uploadedFileMeta', 'message',
+    'pendingTemplateSlotAutoReferenceRef', 'getResolvedUploadFileType', 'createLocalAttachmentEntry', 'setUploadFileList', 'setUploadedFileMeta',
+    `return (async () => { ${branch} })();`);
+  const run = async (kind, files, existing = [], maxCount = 2) => {
+    const message = { error: vi.fn() };
+    let uploaded = [];
+    let meta = [];
+    await upload({ kind, slotId: 'target', label: '主图', maxCount }, files, existing, message, { current: 'target' },
+      (file) => file.type, async (file) => ({ uploadItem: { uid: file.name }, fileMeta: { name: file.name, fileType: file.type } }),
+      (update) => { uploaded = update([]); }, (update) => { meta = update([]); });
+    return { message, uploaded, meta };
+  };
+  it('accepts images only and attaches them to their group', async () => {
+    const result = await run('image', [{ name: 'a.png', type: 'image/png' }, { name: 'v.mp4', type: 'video/mp4' }]);
+    expect(result.meta).toEqual([{ name: 'a.png', fileType: 'image/png', slotId: 'target', slotLabel: '主图', sourceType: 'skill_example' }]);
+    expect(result.uploaded).toEqual([{ uid: 'a.png', slotId: 'target' }]);
+  });
+  it('rejects the wrong media type and preserves video upload support', async () => {
+    const wrong = await run('image', [{ type: 'video/mp4' }]);
+    expect(wrong.meta).toEqual([]);
+    expect(wrong.message.error).toHaveBeenCalledWith('「主图」仅支持图片文件');
+    const video = await run('video', [{ name: 'v.mp4', type: 'video/mp4' }, { type: 'image/png' }]);
+    expect(video.meta).toHaveLength(1);
+    expect(video.meta[0].fileType).toBe('video/mp4');
+  });
+  it('enforces max_count against existing group attachments', async () => {
+    const files = [{ name: 'a.png', type: 'image/png' }, { name: 'b.png', type: 'image/png' }];
+    const result = await run('image', files, [{ slotId: 'target' }]);
+    expect(result.meta).toHaveLength(1);
+    expect(result.message.error).toHaveBeenCalledWith('「主图」最多 2 个，已保留前 1 个');
+    const full = await run('image', files, [{ slotId: 'target' }, { slotId: 'target' }]);
+    expect(full.meta).toEqual([]);
+    expect(full.message.error).toHaveBeenCalledWith('「主图」最多 2 个，请先移除后再添加');
   });
 });

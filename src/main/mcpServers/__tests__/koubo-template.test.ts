@@ -112,6 +112,120 @@ describe('KouboTemplateServer', () => {
     ])
   })
 
+  describe('external URL-only backend tasks', () => {
+    const external = () => new KouboTemplateServer({ external: true })
+    const video = 'https://example.com/source.mp4'
+    beforeEach(() => { storeState.delete('auth.refresh_token') })
+
+    it('lists only submit/task_status and rejects every legacy tool', async () => {
+      expect((await listTools(external())).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+      for (const name of ['submit_koubo_template_task', 'start_koubo_template_job', 'get_koubo_template_job']) {
+        expect((await callTool(external(), name, {})).isError).toBe(true)
+      }
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    })
+
+    it('submits once with API key and preserves backend fields without polling or uploads', async () => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      const backend = { task_id: 'backend-1', billing: { points: 2 }, queue_name: 'koubo' }
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse(backend))
+      const result = await callTool(external(), 'submit', {
+        template: 'classic_detail_yellow', videoUrl: video,
+        params: { coverUrls: ['https://example.com/cover.png'], kongjingUrls: [video], remove_silence: false }
+      })
+      expect(result.isError).not.toBe(true)
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ ...backend, action: 'submit', status: 'submitted' })
+      expect(mockNetFetch).toHaveBeenCalledOnce()
+      const [url, options] = mockNetFetch.mock.calls[0]
+      expect(url).toContain('/cut_jianying/agent/submit_agent_task')
+      expect(options.headers.Authorization).toBe('Bearer external-key')
+      expect(options.signal).toBeInstanceOf(AbortSignal)
+      expect(JSON.parse(options.body).params).toEqual({
+        video_url: [video], cover: ['https://example.com/cover.png'], kongjing_urls: [video], remove_silence: false
+      })
+      expect(mockStat).not.toHaveBeenCalled()
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      '/tmp/video.mp4', 'file:///tmp/video.mp4', 'data:video/mp4;base64,YQ==',
+      'http://localhost/a', 'http://127.0.0.1/a', 'http://10.0.0.1/a',
+      'http://[::1]/a', 'http://[::ffff:127.0.0.1]/a', 'https://user:pass@example.com/a',
+      'ftp://example.com/a', 'https://example.com/a b', 'http://example.internal/a', 12, null
+    ])('rejects invalid media in shadowed and nested aliases: %s', async (bad) => {
+      for (const args of [
+        { videoUrl: video, video_urls: [bad] },
+        { videoUrl: video, params: { cover: [bad] } },
+        { videoUrl: video, params: { nested: { kongjingUrls: [bad] } } }
+      ]) {
+        const result = await callTool(external(), 'submit', { template: 'knowledge_pip', ...args })
+        expect(result.isError).toBe(true)
+      }
+      expect(mockNetFetch).not.toHaveBeenCalled()
+      expect(mockStat).not.toHaveBeenCalled()
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+
+    it.each(['processing', 'success', 'failed', 'error'])('queries %s once and retains output, billing and error', async (status) => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      const backend = { status, output: { draft_id: 'draft-1', error: 'backend detail' }, billing: { points: 5 }, purchase_link: 'https://example.com/pay' }
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse(backend))
+      const result = await callTool(external(), 'task_status', { task_id: ' backend-1 ' })
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ ...backend, task_id: 'backend-1' })
+      expect(Boolean(result.isError)).toBe(['failed', 'error'].includes(status))
+      expect(mockNetFetch).toHaveBeenCalledOnce()
+      expect(mockNetFetch.mock.calls[0][0]).toContain('/task_status?task_id=backend-1')
+    })
+
+    it('reports query transport failures as unknown, not backend task failure', async () => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      mockNetFetch.mockRejectedValueOnce(new Error('offline'))
+      const result = await callTool(external(), 'task_status', { task_id: 'backend-1' })
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ status: 'unknown', success: false, task_id: 'backend-1', error: 'offline' })
+    })
+
+    it('preserves billing and errors on HTTP query failure while status remains unknown', async () => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      const backend = { error: 'payment required', billing: { points: 10 }, purchase_link: 'https://example.com/pay' }
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse(backend, false, 402))
+      const result = await callTool(external(), 'task_status', { task_id: 'backend-1' })
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ ...backend, status: 'unknown', success: false })
+    })
+
+    it.each([{}, { task_id: ' ' }, { task_id: 123 }])('rejects invalid status IDs without network calls', async (args) => {
+      const result = await callTool(external(), 'task_status', args)
+      expect(result.isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    })
+
+    it('supports nested video aliases and rejects explicit false even with success status', async () => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ task_id: 'backend-1', status: 'success', success: false, error: 'rejected' }))
+      const result = await callTool(external(), 'submit', { agent_id: 'custom', params: { videoUrls: [video] } })
+      expect(JSON.parse(mockNetFetch.mock.calls[0][1].body).params.video_url).toEqual([video])
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ success: false, error: 'rejected' })
+    })
+
+    it.each([null, [], 'bad response', {}, { status: 'unknown' }])('marks malformed query response unknown: %s', async (backend) => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse(backend))
+      const result = await callTool(external(), 'task_status', { task_id: 'backend-1' })
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ status: 'unknown', success: false })
+    })
+
+    it.each([{ success: false, error: 'insufficient credits', billing: { points: 0 } }, { message: 'missing task' }])('marks failed submission isError and preserves response', async (backend) => {
+      storeState.set('auth.vectcut_api_key', 'external-key')
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse(backend))
+      const result = await callTool(external(), 'submit', { template: 'knowledge_pip', videoUrl: video })
+      expect(result.isError).toBe(true)
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ ...backend, success: false, status: 'failed' })
+    })
+  })
+
   it('authenticates packaging submission and polling in an API-key-only environment', async () => {
     storeState.delete('auth.refresh_token')
     storeState.set('auth.vectcut_api_key', 'external-packaging-key')

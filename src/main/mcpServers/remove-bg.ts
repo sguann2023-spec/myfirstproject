@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool, ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
+import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:RemoveBg')
@@ -124,6 +125,14 @@ const TOOLS: Tool[] = [
   }
 ]
 
+const MODES = { remove_bg: 'submit_remove_bg_task', text_behind: 'submit_remove_bg_text_behind_task', pip: 'submit_remove_bg_pip_task' } as const
+const EXTERNAL_TOOLS: Tool[] = [
+  { name: 'submit', description: 'Submit a backend cutout task immediately. Public HTTP(S) media URLs only; poll task_status separately.', inputSchema: {
+    type: 'object', properties: { ...Object.assign({}, ...TOOLS.map(tool => tool.inputSchema.properties)), mode: { type: 'string', enum: Object.keys(MODES) }, video_url: { type: 'string', description: 'Public HTTP(S) video URL only.' }, background_image_url: { type: 'string', description: 'Public HTTP(S) image URL only.' }, background_video_url: { type: 'string', description: 'Public HTTP(S) video URL only.' } }, required: ['mode', 'video_url'], additionalProperties: false
+  } },
+  { name: 'task_status', description: 'Query a backend task once without waiting or downloading.', inputSchema: { type: 'object', properties: { task_id: { type: 'string', minLength: 1 }, mode: { type: 'string', enum: Object.keys(MODES) } }, required: ['task_id'], additionalProperties: false } }
+]
+
 type Extra = {
   signal?: AbortSignal
   _meta?: { progressToken?: ProgressToken }
@@ -148,26 +157,72 @@ type TaskResponse = {
   [key: string]: unknown
 }
 
+function validateExternalMedia(value: unknown, field = '') {
+  if (Array.isArray(value)) { value.forEach((item) => validateExternalMedia(item, field)); return }
+  if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) validateExternalMedia(entry, field ? `${field}.${key}` : key)
+    return
+  }
+  if (/(^|\.)(base_video_track_name|base_video_relative_index|base_video_volume)$/.test(field)) return
+  if (!/(url|path|image|video|audio|frame|source|reference)/i.test(field) || ['type', 'role', 'generateAudio', 'generate_audio'].includes(field)) return
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error(`'${field}' requires a public HTTP(S) URL`) }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+      (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+    throw new Error(`'${field}' requires a public HTTP(S) URL, not a local/private address`)
+  }
+}
+
 class RemoveBgServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
   private token: { value: string; expiresAt: number } | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(private readonly options: { external?: boolean } = {}) {
     this.mcpServer = new McpServer({ name: 'remove-bg', version: '1.0.0' }, { capabilities: { tools: {} } })
-    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
+    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: this.options.external ? EXTERNAL_TOOLS : TOOLS }))
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       try {
+        if (this.options.external) return await this.callExternal(request.params.name, request.params.arguments ?? {})
         const tool = TOOLS.find((item) => item.name === request.params.name)
         if (!tool) throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`)
         return await this.submitAndWait(tool, (request.params.arguments ?? {}) as Record<string, unknown>, extra as Extra)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error('Remove background task failed', { error: message })
-        return { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true }
+        return this.options.external ? this.externalResult({ action: request.params.name, task_id: request.params.arguments?.task_id, status: request.params.name === 'task_status' ? 'unknown' : 'failed', success: false, error: message }) : { content: [{ type: 'text' as const, text: `Error: ${message}` }], isError: true }
       }
     })
+  }
+
+  private externalResult(result: Record<string, unknown>) {
+    const failed = result.success === false || ['failed', 'error', 'cancelled', 'canceled'].includes(String(result.status).toLowerCase())
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ provider: 'vectcut', ...result }, null, 2) }], ...(failed ? { isError: true } : {}) }
+  }
+
+  private async callExternal(name: string, args: Record<string, unknown>) {
+    if (name === 'task_status') {
+      if (typeof args.task_id !== 'string' || !args.task_id.trim()) throw new Error('task_id is required')
+      const result = await this.request('task_status', 'GET', undefined, args.task_id.trim())
+      return this.externalResult({ action: name, task_id: args.task_id, ...result, mode: result.mode ?? args.mode, status: result.status || 'unknown' })
+    }
+    if (name !== 'submit') throw new Error(`Unknown tool: ${name}`)
+    validateExternalMedia(args)
+    if (!Object.prototype.hasOwnProperty.call(MODES, String(args.mode))) throw new Error('Invalid mode')
+    const mode = args.mode as keyof typeof MODES
+    const tool = TOOLS.find(tool => tool.name === MODES[mode])!
+    const { mode: _mode, ...payload } = args
+    const fields = Object.keys(tool.inputSchema.properties ?? {})
+    if (Object.keys(payload).some(key => !fields.includes(key))) throw new Error('Unsupported parameter')
+    if (typeof payload.video_url !== 'string' || !payload.video_url) throw new Error('video_url is required')
+    if (mode === 'text_behind' && (typeof payload.text !== 'string' || !payload.text.trim())) throw new Error('text is required')
+    if (mode === 'pip' && (Boolean(payload.background_image_url) === Boolean(payload.background_video_url) || !PIP_TEMPLATES.includes(String(payload.template)))) throw new Error('Provide one background and a valid template')
+    const result = await this.request(tool.name, 'POST', payload)
+    return this.externalResult({ action: name, ...result, mode, success: result.success !== false && Boolean(result.task_id), status: result.status || (result.task_id ? 'submitted' : 'failed') })
   }
 
   private async refreshToken(): Promise<string> {
@@ -176,6 +231,7 @@ class RemoveBgServer {
     const response = await net.fetch(OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {}),
       body: new URLSearchParams({
         grant_type: 'refresh_token', refresh_token: refreshToken,
         client_id: OAUTH_CLIENT_ID, client_secret: OAUTH_CLIENT_SECRET
@@ -206,12 +262,18 @@ class RemoveBgServer {
     const fetchWithToken = (token: string) => net.fetch(url.toString(), {
       method,
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      ...(body ? { body: JSON.stringify(body) } : {})
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
     })
     let response = await fetchWithToken(await this.getToken())
     if (response.status === 401) response = await fetchWithToken(await this.getToken(true))
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
+      if (this.options.external) {
+        let result: Record<string, unknown> = {}
+        try { result = JSON.parse(detail) } catch { /* retain non-JSON failure detail */ }
+        return { ...result, success: false, status: result.status || (method === 'GET' ? 'unknown' : 'failed'), error: result.error || detail || `HTTP ${response.status}` } as TaskResponse
+      }
       throw new Error(`Remove background ${endpoint} failed (${response.status}): ${detail || 'unknown error'}`)
     }
     return (await response.json()) as TaskResponse

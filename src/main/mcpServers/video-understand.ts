@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+import ipaddr from 'ipaddr.js'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
@@ -132,6 +134,60 @@ const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
     },
     additionalProperties: true
   }
+}
+
+const EXTERNAL_TASK_TIMEOUT_MS = 30 * 60 * 1000
+const EXTERNAL_TASK_TTL_MS = 24 * 60 * 60 * 1000
+const EXTERNAL_TASK_CAPACITY = 100
+const EXTERNAL_TOOLS: Tool[] = [
+  {
+    ...SUBMIT_VIDEO_DETAIL_TASK_TOOL, name: 'submit',
+    description: 'Submit public HTTP(S) videos for background frame and speech analysis. Returns a local task_id immediately; poll task_status. Tasks expire 24 hours after completion and do not survive app restart.',
+    inputSchema: {
+      ...SUBMIT_VIDEO_DETAIL_TASK_TOOL.inputSchema,
+      properties: Object.fromEntries(Object.entries(SUBMIT_VIDEO_DETAIL_TASK_TOOL.inputSchema.properties || {}).map(([key, value]) =>
+        [key, ['videoUrl', 'video_url', 'videoUrls', 'video_urls'].includes(key)
+          ? { ...(value as object), description: 'Public HTTP(S) video URL(s) only; local/private sources are forbidden.' } : value]))
+    }
+  },
+  { name: 'task_status', description: 'Read a local background task snapshot without contacting the backend.',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'], additionalProperties: false } }
+]
+type ExternalTask = {
+  task_id: string; status: 'running' | 'success' | 'failed'; success: boolean
+  created_at: number; completed_at?: number; result?: unknown; error?: string
+}
+
+// Syntax-only boundary, like image: no DNS/HEAD probes. This does NOT pin DNS or
+// validate redirect destinations; the existing Electron downloader is not a full SSRF sandbox.
+function validateExternalVideoReferences(args: Record<string, unknown>) {
+  const check = (value: unknown, field: string) => {
+    if (Array.isArray(value)) { value.forEach((entry) => check(entry, field)); return }
+    if (value && typeof value === 'object') {
+      const entries = Object.values(value)
+      if (!entries.length) throw new Error(`'${field}' requires public HTTP(S) URLs`)
+      entries.forEach((entry) => check(entry, field)); return
+    }
+    if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires public HTTP(S) URLs`)
+    let url: URL
+    try { url = new URL(value) } catch { throw new Error(`'${field}' requires public HTTP(S) URLs`) }
+    const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+        (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+        (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+      throw new Error(`'${field}' requires public HTTP(S) URLs, not local/private addresses`)
+    }
+  }
+  const visit = (record: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(record)) {
+      if (/url|uri|path|file|source|video|image|audio|reference/i.test(key)) check(value, key)
+      else if (value && typeof value === 'object') {
+        if (Array.isArray(value)) value.forEach((entry) => { if (entry && typeof entry === 'object') visit(entry as Record<string, unknown>) })
+        else visit(value as Record<string, unknown>)
+      }
+    }
+  }
+  visit(args)
 }
 
 type PendingToken = {
@@ -671,9 +727,18 @@ class VideoUnderstandServer {
   private refreshPromise: Promise<string> | null = null
   private static readonly videoQueue = new VideoTaskQueue(MAX_CONCURRENT_VIDEOS)
 
-  constructor(workspacePath?: string) {
-    this.workspacePath = workspacePath
-    this.mcpServer = new McpServer(
+  private readonly external: boolean
+  private readonly externalTasks = new Map<string, ExternalTask>()
+  private externalWorkCount = 0
+
+  constructor(workspacePathOrOptions?: string | { external?: boolean; workspacePath?: string }, options: { external?: boolean } = {}) {
+    this.workspacePath = typeof workspacePathOrOptions === 'string' ? workspacePathOrOptions : workspacePathOrOptions?.workspacePath
+    this.external = (typeof workspacePathOrOptions === 'object' ? workspacePathOrOptions.external : options.external) === true
+    this.mcpServer = this.createMcpServer()
+  }
+
+  public createMcpServer(): McpServer {
+    const mcpServer = new McpServer(
       {
         name: 'video-understand',
         version: '2.0.0'
@@ -684,19 +749,30 @@ class VideoUnderstandServer {
         }
       }
     )
-    this.setupHandlers()
+    this.setupHandlers(mcpServer)
+    return mcpServer
   }
 
-  private setupHandlers() {
-    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_VIDEO_DETAIL_TASK_TOOL]
+  private setupHandlers(mcpServer: McpServer) {
+    mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: this.external ? EXTERNAL_TOOLS : [SUBMIT_VIDEO_DETAIL_TASK_TOOL]
     }))
 
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.external) {
+          if (toolName === 'submit') return await this.submitExternalTask(args)
+          if (toolName === 'task_status') {
+            this.pruneExternalTasks()
+            const task = typeof args.task_id === 'string' ? this.externalTasks.get(args.task_id.trim()) : undefined
+            if (!task) throw new Error('Unknown or expired task_id')
+            return { ...this.formatJsonResult({ ...task }), ...(task.status === 'failed' ? { isError: true } : {}) }
+          }
+          throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${toolName}`)
+        }
         switch (toolName) {
           case 'submit_video_detail_task':
             return await this.submitVideoDetailTask(args as Record<string, unknown>, extra as ToolExecutionExtra)
@@ -712,6 +788,44 @@ class VideoUnderstandServer {
         }
       }
     })
+  }
+
+  private pruneExternalTasks() {
+    for (const [id, task] of this.externalTasks) {
+      if (task.completed_at !== undefined && Date.now() - task.completed_at >= EXTERNAL_TASK_TTL_MS) this.externalTasks.delete(id)
+    }
+  }
+
+  private async submitExternalTask(args: Record<string, unknown>) {
+    validateExternalVideoReferences(args)
+    await this.buildJobConfig(args) // Parameter validation only: no downloads or auth.
+    this.pruneExternalTasks()
+    if (this.externalTasks.size >= EXTERNAL_TASK_CAPACITY || this.externalWorkCount >= MAX_CONCURRENT_VIDEOS) throw new Error('Background task capacity reached; retry after tasks expire')
+    const task: ExternalTask = { task_id: randomUUID(), status: 'running', success: true, created_at: Date.now() }
+    this.externalTasks.set(task.task_id, task)
+    const input = structuredClone(args)
+    this.externalWorkCount += 1
+    setImmediate(() => {
+      const controller = new AbortController()
+      let timer: ReturnType<typeof setTimeout>
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new Error('Video understanding timed out after 30 minutes')) }, EXTERNAL_TASK_TIMEOUT_MS)
+      })
+      // Parsing belongs to the background deadline too. Never use transport cancellation/progress.
+      const work = async () => {
+        const response = await this.submitVideoDetailTask({ ...input, includeSummaries: true }, { requestId: task.task_id, signal: controller.signal })
+        const result = JSON.parse(response.content[0].text)
+        return result
+      }
+      void Promise.race([work().finally(() => { this.externalWorkCount -= 1 }), timeout]).then((result) => {
+        const failed = result.success === false || Boolean(result.error)
+        Object.assign(task, { status: failed ? 'failed' : 'success', success: !failed, result,
+          ...(failed ? { error: String(result.error || 'Video understanding failed') } : {}) })
+      }).catch((error) => {
+        Object.assign(task, { status: 'failed', success: false, error: toErrorMessage(error) })
+      }).finally(() => { clearTimeout(timer!); task.completed_at = Date.now() })
+    })
+    return this.formatJsonResult({ ...task })
   }
 
   public async executeDirectRequest(args: Record<string, unknown>, extra: ToolExecutionExtra) {
@@ -1039,26 +1153,32 @@ class VideoUnderstandServer {
     }
   }
 
-  private async downloadRemoteVideo(remoteUrl: string): Promise<{ filePath: string; cleanupDir: string }> {
+  private async downloadRemoteVideo(remoteUrl: string, signal?: AbortSignal): Promise<{ filePath: string; cleanupDir: string }> {
     const cleanupDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'vectcut-video-understand-remote-'))
     const filePath = path.join(cleanupDir, `source${this.getRemoteExtension(remoteUrl)}`)
-    const response = await net.fetch(remoteUrl)
+    try {
+      const response = await (signal ? net.fetch(remoteUrl, { signal }) : net.fetch(remoteUrl))
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      throw new Error(`Failed to download remote video (${response.status}): ${body || remoteUrl}`)
+      if (!response.ok) {
+        const body = await response.text().catch(() => '')
+        throw new Error(`Failed to download remote video (${response.status}): ${body || remoteUrl}`)
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer())
+      signal?.throwIfAborted()
+      await fsPromises.writeFile(filePath, buffer)
+      return { filePath, cleanupDir }
+    } catch (error) {
+      await fsPromises.rm(cleanupDir, { recursive: true, force: true }).catch(() => undefined)
+      throw error
     }
-
-    const buffer = Buffer.from(await response.arrayBuffer())
-    await fsPromises.writeFile(filePath, buffer)
-    return { filePath, cleanupDir }
   }
 
-  private async prepareVideoSource(input: unknown): Promise<PreparedVideoSource> {
+  private async prepareVideoSource(input: unknown, signal?: AbortSignal): Promise<PreparedVideoSource> {
     const normalizedSource = this.normalizeSource(input)
 
     if (isHttpLikeUrl(normalizedSource)) {
-      const downloaded = await this.downloadRemoteVideo(normalizedSource)
+      const downloaded = await this.downloadRemoteVideo(normalizedSource, signal)
       return {
         originalInput: normalizedSource,
         localPath: downloaded.filePath,
@@ -1393,7 +1513,8 @@ class VideoUnderstandServer {
     try {
       if (options.signal?.aborted) throw new Error('任务已取消')
       await options.report(options.videoIndex, 0.02, '进度')
-      preparedSource = await this.prepareVideoSource(options.source)
+      preparedSource = await this.prepareVideoSource(options.source, options.signal)
+      options.signal?.throwIfAborted()
       await options.report(options.videoIndex, 0.08, '进度')
 
       const { probe } = await this.probeMedia(preparedSource.localPath)
@@ -1414,6 +1535,7 @@ class VideoUnderstandServer {
         await options.report(options.videoIndex, 0.15, '进度')
         const extractedFrames = await this.extractFrames(preparedSource.localPath, options.fps, extractedFramesDir)
 
+        options.signal?.throwIfAborted()
         await options.report(options.videoIndex, 0.4, '进度')
         const compressedFrames = await this.compressFrames(extractedFrames, options.fps, durationSeconds, compressedFramesDir)
 

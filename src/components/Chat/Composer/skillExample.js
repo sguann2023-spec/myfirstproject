@@ -1,8 +1,8 @@
 // Shared helpers for the skill usage-template format (example.json).
 //
 // A skill folder may ship an example.json describing one runnable example:
-// typed parameters (including grouped video inputs), the example prompt that
-// should be auto-filled into the chat input, and the remote video assets that
+// typed parameters (including grouped image/video inputs), the example prompt that
+// should be auto-filled into the chat input, and the remote media assets that
 // should be attached when the user clicks 去使用 in the skill store.
 
 export const SKILL_EXAMPLE_FILENAME = 'example.json';
@@ -24,9 +24,9 @@ export const formatSkillExampleDuration = (durationInSeconds) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-const collectVideoGroups = (parameters) => {
-  const videoParameter = isPlainObject(parameters?.videos) ? parameters.videos : {};
-  const groups = Array.isArray(videoParameter.groups) ? videoParameter.groups : [];
+const collectMediaGroups = (parameters, kind) => {
+  const mediaParameter = isPlainObject(parameters?.[kind]) ? parameters[kind] : {};
+  const groups = Array.isArray(mediaParameter.groups) ? mediaParameter.groups : [];
   const groupsById = new Map();
   groups.filter(isPlainObject).forEach((group) => {
     const groupId = String(group.id || '').trim();
@@ -35,9 +35,9 @@ const collectVideoGroups = (parameters) => {
   return groupsById;
 };
 
-const collectExampleGroups = (parameters, videosInput) => {
-  const videoParameter = isPlainObject(parameters?.videos) ? parameters.videos : {};
-  const groupDefinitions = Array.isArray(videoParameter.groups) ? videoParameter.groups : [];
+const collectExampleGroups = (parameters, videosInput, kind) => {
+  const mediaParameter = isPlainObject(parameters?.[kind]) ? parameters[kind] : {};
+  const groupDefinitions = Array.isArray(mediaParameter.groups) ? mediaParameter.groups : [];
 
   const groups = [];
   const seenIds = new Set();
@@ -84,8 +84,8 @@ export const formatSkillExampleCountHint = (group = {}) => {
   return hint;
 };
 
-const collectExampleVideos = (inputs, groupsById) => {
-  const videosInput = isPlainObject(inputs?.videos) ? inputs.videos : {};
+const collectExampleMedia = (inputs, groupsById, kind) => {
+  const videosInput = isPlainObject(inputs?.[kind]) ? inputs[kind] : {};
   const videos = [];
 
   Object.entries(videosInput).forEach(([groupId, groupFiles]) => {
@@ -95,8 +95,8 @@ const collectExampleVideos = (inputs, groupsById) => {
     const groupLabel = String(group?.label || '').trim() || normalizedGroupId;
 
     groupFiles.filter(isPlainObject).forEach((file) => {
-      const uri = String(file.uri || '').trim();
-      if (!uri) return;
+      const url = String(file.url || '').trim() || String(file.uri || '').trim();
+      if (!url) return;
       const filename = String(file.filename || '').trim();
       videos.push({
         groupId: normalizedGroupId,
@@ -104,7 +104,7 @@ const collectExampleVideos = (inputs, groupsById) => {
         id: String(file.id || '').trim() || filename,
         label: String(file.label || '').trim() || groupLabel,
         filename,
-        uri,
+        url,
         durationSeconds: normalizeDurationSeconds(file.duration_seconds),
         continuityGroup: String(file.continuity_group || '').trim(),
         description: String(file.description || '').trim()
@@ -116,7 +116,7 @@ const collectExampleVideos = (inputs, groupsById) => {
 };
 
 // Returns a normalized example payload, or null when the skill does not ship a
-// usable example (missing/invalid JSON, no prompt, or no video inputs).
+// usable example (missing/invalid JSON or no prompt).
 export const parseSkillExample = (raw) => {
   let payload = raw;
   if (typeof raw === 'string') {
@@ -132,9 +132,11 @@ export const parseSkillExample = (raw) => {
   const parameters = isPlainObject(payload.parameters) ? payload.parameters : {};
   const prompt = String(inputs.prompt ?? parameters?.prompt?.default ?? '').trim();
   const model = String(inputs.model ?? parameters?.model?.default ?? '').trim();
-  const videos = collectExampleVideos(inputs, collectVideoGroups(parameters));
+  const videos = collectExampleMedia(inputs, collectMediaGroups(parameters, 'videos'), 'videos');
 
-  if (!prompt || videos.length === 0) return null;
+  const images = collectExampleMedia(inputs, collectMediaGroups(parameters, 'images'), 'images');
+
+  if (!prompt) return null;
 
   const displayInfo = isPlainObject(payload.display_info) ? payload.display_info : {};
   return {
@@ -142,7 +144,11 @@ export const parseSkillExample = (raw) => {
     title: String(payload.title || displayInfo.title || '').trim(),
     prompt,
     model,
-    groups: collectExampleGroups(parameters, inputs?.videos),
+    groups: [
+      ...collectExampleGroups(parameters, inputs?.videos, 'videos').map((group) => ({ ...group, kind: 'video' })),
+      ...collectExampleGroups(parameters, inputs?.images, 'images').map((group) => ({ ...group, kind: 'image' }))
+    ],
+    images,
     videos
   };
 };
@@ -176,6 +182,7 @@ export const buildSkillExampleApplyDetail = (example, skillName = '') => ({
   skillName: String(example?.skillName || skillName || '').trim(),
   prompt: String(example?.prompt || '').trim(),
   model: String(example?.model || '').trim(),
+  images: Array.isArray(example?.images) ? example.images : [],
   videos: Array.isArray(example?.videos) ? example.videos : [],
   groups: Array.isArray(example?.groups) ? example.groups : []
 });
@@ -200,3 +207,7 @@ export const dispatchSkillExampleApply = (detail) => {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
   window.dispatchEvent(new CustomEvent(SKILL_EXAMPLE_APPLY_EVENT, { detail }));
 };
+
+// Namespace both media kinds so identical or prefixed group ids never mix.
+export const buildSkillExampleGroupSlotId = (groupId, kind = 'video') =>
+  `skill-example-group:${kind}:${String(groupId || '').trim()}`;

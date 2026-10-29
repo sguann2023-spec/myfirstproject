@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -24,7 +25,7 @@ type ExecutionExtra = {
 }
 const TOOL: Tool = {
   name: 'render_draft',
-  description: '草稿渲染（云渲染 / 渲染 / 预渲染，cloud draft render / preview）：用于字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面的真实效果验收。Verify subtitles, animation timing, track layering, audio effects and volume, fonts, transitions and compositing. Prefer lightweight preview tools first; use render_draft as a last resort when those cannot verify the actual result. Render an existing cloud draft_id. If the working draft exceeds the limits, create a separate cloud test draft <=5 seconds reproducing the relevant layers, timing, styles and audio, then render it without changing the working draft; do not abandon verification because the working draft is too long. Use cloud-accessible HTTP(S) assets; full video/audio sources must be <=20 seconds and images <=20 MiB. Prepare eligible short source assets when needed: timeline trimming alone does not shorten the full source. No draft JSON, local output path, or MP4 download. Returns a cloud video URL and actual billing when reported.',
+  description: '草稿预渲染（预渲染 / preview）：用于字幕验收、动画时序、轨道层叠、声音效果、声音大小、字体效果、转场效果、组合画面的真实效果验收。Verify subtitles, animation timing, track layering, audio effects and volume, fonts, transitions and compositing. Prefer lightweight preview tools first; use render_draft as a last resort when those cannot verify the actual result. Render an existing cloud draft_id. If the working draft exceeds the limits, create a separate cloud test draft <=5 seconds reproducing the relevant layers, timing, styles and audio, then render it without changing the working draft; do not abandon verification because the working draft is too long. Use cloud-accessible HTTP(S) assets; full video/audio sources must be <=20 seconds and images <=20 MiB. Prepare eligible short source assets when needed: timeline trimming alone does not shorten the full source. No draft JSON, local output path, or MP4 download. Returns a cloud video URL and actual billing when reported.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -158,27 +159,86 @@ class DraftRenderServer {
   public readonly mcpServer: McpServer
   private readonly drafts: DraftManagementServer
 
-  constructor(workspacePath?: string) {
+  // Preparation can involve multiple bounded network/probe operations. Keep it off
+  // the external tool call; these handles are instance-local and not persistent.
+  private readonly preparations = new Map<string, { result?: any; backendTaskId?: string; expires: number }>()
+
+  constructor(workspacePath?: string, private readonly options: { external?: boolean } = {}) {
     this.drafts = new DraftManagementServer(workspacePath)
-    this.mcpServer = new McpServer({ name: 'draft-render', version: '1.0.0' }, { capabilities: { tools: {} } })
-    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [TOOL] }))
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    this.mcpServer = this.createMcpServer()
+  }
+
+  public createMcpServer(): McpServer {
+    const mcpServer = new McpServer({ name: 'draft-render', version: '1.0.0' }, { capabilities: { tools: {} } })
+    this.setupHandlers(mcpServer)
+    return mcpServer
+  }
+
+  private setupHandlers(mcpServer: McpServer) {
+    mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: this.options.external ? [
+      { ...TOOL, name: 'submit', description: '提交草稿预渲染，立即返回准备任务 task_id；后台校验后提交真实后端。仅接受可访问的 HTTP(S) 素材，草稿 <=5 秒，完整音视频源 <=20 秒，图片 <=20 MiB。通过 task_status 查询，不等待或轮询。准备 ID 仅在当前服务实例有效，有效期一小时；拿到后端 task_id 后可直接查询。' },
+      { name: 'task_status', description: '查询预渲染准备或后端任务状态；每次最多查询一次后端，不等待或轮询。查询异常返回 unknown，不代表任务失败。', inputSchema: { type: 'object', properties: { task_id: { type: 'string', minLength: 1 } }, required: ['task_id'], additionalProperties: false } }
+    ] : [TOOL] }))
+    mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      if (this.options.external) {
+        const args = request.params.arguments || {}
+        if (request.params.name === 'submit') {
+          for (const [key, value] of this.preparations) {
+            if (value.expires <= Date.now()) this.preparations.delete(key)
+          }
+          if (this.preparations.size >= 1000) return this.externalResult({ action: 'submit', status: 'FAILED', billing: null, error: '预渲染 preparation capacity reached; retry later.' }, true)
+          const id = `prepare_${randomUUID()}`
+          const entry: { result?: any; backendTaskId?: string; expires: number } = { expires: Date.now() + 60 * 60 * 1000 }
+          this.preparations.set(id, entry)
+          // Deliberately detach from the short-lived submission request signal.
+          void this.render(args, {}, 'submit').then(result => {
+            entry.result = result
+            entry.backendTaskId = result.structuredContent.task_id
+          }).catch(() => {
+            // render handles operational failures; guard unexpected setup/result errors too.
+            entry.result = this.externalResult({ action: 'submit', task_id: id, status: 'FAILED', billing: null, error: '预渲染 preparation failed unexpectedly.' }, true)
+          })
+          return this.externalResult({ action: 'submit', task_id: id, status: 'PREPARING', billing: null })
+        }
+        if (request.params.name === 'task_status') {
+          if (Object.keys(args).some(key => key !== 'task_id') || typeof args.task_id !== 'string' || !args.task_id.trim()) {
+            return this.externalResult({ action: 'task_status', status: 'unknown', billing: null, error: 'task_id must be a nonempty string.' }, true)
+          }
+          const id = args.task_id.trim()
+          const entry = this.preparations.get(id)
+          if (id.startsWith('prepare_') && (!entry || entry.expires <= Date.now())) {
+            this.preparations.delete(id)
+            return this.externalResult({ action: 'task_status', task_id: id, status: 'unknown', billing: null, error: '预渲染 preparation handle expired or belongs to another server instance.' }, true)
+          }
+          if (entry && !entry.result) return this.externalResult({ action: 'task_status', task_id: id, status: 'PREPARING', billing: null })
+          if (entry && !entry.backendTaskId) return this.externalResult({ ...entry.result.structuredContent, action: 'task_status', task_id: id }, Boolean(entry.result.isError))
+          const result = await this.render({ task_id: entry?.backendTaskId || id }, extra as ExecutionExtra, 'task_status', entry?.result?.structuredContent.billing)
+          if (entry) entry.result = result
+          return result
+        }
+        return this.externalResult({ error: 'Unknown tool', status: 'failed', billing: null }, true)
+      }
       if (request.params.name !== TOOL.name) return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Unknown tool' }) }] }
       return this.render(request.params.arguments || {}, extra as ExecutionExtra)
     })
   }
 
-  private async render(args: ObjectValue, extra: ExecutionExtra) {
+  private externalResult(payload: ObjectValue, isError = false) {
+    return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }], structuredContent: payload, ...(isError ? { isError: true } : {}) }
+  }
+
+  private async render(args: ObjectValue, extra: ExecutionExtra, mode: 'render_draft' | 'submit' | 'task_status' = 'render_draft', previousBilling: { total_consumed_points: number; currency: string } | null = null) {
     const deadline = new AbortController()
-    const timeout = setTimeout(() => deadline.abort(new Error('Cloud render timed out after 5 minutes')), TIMEOUT_MS)
+    const budget = mode === 'task_status' ? 30_000 : TIMEOUT_MS
+    const timeout = setTimeout(() => deadline.abort(new Error('预渲染 request timed out')), budget)
     const signal = extra.signal ? AbortSignal.any([extra.signal, deadline.signal]) : deadline.signal
     let draftId: string | undefined
     let taskId: string | undefined
-    let billing: { total_consumed_points: number; currency: string } | null = null
+    let billing: { total_consumed_points: number; currency: string } | null = previousBilling
     let progress = 0
     const notify = async (message: string) => {
       if (extra._meta?.progressToken !== undefined && extra.sendNotification) {
-        progress = message === 'Cloud render complete' ? 100 : Math.min(progress + 1, 95)
+        progress = message === '预渲染 complete' ? 100 : Math.min(progress + 1, 95)
         await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: extra._meta.progressToken, progress, total: 100, message } }).catch(() => {})
       }
     }
@@ -224,7 +284,7 @@ class DraftRenderServer {
       if (Number.isFinite(points) && points >= 0) billing = { total_consumed_points: points, currency: 'points' }
       // task_status.output.success stays false until completion; status controls polling.
       if (!response.ok || data.success === false || (endpoint !== 'task_status' && data.output?.success === false)) {
-        throw new Error(`Cloud ${endpoint} failed (${response.status}).`)
+        throw new Error(`Pre-render ${endpoint} failed (${response.status}).`)
       }
       return data.output as ObjectValue
     }
@@ -232,7 +292,7 @@ class DraftRenderServer {
       // Like image generation, place billing before potentially long output URLs.
       // Also preserve structured metadata through codemode/details and preview storage.
       const payload = {
-        provider: 'vectcut', action: 'render_draft', draft_id: draftId, task_id: taskId, status, billing,
+        provider: 'vectcut', action: mode, draft_id: draftId, task_id: taskId, status, billing,
         ...(error ? { error } : {}), ...(url ? { video_url: url, temporary_video: true } : {})
       }
       return {
@@ -242,6 +302,15 @@ class DraftRenderServer {
       }
     }
     try {
+      if (mode === 'task_status') {
+        taskId = args.task_id
+        const output = await request('task_status', { task_id: taskId })
+        const status = String(output?.status || '').toUpperCase()
+        if (status === 'FAILURE') return result(status, '预渲染 task failed (FAILURE).')
+        if (status === 'SUCCESS' && remoteUrl(output.result)) return result(status, undefined, output.result)
+        if (['PENDING', 'PROCESSING', 'UPLOADING', 'DOWNLOADING', 'EXPORTING'].includes(status)) return result(status)
+        return result('unknown', '预渲染 returned an unsupported status or unusable result URL.')
+      }
       if (Object.keys(args).some(key => !['draft_id', 'draftId', 'resolution', 'framerate'].includes(key))) throw new Error('Only draft_id/draftId, resolution and framerate are accepted; no JSON or output paths.')
       for (const key of ['draft_id', 'draftId', 'resolution', 'framerate']) {
         if (args[key] !== undefined && (typeof args[key] !== 'string' || !args[key].trim())) throw new Error(`${key} must be a nonempty string.`)
@@ -253,15 +322,16 @@ class DraftRenderServer {
       await notify('Checking cloud draft and source limits')
       const script = await this.drafts.queryScriptInMemory(draftId, signal)
       await validateRenderDraft(script, signal)
-      await notify('Submitting cloud render')
+      await notify('Submitting 预渲染')
       const submitted = await request('generate_video', { draft_id: draftId, resolution: args.resolution || '720P', framerate: args.framerate || '24' })
       taskId = typeof submitted?.task_id === 'string' ? submitted.task_id : undefined
-      if (!taskId) throw new Error('Cloud generate_video returned no task_id.')
+      if (!taskId) throw new Error('Pre-render generate_video returned no task_id.')
+      if (mode === 'submit') return result('SUBMITTED')
       for (;;) {
         const output = await request('task_status', { task_id: taskId })
         const status = String(output?.status || '').toUpperCase()
         if (status === 'SUCCESS') {
-          if (!remoteUrl(output.result)) throw new Error('Cloud render succeeded without a usable HTTP(S) result URL.')
+          if (!remoteUrl(output.result)) throw new Error('预渲染 succeeded without a usable HTTP(S) result URL.')
           if (billing === null) {
             const billingDeadline = Date.now() + 10_000
             try {
@@ -287,20 +357,20 @@ class DraftRenderServer {
             }
           }
           extra.signal?.throwIfAborted()
-          await notify('Cloud render complete')
+          await notify('预渲染 complete')
           return result('SUCCESS', undefined, output.result)
         }
-        if (status === 'FAILURE') return result('FAILURE', 'Cloud render task failed (FAILURE).')
-        if (!['PENDING', 'PROCESSING', 'UPLOADING', 'DOWNLOADING', 'EXPORTING'].includes(status)) throw new Error(`Cloud render returned an unsupported task status: ${status.slice(0, 40)}`)
-        await notify(`Cloud render ${status.toLowerCase()}`)
+        if (status === 'FAILURE') return result('FAILURE', '预渲染 task failed (FAILURE).')
+        if (!['PENDING', 'PROCESSING', 'UPLOADING', 'DOWNLOADING', 'EXPORTING'].includes(status)) throw new Error(`预渲染 returned an unsupported task status: ${status.slice(0, 40)}`)
+        await notify(`预渲染 ${status.toLowerCase()}`)
         await wait()
       }
     } catch (error) {
       const status = signal.aborted ? deadline.signal.aborted ? 'TIMEOUT' : 'CANCELLED' : 'FAILED'
       // Network/probe errors can contain URLs/local paths; expose only our bounded validation messages.
-      const message = error instanceof Error ? error.message : 'Cloud render failed'
-      const safeMessage = /^(Cannot |Local |Full |Image |Only |A cloud |Cloud |Query |draft_|draftId |resolution |framerate )/.test(message) ? message.slice(0, 700) : 'Cloud render failed; check authentication, remote source access, or retry.'
-      return result(status, signal.aborted ? status === 'TIMEOUT' ? 'Cloud render timed out after 5 minutes.' : 'Cloud render cancelled; remote task may still run.' : safeMessage)
+      const message = error instanceof Error ? error.message : '预渲染 failed'
+      const safeMessage = /^(Cannot |Local |Full |Image |Only |A cloud |预渲染 |Pre-render |Query |draft_|draftId |resolution |framerate )/.test(message) ? message.slice(0, 700) : '预渲染 failed; check authentication, remote source access, or retry.'
+      return result(mode === 'task_status' ? 'unknown' : status, signal.aborted ? status === 'TIMEOUT' ? `预渲染 timed out after ${budget / 1000} seconds.` : '预渲染 cancelled; remote task may still run.' : safeMessage)
     } finally {
       clearTimeout(timeout)
     }

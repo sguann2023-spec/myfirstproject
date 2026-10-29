@@ -1274,3 +1274,110 @@ describe('VideoGenerateServer', () => {
     expect(result.content[0].text).toContain('Unknown video model')
   })
 })
+
+  describe('external tools', () => {
+    beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
+    const invoke = (server: any, name: string, args: Record<string, unknown>) => callTool(server, args, name)
+    it('only lists async tools and rejects hidden legacy tools', async () => {
+      const server = new VideoGenerateServer({ external: true })
+      expect((await listTools(server)).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status', 'get_video_capabilities'])
+      expect((await invoke(server, 'generate_video', {})).isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    })
+    it.each(['/tmp/ref.png', 'file:///tmp/ref.png', 'data:image/png;base64,AA', 'http://localhost/a', 'http://127.0.0.1/a', 'http://10.0.0.1/a', 'http://[::1]/a', 'https://user:pass@example.com/a'])('rejects unsafe media %s before submission', async (url) => {
+      const server = new VideoGenerateServer({ external: true })
+      const result = await invoke(server, 'submit', { content: [{ type: 'image_url', image_url: { url } }] })
+      expect(result.isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+    it('submits exactly once and never polls or uploads', async () => {
+      const server = new VideoGenerateServer({ external: true })
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'backend-id', status: 'queued', billing: { points: 2 } }))
+      const result = await invoke(server, 'submit', { content: [{ type: 'image_url', image_url: { url: 'https://example.com/a.png' } }], generateAudio: false })
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ task_id: 'backend-id', billing: { points: 2 } })
+      expect(request).toHaveBeenCalledTimes(1)
+      expect(request.mock.calls[0][0]).toBe('/cut_jianying/generate_ai_video')
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+    it.each(['running', 'succeeded', 'failed'])('queries status once preserving %s and billing', async (status) => {
+      const server = new VideoGenerateServer({ external: true })
+      const payload = { task_id: 'backend-id', status, error: 'failure detail', result: { video_url: 'https://example.com/out.mp4', billing: { points: 3 } }, billing: { points: 2 } }
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(payload))
+      const result = await invoke(server, 'task_status', { task_id: 'backend-id', mode: 'omni' })
+      expect(JSON.parse(result.content[0].text)).toMatchObject(payload)
+      expect(request).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('external video references', () => {
+    beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
+    it.each(['image_url', 'video_url', 'audio_url'])('checks direct and nested %s references', async (field) => {
+      const server = new VideoGenerateServer({ external: true })
+      for (const reference of ['/tmp/private', { url: 'data:audio/mp3;base64,AA' }]) {
+        const result = await callTool(server, { content: [{ type: field, [field]: reference }] }, 'submit')
+        expect(result.isError).toBe(true)
+      }
+      expect(mockNetFetch).not.toHaveBeenCalled()
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+    it('does not let legacy reference aliases bypass validation', async () => {
+      const server = new VideoGenerateServer({ external: true })
+      const result = await callTool(server, { content: [{ type: 'text', text: 'test' }], reference_images: ['/tmp/private'] }, 'submit')
+      expect(result.isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    })
+  })
+
+ describe('external failure semantics', () => {
+   beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
+   const invoke = (server: any, name: string, args: Record<string, unknown>) => callTool(server, args, name)
+   const submitArgs = { content: [{ type: 'text', text: 'test' }] }
+   it.each([
+     { success: false, task_id: 'task', error: 'Insufficient remaining points', message: 'original', billing: { points: 2 } },
+     { success: false, message: 'upstream rejected', billing: { points: 2 } },
+     { success: true, status: 'queued' },
+     { task_id: '   ' },
+     { task_id: 'task', status: 'failed', error: 'backend failure' }
+   ])('marks unsuccessful submission as an MCP error: %j', async (payload) => {
+     const server = new VideoGenerateServer({ external: true })
+     const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(payload))
+     const result = await invoke(server, 'submit', submitArgs)
+     const parsed = JSON.parse(result.content[0].text)
+     expect(result.isError).toBe(true)
+     expect(parsed).toMatchObject({ ...payload, success: false })
+     expect(parsed.error).toEqual(payload.error || ('message' in payload && payload.message) || expect.stringContaining('task_id'))
+     expect(request).toHaveBeenCalledTimes(1)
+   })
+   it.each([
+     { status: 'failed', error: 'original error', message: 'original message' },
+     { status: 'error', message: 'upstream rejected' },
+     { status: 'cancelled' },
+     { status: 'not_found' },
+     { success: false, status: 'running', message: 'backend rejected query' }
+   ])('marks explicit backend failure as an MCP error without dropping details: %j', async (payload) => {
+     const server = new VideoGenerateServer({ external: true })
+     const original = { ...payload, billing: { points: 3 }, result: { billing: { points: 1 }, detail: 'original' } }
+     const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(original))
+     const result = await invoke(server, 'task_status', { mode: 'omni', task_id: 'task' })
+     expect(result.isError).toBe(true)
+     expect(JSON.parse(result.content[0].text)).toMatchObject({ ...original, success: false, error: payload.error || payload.message || expect.any(String) })
+     expect(request).toHaveBeenCalledTimes(1)
+   })
+   it.each(['running', 'succeeded'])('does not mark %s as an error', async (status) => {
+     const server = new VideoGenerateServer({ external: true })
+     vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status }))
+     const result = await invoke(server, 'task_status', { mode: 'omni', task_id: 'task' })
+     expect(result.isError).not.toBe(true)
+   })
+   it.each(['network', 'http'])('reports %s status transport failure as unknown, not failed', async (failure) => {
+     const server = new VideoGenerateServer({ external: true })
+     const request = vi.spyOn(server as any, 'requestWithAuth')
+     if (failure === 'network') request.mockRejectedValue(new Error('network timeout'))
+     else request.mockResolvedValue(mockJsonResponse({ error: 'upstream unavailable' }, false, 503))
+     const result = await invoke(server, 'task_status', { mode: 'omni', task_id: 'task' })
+     expect(result.isError).toBe(true)
+     expect(JSON.parse(result.content[0].text)).toMatchObject({ task_id: 'task', status: 'unknown', success: false, error: expect.stringContaining(failure === 'network' ? 'network timeout' : 'upstream unavailable') })
+     expect(request).toHaveBeenCalledTimes(1)
+   })
+ })

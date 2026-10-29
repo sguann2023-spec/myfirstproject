@@ -18,6 +18,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
+import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:DigitalHuman')
@@ -217,6 +218,25 @@ const GET_DIGITAL_HUMAN_JOB_TOOL: Tool = backgroundStatusTool(
   'Immediately read a background digital-human job. running: wait poll_after_seconds then query again; success: use result.video_url; failed/interrupted: inspect message and task_id, never resubmit with a new requestId. Known upstream tasks resume polling after Desktop restarts.'
 )
 
+// Lexical validation only; backend owns DNS, redirects and download policy.
+function validateExternalMedia(value: unknown, field = '') {
+  if (Array.isArray(value)) { value.forEach((item) => validateExternalMedia(item, field)); return }
+  if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) validateExternalMedia(entry, key)
+    return
+  }
+  if (!/(url|image|video|audio|frame|source|reference)/i.test(field) || ['type', 'role', 'generateAudio', 'generate_audio'].includes(field)) return
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error(`'${field}' requires a public HTTP(S) URL`) }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+      (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+    throw new Error(`'${field}' requires a public HTTP(S) URL, not a local/private address`)
+  }
+}
+
 type PendingToken = {
   accessToken: string
   expiresAt: number
@@ -289,6 +309,7 @@ type DigitalHumanStatusResponse = {
   status?: string
   progress?: number | null
   message?: string | null
+  error?: string | null
   success?: boolean
   [key: string]: unknown
 }
@@ -304,7 +325,7 @@ class DigitalHumanServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(private readonly options: { external?: boolean } = {}) {
     this.mcpServer = new McpServer(
       {
         name: 'digital-human',
@@ -321,7 +342,10 @@ class DigitalHumanServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
+      tools: this.options.external ? [
+        { name: 'submit', description: 'Submit a real backend avatar task immediately, without TTS, uploads or polling. mode: lip_sync or omni requires public audioUrl and videoUrl/imageUrl; seedance requires imageUrl, copywriting and voiceId. Retain mode for task_status.', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'] }, audioUrl: { type: 'string' }, videoUrl: { type: 'string' }, imageUrl: { type: 'string' }, prompt: { type: 'string' }, copywriting: { type: 'string' }, voiceId: { type: 'string' }, outputResolution: { type: 'integer', enum: [720, 1080] } }, required: ['mode'] } },
+        { name: 'task_status', description: 'Query the backend once; preserves result, failure and billing. Use the mode returned by submit.', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'] }, task_id: { type: 'string' } }, required: ['mode', 'task_id'] } }
+      ] : [
         CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL,
         CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
         CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
@@ -340,6 +364,7 @@ class DigitalHumanServer {
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) return await this.callExternalTool(toolName, args)
         switch (toolName) {
           case 'start_digital_human_task':
             return this.startBackgroundTask(args as Record<string, unknown>)
@@ -365,12 +390,66 @@ class DigitalHumanServer {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
+        if (this.options.external) return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ provider: 'vectcut', action: toolName, task_id: args.task_id ?? args.taskId, success: false, status: toolName === 'task_status' ? 'unknown' : 'failed', error: message }) }],
+          isError: true
+        }
         return {
           content: [{ type: 'text' as const, text: `Error: ${message}` }],
           isError: true
         }
       }
     })
+  }
+
+  private async callExternalTool(name: string, args: Record<string, unknown>) {
+    if (!['submit', 'task_status'].includes(name)) throw new Error(`Unknown external tool: ${name}`)
+    const mode = this.getRequiredString(args, 'mode')
+    const endpoints = {
+      lip_sync: [DIGITAL_HUMAN_CREATE_ENDPOINT, DIGITAL_HUMAN_STATUS_ENDPOINT],
+      omni: [OMNI_DIGITAL_HUMAN_SUBMIT_ENDPOINT, OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT],
+      seedance: [SEEDANCE_DIGITAL_HUMAN_SUBMIT_ENDPOINT, SEEDANCE_DIGITAL_HUMAN_STATUS_ENDPOINT]
+    }
+    if (!Object.prototype.hasOwnProperty.call(endpoints, mode)) throw new Error('mode must be lip_sync, omni or seedance')
+    const [submitEndpoint, statusEndpoint] = endpoints[mode as keyof typeof endpoints]
+    if (name === 'task_status') {
+      const taskId = this.getRequiredString(args, 'taskId', 'task_id')
+      const result = await this.queryStatus(statusEndpoint, taskId)
+      return this.formatExternalResult({ provider: 'vectcut', mode, action: name, task_id: taskId, ...result })
+    }
+    validateExternalMedia(args)
+    const body: Record<string, unknown> = {}
+    if (mode === 'seedance') {
+      body.image_url = this.getRequiredString(args, 'imageUrl', 'image_url')
+      body.copywriting = this.getRequiredString(args, 'copywriting')
+      body.voice_id = this.getRequiredString(args, 'voiceId', 'voice_id')
+    } else {
+      body.audio_url = this.getRequiredString(args, 'audioUrl', 'audio_url')
+      if (mode === 'lip_sync') body.video_url = this.getRequiredString(args, 'videoUrl', 'video_url')
+      else {
+        body.image_url = this.getRequiredString(args, 'imageUrl', 'image_url')
+        body.prompt = this.getRequiredString(args, 'prompt')
+        body.output_resolution = args.outputResolution ?? args.output_resolution ?? DEFAULT_OMNI_OUTPUT_RESOLUTION
+      }
+    }
+    const response = await this.requestWithAuth(submitEndpoint, { method: 'POST', body })
+    if (!response.ok) throw new Error(`Digital human submission failed (${response.status}): ${await response.text()}`)
+    const result = await response.json() as DigitalHumanCreateResponse
+    return this.formatExternalResult({ provider: 'vectcut', mode, action: name, ...result,
+      polling_hint: 'Call task_status with mode and task_id.' }, true)
+  }
+
+  private formatExternalResult(payload: Record<string, unknown>, submission = false) {
+    const missingTaskId = submission && (typeof payload.task_id !== 'string' || !payload.task_id.trim())
+    const failed = payload.success === false || this.isFailed(payload as DigitalHumanStatusResponse) || missingTaskId
+    const normalized = failed ? {
+      ...payload,
+      success: false,
+      error: payload.error || payload.message || (missingTaskId
+        ? 'Digital human submission returned no task_id'
+        : `Digital human task failed (${payload.status || 'success=false'})`)
+    } : { ...payload, ...(submission ? { success: true } : {}) }
+    return { ...this.formatJsonResult(normalized), ...(failed ? { isError: true } : {}) }
   }
 
   private async ensureValidAccessToken(forceRefresh = false): Promise<string> {
@@ -409,7 +488,8 @@ class DigitalHumanServer {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
     })
 
     if (!response.ok) {
@@ -466,7 +546,8 @@ class DigitalHumanServer {
           Authorization: `Bearer ${accessToken}`,
           ...(options.body ? { 'Content-Type': 'application/json' } : {})
         },
-        ...(options.body ? { body: JSON.stringify(options.body) } : {})
+        ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+        ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
       })
 
     return requestWithVectcutAuth(this.store, (force) => this.ensureValidAccessToken(force), doFetch)
@@ -846,7 +927,7 @@ class DigitalHumanServer {
       }
 
       if (this.isFailed(result)) {
-        throw new Error(`Digital human task failed: ${result.message || result.status || 'unknown error'}`)
+        throw new Error(`Digital human task failed: ${result.error?.trim() || result.message || result.status || 'unknown error'}`)
       }
 
       await this.reportProgress(extra, this.mapProgress(result, attempt), result.message || processingMessage)
