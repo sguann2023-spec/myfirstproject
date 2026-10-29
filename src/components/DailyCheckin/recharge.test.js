@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ getJson: vi.fn(), json: vi.fn(), userId: 'user-a' }));
+const mocks = vi.hoisted(() => ({ getJson: vi.fn(), json: vi.fn(), userId: 'user-a', launchId: 'launch-a' }));
 vi.mock('../../http', () => ({ http: mocks }));
 vi.mock('../../auth/vectcutApiKey', () => ({ getCurrentVectcutUserId: () => mocks.userId }));
 
@@ -11,6 +11,8 @@ beforeEach(async () => {
   vi.clearAllMocks();
   localStorage.clear();
   mocks.userId = 'user-a';
+  mocks.launchId = 'launch-a';
+  window.api = { getAppInfo: async () => ({ launchId: mocks.launchId }) };
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-25T10:00:00+08:00'));
   api = await import('../../api/recharge');
@@ -39,10 +41,28 @@ it('expires at Beijing midnight and isolates different accounts', async () => {
   expect(mocks.getJson).toHaveBeenCalledTimes(3);
 });
 
-it('does not cache unclaimed status', async () => {
+it('queries unclaimed status once per launch, including across renderer reloads', async () => {
   mocks.getJson.mockResolvedValue({ ...reward, claimed_today: false });
   await api.getDailyCheckinRewardStatus();
   await api.getDailyCheckinRewardStatus();
+  vi.resetModules();
+  api = await import('../../api/recharge');
+  await api.getDailyCheckinRewardStatus();
+  expect(mocks.getJson).toHaveBeenCalledTimes(1);
+  mocks.launchId = 'launch-b';
+  vi.resetModules();
+  api = await import('../../api/recharge');
+  await api.getDailyCheckinRewardStatus();
+  expect(mocks.getJson).toHaveBeenCalledTimes(2);
+});
+
+it('does not repeat failed startup queries unless explicitly recovering a claim', async () => {
+  mocks.getJson.mockRejectedValue(new Error('Unavailable'));
+  await expect(api.getDailyCheckinRewardStatus()).rejects.toThrow('Unavailable');
+  await expect(api.getDailyCheckinRewardStatus()).rejects.toThrow('Unavailable');
+  expect(mocks.getJson).toHaveBeenCalledTimes(1);
+  mocks.getJson.mockResolvedValue(reward);
+  expect(await api.getDailyCheckinRewardStatus({ force: true })).toEqual(reward);
   expect(mocks.getJson).toHaveBeenCalledTimes(2);
 });
 

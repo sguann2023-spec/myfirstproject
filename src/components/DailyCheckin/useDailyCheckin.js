@@ -15,11 +15,11 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
   const onClaimedRef = useRef(onClaimed);
   onClaimedRef.current = onClaimed;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options) => {
     const generation = generationRef.current;
     const request = ++requestRef.current;
     try {
-      const next = await getDailyCheckinRewardStatus();
+      const next = await getDailyCheckinRewardStatus(options);
       if (generation !== generationRef.current || request !== requestRef.current) return;
       claimedRef.current = next.claimed_today;
       setReward(next);
@@ -42,7 +42,7 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
     if (!enabled) return;
     void refresh();
     const onChanged = () => { void refresh(); refreshBalance(); };
-    const onFocus = () => { void refresh(); refreshBalance(); };
+    const onFocus = () => { refreshBalance(); };
     window.addEventListener(REWARD_CHANGED, onChanged);
     window.addEventListener('focus', onFocus);
     if (typeof BroadcastChannel !== 'undefined') {
@@ -78,7 +78,7 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
       if (generation !== generationRef.current) return;
       // 网络中断时可能实际已到账，先查询后再决定是否可重试。
       setReward(null);
-      await refresh();
+      await refresh({ force: true });
       if (generation !== generationRef.current) return;
       if (claimedRef.current) refreshBalance();
       else message.error(error?.message || '领取失败，请稍后重试');
