@@ -12,10 +12,7 @@ vi.mock('@logger', () => ({
   }
 }))
 
-vi.mock('@shared/sessionPayloadLimits', () => ({
-  isInlineToolPayloadTruncated: vi.fn(() => false),
-  limitInlineToolPayload: vi.fn((value: unknown) => value)
-}))
+vi.mock('@shared/sessionPayloadLimits', async (importOriginal) => await importOriginal())
 
 vi.mock('../../../database/repositories/agentTurnRepository', () => ({
   agentTurnRepository: {
@@ -31,10 +28,16 @@ vi.mock('../session-architecture/ConversationSegmentService', () => ({
   }
 }))
 
-vi.mock('../harness/query-side-effects', () => ({
-  handleToolResultSideEffects: vi.fn()
+vi.mock('../harness/query-side-effects', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../harness/query-side-effects')>()
+  return { ...actual, handleToolResultSideEffects: vi.fn() }
+})
+
+vi.mock('../../../BaseService', () => ({
+  BaseService: class { async getDatabase() { return (globalThis as any).__piArtifactDatabase } }
 }))
 
+import { handleToolResultSideEffects } from '../harness/query-side-effects'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
 import type { AgentStream, AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
@@ -174,6 +177,7 @@ describe('processPiHarnessQuery', () => {
   })
 
   afterEach(() => {
+    delete (globalThis as any).__piArtifactDatabase
     vi.restoreAllMocks()
     vi.useRealTimers()
     delete process.env.PI_TERMINAL_TIMEOUT_MS
@@ -568,6 +572,175 @@ describe('processPiHarnessQuery', () => {
     expect(stream.events.map((event) => event.type)).toContain('error')
   })
 
+  it.each(['SQLITE_BUSY', 'SQLITE_CONSTRAINT', 'large-output'])('emits a single real result without replay when ancillary storage rejects %s', async (code) => {
+    vi.useFakeTimers()
+    const actual = await vi.importActual<typeof import('../harness/query-side-effects')>('../harness/query-side-effects')
+    const failure = Object.assign(new Error('private insert data'), { code: code === 'large-output' ? 'SQLITE_BUSY' : code })
+    const returning = vi.fn().mockRejectedValue(failure)
+    const inserted: any[] = []
+    ;(globalThis as any).__piArtifactDatabase = {
+      select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+      insert: () => ({ values: (row: any) => {
+      inserted.push(row)
+      return { returning }
+    } }) }
+    vi.mocked(handleToolResultSideEffects).mockImplementationOnce(actual.handleToolResultSideEffects)
+    const result = { content: [{ type: 'text', text: 'successful bash output' + (code === 'large-output' ? 'x'.repeat(100000) : '') }] }
+    const stub = createHarnessStub({ prompt: async () => {
+      await stub.emitAgentEvent({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'bash-1', name: 'Bash', arguments: { command: 'test' } }], usage: {}, stopReason: 'toolUse' } })
+      await stub.emitAgentEvent({ type: 'tool_execution_start', toolCallId: 'bash-1', toolName: 'Bash', args: { command: 'test' } })
+      await stub.emitAgentEvent({ type: 'tool_execution_end', toolCallId: 'bash-1', toolName: 'Bash', isError: false, result })
+      return { role: 'assistant', content: [], stopReason: 'stop', usage: {} }
+    } })
+    const stream = createStreamRecorder()
+    const run = processPiHarnessQuery({ stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', currentPrompt: 'hello', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'hello' })
+    await vi.runAllTimersAsync()
+    await run
+    delete (globalThis as any).__piArtifactDatabase
+    expect(returning).toHaveBeenCalledTimes(1)
+    expect(new Set(inserted.map(row => row.id)).size).toBe(1)
+    const chunks = stream.events.filter((e: any) => e.type === 'chunk').map((e: any) => e.chunk)
+    const results = chunks.filter((c: any) => c.type === 'tool-result')
+    expect(results).toHaveLength(1)
+    expect(JSON.stringify(results[0].output)).toContain('successful bash output')
+    expect(handleToolResultSideEffects).toHaveBeenCalled()
+    expect(results[0].toolCallId).toBe((vi.mocked(handleToolResultSideEffects).mock.calls.at(-1)?.[0].chunk as any).toolCallId)
+    expect(results[0].toolCallId).toBeTruthy()
+    expect(results[0].toolCallId).toBe(chunks.find((c: any) => c.type === 'tool-call')?.toolCallId)
+    expect(inserted.every(row => row.tool_call_id === 'bash-1')).toBe(true)
+    expect(chunks.filter((c: any) => c.type === 'tool-error')).toHaveLength(0)
+    if (code === 'large-output') {
+      expect(Buffer.byteLength(JSON.stringify(results[0].output))).toBeLessThan(18000)
+      expect(JSON.stringify(results[0].output)).toContain('storage unavailable')
+      expect(JSON.stringify(results[0].output)).not.toContain('artifact://')
+    }
+    expect(stub.prompt).toHaveBeenCalledTimes(1)
+    expect(stream.events.some(e => e.type === 'complete')).toBe(true)
+  })
+
+  it('reconciles a result before snapshot to the streamed card without duplicate provider card', async () => {
+    vi.useFakeTimers()
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        await harnessStub.emitAgentEvent({
+          type: 'message_start',
+          message: {
+            role: 'assistant',
+            content: [],
+            usage: {},
+            stopReason: 'pending'
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'toolcall_start',
+            contentIndex: 0,
+            partial: {
+              content: [
+                {
+                  name: 'mcp__video__generate_video'
+                }
+              ]
+            }
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_update',
+          assistantMessageEvent: {
+            type: 'toolcall_delta',
+            contentIndex: 0,
+            delta: '{"action":"status","taskId":"task-1"}{"action":"status","taskId":"task-1"}'
+          }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'tool_execution_end', toolCallId: 'provider-tool-1',
+          toolName: 'mcp__video__generate_video', isError: false,
+          result: { content: [{ type: 'text', text: 'done' }] }
+        })
+        await harnessStub.emitAgentEvent({
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            model: 'model-1',
+            usage: {},
+            stopReason: 'stop',
+            errorMessage: 'invalid request',
+            content: [
+              {
+                type: 'toolCall',
+                toolCall: {
+                  id: 'provider-tool-1',
+                  name: 'mcp__video__generate_video',
+                  arguments: {
+                    action: 'status',
+                    taskId: 'task-1'
+                  }
+                }
+              }
+            ]
+          }
+        })
+        return {
+          role: 'assistant',
+          content: [
+            {
+              type: 'toolCall',
+              toolCall: {
+                id: 'provider-tool-1',
+                name: 'mcp__video__generate_video',
+                arguments: {
+                  action: 'status',
+                  taskId: 'task-1'
+                }
+              }
+            }
+          ],
+          stopReason: 'stop',
+          errorMessage: 'invalid request',
+          usage: {}
+        }
+      }
+    })
+    const stream = createStreamRecorder()
+
+    const runPromise = processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1',
+        topicId: 'topic-1',
+        currentPrompt: 'hello',
+        activeSegment,
+        currentTurn,
+        promptEnvelope: {
+          systemPromptVersion: 'v1',
+          systemPromptHash: 'hash-1',
+          systemPrompt: 'system'
+        },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+    await vi.runAllTimersAsync()
+    await runPromise
+
+    const chunkTypes = stream.events
+      .filter((event): event is AgentStreamEvent & { chunk: { type: string } } => event.type === 'chunk' && Boolean(event.chunk))
+      .map((event) => event.chunk.type)
+
+    expect(chunkTypes.filter(type => type === 'tool-result')).toHaveLength(1)
+    const chunks = stream.events.filter((event: any) => event.type === 'chunk').map((event: any) => event.chunk)
+    const start = chunks.find((chunk: any) => chunk.type === 'tool-input-start')
+    expect(chunks.find((chunk: any) => chunk.type === 'tool-result')?.toolCallId).toBe(start?.id)
+    expect(chunks.find((chunk: any) => chunk.type === 'tool-result')?.toolCallId).not.toBe('provider-tool-1')
+    expect(stream.events.map((event) => event.type)).toContain('complete')
+  })
+
   it('projects nested Codemode MCP calls as normal tool card chunks', async () => {
     const nestedToolName = 'mcp__vectcut__subtitle-recognition__submit_subtitle_recognition_task'
     const nestedToolCallId = 'codemode-nested-1'
@@ -638,7 +811,7 @@ describe('processPiHarnessQuery', () => {
     )
   })
 
-  it('retries retriable upstream errors when no text or tool side effects were produced', async () => {
+  it('retries retriable upstream errors and finalizes abandoned calls and partial inputs', async () => {
     vi.useFakeTimers()
     let promptAttempt = 0
     const harnessStub = createHarnessStub({
@@ -655,6 +828,13 @@ describe('processPiHarnessQuery', () => {
             }
           })
           await harnessStub.emitAgentEvent({
+            type: 'message_update',
+            assistantMessageEvent: {
+              type: 'toolcall_start', contentIndex: 1,
+              partial: { content: [null, { type: 'toolCall', name: 'Read' }] }
+            }
+          })
+          await harnessStub.emitAgentEvent({
             type: 'message_end',
             message: {
               role: 'assistant',
@@ -662,7 +842,7 @@ describe('processPiHarnessQuery', () => {
               usage: {},
               stopReason: 'error',
               errorMessage: '502 "上游请求失败"',
-              content: []
+              content: [{ type: 'toolCall', id: 'abandoned-retry-tool', name: 'Bash', arguments: {} }]
             }
           })
           return {
@@ -755,6 +935,13 @@ describe('processPiHarnessQuery', () => {
     expect(retryStatusChunks).toHaveLength(1)
     expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
+    expect(stream.events.filter((event: any) => event.chunk?.type === 'tool-error').map((event: any) => event.chunk)).toContainEqual(
+      expect.objectContaining({ toolName: 'Read', error: expect.stringContaining('Tool input abandoned') })
+    )
+    expect(stream.events.filter((event: any) => event.chunk?.type === 'tool-error').map((event: any) => event.chunk)).toContainEqual(
+      expect.objectContaining({ toolName: 'Bash', error: expect.stringContaining('attempt ended') })
+    )
+
   })
 
   it('bounds retries for transient upstream errors after visible text has streamed', async () => {
@@ -1078,6 +1265,30 @@ describe('processPiHarnessQuery', () => {
     expect(retryStatusChunks).toHaveLength(1)
     expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
+  })
+
+  it('does not replay prompts for nested local busy errors or mask them with failed status writes', async () => {
+    const original = new Error('persistence failed', {
+      cause: new AggregateError([new Error('SQLITE_BUSY: database is locked')])
+    })
+    const harnessStub = createHarnessStub({ prompt: async () => { throw original } })
+    vi.mocked(agentTurnRepository.update).mockRejectedValueOnce(new Error('status write failed'))
+    const stream = createStreamRecorder()
+    await processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', currentPrompt: 'hello',
+        activeSegment, currentTurn,
+        promptEnvelope: { systemPromptVersion: 'v1', systemPromptHash: 'hash-1', systemPrompt: 'system' },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(1)
+    expect(stream.events.find((event) => event.type === 'error')?.error).toBe(original)
   })
 
   it('retries broader transient provider errors before streaming starts', async () => {

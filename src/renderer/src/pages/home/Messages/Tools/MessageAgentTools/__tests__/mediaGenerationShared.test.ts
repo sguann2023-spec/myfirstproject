@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getDigitalHumanVideoUrl, getImageUrl, getPrompt, parseOutput } from '../mediaGenerationShared'
+import { getMediaGenerationVariant, getDigitalHumanVideoUrl, getImageUrl, getPrompt, parseOutput } from '../mediaGenerationShared'
 
 describe('mediaGenerationShared.getPrompt', () => {
   it('prefers prompt from input content text items', () => {
@@ -150,5 +150,14 @@ describe('mediaGenerationShared.parseOutput', () => {
       task_status: '5'
     })
     expect(getDigitalHumanVideoUrl(parsed)).toBe('https://media.pixverseai.cn/pixverse/final-video.mp4')
+  })
+})
+
+
+describe('default avatar tool recognition', () => {
+  it.each(['', 'mcp__digital-human__', 'mcp__vectcut__digital-human__'])('recognizes canonical and legacy avatar names with prefix %s', (prefix) => {
+    expect(getMediaGenerationVariant(`${prefix}create_default_image_driven_digital_human`)).toBe('digitalHuman')
+    expect(getMediaGenerationVariant(`${prefix}create_seedance_digital_human`)).toBe('digitalHuman')
+    expect(getMediaGenerationVariant(`${prefix}create_image_driven_digital_human`)).toBe('digitalHuman')
   })
 })

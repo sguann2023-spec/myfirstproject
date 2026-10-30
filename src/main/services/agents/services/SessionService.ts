@@ -14,10 +14,12 @@ import {
   type ListOptions,
   type UpdateSessionRequest
 } from '@types'
-import { and, asc, count, desc, eq, isNull, type SQL, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, isNull, type SQL } from 'drizzle-orm'
 
 import { BaseService } from '../BaseService'
 import { agentsTable, type InsertSessionRow, type SessionRow, sessionsTable } from '../database/schema'
+import { OrderedTaskQueue } from '../database/orderedTaskQueue'
+import { insertSessionAtFront, persistWorkspaceSessionPaths, reorderSessionRows } from '../database/repositories/servicePersistence'
 import type { AgentModelField } from '../errors'
 import { builtinSlashCommands } from './claudecode/commands'
 import { remapWorkspacePath, validateWorkspaceRename, workspaceRenameError } from './workspaceRename'
@@ -26,6 +28,7 @@ const logger = loggerService.withContext('SessionService')
 
 export class SessionService extends BaseService {
   private static instance: SessionService | null = null
+  private readonly workspaceRenameQueue = new OrderedTaskQueue()
   private readonly modelFields: AgentModelField[] = ['model', 'plan_model', 'small_model']
 
   static getInstance(): SessionService {
@@ -193,14 +196,8 @@ export class SessionService extends BaseService {
     }
 
     const db = await this.getDatabase()
-    // Shift all existing sessions' sort_order up by 1 and insert new session at position 0 atomically
-    await db.transaction(async (tx) => {
-      await tx
-        .update(sessionsTable)
-        .set({ sort_order: sql`${sessionsTable.sort_order} + 1` })
-        .where(eq(sessionsTable.agent_id, agentId))
-      await tx.insert(sessionsTable).values(insertData)
-    })
+    // Serialize display-order changes within this agent's session list.
+    await insertSessionAtFront(db, insertData)
 
     const result = await db.select().from(sessionsTable).where(eq(sessionsTable.id, id)).limit(1)
 
@@ -290,12 +287,12 @@ export class SessionService extends BaseService {
 
   async renameWorkspace(source: string, name: string, isBusy: () => boolean) {
     const database = await this.getDatabase()
-    // The caller holds the shared execution gate until SQL commit or rollback.
-    // Filesystem rollback also covers a failed transaction commit.
-    let movedTarget = ''
-    try {
-      return await database.transaction(async (tx) => {
-        const rows = await tx.select().from(sessionsTable)
+    return this.workspaceRenameQueue.run(async () => {
+      // The caller holds the execution gate while paths are moved and persisted.
+      // Only filesystem compensation belongs here; SQL atomicity belongs to persistence.
+      let movedTarget = ''
+      try {
+        const rows = await database.select().from(sessionsTable)
         // Reject stale requests BEFORE touching the filesystem, even if the old
         // pathname has since been reused by an unrelated folder.
         const associated = rows.some((row) => {
@@ -321,26 +318,25 @@ export class SessionService extends BaseService {
         if (!affected.length) throw new Error('工作空间未关联任何会话')
         fs.renameSync(source, target)
         movedTarget = target
-        for (const item of affected) {
-          await tx.update(sessionsTable).set(this.serializeJsonFields({
-            accessible_paths: item.accessible_paths, configuration: item.configuration
-          })).where(eq(sessionsTable.id, item.session.id))
-        }
+        await persistWorkspaceSessionPaths(database, affected.map((item) => ({
+          id: item.session.id,
+          ...this.serializeJsonFields({ accessible_paths: item.accessible_paths, configuration: item.configuration })
+        })))
         return { source, target, sessions: affected.map(({ session, ...updates }) => ({ ...session, ...updates })) }
-      })
-    } catch (error) {
-      if (movedTarget) {
-        try {
-          try { fs.lstatSync(source); throw new Error('source reused') } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      } catch (error) {
+        if (movedTarget) {
+          try {
+            try { fs.lstatSync(source); throw new Error('source reused') } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+            }
+            fs.renameSync(movedTarget, source)
+          } catch {
+            throw new Error('重命名失败且目录恢复失败，请停止操作并联系支持人员')
           }
-          fs.renameSync(movedTarget, source)
-        } catch {
-          throw new Error('重命名失败且目录恢复失败，请停止操作并联系支持人员')
         }
+        throw workspaceRenameError(error)
       }
-      throw workspaceRenameError(error)
-    }
+    })
   }
 
   async updateSession(
@@ -519,14 +515,7 @@ export class SessionService extends BaseService {
 
   async reorderSessions(agentId: string, orderedIds: string[]): Promise<void> {
     const database = await this.getDatabase()
-    await database.transaction(async (tx) => {
-      for (let i = 0; i < orderedIds.length; i++) {
-        await tx
-          .update(sessionsTable)
-          .set({ sort_order: i })
-          .where(and(eq(sessionsTable.id, orderedIds[i]), eq(sessionsTable.agent_id, agentId)))
-      }
-    })
+    await reorderSessionRows(database, agentId, orderedIds)
     logger.info('Sessions reordered', { agentId, count: orderedIds.length })
   }
 

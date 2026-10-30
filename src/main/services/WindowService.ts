@@ -17,6 +17,7 @@ import { contextMenu } from './ContextMenu'
 import { crashReportService } from './CrashReportService'
 import { isSafeExternalUrl } from './security'
 import { initSessionUserAgent } from './WebviewService'
+import { installSessionResponseHeaders } from './network/sessionResponseHeaders'
 
 const DEFAULT_MINIWINDOW_WIDTH = 550
 const DEFAULT_MINIWINDOW_HEIGHT = 400
@@ -484,21 +485,7 @@ export class WindowService {
   }
 
   private setupWebRequestHeaders(mainWindow: BrowserWindow) {
-    mainWindow.webContents.session.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (details, callback) => {
-      if (details.responseHeaders?.['X-Frame-Options']) {
-        delete details.responseHeaders['X-Frame-Options']
-      }
-      if (details.responseHeaders?.['x-frame-options']) {
-        delete details.responseHeaders['x-frame-options']
-      }
-      if (details.responseHeaders?.['Content-Security-Policy']) {
-        delete details.responseHeaders['Content-Security-Policy']
-      }
-      if (details.responseHeaders?.['content-security-policy']) {
-        delete details.responseHeaders['content-security-policy']
-      }
-      callback({ cancel: false, responseHeaders: details.responseHeaders })
-    })
+    installSessionResponseHeaders(mainWindow.webContents.session, { allowEmbedding: true })
   }
 
   private loadMainWindowContent(mainWindow: BrowserWindow) {

@@ -110,6 +110,24 @@ describe('SessionMessageService cancelled persistence', () => {
     vi.restoreAllMocks()
   })
 
+  it('does not dispatch an attempt that timed out during canonical persistence', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const controller = new AbortController()
+    vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
+    vi.spyOn(service as any, 'persistCanonicalTurnStart').mockImplementation(async () => {
+      controller.abort()
+    })
+    await expect(service.createSessionMessage(
+      { id: 'session-a', agent_id: 'agent-a' } as any,
+      { content: 'hello' } as any,
+      controller,
+      { persist: true }
+    )).rejects.toMatchObject({ name: 'AbortError' })
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(persistUserMessageMock).not.toHaveBeenCalled()
+  })
+
   it('persists a cancelled exchange when only thinking blocks were streamed', async () => {
     const { SessionMessageService } = await import('../SessionMessageService')
     const service = new SessionMessageService()

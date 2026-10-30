@@ -2674,6 +2674,7 @@
             "create_image_driven_digital_human": "图片驱动数字人",
             "create_lip_sync_digital_human": "口型驱动数字人",
             "create_omni_image_driven_digital_human": "Omni 图片驱动数字人",
+            "create_default_image_driven_digital_human": "图片驱动数字人",
             "create_seedance_digital_human": "图片驱动数字人"
           },
           "draft_elements": {

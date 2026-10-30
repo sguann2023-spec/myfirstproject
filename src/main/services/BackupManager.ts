@@ -20,6 +20,7 @@ import { IpcChannel } from '@shared/IpcChannel'
 import type { WebDavConfig } from '@types'
 import type { S3Config } from '@types'
 import archiver from 'archiver'
+import Database from 'better-sqlite3'
 import { app } from 'electron'
 import * as fs from 'fs-extra'
 import StreamZip from 'node-stream-zip'
@@ -32,6 +33,7 @@ import { resolveAndValidatePath } from '../utils/file'
 import S3Storage from './S3Storage'
 import WebDav from './WebDav'
 import { windowService } from './WindowService'
+import { DatabaseManager } from './agents/database/DatabaseManager'
 
 const logger = loggerService.withContext('BackupManager')
 
@@ -82,6 +84,8 @@ class BackupManager {
       const hasIndexedDBRestore = await fs.pathExists(indexedDBRestore)
       const hasLocalStorageRestore = await fs.pathExists(localStorageRestore)
       const hasDataRestore = await fs.pathExists(dataRestore)
+
+      if (hasDataRestore) await new BackupManager().validateStorage(dataRestore)
 
       // Restore IndexedDB
       if (hasIndexedDBRestore) {
@@ -141,7 +145,7 @@ class BackupManager {
    * @param _ - Electron IPC event
    * @param fileName - Name of the backup file
    * @param destinationPath - Path to save the backup (defaults to this.backupDir)
-   * @param skipBackupFile - Whether to skip backing up the Data directory
+   * @param skipBackupFile - Whether to skip attachments; the database is always included
    * @returns Path to the created backup file
    */
   async backup(
@@ -153,7 +157,7 @@ class BackupManager {
     const onProgress = this.onProgress(IpcChannel.BackupProgress, true)
 
     try {
-      await fs.ensureDir(this.tempDir)
+      await fs.emptyDir(this.tempDir)
       onProgress({ stage: 'preparing', progress: 0, total: 100 })
 
       const userDataPath = app.getPath('userData')
@@ -187,25 +191,10 @@ class BackupManager {
       await fs.writeJson(path.join(this.tempDir, 'metadata.json'), metadata, { spaces: 2 })
       onProgress({ stage: 'copying_database', progress: 52, total: 100 })
 
-      // Step 4: Copy Data directory (if not skipped)
-      if (!skipBackupFile) {
-        const sourcePath = path.join(userDataPath, 'Data')
-        const tempDataDir = path.join(this.tempDir, 'Data')
-
-        if (await fs.pathExists(sourcePath)) {
-          const totalSize = await this.getDirSize(sourcePath)
-          let copiedSize = 0
-
-          await this.copyDirWithProgress(sourcePath, tempDataDir, (size) => {
-            copiedSize += size
-            const progress = Math.min(80, 52 + Math.floor((copiedSize / totalSize) * 28))
-            onProgress({ stage: 'copying_files', progress, total: 100 })
-          })
-        }
-      } else {
-        logger.debug('[backupDirect] Skip the backup of the file')
-        await fs.promises.mkdir(path.join(this.tempDir, 'Data'))
-      }
+      // Attachments are optional; durable agent storage is not.
+      await this.backupDataDirectory(skipBackupFile, progress => {
+        onProgress({ stage: 'copying_files', progress: 52 + Math.floor(progress * 28), total: 100 })
+      })
       onProgress({ stage: 'compressing', progress: 80, total: 100 })
 
       // Step 5: Create ZIP archive
@@ -245,12 +234,12 @@ class BackupManager {
 
   /**
    * Legacy backup method (JSON format, used by LanTransfer)
-   * Creates a backup in the old format with data.json and optional Data directory.
+   * Creates a JSON-format backup with durable database storage and optional attachments.
    * @param _ - Electron IPC event
    * @param fileName - Name of the backup file
    * @param data - JSON string data to backup
    * @param destinationPath - Path to save the backup (defaults to this.backupDir)
-   * @param skipBackupFile - Whether to skip backing up the Data directory
+   * @param skipBackupFile - Whether to skip attachments; the database is always included
    * @returns Path to the created backup file
    */
   async backupLegacy(
@@ -263,7 +252,7 @@ class BackupManager {
     const onProgress = this.onProgress(IpcChannel.BackupProgress, true)
 
     try {
-      await fs.ensureDir(this.tempDir)
+      await fs.emptyDir(this.tempDir)
       onProgress({ stage: 'preparing', progress: 0, total: 100 })
 
       // Write data.json using streaming
@@ -282,27 +271,10 @@ class BackupManager {
 
       logger.debug(`BackupManager IPC, skipBackupFile: ${skipBackupFile}`)
 
-      if (!skipBackupFile) {
-        // Copy Data directory to temp directory
-        const sourcePath = path.join(app.getPath('userData'), 'Data')
-        const tempDataDir = path.join(this.tempDir, 'Data')
-
-        // Get total size of source directory
-        const totalSize = await this.getDirSize(sourcePath)
-        let copiedSize = 0
-
-        // Use streaming copy
-        await this.copyDirWithProgress(sourcePath, tempDataDir, (size) => {
-          copiedSize += size
-          const progress = Math.min(50, Math.floor((copiedSize / totalSize) * 50))
-          onProgress({ stage: 'copying_files', progress, total: 100 })
-        })
-
-        onProgress({ stage: 'preparing_compression', progress: 50, total: 100 })
-      } else {
-        logger.debug('Skip the backup of the file')
-        await fs.promises.mkdir(path.join(this.tempDir, 'Data')) // Creating empty Data dir is required, otherwise restore will fail
-      }
+      await this.backupDataDirectory(skipBackupFile, progress => {
+        onProgress({ stage: 'copying_files', progress: 20 + Math.floor(progress * 30), total: 100 })
+      })
+      onProgress({ stage: 'preparing_compression', progress: 50, total: 100 })
 
       // Create output file stream
       const backupedFilePath = path.join(destinationPath, fileName)
@@ -503,14 +475,18 @@ class BackupManager {
 
     try {
       // Create temp directory
-      await fs.ensureDir(this.tempDir)
+      await fs.emptyDir(this.tempDir)
       onProgress({ stage: 'preparing', progress: 0, total: 100 })
 
       logger.debug(`step 1: unzip backup file: ${this.tempDir}`)
 
       const zip = new StreamZip.async({ file: backupPath })
       onProgress({ stage: 'extracting', progress: 15, total: 100 })
-      await zip.extract(null, this.tempDir)
+      try {
+        await zip.extract(null, this.tempDir)
+      } finally {
+        await zip.close()
+      }
       onProgress({ stage: 'extracted', progress: 20, total: 100 })
 
       // Check for backup type: direct (version 6+) or legacy (version <= 5)
@@ -566,6 +542,15 @@ class BackupManager {
 
       onProgress({ stage: 'validating', progress: 25, total: 100 })
 
+      const dataSource = path.join(this.tempDir, 'Data')
+      await this.validateStorage(dataSource)
+      const dataExists = await fs.pathExists(dataSource)
+      const dataFiles = dataExists ? await fs.readdir(dataSource) : []
+      if (dataFiles.length > 0) {
+        await DatabaseManager.beginStorageMaintenance()
+        await this.removeRootStorageArtifacts()
+      }
+
       onProgress({ stage: 'restoring_database', progress: 30, total: 100 })
 
       const userDataPath = app.getPath('userData')
@@ -599,14 +584,10 @@ class BackupManager {
       onProgress({ stage: 'restoring_database', progress: 65, total: 100 })
 
       //  Restore Data directory
-      const dataSource = path.join(this.tempDir, 'Data')
-      const dataDest = path.join(userDataPath, 'Data' + restoreSuffix)
-      const dataExists = await fs.pathExists(dataSource)
-      const dataFiles = dataExists ? await fs.readdir(dataSource) : []
+      const dataDest = getDataPath() + restoreSuffix
 
       if (dataExists && dataFiles.length > 0) {
         logger.debug('[restoreDirect] Restoring Data directory...')
-
         const totalSize = await this.getDirSize(dataSource)
         let copiedSize = 0
 
@@ -658,14 +639,17 @@ class BackupManager {
 
       // Restore Data directory
       const restoreSuffix = isWin ? '.restore' : ''
-      const userDataPath = app.getPath('userData')
       const dataSourcePath = path.join(this.tempDir, 'Data')
-      const dataDestPath = path.join(userDataPath, 'Data' + restoreSuffix)
+      const dataDestPath = getDataPath() + restoreSuffix
+
+      await this.validateStorage(dataSourcePath)
 
       const dataExists = await fs.pathExists(dataSourcePath)
       const dataFiles = dataExists ? await fs.readdir(dataSourcePath) : []
 
       if (dataExists && dataFiles.length > 0) {
+        await DatabaseManager.beginStorageMaintenance()
+        await this.removeRootStorageArtifacts()
         // Get total size of source directory
         const dataTotalSize = await this.getDirSize(dataSourcePath)
         let copiedSize = 0
@@ -814,14 +798,15 @@ class BackupManager {
    * @param dirPath - Directory path to calculate size
    * @returns Total size in bytes
    */
-  private async getDirSize(dirPath: string): Promise<number> {
+  private async getDirSize(dirPath: string, include: (filename: string) => boolean = () => true): Promise<number> {
     let size = 0
     const items = await fs.readdir(dirPath, { withFileTypes: true })
 
     for (const item of items) {
       const fullPath = path.join(dirPath, item.name)
+      if (!include(fullPath)) continue
       if (item.isDirectory()) {
-        size += await this.getDirSize(fullPath)
+        size += await this.getDirSize(fullPath, include)
       } else {
         const stats = await fs.stat(fullPath)
         size += stats.size
@@ -830,16 +815,125 @@ class BackupManager {
     return size
   }
 
+  private async backupDataDirectory(skipAttachments: boolean, onProgress: (fraction: number) => void): Promise<void> {
+    const database = await DatabaseManager.getInstance()
+    const source = getDataPath()
+    const destination = path.join(this.tempDir, 'Data')
+    // Never inherit files from an earlier failed backup or copy active SQLite sidecars.
+    await fs.remove(destination)
+    await fs.ensureDir(destination)
+    const include = (filename: string): boolean => {
+      const relative = path.relative(source, filename)
+      if (path.dirname(relative) !== '.') return true
+      return relative !== 'record-storage' && !/^(?:agents|records)\.db(?:$|[.-])/.test(relative)
+    }
+    if (!skipAttachments && await fs.pathExists(source)) {
+      const totalSize = await this.getDirSize(source, include)
+      let copiedSize = 0
+      await this.copyDirWithProgress(source, destination, size => {
+        copiedSize += size
+        onProgress(totalSize ? Math.min(1, copiedSize / totalSize) : 1)
+      }, include)
+    }
+    // The core creates this absent directory and publishes manifest.json last.
+    await database.backupStorage(path.join(destination, 'record-storage'))
+    await this.validateStorage(destination, true)
+    onProgress(1)
+  }
+
+  private async validateStorage(dataDirectory: string, required = false): Promise<void> {
+    const storage = path.join(dataDirectory, 'record-storage')
+    const names: string[] = await fs.pathExists(dataDirectory) ? await fs.readdir(dataDirectory) : []
+    if (names.some(name => /^records\.db(?:$|[.-])/.test(name))) {
+      throw new Error('Unsafe raw record database in backup')
+    }
+    if (!await fs.pathExists(storage)) {
+      if (required) {
+        throw new Error('Missing record storage manifest')
+      }
+      return // Historical backups did not contain an overlay suite.
+    }
+
+    const files = new Set<string>()
+    const inspect = async (directory: string): Promise<void> => {
+      if (!(await fs.lstat(directory)).isDirectory()) throw new Error('Unsafe record storage directory')
+      for (const name of await fs.readdir(directory)) {
+        const filename = path.join(directory, name)
+        const stat = await fs.lstat(filename)
+        if (stat.isSymbolicLink()) throw new Error('Unsafe record storage symlink')
+        if (stat.isDirectory()) await inspect(filename)
+        else if (stat.isFile()) files.add(path.relative(storage, filename).split(path.sep).join('/'))
+        else throw new Error('Unsafe record storage file')
+      }
+    }
+    await inspect(storage)
+    if (!files.has('manifest.json')) throw new Error('Missing record storage manifest')
+    const manifest = await fs.readJson(path.join(storage, 'manifest.json'))
+    if (!manifest || manifest.format !== 'record-overlay-v1' || manifest.database !== 'records.db' ||
+      !Array.isArray(manifest.legacyPaths) || !Array.isArray(manifest.sources) ||
+      manifest.sources.length !== manifest.legacyPaths.length) {
+      throw new Error('Invalid record storage manifest')
+    }
+    const declared = new Set<string>(['manifest.json', 'records.db'])
+    for (const [index, snapshot] of manifest.legacyPaths.entries()) {
+      // Portable paths only; originalPath is provenance, never a restore target.
+      if (typeof snapshot !== 'string' || !/^legacy\/[0-9]+\.db$/.test(snapshot) || declared.has(snapshot) ||
+        manifest.sources[index]?.snapshot !== snapshot || typeof manifest.sources[index]?.originalPath !== 'string') {
+        throw new Error('Unsafe or inconsistent record storage manifest')
+      }
+      declared.add(snapshot)
+    }
+    if (files.size !== declared.size || [...declared].some(file => !files.has(file))) {
+      throw new Error('Incomplete or unexpected record storage files')
+    }
+    for (const filename of declared) {
+      if (filename === 'manifest.json') continue
+      const databasePath = path.join(storage, filename)
+      const handle = await fs.open(databasePath, 'r')
+      try {
+        const header = Buffer.alloc(16)
+        const { bytesRead } = await fs.read(handle, header, 0, header.length, 0)
+        if (bytesRead !== 16 || header.toString('ascii') !== 'SQLite format 3\0' || (await fs.fstat(handle)).size < 100) {
+          throw new Error('Invalid record storage database')
+        }
+      } finally {
+        await fs.close(handle)
+      }
+      const db = new Database(databasePath, { readonly: true, fileMustExist: true })
+      try {
+        const result = db.pragma('integrity_check') as { integrity_check: string }[]
+        if (result.length !== 1 || result[0].integrity_check !== 'ok') {
+          throw new Error('Invalid record storage database')
+        }
+      } finally {
+        db.close()
+        // SQLite may create empty WAL/SHM even for read-only WAL snapshots.
+        // The declared-file check above ensures neither existed before validation.
+        await fs.remove(databasePath + '-wal')
+        await fs.remove(databasePath + '-shm')
+      }
+    }
+  }
+
+  private async removeRootStorageArtifacts(): Promise<void> {
+    const root = app.getPath('userData')
+    for (const name of await fs.readdir(root)) {
+      if (/^(?:agents|records)\.db(?:$|[.-])/.test(name)) await fs.remove(path.join(root, name))
+    }
+  }
+
   /**
    * Create a empty restore data path, it will be reset after app relaunch
    */
   public async resetData() {
+    await DatabaseManager.beginStorageMaintenance()
+    await this.removeRootStorageArtifacts()
+    const dataRestorePath = getDataPath() + '.restore'
+    await fs.remove(dataRestorePath)
     if (!isWin) {
-      return await fs.remove(getDataPath()).catch(() => {})
+      return await fs.remove(getDataPath())
     }
 
-    const dataRestorePath = getDataPath() + '.restore'
-    await fs.remove(dataRestorePath).catch(() => {})
     await fs.ensureDir(dataRestorePath)
   }
 
@@ -927,29 +1021,9 @@ class BackupManager {
   private async copyDirWithProgress(
     source: string,
     destination: string,
-    onProgress: (size: number) => void
+    onProgress: (size: number) => void,
+    include: (filename: string) => boolean = () => true
   ): Promise<void> {
-    // First count total files
-    let totalFiles = 0
-    let processedFiles = 0
-    let lastProgressReported = 0
-
-    // Calculate total file count
-    const countFiles = async (dir: string): Promise<number> => {
-      let count = 0
-      const items = await fs.readdir(dir, { withFileTypes: true })
-      for (const item of items) {
-        if (item.isDirectory()) {
-          count += await countFiles(path.join(dir, item.name))
-        } else {
-          count++
-        }
-      }
-      return count
-    }
-
-    totalFiles = await countFiles(source)
-
     // Copy files and update progress
     const copyDir = async (src: string, dest: string): Promise<void> => {
       const items = await fs.readdir(src, { withFileTypes: true })
@@ -957,6 +1031,7 @@ class BackupManager {
       for (const item of items) {
         const sourcePath = path.join(src, item.name)
         const destPath = path.join(dest, item.name)
+        if (!include(sourcePath)) continue
 
         if (item.isDirectory()) {
           await fs.ensureDir(destPath)
@@ -964,14 +1039,7 @@ class BackupManager {
         } else {
           const stats = await fs.stat(sourcePath)
           await fs.copy(sourcePath, destPath)
-          processedFiles++
-
-          // Only report progress when change exceeds 5%
-          const currentProgress = Math.floor((processedFiles / totalFiles) * 100)
-          if (currentProgress - lastProgressReported >= 5 || processedFiles === totalFiles) {
-            lastProgressReported = currentProgress
-            onProgress(stats.size)
-          }
+          onProgress(stats.size)
         }
       }
     }
@@ -1110,7 +1178,7 @@ class BackupManager {
     // Ensure temp directory exists
     await fs.ensureDir(targetPath)
 
-    // Create backup with skipBackupFile=true (no Data folder)
+    // Omit attachments, but retain the agent database in the transfer backup.
     const backupedFilePath = await this.backupLegacy(_, fileName, data, targetPath, true)
 
     logger.info(`[BackupManager] Created LAN transfer backup at: ${backupedFilePath}`)

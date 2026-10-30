@@ -24,3 +24,16 @@ export function parseMaybeJsonToolArguments(value: unknown): Record<string, unkn
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+/** Select by usable questions, not object presence: streamed args can still be {}. */
+export function resolveToolArguments(...sources: unknown[]): Record<string, unknown> | undefined {
+  const parsed = sources.map(parseMaybeJsonToolArguments)
+  return parsed.find((value) => Array.isArray(value?.questions) && value.questions.length > 0 &&
+    value.questions.every((question: unknown) => isPlainRecord(question) &&
+      typeof question.question === 'string' && !!question.question.trim() &&
+      typeof question.header === 'string' && typeof question.multiSelect === 'boolean' &&
+      Array.isArray(question.options) && question.options.every((option: unknown) =>
+        isPlainRecord(option) && typeof option.label === 'string' &&
+        (option.description === undefined || typeof option.description === 'string')))) ??
+    parsed.find((value) => value && Object.keys(value).length > 0) ?? parsed.find(Boolean)
+}

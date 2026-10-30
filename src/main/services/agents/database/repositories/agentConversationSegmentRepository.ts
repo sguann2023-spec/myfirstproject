@@ -4,6 +4,7 @@ import { loggerService } from '@logger'
 import { and, desc, eq } from 'drizzle-orm'
 
 import { BaseService } from '../../BaseService'
+import { sqliteErrorDiagnostics } from '../sqliteRetry'
 import {
   agentConversationSegmentsTable,
   type AgentConversationSegmentRow,
@@ -97,9 +98,24 @@ class AgentConversationSegmentRepositoryImpl extends BaseService implements IAge
       created_at: segment.createdAt || now,
       updated_at: now
     }
-    const [saved] = await database.insert(agentConversationSegmentsTable).values(insertData).returning()
-    logger.info('[SegmentRepo] saved', { topicId: segment.topicId, segmentId: insertData.id, status: segment.status })
-    return this.deserialize(saved)!
+    const startedAt = Date.now()
+    try {
+      const [saved] = await database.insert(agentConversationSegmentsTable).values(insertData).returning()
+      logger.info('[SegmentRepo] saved', { topicId: segment.topicId, segmentId: insertData.id, status: segment.status })
+      return this.deserialize(saved)!
+    } catch (error) {
+      logger.error('[DBDiagnostics] conversation segment insert failed', {
+        operation: 'agent_conversation_segments.insert',
+        topicId: segment.topicId,
+        segmentId: insertData.id,
+        status: segment.status,
+        hasSdkSessionId: Boolean(segment.sdkSessionId),
+        hasParentSegmentId: Boolean(segment.parentSegmentId),
+        elapsedMs: Date.now() - startedAt,
+        error: sqliteErrorDiagnostics(error)
+      })
+      throw error
+    }
   }
 
   async update(segmentId: string, updates: Partial<AgentConversationSegment>): Promise<void> {

@@ -52,7 +52,7 @@ const PROCESS_MAX_BUFFER = 1024 * 1024
 const CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_lip_sync_digital_human',
   description:
-    'Create a lip-sync digital human video from one copywriting text, one voice ID, and one portrait video. Speech audio is synthesized inside this tool; do not call a separate speech generation tool first. The same tool call waits for the final video result.',
+    'Prefer lip_sync when an original person video is available: synthesize TTS then synchronize lips. Create a lip-sync digital human video from one copywriting text, one voice ID, and one portrait video. Speech audio is synthesized inside this tool; do not call a separate speech generation tool first. The same tool call waits for the final video result.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -93,7 +93,7 @@ const GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
 const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_image_driven_digital_human',
   description:
-    'Create a Jimeng Omni image-driven digital human video from one portrait image, one copywriting text, one voice ID, and one scene prompt. Speech audio is synthesized inside this tool; do not call a separate speech generation tool first. The same tool call waits for the final video result.',
+    'Legacy Omni alias create_image_driven_digital_human (not the default image-driven tool). Omni supports photo + audio + prompt and costs 10x the default image-driven option; never automatically upgrade, use only with explicit informed user choice. Create a Jimeng Omni image-driven digital human video from one portrait image, one copywriting text, one voice ID, and one scene prompt. Speech audio is synthesized inside this tool; do not call a separate speech generation tool first. The same tool call waits for the final video result.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -142,7 +142,10 @@ const GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
 
 const CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_omni_image_driven_digital_human',
-  description: CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL.description,
+  description: CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL.description!.replace(
+    'Legacy Omni alias create_image_driven_digital_human (not the default image-driven tool).',
+    'Explicit Omni image-driven tool; create_image_driven_digital_human is its legacy alias, not the default image-driven tool.'
+  ),
   inputSchema: CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL.inputSchema
 }
 
@@ -152,10 +155,10 @@ const GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
   inputSchema: GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL.inputSchema
 }
 
-const CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL: Tool = {
-  name: 'create_seedance_digital_human',
+const CREATE_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
+  name: 'create_default_image_driven_digital_human',
   description:
-    'Create an image-driven digital human video from one portrait image, one copywriting text, and one voice ID, and wait until the same tool call finishes with the final video result. Remote image URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
+    '图片驱动数字人: preferred default when only a photo is available. Requires a script and an ElevenLabs voice ID; cannot accept arbitrary audio. seedance is the legacy mode key for default image-driven, not a user-facing model choice. Create an image-driven digital human video from one portrait image, one copywriting text, and one ElevenLabs voice ID, and wait until the same tool call finishes with the final video result. Remote image URLs are accepted directly, and local file URLs or absolute local paths are uploaded internally when needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -169,7 +172,7 @@ const CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL: Tool = {
       },
       voiceId: {
         type: 'string',
-        description: 'Required voice ID used to synthesize the digital human audio.'
+        description: 'Required ElevenLabs voice ID used with the script; arbitrary audio is not supported.'
       }
     },
     required: ['imageUrl', 'copywriting', 'voiceId'],
@@ -177,9 +180,9 @@ const CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL: Tool = {
   }
 }
 
-const GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
-  name: 'get_seedance_digital_human_status',
-  description: 'Backward-compatible status query for an image-driven digital human task.',
+const GET_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
+  name: 'get_default_image_driven_digital_human_status',
+  description: 'Query default 图片驱动数字人 status (seedance is its legacy mode key).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -195,12 +198,12 @@ const GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
 
 const START_DIGITAL_HUMAN_TASK_TOOL: Tool = {
   name: 'start_digital_human_task',
-  description: 'Recommended for external agents. Start a durable background digital-human task and immediately return job_id. Speech synthesis, uploads, submission and rendering run in the background. Poll get_digital_human_job with jobId. Reuse requestId after timeout to prevent duplicate generation and billing.',
+  description: 'Prefer lip_sync for original person video (TTS then lip sync). For only a photo prefer default 图片驱动数字人: seedance is its legacy mode key, requires script and ElevenLabs voice ID, cannot accept arbitrary audio. Omni supports photo + audio + prompt, costs 10x default; never auto-upgrade, require explicit informed choice. Internal Omni and lip_sync synthesize TTS automatically; do not prepare separate audio. Start a durable background digital-human task and immediately return job_id. Speech synthesis, uploads, submission and rendering run in the background. Poll get_digital_human_job with jobId. Reuse requestId after timeout to prevent duplicate generation and billing.',
   inputSchema: {
     type: 'object',
     properties: {
       requestId: BACKGROUND_REQUEST_ID_PROPERTY,
-      mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'] },
+      mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'], description: 'Prefer lip_sync for original person video (TTS then lip sync). For only a photo prefer default 图片驱动数字人: seedance is its legacy mode key, requires script and ElevenLabs voice ID, cannot accept arbitrary audio. Omni supports photo + audio + prompt, costs 10x default; never auto-upgrade, require explicit informed choice.' },
       copywriting: { type: 'string', description: 'Original spoken script.' },
       voiceId: { type: 'string', description: 'Selected voice ID.' },
       videoUrl: { type: 'string', description: 'Required for lip_sync: portrait video URL or absolute local path.' },
@@ -343,19 +346,36 @@ class DigitalHumanServer {
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: this.options.external ? [
-        { name: 'submit', description: 'Submit a real backend avatar task immediately, without TTS, uploads or polling. mode: lip_sync or omni requires public audioUrl and videoUrl/imageUrl; seedance requires imageUrl, copywriting and voiceId. Retain mode for task_status.', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'] }, audioUrl: { type: 'string' }, videoUrl: { type: 'string' }, imageUrl: { type: 'string' }, prompt: { type: 'string' }, copywriting: { type: 'string' }, voiceId: { type: 'string' }, outputResolution: { type: 'integer', enum: [720, 1080] } }, required: ['mode'] } },
-        { name: 'task_status', description: 'Query the backend once; preserves result, failure and billing. Use the mode returned by submit.', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'] }, task_id: { type: 'string' } }, required: ['mode', 'task_id'] } }
+        {
+          name: 'submit',
+          description: 'For only a photo prefer image_driven, the default 图片驱动数字人: requires imageUrl, copywriting script and an ElevenLabs voiceId; cannot accept arbitrary audio. Prefer lip_sync for an original person video: prepare speech audio with separate TTS first. Omni supports photo + audio + prompt, costs 10x default; never auto-upgrade, require explicit informed user choice. External submit requires prepared public audio URLs for Omni and lip_sync; no automatic TTS. Submit a real backend avatar task immediately, without uploads or polling. Retain the returned mode for task_status.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              mode: { type: 'string', enum: ['lip_sync', 'omni', 'image_driven'], description: 'Prefer image_driven for a photo with script and ElevenLabs voiceId; lip_sync for original person video with separately prepared TTS audio. Omni costs 10x default; never auto-upgrade, require explicit informed user choice.' },
+              audioUrl: { type: 'string', description: 'Required for lip_sync/omni: prepared audio public HTTP(S) URL only; no local paths or file URLs.' },
+              videoUrl: { type: 'string', description: 'Required for lip_sync: original person video public HTTP(S) URL only; no local paths or file URLs.' },
+              imageUrl: { type: 'string', description: 'Required for image_driven/omni: portrait image public HTTP(S) URL only; no local paths or file URLs.' },
+              prompt: { type: 'string', description: 'Required for omni: scene/action prompt.' },
+              copywriting: { type: 'string', description: 'Required for image_driven only: spoken script.' },
+              voiceId: { type: 'string', description: 'Required for image_driven only: ElevenLabs voice ID.' },
+              outputResolution: { type: 'integer', enum: [720, 1080] }
+            },
+            required: ['mode']
+          }
+        },
+        { name: 'task_status', description: 'Query the backend once; preserves result, failure and billing. Use the mode returned by submit.', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['lip_sync', 'omni', 'image_driven'], description: 'Use the canonical mode returned by submit: image_driven is the default photo option.' }, task_id: { type: 'string' } }, required: ['mode', 'task_id'] } }
       ] : [
         CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL,
         CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
         CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
-        CREATE_SEEDANCE_DIGITAL_HUMAN_TOOL,
+        CREATE_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
         START_DIGITAL_HUMAN_TASK_TOOL,
         GET_DIGITAL_HUMAN_JOB_TOOL,
         GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL,
         GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
         GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
-        GET_SEEDANCE_DIGITAL_HUMAN_STATUS_TOOL
+        GET_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL
       ]
     }))
 
@@ -380,8 +400,10 @@ class DigitalHumanServer {
           case 'get_image_driven_digital_human_status':
           case 'get_omni_image_driven_digital_human_status':
             return await this.getImageDrivenDigitalHumanStatus(args as Record<string, unknown>)
+          case 'create_default_image_driven_digital_human':
           case 'create_seedance_digital_human':
             return await this.createSeedanceDigitalHuman(args as Record<string, unknown>, extra as ToolExecutionExtra)
+          case 'get_default_image_driven_digital_human_status':
           case 'get_seedance_digital_human_status':
             return await this.getSeedanceDigitalHumanStatus(args as Record<string, unknown>)
           default:
@@ -404,22 +426,23 @@ class DigitalHumanServer {
 
   private async callExternalTool(name: string, args: Record<string, unknown>) {
     if (!['submit', 'task_status'].includes(name)) throw new Error(`Unknown external tool: ${name}`)
-    const mode = this.getRequiredString(args, 'mode')
+    const requestedMode = this.getRequiredString(args, 'mode')
+    const mode = requestedMode === 'seedance' ? 'image_driven' : requestedMode
     const endpoints = {
       lip_sync: [DIGITAL_HUMAN_CREATE_ENDPOINT, DIGITAL_HUMAN_STATUS_ENDPOINT],
       omni: [OMNI_DIGITAL_HUMAN_SUBMIT_ENDPOINT, OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT],
-      seedance: [SEEDANCE_DIGITAL_HUMAN_SUBMIT_ENDPOINT, SEEDANCE_DIGITAL_HUMAN_STATUS_ENDPOINT]
+      image_driven: [SEEDANCE_DIGITAL_HUMAN_SUBMIT_ENDPOINT, SEEDANCE_DIGITAL_HUMAN_STATUS_ENDPOINT]
     }
-    if (!Object.prototype.hasOwnProperty.call(endpoints, mode)) throw new Error('mode must be lip_sync, omni or seedance')
+    if (!Object.prototype.hasOwnProperty.call(endpoints, mode)) throw new Error('mode must be lip_sync, omni or image_driven')
     const [submitEndpoint, statusEndpoint] = endpoints[mode as keyof typeof endpoints]
     if (name === 'task_status') {
       const taskId = this.getRequiredString(args, 'taskId', 'task_id')
       const result = await this.queryStatus(statusEndpoint, taskId)
-      return this.formatExternalResult({ provider: 'vectcut', mode, action: name, task_id: taskId, ...result })
+      return this.formatExternalResult({ provider: 'vectcut', action: name, task_id: taskId, ...result, mode })
     }
     validateExternalMedia(args)
     const body: Record<string, unknown> = {}
-    if (mode === 'seedance') {
+    if (mode === 'image_driven') {
       body.image_url = this.getRequiredString(args, 'imageUrl', 'image_url')
       body.copywriting = this.getRequiredString(args, 'copywriting')
       body.voice_id = this.getRequiredString(args, 'voiceId', 'voice_id')
@@ -435,7 +458,7 @@ class DigitalHumanServer {
     const response = await this.requestWithAuth(submitEndpoint, { method: 'POST', body })
     if (!response.ok) throw new Error(`Digital human submission failed (${response.status}): ${await response.text()}`)
     const result = await response.json() as DigitalHumanCreateResponse
-    return this.formatExternalResult({ provider: 'vectcut', mode, action: name, ...result,
+    return this.formatExternalResult({ provider: 'vectcut', action: name, ...result, mode,
       polling_hint: 'Call task_status with mode and task_id.' }, true)
   }
 

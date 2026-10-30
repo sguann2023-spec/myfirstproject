@@ -4,6 +4,7 @@ import { CronExpressionParser } from 'cron-parser'
 import { and, asc, count, desc, eq, inArray, lte, ne } from 'drizzle-orm'
 
 import { BaseService } from '../BaseService'
+import { insertMissingTaskSubscriptions } from '../database/repositories/taskSubscriptionRepository'
 import {
   agentsTable,
   channelTaskSubscriptionsTable,
@@ -53,10 +54,7 @@ export class TaskService extends BaseService {
 
     // Create channel subscriptions
     if (req.channel_ids?.length) {
-      await database
-        .insert(channelTaskSubscriptionsTable)
-        .values(req.channel_ids.map((channelId) => ({ channelId, taskId: id })))
-        .onConflictDoNothing()
+      await insertMissingTaskSubscriptions(database, id, req.channel_ids)
     }
 
     logger.info('Task created', { taskId: id, agentId })
@@ -277,10 +275,7 @@ export class TaskService extends BaseService {
     await database.delete(channelTaskSubscriptionsTable).where(eq(channelTaskSubscriptionsTable.taskId, taskId))
     // Insert new ones
     if (channelIds.length > 0) {
-      await database
-        .insert(channelTaskSubscriptionsTable)
-        .values(channelIds.map((channelId) => ({ channelId, taskId })))
-        .onConflictDoNothing()
+      await insertMissingTaskSubscriptions(database, taskId, channelIds)
     }
   }
 

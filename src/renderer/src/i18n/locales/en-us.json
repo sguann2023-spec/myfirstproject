@@ -2674,6 +2674,7 @@
             "create_image_driven_digital_human": "Image-Driven Digital Human",
             "create_lip_sync_digital_human": "Mouth-Synced Digital Human",
             "create_omni_image_driven_digital_human": "Omni Image-Driven Digital Human",
+            "create_default_image_driven_digital_human": "Image-Driven Digital Human",
             "create_seedance_digital_human": "Image-Driven Digital Human"
           },
           "draft_elements": {

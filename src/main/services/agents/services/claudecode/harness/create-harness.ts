@@ -717,7 +717,7 @@ function buildBuiltinTools(input: {
     name: 'ReadImageAsContent',
     label: 'ReadImageAsContent',
     description:
-      'Load a valid local image file, remote image URL, or base64 data URL into the conversation. Images only: never pass video or audio files. For video, use video understanding or extract a real image frame first. This tool attaches the original image without analyzing or converting it.',
+      'Attach an image from a local path, URL, or data URL. No audio/video; extract a video frame first. No analysis or conversion.',
     parameters: Type.Object({
       file_path: Type.Optional(Type.String()),
       path: Type.Optional(Type.String()),
@@ -737,7 +737,7 @@ function buildBuiltinTools(input: {
   const askUserQuestionTool: PiAgentHarnessTool = {
     name: 'AskUserQuestion',
     label: 'AskUserQuestion',
-    description: 'Ask the user a multiple-choice question card and wait for their selection.',
+    description: 'Show choice questions and wait for user answers.',
     parameters: Type.Object({
       questions: Type.Array(
         Type.Object({

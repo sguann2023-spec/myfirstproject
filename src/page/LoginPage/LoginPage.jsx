@@ -8,6 +8,8 @@ import LogoIcon from '../../../public/logo.png'
 
 import './LoginPage.css';
 import { electronStore } from '../../shared/electronStore'; // 从共享模块导入
+import { ensureLoginServicesReady } from '../../shared/loginServicesReady';
+import { formatDatabaseInitializationProgress } from '../../shared/databaseInitializationProgress';
 import { ensureVectcutApiKeyForCurrentSession } from '../../auth/vectcutApiKey';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 const { Title, Text } = Typography;
@@ -297,6 +299,30 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
     const [viewState, setViewState] = useState('login');
     const [isLoginPreInitLoading, setIsLoginPreInitLoading] = useState(true);
     const [loginPreInitError, setLoginPreInitError] = useState('');
+    const [databaseProgress, setDatabaseProgress] = useState({ status: 'idle', phase: 'opening' });
+    const progressText = formatDatabaseInitializationProgress(databaseProgress);
+
+    useEffect(() => {
+        if (!isLoginPreInitLoading) return;
+        let active = true;
+        let pending = false;
+        const refresh = async () => {
+            if (!active) return;
+            if (pending) return;
+            pending = true;
+            try {
+                const progress = await ipcRenderer.invoke('app:database-initialization-progress');
+                if (active && progress?.status) setDatabaseProgress(progress);
+            } catch {
+                // The IPC may not be registered during the earliest startup frame.
+            } finally {
+                pending = false;
+            }
+        };
+        void refresh();
+        const timer = setInterval(refresh, 1000);
+        return () => { active = false; clearInterval(timer); };
+    }, [isLoginPreInitLoading]);
     // 展示用的用户名（初始从持久化里读一次）
     const [displayName, setDisplayName] = useState(() => electronStore.get('user')?.name || '');
     // 展示的用户头像
@@ -405,7 +431,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     };
 
                     try {
-                        await ipcRenderer.invoke('app:initialize-login-services');
+                        await ensureLoginServicesReady(ipcRenderer);
                         await ipcRenderer.invoke('app:register-extended-ipc');
                         refreshImageCapabilitiesInBackground();
                         await ensureReduxStoreReady();
@@ -463,7 +489,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
 
     // 登录：优先尝试用 refresh_token 静默获取有效令牌，失败再打开 Guard
     const handleLogin = async () => {
-        if (isLoginPreInitLoading) {
+        if (isLoginPreInitLoading || loginPreInitError) {
             return;
         }
         try {
@@ -570,8 +596,12 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     invited_by_code: normalizeInviteCode(CHANNEL_INVITE_CODE)
                 });
 
+                const preInitResult = await loginPreInitPromise;
+                if (!loginPreInitPromise || loginPreInitCachedError || preInitResult?.installing) {
+                    return;
+                }
                 if (onLogin) {
-                    onLogin(id_token);
+                    await onLogin(id_token);
                 }
             } catch (error) {
                 // 错误已在 exchangeToken 中处理
@@ -593,7 +623,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
 
     // 强制打开 Authing 登录页（忽略现有会话）
     const forceOpenGuardLogin = () => {
-        if (isLoginPreInitLoading) {
+        if (isLoginPreInitLoading || loginPreInitError) {
             return;
         }
         electronStore.delete('user');
@@ -646,6 +676,9 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                 {isLoginPreInitLoading ? (
                     <div style={{ marginTop: 90, textAlign: 'center' }}>
                         <Spin size="medium" />
+                        <div role="status" aria-live="polite" style={{ marginTop: 20, padding: '0 24px', color: '#596579', fontSize: 14, lineHeight: 1.8, overflowWrap: 'anywhere' }}>
+                            {progressText}
+                        </div>
                     </div>
                 ) : (
                     <>
@@ -653,6 +686,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         <Button
                             id="login-button"
                             className="login-button"
+                            disabled={!!loginPreInitError}
                             onClick={handleLogin} // <-- 绑定 Guard 登录流程
                         >
                             {i18n('login_button')}

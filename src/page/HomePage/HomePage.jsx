@@ -48,7 +48,7 @@ import { normalizeDigitalHumanRequestPayload } from '../../shared/digitalHumanRe
 import { buildVoiceConversionRequestProcessingBlocks, normalizeVoiceConversionRequestPayload } from '../../shared/voiceConversionRequest';
 import { isBeginnerGuideCompleted, isBeginnerGuideReopenPending } from '../../shared/beginnerGuide';
 import { limitInlineText, limitInlineToolPayload, sanitizeInlinePayload } from '../../shared/sessionPayloadLimits';
-import { parseMaybeJsonToolArguments } from '../../shared/parseToolArguments';
+import { resolveToolArguments } from '../../shared/parseToolArguments';
 import { resolveWorkspaceParentDirForAgent } from '../../shared/workspaceParentDir';
 import appStore from '../../renderer/src/store';
 import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
@@ -1101,7 +1101,7 @@ const buildDigitalHumanRequestProcessingBlocks = ({
   const toolName = mode === 'lip_sync'
     ? 'mcp__vectcut__digital-human__create_lip_sync_digital_human'
     : mode === 'seedance'
-      ? 'mcp__vectcut__digital-human__create_seedance_digital_human'
+      ? 'mcp__vectcut__digital-human__create_default_image_driven_digital_human'
       : 'mcp__vectcut__digital-human__create_omni_image_driven_digital_human';
   return [{
     id: `${assistantMessageId}-digital-human-tool`,
@@ -1767,10 +1767,7 @@ const sanitizePersistedToolResponse = (rawToolResponse = {}) => {
   // 流式参数可能只以 JSON 字符串形式停留在 partialArguments 上；持久化前提升为 arguments，
   // 否则历史消息里的 AskUserQuestion 卡片会因拿不到问题内容而渲染成骨架占位。
   const promotedArguments =
-    rawToolResponse.arguments
-    ?? (typeof rawToolResponse.partialArguments === 'string'
-      ? parseMaybeJsonToolArguments(rawToolResponse.partialArguments)
-      : undefined);
+    resolveToolArguments(rawToolResponse.arguments, rawToolResponse.partialArguments);
   return {
     ...rawToolResponse,
     arguments: sanitizeInlinePayload(promotedArguments, { label: `${toolName} 输入` }),
@@ -2158,6 +2155,22 @@ const enhancePersistedHydratedMessages = (messages = []) => {
       if (!isStructuredBlockObject(block)) return block;
       const rawToolResponse = block?.metadata?.rawMcpToolResponse;
       const toolName = String(rawToolResponse?.tool?.name || block?.toolName || '').trim();
+      if (toolName === 'AskUserQuestion' && rawToolResponse) {
+        // History may omit streamed arguments. Only reuse the exact same tool call,
+        // never a different question card from this or another session.
+        const existing = Object.values(appStore.getState().messageBlocks.entities).find((candidate) => (
+          candidate?.messageId === message.id &&
+          candidate?.metadata?.rawMcpToolResponse?.id === rawToolResponse.id
+        ))?.metadata?.rawMcpToolResponse;
+        const args = resolveToolArguments(rawToolResponse.arguments, rawToolResponse.partialArguments,
+          existing?.arguments, existing?.partialArguments);
+        if (args !== rawToolResponse.arguments) {
+          changed = true;
+          return { ...block, metadata: { ...block.metadata,
+            rawMcpToolResponse: { ...rawToolResponse, arguments: args }
+          } };
+        }
+      }
       if (!HYDRATED_IMAGE_TOOL_NAMES.has(toolName)) {
         return block;
       }
@@ -4260,6 +4273,17 @@ const HomePage = () => {
 
         if (isAskUserQuestion) {
           appStore.dispatch(toolPermissionsActions.requestReceived(payload));
+          // Store questions on the message before a denial/stream failure removes the request.
+          for (const block of Object.values(appStore.getState().messageBlocks.entities)) {
+            const raw = block?.metadata?.rawMcpToolResponse;
+            if (raw?.tool?.name !== 'AskUserQuestion' ||
+                ![payload.toolCallId, ...(payload.toolCallIdAliases || [])].includes(raw.id)) continue;
+            appStore.dispatch(updateOneBlock({ id: block.id, changes: {
+              metadata: { ...block.metadata, rawMcpToolResponse: { ...raw,
+                arguments: resolveToolArguments(raw.arguments, raw.partialArguments, payload.input)
+              } }
+            } }));
+          }
           logger.info('[HomePage][ToolPermission] queued interactive request', {
             requestId,
             toolName,

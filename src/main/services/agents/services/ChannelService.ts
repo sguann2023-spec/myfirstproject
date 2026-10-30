@@ -2,6 +2,7 @@ import { loggerService } from '@logger'
 import { and, eq, inArray } from 'drizzle-orm'
 
 import { BaseService } from '../BaseService'
+import { insertMissingTaskSubscriptions } from '../database/repositories/taskSubscriptionRepository'
 import {
   type ChannelConfig,
   type ChannelRow,
@@ -121,7 +122,7 @@ export class ChannelService extends BaseService {
 
   async subscribeToTask(channelId: string, taskId: string): Promise<void> {
     const database = await this.getDatabase()
-    await database.insert(channelTaskSubscriptionsTable).values({ channelId, taskId }).onConflictDoNothing()
+    await insertMissingTaskSubscriptions(database, taskId, [channelId])
     logger.info('Channel subscribed to task', { channelId, taskId })
   }
 

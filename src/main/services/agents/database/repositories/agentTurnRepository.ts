@@ -81,12 +81,9 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
       completed_at: turn.completedAt,
       status: turn.status
     }
-    const [saved] = await database
-      .insert(agentTurnsTable)
-      .values(insertData)
-      .onConflictDoUpdate({
-        target: agentTurnsTable.id,
-        set: {
+    const [existing] = await database.select().from(agentTurnsTable).where(eq(agentTurnsTable.id, insertData.id)).limit(1)
+    const [saved] = existing
+      ? await database.update(agentTurnsTable).set({
           segment_id: insertData.segment_id,
           trace_id: insertData.trace_id,
           user_message_id: insertData.user_message_id,
@@ -96,9 +93,8 @@ class AgentTurnRepositoryImpl extends BaseService implements IAgentTurnRepositor
           cumulative_input_tokens: insertData.cumulative_input_tokens,
           completed_at: insertData.completed_at,
           status: insertData.status
-        }
-      })
-      .returning()
+        }).where(eq(agentTurnsTable.id, insertData.id)).returning()
+      : await database.insert(agentTurnsTable).values(insertData).returning()
     return this.deserialize(saved)!
   }
 

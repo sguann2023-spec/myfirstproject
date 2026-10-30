@@ -1,3 +1,4 @@
+import { resolveToolArguments } from '@shared/parseToolArguments'
 import { loggerService } from '@logger'
 import { autoRenameTopic } from '@renderer/hooks/useTopic'
 import i18n from '@renderer/i18n'
@@ -7,7 +8,7 @@ import { estimateMessagesUsage } from '@renderer/services/TokenService'
 import { isTodoWriteBlock, updateOneBlock } from '@renderer/store/messageBlock'
 import { selectMessagesForTopic } from '@renderer/store/newMessage'
 import { newMessagesActions } from '@renderer/store/newMessage'
-import { toolPermissionsActions } from '@renderer/store/toolPermissions'
+import { selectPendingPermission, toolPermissionsActions } from '@renderer/store/toolPermissions'
 import type { Assistant } from '@renderer/types'
 import { ERROR_I18N_KEY_REQUEST_TIMEOUT, ERROR_I18N_KEY_STREAM_PAUSED } from '@renderer/types/error'
 import type {
@@ -272,6 +273,10 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
                       ...toolBlock.metadata,
                       rawMcpToolResponse: {
                         ...toolResponse,
+                        arguments: toolResponse.tool?.name === 'AskUserQuestion'
+                          ? resolveToolArguments(toolResponse.arguments, toolResponse.partialArguments,
+                              selectPendingPermission(getState().toolPermissions, toolResponse.id)?.input)
+                          : toolResponse.arguments,
                         status: isErrorTypeAbort ? 'cancelled' : 'error'
                       }
                     }

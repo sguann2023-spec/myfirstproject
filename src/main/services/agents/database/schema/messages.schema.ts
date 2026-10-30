@@ -1,3 +1,5 @@
+// After migration 0014 these message mappings target SQL command views, not tables.
+// Reads project immutable events; INSERT/UPDATE/DELETE append through INSTEAD OF triggers.
 import { foreignKey, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 import { sessionsTable } from './sessions.schema'

@@ -61,8 +61,18 @@ class AgentArtifactRepositoryImpl extends BaseService implements IAgentArtifactR
       summary: artifact.summary,
       created_at: artifact.createdAt || new Date().toISOString()
     }
-    const [saved] = await database.insert(agentArtifactsTable).values(insertData).returning()
-    return this.deserialize(saved)
+    const [existing] = await database.select().from(agentArtifactsTable).where(eq(agentArtifactsTable.id, insertData.id)).limit(1)
+    if (!existing) {
+      const [saved] = await database.insert(agentArtifactsTable).values(insertData).returning()
+      if (!saved) throw new Error('Artifact ID conflict')
+      return this.deserialize(saved)
+    }
+    if (existing.content !== insertData.content || existing.content_hash !== insertData.content_hash
+      || existing.topic_id !== insertData.topic_id || existing.turn_id !== insertData.turn_id
+      || (existing.tool_call_id ?? null) !== (insertData.tool_call_id ?? null)) {
+      throw new Error('Artifact ID conflict')
+    }
+    return this.deserialize(existing)
   }
 
   async listByTurnId(turnId: string): Promise<AgentArtifact[]> {

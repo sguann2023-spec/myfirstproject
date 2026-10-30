@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { createClient, type Client } from '@libsql/client'
+import { WorkerDatabaseClient } from '../workerClient'
+const createClient = (config: ConstructorParameters<typeof WorkerDatabaseClient>[0]) => new WorkerDatabaseClient(config, path.resolve('out/main/databaseWorker.js'))
 import { drizzle } from 'drizzle-orm/libsql'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -122,7 +123,7 @@ const payload = (id: string, role: string, text: string, status = 'success') =>
   })
 
 describe('canonical transcript migration and crash reconciliation', () => {
-  let client: Client
+  let client: WorkerDatabaseClient
   let db: ReturnType<typeof drizzle<typeof schema>>
   let tempDirectory: string
 
@@ -130,13 +131,44 @@ describe('canonical transcript migration and crash reconciliation', () => {
     tempDirectory = await mkdtemp(path.join(tmpdir(), 'canonical-backfill-'))
     client = createClient({ url: `file:${path.join(tempDirectory, 'agents.db')}`, intMode: 'number' })
     await client.executeMultiple(createSchemaSql)
+    await client.finalizeSchema()
     await client.execute("INSERT INTO sessions (id) VALUES ('session-a'), ('session-b'), ('session-c')")
     db = drizzle(client, { schema })
   })
 
   afterEach(async () => {
-    client.close()
+    await (client as WorkerDatabaseClient).closeAsync()
     await rm(tempDirectory, { recursive: true, force: true })
+  })
+
+  it('ignores retained deleted-session history while repairing active sessions', async () => {
+    await client.executeMultiple(`
+      INSERT INTO agent_conversation_segments(id,topic_id,system_prompt_version,system_prompt_hash,status,created_at,updated_at)
+      VALUES ('active-seg','session-a','v','h','active','2026-01-01','2026-01-01');
+      INSERT INTO agent_turns(id,topic_id,segment_id,user_message_id,started_at,status)
+      VALUES ('active-turn','session-a','active-seg','u','2026-01-01','running');
+      INSERT INTO agent_messages(id,session_id,sequence,role,status,created_at,updated_at) VALUES
+      ('active-message','session-a',0,'assistant','streaming','2026-01-01','2026-01-01'),
+      ('deleted-message','session-b',0,'assistant','streaming','2026-01-01','2026-01-01');
+    `)
+    await client.execute({ sql: 'INSERT INTO session_messages(session_id,role,content,created_at,updated_at) VALUES (?,?,?,?,?)', args: ['session-b','user',payload('deleted-legacy','user','retained'), '2026-01-01','2026-01-01'] })
+    const history = await client.execute("SELECT * FROM entity_records WHERE json_extract(payload,'$.session_id')='session-b' ORDER BY position")
+    await client.execute("DELETE FROM sessions WHERE id='session-b'")
+    const retained = await client.execute("SELECT * FROM entity_records WHERE json_extract(payload,'$.session_id')='session-b' ORDER BY position")
+    expect(retained.rows.slice(0, history.rows.length)).toEqual(history.rows)
+    expect(retained.rows.slice(history.rows.length).map(row => [row.entity_type, row.operation])).toEqual([
+      ['agent_messages', 'delete'], ['session_messages', 'delete']
+    ])
+    const result = await reconcileInterruptedAgentWork(db as any)
+    expect(result.turnsInterrupted).toBe(1)
+    expect(result.messagesInterrupted).toBe(1)
+    expect((await client.execute("SELECT status FROM agent_turns WHERE id='active-turn'")).rows[0].status).toBe('interrupted')
+    expect((await client.execute("SELECT * FROM agent_messages WHERE id='deleted-message'")).rows).toEqual([])
+    expect((await client.execute("SELECT * FROM session_messages WHERE session_id='session-b'")).rows).toEqual([])
+    const backfill = await backfillCanonicalTranscript(db as any)
+    expect(backfill.legacyRows).toBe(0)
+    expect(backfill.messagesInserted).toBe(0)
+    expect((await client.execute("SELECT * FROM entity_records WHERE json_extract(payload,'$.session_id')='session-b' ORDER BY position")).rows).toEqual(retained.rows)
   })
 
   it('backfills legacy messages, prefers the terminal duplicate, and is idempotent', async () => {
@@ -160,6 +192,7 @@ describe('canonical transcript migration and crash reconciliation', () => {
     const segments = await client.execute('SELECT count(*) AS count FROM agent_conversation_segments')
     const turns = await client.execute('SELECT count(*) AS count FROM agent_turns')
 
+    expect(first.legacyRows).toBe(3)
     expect(first.duplicateRows).toBe(1)
     expect(first.messagesInserted).toBe(2)
     expect(second.messagesInserted).toBe(0)
@@ -167,6 +200,11 @@ describe('canonical transcript migration and crash reconciliation', () => {
     expect(JSON.parse(String(parts.rows[0].data_json)).text).toBe('final')
     expect(Number(segments.rows[0].count)).toBe(1)
     expect(Number(turns.rows[0].count)).toBe(1)
+    const legacyHistory = await client.execute("SELECT operation, payload FROM entity_records WHERE entity_type='session_messages' ORDER BY position")
+    expect(legacyHistory.rows.map(row => row.operation)).toEqual(['put', 'put', 'put'])
+    expect(legacyHistory.rows.map(row => JSON.parse(JSON.parse(String(row.payload)).content).blocks[0].content)).toEqual(['question', 'partial', 'final'])
+    const currentRecords = await client.execute("SELECT count(DISTINCT entity_key) AS count FROM entity_records WHERE entity_type='agent_messages'")
+    expect(Number(currentRecords.rows[0].count)).toBe(2)
   })
 
   it('repairs an unambiguous existing turn without replacing artifact or file-change ownership', async () => {
@@ -243,8 +281,15 @@ describe('canonical transcript migration and crash reconciliation', () => {
         ('part-tool', 'session-a', 'assistant-r', 1, 'tool', '{"toolCallId":"call-1","status":"running","input":{"x":1}}', '2026-01-01', '2026-01-01');
     `)
 
+    const before = await client.execute('SELECT * FROM entity_records ORDER BY position')
     const first = await reconcileInterruptedAgentWork(db as any)
+    const after = await client.execute('SELECT * FROM entity_records ORDER BY position')
+    expect(after.rows.slice(0, before.rows.length)).toEqual(before.rows)
+    expect(after.rows.slice(before.rows.length).map(row => row.entity_type)).toEqual([
+      'agent_turns', 'agent_messages', 'agent_message_parts', 'agent_message_parts'
+    ])
     const second = await reconcileInterruptedAgentWork(db as any)
+    expect((await client.execute('SELECT * FROM entity_records ORDER BY position')).rows).toEqual(after.rows)
     const turn = await client.execute("SELECT status FROM agent_turns WHERE id = 'turn-r'")
     const message = await client.execute("SELECT status FROM agent_messages WHERE id = 'assistant-r'")
     const parts = await client.execute('SELECT id, data_json FROM agent_message_parts ORDER BY sequence')

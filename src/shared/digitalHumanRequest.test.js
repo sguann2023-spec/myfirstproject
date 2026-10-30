@@ -240,3 +240,15 @@ describe('normalizeDigitalHumanRequestPayload', () => {
     expect(curl).toContain('output.draft_id');
   });
 });
+
+
+describe('default image-driven tool naming', () => {
+  it('generates canonical tool calls while preserving the legacy background mode key', () => {
+    const request = { mode: 'seedance', copywriting: '你好', voice_id: 'voice', image_url: 'https://example.com/person.png' };
+    const prompt = buildDigitalHumanRequestTextPrompt(request);
+    expect(prompt).toContain('图片驱动数字人');
+    expect(prompt).toContain('create_default_image_driven_digital_human');
+    expect(prompt).not.toContain('create_seedance_digital_human');
+    expect(buildDigitalHumanRequestAgentPrompt(request)).toContain('"mode": "seedance"');
+  });
+});

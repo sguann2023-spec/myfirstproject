@@ -1079,6 +1079,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   // Set app data path
   ipcMain.handle(IpcChannel.App_SetAppDataPath, async (_, filePath: string) => {
+    const { DatabaseManager } = await import('./services/agents/database/DatabaseManager')
+    await DatabaseManager.beginStorageMaintenance()
     updateAppDataConfig(filePath)
     app.setPath('userData', filePath)
   })
@@ -1109,6 +1111,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   // Copy user data to new location
   ipcMain.handle(IpcChannel.App_Copy, async (_, oldPath: string, newPath: string, occupiedDirs: string[] = []) => {
     try {
+      const { DatabaseManager } = await import('./services/agents/database/DatabaseManager')
+      await DatabaseManager.beginStorageMaintenance()
       await fs.promises.cp(oldPath, newPath, {
         recursive: true,
         filter: (src) => {

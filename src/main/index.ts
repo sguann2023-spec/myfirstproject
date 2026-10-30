@@ -9,7 +9,8 @@ import '@main/config'
 import { loggerService } from '@logger'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { replaceDevtoolsFont } from '@main/utils/windowUtil'
-import { app, crashReporter } from 'electron'
+import { app, crashReporter, session } from 'electron'
+import { installSessionResponseHeaders } from './services/network/sessionResponseHeaders'
 import { isDev, isLinux, isWin } from './constant'
 
 import process from 'node:process'
@@ -18,6 +19,8 @@ import path from 'node:path'
 
 import { registerIpc } from './ipc'
 import { schedulerService } from './services/agents/services/SchedulerService'
+import { DatabaseManager } from './services/agents/database/DatabaseManager'
+import { createDeferredQuit } from './utils/deferredQuit'
 import { bootstrapBuiltinAgents } from './services/agents/services/builtin/BuiltinAgentBootstrap'
 import { channelManager } from './services/agents/services/channels'
 import { apiServerService } from './services/ApiServerService'
@@ -116,6 +119,10 @@ app.commandLine.appendSwitch(
   'enable-features',
   'DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
 )
+// Cover defaultSession (net.fetch) and partitions before any fetch response.
+app.on('session-created', installSessionResponseHeaders)
+void app.whenReady().then(() => installSessionResponseHeaders(session.defaultSession))
+
 app.on('web-contents-created', (_, webContents) => {
   // Register before window-specific handlers, which may immediately call app.exit().
   webContents.on('render-process-gone', (_, details) => {
@@ -126,14 +133,7 @@ app.on('web-contents-created', (_, webContents) => {
     }, details.reason !== 'clean-exit' && !app.isQuitting)
   })
 
-  webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Document-Policy': ['include-js-call-stacks-in-crash-reports']
-      }
-    })
-  })
+  installSessionResponseHeaders(webContents.session, { documentPolicy: true })
 
   webContents.on('unresponsive', async () => {
     // Interrupt execution and collect call stack from unresponsive renderer
@@ -371,42 +371,37 @@ if (!app.requestSingleInstanceLock()) {
     optimizer.watchWindowShortcuts(window)
   })
 
-  app.on('before-quit', () => {
+  app.on('before-quit', createDeferredQuit(async () => {
     crashReportService.record('before-quit', { isQuitting: Boolean(app.isQuitting) })
     app.isQuitting = true
-
-    // quit selection service
-    if (selectionService) {
-      selectionService.quit()
-    }
-
-    lanTransferClientService.dispose()
-    localTransferService.dispose()
-  })
-
-  app.on('will-quit', async () => {
-    crashReportService.record('will-quit')
-    // 简单的资源清理，不阻塞退出流程
-    if (isOvmsSupported) {
-      const { ovmsManager } = await import('./services/OvmsManager')
-      if (ovmsManager) {
-        await ovmsManager.stopOvms()
-      } else {
-        logger.warn('Unexpected behavior: undefined ovmsManager, but OVMS should be supported.')
+    const cleanupSteps = [
+      () => selectionService?.quit(),
+      () => lanTransferClientService.dispose(),
+      () => localTransferService.dispose(),
+      () => schedulerService.stopAll(),
+      () => channelManager.stop(),
+      () => openClawService.stopGateway(),
+      () => mcpService.cleanup(),
+      () => apiServerService.stop(),
+      async () => {
+        if (isOvmsSupported) {
+          const { ovmsManager } = await import('./services/OvmsManager')
+          await ovmsManager?.stopOvms()
+        }
       }
-    }
-
+    ]
     try {
-      schedulerService.stopAll()
-      await channelManager.stop()
-      await openClawService.stopGateway()
-      await mcpService.cleanup()
-      await apiServerService.stop()
-    } catch (error) {
-      logger.warn('Error cleaning up services:', error as Error)
+      for (const cleanup of cleanupSteps) {
+        try { await cleanup() } catch (error) { logger.warn('Error cleaning up service:', error as Error) }
+      }
+    } finally {
+      // Release the writer; committed records do not depend on graceful shutdown.
+      await DatabaseManager.shutdown()
     }
+  }, () => app.quit(), error => logger.warn('Error closing database during quit:', error as Error)))
 
-    // finish the logger
+  app.on('will-quit', () => {
+    crashReportService.record('will-quit')
     logger.finish()
   })
 

@@ -1,3 +1,5 @@
+import { readMessageProjection } from '../database/messageEventStore'
+import type { SessionMessageRow } from '../database/schema'
 import { randomUUID } from 'node:crypto'
 import { workspaceActivity } from './workspaceRename'
 
@@ -114,18 +116,9 @@ export class SessionMessageService extends BaseService {
   ): Promise<{ messages: AgentSessionMessageEntity[] }> {
     // Get messages with pagination
     const database = await this.getDatabase()
-    const baseQuery = database
-      .select()
-      .from(sessionMessagesTable)
-      .where(eq(sessionMessagesTable.session_id, sessionId))
-      .orderBy(sessionMessagesTable.created_at)
-
-    const result =
-      options.limit !== undefined
-        ? options.offset !== undefined
-          ? await baseQuery.limit(options.limit).offset(options.offset)
-          : await baseQuery.limit(options.limit)
-        : await baseQuery
+    const rows = (await readMessageProjection<SessionMessageRow>(database, 'session_messages', sessionId))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+    const result = options.limit === undefined ? rows : rows.slice(options.offset ?? 0, (options.offset ?? 0) + options.limit)
 
     const messages = result.map((row) => this.deserializeSessionMessage(row))
 
@@ -212,7 +205,12 @@ export class SessionMessageService extends BaseService {
     abortController: AbortController,
     options?: CreateMessageOptions
   ): Promise<SessionStreamResult> {
+    const throwIfCancelled = () => {
+      if (abortController.signal.aborted) throw new DOMException('Request was aborted', 'AbortError')
+    }
+    throwIfCancelled()
     const agentSessionId = await this.getLastAgentSessionId(session.id)
+    throwIfCancelled()
     const accumulator = new TextStreamAccumulator()
     const invocationIds = options?.invocationIds ?? allocateAgentInvocationIds()
     const headlessAssistantMsgId = invocationIds.assistantMessageId
@@ -235,6 +233,9 @@ export class SessionMessageService extends BaseService {
       images: options?.images
     })
 
+    // Startup may have timed out while persistence was awaiting SQLite. Never
+    // dispatch an abandoned attempt into the shared runtime after its retry starts.
+    throwIfCancelled()
     if (options?.persist) {
       // Persist the user message as soon as the turn is accepted, so a hard
       // kill mid-stream cannot lose the prompt. The complete-time exchange

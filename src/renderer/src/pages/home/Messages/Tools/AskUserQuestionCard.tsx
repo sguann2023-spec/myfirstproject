@@ -7,7 +7,7 @@ import {
 } from '@renderer/store/toolPermissions'
 import type { NormalToolResponse } from '@renderer/types'
 import { cn } from '@renderer/utils'
-import { parseMaybeJsonToolArguments } from '@shared/parseToolArguments'
+import { resolveToolArguments } from '@shared/parseToolArguments'
 import { Button, Checkbox, Input, Radio, Tag } from 'antd'
 import { CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle, Send } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -284,9 +284,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   // 流式阶段参数可能只以 JSON 字符串形式停留在 partialArguments 上（arguments 尚未回填），
   // 此时也要能渲染出问题，否则多会话并行时卡片只剩标题和骨架。
   const { questions, answers } = useMemo(() => {
-    const source = isPending
-      ? request?.input
-      : toolResponse.arguments ?? parseMaybeJsonToolArguments(toolResponse.partialArguments)
+    const source = resolveToolArguments(isPending ? request?.input : undefined, toolResponse.arguments, toolResponse.partialArguments)
     const parsed = parseAskUserQuestionToolInput(source)
 
     // Debug: log data source

@@ -1,0 +1,66 @@
+-- Replace migration-only mutable bridge tables with command views.
+-- INSTEAD OF triggers append the requested new state before any projection exists;
+-- no mutable message table remains. All legacy/maintenance SQL uses this same boundary.
+-- Run transactionally with its migration journal marker (MigrationService).
+-- No message foreign keys survive conversion; drop child tables first.
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_agent_messages_insert;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_agent_messages_update;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_agent_messages_delete;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_agent_message_parts_insert;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_agent_message_parts_update;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_agent_message_parts_delete;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_session_messages_insert;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_session_messages_update;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS journal_session_messages_delete;
+--> statement-breakpoint
+DROP TABLE agent_message_parts;
+--> statement-breakpoint
+DROP TABLE agent_messages;
+--> statement-breakpoint
+DROP TABLE session_messages;
+--> statement-breakpoint
+CREATE VIEW agent_messages AS SELECT * FROM replay_agent_messages;
+--> statement-breakpoint
+CREATE TRIGGER command_agent_messages_insert INSTEAD OF INSERT ON agent_messages BEGIN SELECT CASE WHEN NEW.id IS NULL OR NEW.session_id IS NULL OR NEW.created_at IS NULL OR NEW.updated_at IS NULL THEN RAISE(ABORT,'required message fields') END; SELECT CASE WHEN NEW.role IS NULL OR NEW.status IS NULL THEN RAISE(ABORT,'required role/status') END; SELECT CASE WHEN NEW.sequence IS NULL OR EXISTS (SELECT 1 FROM agent_messages WHERE session_id=NEW.session_id AND sequence=NEW.sequence AND id<>NEW.id) THEN RAISE(ABORT,'unique constraint failed: agent_messages.session_id, agent_messages.sequence') END; SELECT CASE WHEN NEW.parent_message_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agent_messages WHERE id=NEW.parent_message_id AND session_id=NEW.session_id) THEN RAISE(ABORT,'missing parent message') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM sessions WHERE id=NEW.session_id) THEN RAISE(ABORT,'missing session') END; SELECT CASE WHEN NEW.role NOT IN ('user','assistant','system','tool') OR NEW.status NOT IN ('pending','streaming','completed','cancelled','failed','interrupted') THEN RAISE(ABORT,'invalid message') END; SELECT CASE WHEN EXISTS (SELECT 1 FROM agent_messages WHERE id=NEW.id) THEN RAISE(ABORT,'duplicate message id') END; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('agent_messages',CAST(NEW.id AS TEXT),NEW.session_id,'put',json_object('id',NEW.id,'session_id',NEW.session_id,'sequence',NEW.sequence,'turn_id',NEW.turn_id,'parent_message_id',NEW.parent_message_id,'role',NEW.role,'status',NEW.status,'semantics_json',NEW.semantics_json,'provider_json',NEW.provider_json,'usage_json',NEW.usage_json,'error_json',NEW.error_json,'finish_json',NEW.finish_json,'created_at',NEW.created_at,'completed_at',NEW.completed_at,'updated_at',NEW.updated_at)); END;
+--> statement-breakpoint
+CREATE TRIGGER command_agent_messages_update INSTEAD OF UPDATE ON agent_messages BEGIN SELECT CASE WHEN NEW.id IS NULL OR NEW.session_id IS NULL OR NEW.created_at IS NULL OR NEW.updated_at IS NULL THEN RAISE(ABORT,'required message fields') END; SELECT CASE WHEN NEW.role IS NULL OR NEW.status IS NULL THEN RAISE(ABORT,'required role/status') END; SELECT CASE WHEN NEW.sequence IS NULL OR EXISTS (SELECT 1 FROM agent_messages WHERE session_id=NEW.session_id AND sequence=NEW.sequence AND id<>NEW.id) THEN RAISE(ABORT,'unique constraint failed: agent_messages.session_id, agent_messages.sequence') END; SELECT CASE WHEN NEW.parent_message_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM agent_messages WHERE id=NEW.parent_message_id AND session_id=NEW.session_id) THEN RAISE(ABORT,'missing parent message') END; SELECT CASE WHEN NEW.id<>OLD.id OR NEW.session_id<>OLD.session_id THEN RAISE(ABORT,'message identity is immutable') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM sessions WHERE id=NEW.session_id) THEN RAISE(ABORT,'missing session') END; SELECT CASE WHEN NEW.role NOT IN ('user','assistant','system','tool') OR NEW.status NOT IN ('pending','streaming','completed','cancelled','failed','interrupted') THEN RAISE(ABORT,'invalid message') END; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('agent_messages',CAST(NEW.id AS TEXT),NEW.session_id,'put',json_object('id',NEW.id,'session_id',NEW.session_id,'sequence',NEW.sequence,'turn_id',NEW.turn_id,'parent_message_id',NEW.parent_message_id,'role',NEW.role,'status',NEW.status,'semantics_json',NEW.semantics_json,'provider_json',NEW.provider_json,'usage_json',NEW.usage_json,'error_json',NEW.error_json,'finish_json',NEW.finish_json,'created_at',NEW.created_at,'completed_at',NEW.completed_at,'updated_at',NEW.updated_at)); END;
+--> statement-breakpoint
+CREATE TRIGGER command_agent_messages_delete INSTEAD OF DELETE ON agent_messages BEGIN DELETE FROM agent_message_parts WHERE message_id=OLD.id AND session_id=OLD.session_id; UPDATE agent_messages SET parent_message_id=NULL WHERE parent_message_id=OLD.id; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('agent_messages',CAST(OLD.id AS TEXT),OLD.session_id,'delete',json_object('id',OLD.id,'session_id',OLD.session_id,'sequence',OLD.sequence,'turn_id',OLD.turn_id,'parent_message_id',OLD.parent_message_id,'role',OLD.role,'status',OLD.status,'semantics_json',OLD.semantics_json,'provider_json',OLD.provider_json,'usage_json',OLD.usage_json,'error_json',OLD.error_json,'finish_json',OLD.finish_json,'created_at',OLD.created_at,'completed_at',OLD.completed_at,'updated_at',OLD.updated_at)); END;
+--> statement-breakpoint
+CREATE VIEW agent_message_parts AS SELECT * FROM replay_agent_message_parts;
+--> statement-breakpoint
+CREATE TRIGGER command_agent_message_parts_insert INSTEAD OF INSERT ON agent_message_parts BEGIN SELECT CASE WHEN NEW.id IS NULL OR NEW.session_id IS NULL OR NEW.created_at IS NULL OR NEW.updated_at IS NULL THEN RAISE(ABORT,'required message fields') END; SELECT CASE WHEN NEW.message_id IS NULL OR NEW.type IS NULL OR NEW.data_json IS NULL THEN RAISE(ABORT,'required part fields') END; SELECT CASE WHEN NEW.sequence IS NULL OR EXISTS (SELECT 1 FROM agent_message_parts WHERE message_id=NEW.message_id AND sequence=NEW.sequence AND id<>NEW.id) THEN RAISE(ABORT,'unique constraint failed: agent_message_parts.message_id, agent_message_parts.sequence') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM sessions WHERE id=NEW.session_id) THEN RAISE(ABORT,'missing session') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM agent_messages WHERE id=NEW.message_id AND session_id=NEW.session_id) THEN RAISE(ABORT,'missing message') END; SELECT CASE WHEN EXISTS (SELECT 1 FROM agent_message_parts WHERE id=NEW.id) THEN RAISE(ABORT,'duplicate message id') END; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('agent_message_parts',CAST(NEW.id AS TEXT),NEW.session_id,'put',json_object('id',NEW.id,'session_id',NEW.session_id,'message_id',NEW.message_id,'sequence',NEW.sequence,'type',NEW.type,'data_json',NEW.data_json,'created_at',NEW.created_at,'updated_at',NEW.updated_at)); END;
+--> statement-breakpoint
+CREATE TRIGGER command_agent_message_parts_update INSTEAD OF UPDATE ON agent_message_parts BEGIN SELECT CASE WHEN NEW.id IS NULL OR NEW.session_id IS NULL OR NEW.created_at IS NULL OR NEW.updated_at IS NULL THEN RAISE(ABORT,'required message fields') END; SELECT CASE WHEN NEW.message_id IS NULL OR NEW.type IS NULL OR NEW.data_json IS NULL THEN RAISE(ABORT,'required part fields') END; SELECT CASE WHEN NEW.sequence IS NULL OR EXISTS (SELECT 1 FROM agent_message_parts WHERE message_id=NEW.message_id AND sequence=NEW.sequence AND id<>NEW.id) THEN RAISE(ABORT,'unique constraint failed: agent_message_parts.message_id, agent_message_parts.sequence') END; SELECT CASE WHEN NEW.id<>OLD.id OR NEW.session_id<>OLD.session_id THEN RAISE(ABORT,'message identity is immutable') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM sessions WHERE id=NEW.session_id) THEN RAISE(ABORT,'missing session') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM agent_messages WHERE id=NEW.message_id AND session_id=NEW.session_id) THEN RAISE(ABORT,'missing message') END; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('agent_message_parts',CAST(NEW.id AS TEXT),NEW.session_id,'put',json_object('id',NEW.id,'session_id',NEW.session_id,'message_id',NEW.message_id,'sequence',NEW.sequence,'type',NEW.type,'data_json',NEW.data_json,'created_at',NEW.created_at,'updated_at',NEW.updated_at)); END;
+--> statement-breakpoint
+CREATE TRIGGER command_agent_message_parts_delete INSTEAD OF DELETE ON agent_message_parts BEGIN INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('agent_message_parts',CAST(OLD.id AS TEXT),OLD.session_id,'delete',json_object('id',OLD.id,'session_id',OLD.session_id,'message_id',OLD.message_id,'sequence',OLD.sequence,'type',OLD.type,'data_json',OLD.data_json,'created_at',OLD.created_at,'updated_at',OLD.updated_at)); END;
+--> statement-breakpoint
+CREATE VIEW session_messages AS SELECT * FROM replay_session_messages;
+--> statement-breakpoint
+CREATE TRIGGER command_session_messages_insert INSTEAD OF INSERT ON session_messages BEGIN SELECT CASE WHEN NEW.session_id IS NULL OR NEW.role IS NULL OR NEW.content IS NULL THEN RAISE(ABORT,'required legacy message fields') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM sessions WHERE id=NEW.session_id) THEN RAISE(ABORT,'missing session') END; SELECT CASE WHEN EXISTS (SELECT 1 FROM session_messages WHERE id=NEW.id) THEN RAISE(ABORT,'duplicate message id') END; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('session_messages',CAST(coalesce(NEW.id,(SELECT id FROM session_messages WHERE session_id=NEW.session_id AND role=NEW.role AND json_extract(content,'$.message.id')=json_extract(NEW.content,'$.message.id') LIMIT 1),(SELECT coalesce(max(CAST(entity_id AS INTEGER)),0)+1 FROM agent_message_events WHERE entity_type='session_messages')) AS TEXT),NEW.session_id,'put',json_object('id',coalesce(NEW.id,(SELECT id FROM session_messages WHERE session_id=NEW.session_id AND role=NEW.role AND json_extract(content,'$.message.id')=json_extract(NEW.content,'$.message.id') LIMIT 1),(SELECT coalesce(max(CAST(entity_id AS INTEGER)),0)+1 FROM agent_message_events WHERE entity_type='session_messages')),'session_id',NEW.session_id,'agent_session_id',NEW.agent_session_id,'role',NEW.role,'content',NEW.content,'metadata',NEW.metadata,'created_at',NEW.created_at,'updated_at',NEW.updated_at)); END;
+--> statement-breakpoint
+CREATE TRIGGER command_session_messages_update INSTEAD OF UPDATE ON session_messages BEGIN SELECT CASE WHEN NEW.session_id IS NULL OR NEW.role IS NULL OR NEW.content IS NULL THEN RAISE(ABORT,'required legacy message fields') END; SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM sessions WHERE id=NEW.session_id) THEN RAISE(ABORT,'missing session') END; INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('session_messages',CAST(NEW.id AS TEXT),NEW.session_id,'put',json_object('id',NEW.id,'session_id',NEW.session_id,'agent_session_id',NEW.agent_session_id,'role',NEW.role,'content',NEW.content,'metadata',NEW.metadata,'created_at',NEW.created_at,'updated_at',NEW.updated_at)); END;
+--> statement-breakpoint
+CREATE TRIGGER command_session_messages_delete INSTEAD OF DELETE ON session_messages BEGIN INSERT INTO agent_message_events(entity_type,entity_id,session_id,operation,payload) VALUES ('session_messages',CAST(OLD.id AS TEXT),OLD.session_id,'delete',json_object('id',OLD.id,'session_id',OLD.session_id,'agent_session_id',OLD.agent_session_id,'role',OLD.role,'content',OLD.content,'metadata',OLD.metadata,'created_at',OLD.created_at,'updated_at',OLD.updated_at)); END;
+--> statement-breakpoint
+-- Session deletion intentionally retains immutable events and snapshots.
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS idx_message_snapshot_boundary ON agent_message_snapshots(session_id,event_position);
+--> statement-breakpoint
+CREATE TRIGGER automatic_message_snapshot AFTER INSERT ON agent_message_events
+WHEN (SELECT count(*) FROM agent_message_events WHERE session_id=NEW.session_id AND position>coalesce((SELECT max(event_position) FROM agent_message_snapshots WHERE session_id=NEW.session_id),0)) >= 128
+BEGIN
+ INSERT INTO agent_message_snapshots(session_id,event_position,payload)
+ SELECT NEW.session_id,NEW.position,coalesce(json_group_array(json_array(entity_type || ':' || entity_id,json(payload))),'[]')
+ FROM agent_message_events e WHERE session_id=NEW.session_id AND operation='put'
+ AND NOT EXISTS (SELECT 1 FROM agent_message_events n WHERE n.entity_type=e.entity_type AND n.entity_id=e.entity_id AND n.position>e.position);
+END;

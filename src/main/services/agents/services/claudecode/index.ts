@@ -243,6 +243,10 @@ class ClaudeCodeService implements AgentServiceInterface {
     images?: Array<{ data: string; media_type: string }>,
     invocationIds?: AgentInvocationIds
   ): Promise<AgentStream> {
+    const throwIfCancelled = () => {
+      if (abortController.signal.aborted) throw new DOMException('Request was aborted', 'AbortError')
+    }
+    throwIfCancelled()
     const aiStream = new ClaudeCodeStream()
 
     const cwd = resolveWorkspaceCwd(session)
@@ -678,6 +682,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       projection: invokeContext.projection
     })
 
+    throwIfCancelled()
     const piHarness = await createClaudeCodeHarness({
       invokeContext,
       runtimeEnvironment,
@@ -686,6 +691,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       pendingFileChanges
     })
 
+    throwIfCancelled()
     const shouldResumeExistingSession = !NO_RESUME_COMMANDS.some((cmd) => composedPrompt.includes(cmd))
     if (activeSegment && !activeSegment.sdkSessionId && shouldResumeExistingSession) {
       logger.info('[ForkContinuation] start-child-with-fresh-session', {

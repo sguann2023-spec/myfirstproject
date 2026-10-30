@@ -30,6 +30,8 @@ export class AgentHistoryService {
   ) {}
 
   async getHistory(sessionId: string, options: AgentHistoryOptions = {}): Promise<AgentHistoryPage> {
+    const startedAt = Date.now()
+    logger.info('History load started', { sessionId })
     let canonical: AgentMessageWithParts[] = []
     try {
       canonical = await this.transcript.listTranscript(sessionId)
@@ -75,6 +77,7 @@ export class AgentHistoryService {
     const limit = Math.max(1, Math.min(options.limit ?? (eligible.length || 1), 500))
     const page = eligible.slice(0, limit)
     const sequences = page.map((item) => Number(record(item.message).sequence))
+    logger.info('History load completed', { sessionId, elapsedMs: Date.now() - startedAt, messages: page.length })
     return {
       messages: page,
       sequences,

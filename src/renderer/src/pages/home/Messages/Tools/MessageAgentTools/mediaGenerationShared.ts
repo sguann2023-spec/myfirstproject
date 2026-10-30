@@ -46,6 +46,9 @@ const DIGITAL_HUMAN_TOOL_NAMES = new Set([
   'create_omni_image_driven_digital_human',
   'mcp__digital-human__create_omni_image_driven_digital_human',
   'mcp__vectcut__digital-human__create_omni_image_driven_digital_human',
+  'create_default_image_driven_digital_human',
+  'mcp__digital-human__create_default_image_driven_digital_human',
+  'mcp__vectcut__digital-human__create_default_image_driven_digital_human',
   'create_seedance_digital_human',
   'mcp__digital-human__create_seedance_digital_human',
   'mcp__vectcut__digital-human__create_seedance_digital_human'

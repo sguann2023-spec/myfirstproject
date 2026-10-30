@@ -32,7 +32,7 @@ import TemplatePickerDialog from '../../../page/TemplateEditPage/TemplatePickerD
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
-import { filterTreeNodesByQuery } from './referenceTree';
+import { filterTreeNodesByQuery, replaceLazyTreeChildren, loadReferenceRoots } from './referenceTree';
 import {
   SKILL_EXAMPLE_APPLY_EVENT,
   buildSkillExampleGroupSlotId,
@@ -204,71 +204,10 @@ const guessFileTypeFromName = (fileName = '') => {
   if (AUDIO_FILE_EXTENSIONS.has(extension)) return 'audio/mpeg';
   return 'text/plain';
 };
-const sortTreeNodes = (nodes) => (
-  [...nodes].sort((left, right) => {
-    if (left.type !== right.type) {
-      return left.type === 'directory' ? -1 : 1;
-    }
-    return String(left.name || '').localeCompare(String(right.name || ''), undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
-  })
-);
-const sortTreeRecursively = (nodes) => (
-  sortTreeNodes(nodes).map((node) => (
-    node.type === 'directory' && Array.isArray(node.children)
-      ? { ...node, children: sortTreeRecursively(node.children) }
-      : node
-  ))
-);
-const buildTreeFromEntries = (rootPath, entries, directoryFlags) => {
-  const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
-  const nodeMap = new Map();
-  const rootNodes = [];
-
-  entries
-    .map((entryPath) => normalizePath(entryPath))
-    .filter((entryPath) => entryPath && entryPath.startsWith(`${normalizedRoot}/`))
-    .sort((left, right) => left.length - right.length)
-    .forEach((entryPath) => {
-      const relativePath = entryPath.slice(normalizedRoot.length + 1);
-      if (!relativePath) return;
-
-      const segments = relativePath.split('/').filter(Boolean);
-      if (segments.length === 0) return;
-
-      const nodePath = segments.join('/');
-      const parentPath = segments.slice(0, -1).join('/');
-      const node = {
-        name: segments[segments.length - 1],
-        path: nodePath,
-        type: directoryFlags.get(entryPath) ? 'directory' : 'file',
-      };
-
-      if (node.type === 'directory') {
-        node.children = [];
-      }
-
-      nodeMap.set(nodePath, node);
-
-      if (parentPath && nodeMap.has(parentPath)) {
-        const parentNode = nodeMap.get(parentPath);
-        if (!Array.isArray(parentNode.children)) {
-          parentNode.children = [];
-        }
-        parentNode.children.push(node);
-      } else {
-        rootNodes.push(node);
-      }
-    });
-
-  return sortTreeRecursively(rootNodes);
-};
 const createLocalReferenceFile = ({ rootPath, node, sourceType = 'workspace', sourceLabel = '' }) => {
-  const sourcePath = resolveListedEntryPath(rootPath, node?.path);
+  const sourcePath = node?.path ? resolveListedEntryPath(rootPath, node.path) : normalizePath(rootPath).replace(/\/$/, '');
   const fileUrl = createLocalFileUrl(sourcePath);
-  const fileType = guessFileTypeFromName(node?.name || '');
+  const fileType = node?.type === 'directory' ? 'inode/directory' : guessFileTypeFromName(node?.name || '');
   const isMediaFile = /^image\/|^video\/|^audio\//.test(fileType);
 
   return {
@@ -296,9 +235,8 @@ const collectVisibleTreeFiles = (
 
   (Array.isArray(nodes) ? nodes : []).forEach((node) => {
     const compositeKey = `${scopeKey}:${node.path}`;
-    if (node?.type === 'file') {
+    if (node?.type === 'file' || node?.type === 'directory') {
       results.push(createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel }));
-      return;
     }
 
     if (node?.type === 'directory' && (forceExpanded || expandedKeys.has(compositeKey))) {
@@ -1516,6 +1454,7 @@ const renderFileThumb = (file = {}, options = {}) => {
   const previewUrl = file.localThumbUrl || file.localPreviewUrl || file.thumbnailUrl || file.previewUrl || file.url;
   const kind = getFileKindFromType(file.fileType);
   const showDuration = options.showDuration !== false;
+  if (file.fileType === 'inode/directory') return <Folder className="chat-panel__file-ref-thumb-icon" />;
 
   if (previewUrl && kind === 'image') {
     return <img className="chat-panel__file-ref-thumb-image" src={previewUrl} alt={getFileDisplayName(file)} />;
@@ -2299,6 +2238,10 @@ const Composer = ({
   const [skills, setSkills] = React.useState([]);
   const [skillReferenceTrees, setSkillReferenceTrees] = React.useState({});
   const [workspaceReferenceTrees, setWorkspaceReferenceTrees] = React.useState({});
+  const referenceGeneration = React.useRef(0);
+  const pendingReferenceFolders = React.useRef(new Set());
+  const [referenceRootStatus, setReferenceRootStatus] = React.useState({});
+  const [referenceFolderStatus, setReferenceFolderStatus] = React.useState({});
   const [referenceTreesLoading, setReferenceTreesLoading] = React.useState(false);
   const [referenceTreesError, setReferenceTreesError] = React.useState('');
   const [expandedReferenceNodeKeys, setExpandedReferenceNodeKeys] = React.useState(() => new Set());
@@ -2707,118 +2650,76 @@ const Composer = ({
   }, [uploadedFileMeta]);
 
   const loadLocalReferenceTree = React.useCallback(async (rootPath, options = {}) => {
-    if (!rootPath || !window?.api?.file?.listDirectory || !window?.api?.file?.isDirectory) {
-      return [];
-    }
-
-    const { excludeClaude = false } = options;
-    const normalizedRoot = normalizePath(rootPath).replace(/\/$/, '');
-    const entries = await window.api.file.listDirectory(normalizedRoot, {
-      recursive: true,
-      maxDepth: 10,
-      includeHidden: false,
-      includeFiles: true,
-      includeDirectories: true,
-      maxEntries: TREE_LIST_MAX_ENTRIES,
-      searchPattern: '.'
+    if (!rootPath || !window?.api?.file?.listDirectory) return [];
+    const entries = await window.api.file.listDirectory(rootPath, {
+      recursive: false, includeHidden: false, includeFiles: true,
+      includeDirectories: true, typed: true, maxEntries: TREE_LIST_MAX_ENTRIES,
     });
-
-    const normalizedEntries = Array.isArray(entries)
-      ? Array.from(
-          new Set(
-            entries
-              .map((entryPath) => resolveListedEntryPath(normalizedRoot, entryPath))
-              .filter((entryPath) => {
-                if (!entryPath.startsWith(`${normalizedRoot}/`)) return false;
-                if (!excludeClaude) return true;
-                const relativePath = entryPath.slice(normalizedRoot.length + 1);
-                return relativePath && !relativePath.split('/').includes('.claude');
-              })
-          )
-        )
-      : [];
-
-    const directoryChecks = await Promise.all(
-      normalizedEntries.map(async (entryPath) => {
-        try {
-          const isDirectory = await window.api.file.isDirectory(entryPath);
-          return [entryPath, Boolean(isDirectory)];
-        } catch (_error) {
-          return [entryPath, false];
-        }
-      })
-    );
-
-    return buildTreeFromEntries(normalizedRoot, normalizedEntries, new Map(directoryChecks));
+    return (entries || []).filter((entry) => !options.excludeClaude || entry.name !== '.claude')
+      .map((entry) => ({ ...entry, path: entry.path, children: entry.type === 'directory' ? undefined : entry.children }));
   }, []);
 
   React.useEffect(() => {
+    const generation = ++referenceGeneration.current;
+    pendingReferenceFolders.current.clear();
     if (!mentionState.open || mentionState.symbol !== '#') return undefined;
+    setSkillReferenceTrees({});
+    setWorkspaceReferenceTrees({});
+    setExpandedReferenceNodeKeys(new Set());
+    setReferenceFolderStatus({});
+    setReferenceTreesLoading(true);
+    setReferenceTreesError('');
+    const roots = [
+      ...(primarySkillWorkdir ? [{
+        key: `workspace-root:${primarySkillWorkdir}`,
+        id: primarySkillWorkdir,
+        setter: setWorkspaceReferenceTrees,
+        load: () => loadLocalReferenceTree(primarySkillWorkdir, { excludeClaude: true }),
+      }] : []),
+      ...skills.filter((skill) => skill.__skillRoot).map((skill) => ({
+        key: `skill-root:${getSkillStableId(skill)}`,
+        id: getSkillStableId(skill),
+        setter: setSkillReferenceTrees,
+        load: () => loadLocalReferenceTree(skill.__skillRoot),
+      })),
+    ];
+    setReferenceRootStatus(Object.fromEntries(roots.map((root) => [root.key, '加载中...'])));
+    void loadReferenceRoots(roots, {
+      isCurrent: () => generation === referenceGeneration.current,
+      publish: (key, nodes) => {
+        const root = roots.find((item) => item.key === key);
+        root.setter((prev) => ({ ...prev, [root.id]: nodes }));
+        setReferenceRootStatus((prev) => ({ ...prev, [key]: '' }));
+      },
+      fail: (key, error) => {
+        const text = error?.message || '加载引用失败';
+        setReferenceRootStatus((prev) => ({ ...prev, [key]: `加载失败：${text}` }));
+        setReferenceTreesError((prev) => prev ? `${prev}；${text}` : text);
+      },
+      complete: () => setReferenceTreesLoading(false),
+    });
+    return () => { referenceGeneration.current += 1; };
+  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, primarySkillWorkdir, skills]);
 
-    let cancelled = false;
-
-    const loadReferenceTrees = async () => {
-      const skillRootsToLoad = skills.filter((skill) => {
-        const skillKey = getSkillStableId(skill);
-        return skill?.__skillRoot && skillKey && !Object.prototype.hasOwnProperty.call(skillReferenceTrees, skillKey);
-      });
-      const shouldLoadWorkspace = primarySkillWorkdir
-        && !Object.prototype.hasOwnProperty.call(workspaceReferenceTrees, primarySkillWorkdir);
-
-      if (!shouldLoadWorkspace && skillRootsToLoad.length === 0) {
-        setReferenceTreesError('');
-        return;
-      }
-
-      setReferenceTreesLoading(true);
-      setReferenceTreesError('');
-
-      try {
-        const [workspaceNodes, skillTreeEntries] = await Promise.all([
-          shouldLoadWorkspace
-            ? loadLocalReferenceTree(primarySkillWorkdir, { excludeClaude: true })
-            : Promise.resolve(null),
-          Promise.all(
-            skillRootsToLoad.map(async (skill) => {
-              const skillKey = getSkillStableId(skill);
-              const nodes = await loadLocalReferenceTree(skill.__skillRoot);
-              return [skillKey, nodes];
-            })
-          )
-        ]);
-
-        if (cancelled) return;
-
-        if (shouldLoadWorkspace) {
-          setWorkspaceReferenceTrees((prev) => ({
-            ...prev,
-            [primarySkillWorkdir]: Array.isArray(workspaceNodes) ? workspaceNodes : []
-          }));
-        }
-
-        if (skillTreeEntries.length > 0) {
-          setSkillReferenceTrees((prev) => ({
-            ...prev,
-            ...Object.fromEntries(skillTreeEntries.map(([skillKey, nodes]) => [skillKey, Array.isArray(nodes) ? nodes : []]))
-          }));
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setReferenceTreesError(error?.message || '加载引用文件失败');
-        }
-      } finally {
-        if (!cancelled) {
-          setReferenceTreesLoading(false);
-        }
-      }
-    };
-
-    void loadReferenceTrees();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, primarySkillWorkdir, skillReferenceTrees, skills, workspaceReferenceTrees]);
+  const loadReferenceFolder = React.useCallback(async (node, rootPath, key, sourceType) => {
+    if (node.children !== undefined || pendingReferenceFolders.current.has(key)) return;
+    const generation = referenceGeneration.current;
+    pendingReferenceFolders.current.add(key);
+    setReferenceFolderStatus((prev) => ({ ...prev, [key]: '加载中...' }));
+    try {
+      const children = await loadLocalReferenceTree(resolveListedEntryPath(rootPath, node.path));
+      if (generation !== referenceGeneration.current) return;
+      const update = (nodes) => replaceLazyTreeChildren(nodes, node.path, children);
+      const setter = sourceType === 'skill' ? setSkillReferenceTrees : setWorkspaceReferenceTrees;
+      setter((prev) => Object.fromEntries(Object.entries(prev).map(([id, nodes]) =>
+        [id, (sourceType === 'skill' ? key.startsWith(`skill-root:${id}:`) : id === rootPath) ? update(nodes) : nodes])));
+      setReferenceFolderStatus((prev) => ({ ...prev, [key]: '' }));
+    } catch (error) {
+      if (generation === referenceGeneration.current) setReferenceFolderStatus((prev) => ({ ...prev, [key]: '加载失败，点击箭头重试' }));
+    } finally {
+      if (generation === referenceGeneration.current) pendingReferenceFolders.current.delete(key);
+    }
+  }, [loadLocalReferenceTree]);
 
   const updateToolContentScrollState = React.useCallback(() => {
     const element = toolContentScrollRef.current;
@@ -2971,7 +2872,7 @@ const Composer = ({
           nodes: filterTreeNodesByQuery(nodes, referenceQuery),
         };
       })
-      .filter((group) => group.label && group.rootPath && group.nodes.length > 0)
+      .filter((group) => group.label && group.rootPath)
   ), [referenceQuery, skillReferenceTrees, skills]);
   const filteredWorkspaceReferenceNodes = React.useMemo(
     () => filterTreeNodesByQuery(workspaceReferenceTrees[primarySkillWorkdir] || [], referenceQuery),
@@ -2983,6 +2884,7 @@ const Composer = ({
 
     filteredSkillReferenceGroups.forEach((group) => {
       const rootNodeKey = `skill-root:${group.skillKey}`;
+      localFiles.push(createLocalReferenceFile({ rootPath: group.rootPath, node: { path: '', name: group.label, type: 'directory' }, sourceType: 'skill', sourceLabel: group.label }));
       if (forceExpanded || expandedReferenceNodeKeys.has(rootNodeKey)) {
         localFiles.push(
           ...collectVisibleTreeFiles(group.nodes, group.rootPath, rootNodeKey, expandedReferenceNodeKeys, {
@@ -2995,6 +2897,7 @@ const Composer = ({
     });
 
     const workspaceRootNodeKey = `workspace-root:${primarySkillWorkdir}`;
+    if (primarySkillWorkdir) localFiles.push(createLocalReferenceFile({ rootPath: primarySkillWorkdir, node: { path: '', name: workspaceReferenceRootLabel, type: 'directory' }, sourceType: 'workspace', sourceLabel: workspaceReferenceRootLabel }));
     if (primarySkillWorkdir && (forceExpanded || expandedReferenceNodeKeys.has(workspaceRootNodeKey))) {
       localFiles.push(
         ...collectVisibleTreeFiles(filteredWorkspaceReferenceNodes, primarySkillWorkdir, workspaceRootNodeKey, expandedReferenceNodeKeys, {
@@ -3354,10 +3257,8 @@ const Composer = ({
       const compositeKey = `${scopeKey}:${node.path}`;
       const isDirectory = node.type === 'directory';
       const isExpanded = forceExpanded || expandedReferenceNodeKeys.has(compositeKey);
-      const localFile = !isDirectory
-        ? createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel })
-        : null;
-      const isActive = !isDirectory && localFile?.uid && activeSuggestionUid === localFile.uid;
+      const localFile = createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel });
+      const isActive = localFile?.uid && activeSuggestionUid === localFile.uid;
 
       return (
         <React.Fragment key={compositeKey}>
@@ -3367,16 +3268,18 @@ const Composer = ({
             style={{ '--reference-depth': depth }}
             onMouseDown={(event) => {
               event.preventDefault();
-              if (isDirectory) {
-                toggleReferenceNodeExpanded(compositeKey);
-                return;
-              }
               insertFileReference(localFile);
             }}
           >
             <span
               className={`chat-panel__reference-tree-toggle ${isExpanded ? 'is-expanded' : ''}`.trim()}
-              aria-hidden="true"
+              role={isDirectory ? 'button' : undefined}
+              aria-label={isDirectory ? `展开 ${node.name}` : undefined}
+              onMouseDown={isDirectory ? (event) => {
+                event.preventDefault(); event.stopPropagation();
+                toggleReferenceNodeExpanded(compositeKey);
+                void loadReferenceFolder(node, rootPath, compositeKey, sourceType);
+              } : undefined}
             >
               {isDirectory ? <ChevronRight size={12} /> : null}
             </span>
@@ -3387,6 +3290,8 @@ const Composer = ({
             </span>
             <span className="chat-panel__reference-tree-label">{node.name}</span>
           </button>
+          {isDirectory && isExpanded && Array.isArray(node.children) && node.children.length === 0 ? <div className="chat-panel__reference-empty">{referenceQuery ? '没有匹配的文件' : '空文件夹'}</div> : null}
+          {isDirectory && isExpanded && referenceFolderStatus[compositeKey] ? <div className="chat-panel__reference-empty">{referenceFolderStatus[compositeKey]}</div> : null}
           {isDirectory && isExpanded && Array.isArray(node.children)
             ? renderReferenceTreeNodes(
               node.children,
@@ -3400,9 +3305,10 @@ const Composer = ({
         </React.Fragment>
       );
     });
-  }, [activeSuggestionUid, expandedReferenceNodeKeys, insertFileReference, referenceQuery, toggleReferenceNodeExpanded]);
+  }, [activeSuggestionUid, expandedReferenceNodeKeys, insertFileReference, referenceQuery, toggleReferenceNodeExpanded, loadReferenceFolder, referenceFolderStatus]);
 
   const renderReferenceRoot = React.useCallback((rootNodeKey, label, nodes, rootPath, sourceType) => {
+    const rootFile = createLocalReferenceFile({ rootPath, node: { path: '', name: label, type: 'directory' }, sourceType, sourceLabel: label });
     const hasNodes = Array.isArray(nodes) && nodes.length > 0;
     const forceExpanded = Boolean(referenceQuery);
     const isExpanded = forceExpanded || expandedReferenceNodeKeys.has(rootNodeKey);
@@ -3411,15 +3317,17 @@ const Composer = ({
       <React.Fragment key={rootNodeKey}>
         <button
           type="button"
-          className="chat-panel__reference-tree-item chat-panel__reference-tree-item--root"
+          className={`chat-panel__reference-tree-item chat-panel__reference-tree-item--root ${activeSuggestionUid === rootFile.uid ? 'active' : ''}`}
           onMouseDown={(event) => {
             event.preventDefault();
-            toggleReferenceNodeExpanded(rootNodeKey);
+            insertFileReference(rootFile);
           }}
         >
           <span
             className={`chat-panel__reference-tree-toggle ${isExpanded ? 'is-expanded' : ''}`.trim()}
-            aria-hidden="true"
+            role="button"
+            aria-label={`展开 ${label}`}
+            onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); toggleReferenceNodeExpanded(rootNodeKey); }}
           >
             <ChevronRight size={12} />
           </span>
@@ -3433,12 +3341,15 @@ const Composer = ({
             {renderReferenceTreeNodes(nodes, rootPath, rootNodeKey, 1, sourceType, label)}
           </div>
         ) : null}
-        {isExpanded && !hasNodes ? (
+        {isExpanded && referenceRootStatus[rootNodeKey] ? (
+          <div className="chat-panel__reference-empty">{referenceRootStatus[rootNodeKey]}</div>
+        ) : null}
+        {isExpanded && !hasNodes && referenceRootStatus[rootNodeKey] === '' ? (
           <div className="chat-panel__reference-empty">没有可引用的文件</div>
         ) : null}
       </React.Fragment>
     );
-  }, [expandedReferenceNodeKeys, referenceQuery, renderReferenceTreeNodes, toggleReferenceNodeExpanded]);
+  }, [activeSuggestionUid, insertFileReference, expandedReferenceNodeKeys, referenceQuery, renderReferenceTreeNodes, toggleReferenceNodeExpanded, referenceRootStatus]);
 
   const handleOpenPricingDoc = (event) => {
     event.preventDefault();
@@ -5538,7 +5449,7 @@ const Composer = ({
                     {!referenceTreesLoading && referenceTreesError ? (
                       <div className="chat-panel__skill-mention-empty">{referenceTreesError}</div>
                     ) : null}
-                    {!referenceTreesLoading && !referenceTreesError && filteredSkillReferenceGroups.length > 0 ? (
+                    {filteredSkillReferenceGroups.length > 0 ? (
                       <div className="chat-panel__reference-section">
                         <div className="chat-panel__reference-section-title">技能成员</div>
                         {filteredSkillReferenceGroups.map((group) => (
@@ -5552,7 +5463,7 @@ const Composer = ({
                         ))}
                       </div>
                     ) : null}
-                    {!referenceTreesLoading && !referenceTreesError && primarySkillWorkdir ? (
+                    {primarySkillWorkdir ? (
                       <div className="chat-panel__reference-section">
                         <div className="chat-panel__reference-section-title">工作空间</div>
                         {renderReferenceRoot(
@@ -5567,6 +5478,7 @@ const Composer = ({
                     {!referenceTreesLoading
                     && !referenceTreesError
                     && filteredSkillReferenceGroups.length === 0
+                    && !primarySkillWorkdir
                     && filteredWorkspaceReferenceNodes.length === 0
                     && filteredUploadedFiles.length === 0 ? (
                       <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">

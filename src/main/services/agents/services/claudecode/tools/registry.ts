@@ -529,6 +529,7 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add(vt('digital-human', 'create_lip_sync_digital_human'))
     autoAllowTools.add(vt('digital-human', 'create_image_driven_digital_human'))
     autoAllowTools.add(vt('digital-human', 'create_omni_image_driven_digital_human'))
+    autoAllowTools.add(vt('digital-human', 'create_default_image_driven_digital_human'))
     autoAllowTools.add(vt('digital-human', 'create_seedance_digital_human'))
     allowMcpPattern(vp('digital-human'))
   }

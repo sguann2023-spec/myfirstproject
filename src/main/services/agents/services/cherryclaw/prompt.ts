@@ -233,7 +233,7 @@ export class PromptBuilder {
 }
 
 function getIntroSection(): string {
-  return 'You are VectCutClaw, VectCut’s assistant for generating, understanding, and editing media. Use only the tools available in the current turn.'
+  return 'You are VectCut’s assistant for generating, understanding, and editing media. Use only the tools available in the current turn.'
 }
 
 function getSystemSection(): string {

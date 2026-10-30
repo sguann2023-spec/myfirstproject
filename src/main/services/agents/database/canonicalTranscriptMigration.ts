@@ -3,18 +3,18 @@ import { createHash } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 
-import { withDbWriteLock } from './dbWriteQueue'
+import { withoutTransaction } from './withoutTransaction'
 import type * as schema from './schema'
 import {
   agentConversationSegmentsTable,
   agentMessagePartsTable,
   agentMessagesTable,
   agentTurnsTable,
-  sessionMessagesTable
+  sessionMessagesTable,
+  sessionsTable
 } from './schema'
 
 type AgentDatabase = LibSQLDatabase<typeof schema>
-type AgentTransaction = Parameters<Parameters<AgentDatabase['transaction']>[0]>[0]
 
 type LegacyPayload = {
   message?: Record<string, unknown>
@@ -148,7 +148,7 @@ const exactTextMatches = (turn: { user_text: string | null; assistant_text: stri
     (!assistantText || assistantText === pair.assistant.text.trim())
 }
 
-async function loadTranscript(tx: AgentTransaction, sessionId: string): Promise<TranscriptMessage[]> {
+async function loadTranscript(tx: AgentDatabase, sessionId: string): Promise<TranscriptMessage[]> {
   const messages = await tx
     .select()
     .from(agentMessagesTable)
@@ -178,7 +178,7 @@ async function loadTranscript(tx: AgentTransaction, sessionId: string): Promise<
 }
 
 async function repairAndProjectTurns(
-  tx: AgentTransaction,
+  tx: AgentDatabase,
   sessionId: string,
   pairs: MessagePair[],
   allowProjection: boolean,
@@ -244,41 +244,48 @@ async function repairAndProjectTurns(
 
   const segmentId = stableId('legacy_seg', sessionId)
   const now = pairs[pairs.length - 1].assistant.createdAt
-  await tx
-    .insert(agentConversationSegmentsTable)
-    .values({
-      id: segmentId,
-      topic_id: sessionId,
-      sdk_session_id: '',
-      system_prompt_version: 'legacy',
-      system_prompt_hash: stableId('legacy_prompt', sessionId),
-      status: 'active',
-      start_message_id: pairs[0].user.id,
-      end_message_id: pairs[pairs.length - 1].assistant.id,
-      created_at: pairs[0].user.createdAt,
-      updated_at: now
-    })
-    .onConflictDoNothing()
-  result.segmentsCreated += 1
+  const [existingSegment] = await tx.select({ id: agentConversationSegmentsTable.id })
+    .from(agentConversationSegmentsTable).where(eq(agentConversationSegmentsTable.id, segmentId)).limit(1)
+  if (!existingSegment) {
+    await tx
+      .insert(agentConversationSegmentsTable)
+      .values({
+        id: segmentId,
+        topic_id: sessionId,
+        sdk_session_id: '',
+        system_prompt_version: 'legacy',
+        system_prompt_hash: stableId('legacy_prompt', sessionId),
+        status: 'active',
+        start_message_id: pairs[0].user.id,
+        end_message_id: pairs[pairs.length - 1].assistant.id,
+        created_at: pairs[0].user.createdAt,
+        updated_at: now
+      })
+    result.segmentsCreated += 1
+  }
 
   for (const pair of pairs) {
     const turnId = stableId('legacy_turn', sessionId, pair.user.id, pair.assistant.id)
-    await tx
-      .insert(agentTurnsTable)
-      .values({
-        id: turnId,
-        topic_id: sessionId,
-        segment_id: segmentId,
-        user_message_id: pair.user.id,
-        assistant_message_id: pair.assistant.id,
-        user_text: pair.user.text || undefined,
-        assistant_text: pair.assistant.text || undefined,
-        cumulative_input_tokens: 0,
-        started_at: pair.user.createdAt,
-        completed_at: pair.assistant.createdAt,
-        status: 'completed'
-      })
-      .onConflictDoNothing()
+    const [existingTurn] = await tx.select({ id: agentTurnsTable.id })
+      .from(agentTurnsTable).where(eq(agentTurnsTable.id, turnId)).limit(1)
+    if (!existingTurn) {
+      await tx
+        .insert(agentTurnsTable)
+        .values({
+          id: turnId,
+          topic_id: sessionId,
+          segment_id: segmentId,
+          user_message_id: pair.user.id,
+          assistant_message_id: pair.assistant.id,
+          user_text: pair.user.text || undefined,
+          assistant_text: pair.assistant.text || undefined,
+          cumulative_input_tokens: 0,
+          started_at: pair.user.createdAt,
+          completed_at: pair.assistant.createdAt,
+          status: 'completed'
+        })
+      result.turnsCreated += 1
+    }
     await tx
       .update(agentMessagesTable)
       .set({ turn_id: turnId })
@@ -287,11 +294,10 @@ async function repairAndProjectTurns(
       .update(agentMessagesTable)
       .set({ parent_message_id: pair.user.id })
       .where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, pair.assistant.id), isNull(agentMessagesTable.parent_message_id)))
-    result.turnsCreated += 1
   }
 }
 
-/** Backfill the canonical transcript from legacy session_messages. Safe to run repeatedly. */
+/** Backfill legacy history with independent writes, not an atomic session migration. */
 export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<CanonicalTranscriptBackfillResult> {
   const result: CanonicalTranscriptBackfillResult = {
     legacyRows: 0,
@@ -306,7 +312,10 @@ export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<Ca
     orphanMessages: 0
   }
 
-  const rows = await db.select().from(sessionMessagesTable).orderBy(asc(sessionMessagesTable.created_at), asc(sessionMessagesTable.id))
+  // Deleted sessions retain their events for history, not for active backfill.
+  const rows = await db.select().from(sessionMessagesTable)
+    .where(inArray(sessionMessagesTable.session_id, db.select({ id: sessionsTable.id }).from(sessionsTable)))
+    .orderBy(asc(sessionMessagesTable.created_at), asc(sessionMessagesTable.id))
   result.legacyRows = rows.length
   const candidates = new Map<string, LegacyCandidate>()
   const legacyMessageIdsBySession = new Map<string, Set<string>>()
@@ -349,10 +358,8 @@ export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<Ca
     legacyMessageIdsBySession.set(row.session_id, legacyIds)
   }
 
-  // Insert and project per session in separate short transactions so the
-  // SQLite write lock is released between sessions: interactive reads issued
-  // while this background backfill runs are never stuck behind one giant
-  // transaction, and a crash mid-way keeps completed sessions committed.
+  // Backfill statements persist independently; failures leave the completed prefix.
+  // Yield between sessions without holding a database lock or replaying writes.
   const candidatesBySession = new Map<string, LegacyCandidate[]>()
   for (const candidate of candidates.values()) {
     const grouped = candidatesBySession.get(candidate.sessionId) ?? []
@@ -360,8 +367,11 @@ export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<Ca
     candidatesBySession.set(candidate.sessionId, grouped)
   }
   for (const [sessionId, sessionCandidates] of candidatesBySession) {
-    await withDbWriteLock(() =>
-      db.transaction(async (tx) => {
+    await withoutTransaction(db, async (tx) => {
+      // Selection precedes these writes; the session may have been deleted.
+      // Retained history is not active migration input.
+      const [session] = await tx.select({ id: sessionsTable.id }).from(sessionsTable).where(eq(sessionsTable.id, sessionId)).limit(1)
+      if (!session) return
       const ordered = [...sessionCandidates].sort(
         (left, right) => left.createdAt.localeCompare(right.createdAt) || left.rowId - right.rowId
       )
@@ -409,7 +419,7 @@ export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<Ca
             data_json: blockData(block),
             created_at: String(block.createdAt ?? candidate.createdAt),
             updated_at: String(block.updatedAt ?? candidate.updatedAt)
-          }).onConflictDoNothing()
+          })
           result.partsInserted += 1
         }
       }
@@ -420,8 +430,7 @@ export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<Ca
       const legacyIds = legacyMessageIdsBySession.get(sessionId) ?? new Set<string>()
       const legacyOnly = transcript.length > 0 && transcript.every((message) => legacyIds.has(message.id))
       await repairAndProjectTurns(tx, sessionId, pairs, legacyOnly, result)
-      })
-    )
+    })
     // Yield between sessions so concurrent app work keeps making progress.
     await new Promise((resolve) => setImmediate(resolve))
   }
@@ -455,10 +464,13 @@ export async function reconcileInterruptedAgentWork(
     const marker = String(row.updated_at ?? row.started_at ?? '')
     return !marker || marker < before
   }
-  return withDbWriteLock(() =>
-    db.transaction(async (tx) => {
+  return withoutTransaction(db, async (tx) => {
     const runningTurns = (
-      await tx.select({ id: agentTurnsTable.id, started_at: agentTurnsTable.started_at }).from(agentTurnsTable).where(eq(agentTurnsTable.status, 'running'))
+      await tx.select({ id: agentTurnsTable.id, started_at: agentTurnsTable.started_at }).from(agentTurnsTable)
+        .where(and(
+          eq(agentTurnsTable.status, 'running'),
+          inArray(agentTurnsTable.topic_id, tx.select({ id: sessionsTable.id }).from(sessionsTable))
+        ))
     ).filter((turn) => staleOnly(turn))
     if (runningTurns.length) {
       await tx
@@ -471,7 +483,11 @@ export async function reconcileInterruptedAgentWork(
       await tx
         .select({ id: agentMessagesTable.id, updated_at: agentMessagesTable.updated_at })
         .from(agentMessagesTable)
-        .where(and(eq(agentMessagesTable.role, 'assistant'), inArray(agentMessagesTable.status, ['pending', 'streaming'])))
+        .where(and(
+          eq(agentMessagesTable.role, 'assistant'),
+          inArray(agentMessagesTable.status, ['pending', 'streaming']),
+          inArray(agentMessagesTable.session_id, tx.select({ id: sessionsTable.id }).from(sessionsTable))
+        ))
     ).filter((message) => staleOnly(message))
     const streamingIds = streamingMessages.map((message) => message.id)
     if (streamingIds.length) {
@@ -518,6 +534,5 @@ export async function reconcileInterruptedAgentWork(
       partsInterrupted,
       toolsInterrupted
     }
-    })
-  )
+  })
 }

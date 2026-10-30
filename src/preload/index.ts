@@ -83,6 +83,7 @@ interface OpenClawChannelInfo {
 }
 
 type DirectoryListOptions = {
+  typed?: boolean
   recursive?: boolean
   maxDepth?: number
   includeHidden?: boolean

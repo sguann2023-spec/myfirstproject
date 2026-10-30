@@ -68,7 +68,7 @@ export const buildDigitalHumanRequestTextPrompt = (request = {}) => {
   const toolName = {
     lip_sync: 'create_lip_sync_digital_human',
     omni: 'create_omni_image_driven_digital_human',
-    seedance: 'create_seedance_digital_human',
+    seedance: 'create_default_image_driven_digital_human',
   }[normalized.mode];
   return [
     `请生成${modeLabel}数字人视频${normalized.packaging_template ? '，完成智能包装并导出成片' : ''}。`,

@@ -32,6 +32,7 @@ import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import WordExtractor from 'word-extractor'
 import { spawn } from 'child_process'
+import { contentDispositionFilename } from './network/responseHeaders'
 
 const logger = loggerService.withContext('FileStorage')
 
@@ -124,6 +125,7 @@ const DEFAULT_WATCHER_CONFIG: Required<FileWatcherConfig> = {
 }
 
 interface DirectoryListOptions {
+  typed?: boolean
   recursive?: boolean
   maxDepth?: number
   includeHidden?: boolean
@@ -135,6 +137,7 @@ interface DirectoryListOptions {
 }
 
 const DEFAULT_DIRECTORY_LIST_OPTIONS: Required<DirectoryListOptions> = {
+  typed: false,
   recursive: true,
   maxDepth: 10,
   includeHidden: false,
@@ -896,7 +899,7 @@ class FileStorage {
     _: Electron.IpcMainInvokeEvent,
     dirPath: string,
     options?: DirectoryListOptions
-  ): Promise<string[]> => {
+  ): Promise<string[] | { name: string; path: string; type: string }[]> => {
     const mergedOptions: Required<DirectoryListOptions> = {
       ...DEFAULT_DIRECTORY_LIST_OPTIONS,
       ...options
@@ -911,6 +914,17 @@ class FileStorage {
 
     if (!stat.isDirectory()) {
       throw new Error(`Path is not a directory: ${resolvedPath}`)
+    }
+
+    // Typed shallow browsing uses Dirents: no recursive walk or per-entry IPC/stat.
+    if (mergedOptions.typed && mergedOptions.recursive === false) {
+      const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true })
+      return entries
+        .filter((entry) => (mergedOptions.includeHidden || !entry.name.startsWith('.')) &&
+          (entry.isDirectory() ? mergedOptions.includeDirectories : mergedOptions.includeFiles))
+        .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+        .slice(0, mergedOptions.maxEntries)
+        .map((entry) => ({ name: entry.name, path: entry.name, type: entry.isDirectory() ? 'directory' : 'file' }))
     }
 
     // Use ripgrep for file listing with relevance-based sorting
@@ -1522,10 +1536,7 @@ class FileStorage {
       let filename = 'download'
 
       if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i)
-        if (filenameMatch) {
-          filename = filenameMatch[1]
-        }
+        filename = contentDispositionFilename(contentDisposition) || filename
       }
 
       // 如果URL中有文件名，使用URL中的文件名

@@ -14,29 +14,73 @@
  * - v2 Refactor PR   : https://github.com/CherryHQ/cherry-studio/pull/10162
  * --------------------------------------------------------------------------
  */
-import { type Client, createClient } from '@libsql/client'
+import { type Client } from '@libsql/client'
+import { WorkerDatabaseClient } from './workerClient'
 import { loggerService } from '@logger'
-import { isDev } from '@main/constant'
+import { getResourcePath } from '@main/utils'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import { drizzle } from 'drizzle-orm/libsql'
 import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
 
-import { DataMigrationService } from './DataMigrationService'
-import { reconcileInterruptedAgentWork } from './canonicalTranscriptMigration'
-import { MigrationService } from './MigrationService'
 import * as schema from './schema'
+import type { DatabaseInitializationProgress } from '../../../../shared/databaseInitializationProgress'
+import type { OverlayOptions, StorageManifest } from './persistentRecordStore'
 
-const dbPath = path.join(app.getPath('userData'), 'Data', 'agents.db')
-
-// Watermark for deferred crash reconciliation: rows created or updated at or
-// after this moment belong to the current process and must never be settled
-// as interrupted while their turn may still be live.
-const PROCESS_STARTED_AT = new Date().toISOString()
-
-function getOldDbPath() {
-  return path.join(app.getPath('userData'), 'agents.db')
+/** Restored suites are self-contained. Never use originalPath to reopen live sources. */
+export function resolveStorageConfiguration(userData: string, migrationDir: string): { database: string; overlayStorage: OverlayOptions } {
+  const data = path.join(userData, 'Data')
+  const suite = path.join(data, 'record-storage')
+  let directory: fs.Stats | undefined
+  try { directory = fs.lstatSync(suite) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  if (directory) {
+    const reject = (): never => { throw new Error('Invalid record storage manifest or unsafe suite path') }
+    if (!directory.isDirectory() || directory.isSymbolicLink()) reject()
+    const suiteRoot = fs.realpathSync(suite)
+    const dataRoot = fs.realpathSync(data)
+    if (path.dirname(suiteRoot) !== dataRoot) reject()
+    const file = (relative: unknown): string => {
+      if (typeof relative !== 'string' || !relative || relative.includes('\\') || relative.includes('\0') || path.posix.isAbsolute(relative) || path.win32.isAbsolute(relative)) return reject()
+      const parts = relative.split('/')
+      if (parts.some(part => !part || part === '.' || part === '..' || part.includes(':'))) return reject()
+      let candidate = suite
+      for (const [index, part] of parts.entries()) {
+        candidate = path.join(candidate, part)
+        const stat = fs.lstatSync(candidate)
+        if (stat.isSymbolicLink() || (index < parts.length - 1 ? !stat.isDirectory() : !stat.isFile())) return reject()
+      }
+      const resolved = fs.realpathSync(candidate)
+      if (!resolved.startsWith(suiteRoot + path.sep)) return reject()
+      return resolved
+    }
+    const manifestFile = file('manifest.json')
+    if (fs.statSync(manifestFile).size > 1024 * 1024) reject()
+    const manifest: StorageManifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'))
+    if (!manifest || manifest.format !== 'record-overlay-v1' || manifest.database !== 'records.db' || !Array.isArray(manifest.legacyPaths) || !Array.isArray(manifest.sources) || manifest.sources.length !== manifest.legacyPaths.length) reject()
+    const seen = new Set<string>()
+    const database = file(manifest.database)
+    const databaseStat = fs.statSync(database)
+    const identities = new Set([`${databaseStat.dev}:${databaseStat.ino}`])
+    const legacyPaths = manifest.legacyPaths.map((relative, index) => {
+      if (typeof relative !== 'string' || !/^legacy\/[^/]+\.db$/.test(relative) || seen.has(relative) || manifest.sources[index]?.snapshot !== relative || typeof manifest.sources[index]?.originalPath !== 'string') reject()
+      seen.add(relative)
+      const filename = file(relative)
+      const stat = fs.statSync(filename)
+      const identity = `${stat.dev}:${stat.ino}`
+      if (identities.has(identity)) reject()
+      identities.add(identity)
+      return filename
+    })
+    return { database, overlayStorage: { legacyPaths, migrationDir } }
+  }
+  const legacyPaths = [
+    path.join(data, 'agents.db.v2.db'), path.join(data, 'agents.db'),
+    path.join(userData, 'agents.db.v2.db'), path.join(userData, 'agents.db')
+  ].filter(filename => fs.existsSync(filename))
+  return { database: path.join(data, 'records.db'), overlayStorage: { legacyPaths, migrationDir } }
 }
 
 const logger = loggerService.withContext('DatabaseManager')
@@ -63,8 +107,20 @@ enum InitState {
  */
 export class DatabaseManager {
   private static instance: DatabaseManager | null = null
+  private static initializing: Promise<DatabaseManager> | null = null
+  private static closing: Promise<void> | null = null
+  private static progress: DatabaseInitializationProgress = { status: 'idle', phase: 'opening' }
 
-  private client: Client | null = null
+  public static getInitializationProgress(): DatabaseInitializationProgress {
+    return { ...DatabaseManager.progress }
+  }
+
+  private static reportProgress(phase: string, count?: number, total?: number, detail?: string): void {
+    if (phase === 'overlay-warning') logger.warn('Legacy database unavailable; new conversations remain available', { detail })
+    DatabaseManager.progress = { status: 'initializing', startedAt: DatabaseManager.progress.startedAt, phase, count, total, detail }
+  }
+
+  private client: WorkerDatabaseClient | null = null
   private db: LibSQLDatabase<typeof schema> | null = null
   private state: InitState = InitState.INITIALIZING
 
@@ -72,46 +128,22 @@ export class DatabaseManager {
    * Get the singleton instance (database initialization starts automatically)
    */
   public static async getInstance(): Promise<DatabaseManager> {
+    if (DatabaseManager.closing) await DatabaseManager.closing
+    if (DatabaseManager.shuttingDown) throw new Error('Database is shutting down')
     if (DatabaseManager.instance) {
       return DatabaseManager.instance
     }
 
-    const instance = new DatabaseManager()
-    await instance.initialize()
-    DatabaseManager.instance = instance
-
-    return instance
-  }
-
-  /**
-   * Migrate agents.db from old path ({userData}/agents.db) to new path ({userData}/Data/agents.db).
-   * Only moves when old path exists and new path does not. Also handles -wal and -shm auxiliary files.
-   */
-  private static migrateFromOldPath(): void {
-    if (isDev) {
-      return
+    if (!DatabaseManager.initializing) {
+      const instance = new DatabaseManager()
+      DatabaseManager.initializing = instance.initialize().then(() => {
+        DatabaseManager.instance = instance
+        return instance
+      }).finally(() => {
+        DatabaseManager.initializing = null
+      })
     }
-
-    const oldPath = getOldDbPath()
-    if (!fs.existsSync(oldPath) || fs.existsSync(dbPath)) {
-      return
-    }
-
-    const dbDir = path.dirname(dbPath)
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true })
-    }
-
-    logger.info(`Migrating agents.db from ${oldPath} to ${dbPath}`)
-    fs.renameSync(oldPath, dbPath)
-
-    // SQLite WAL mode auxiliary files: -wal (write-ahead log with uncommitted data) and -shm (shared memory index)
-    for (const suffix of ['-wal', '-shm']) {
-      const oldAux = oldPath + suffix
-      if (fs.existsSync(oldAux)) {
-        fs.renameSync(oldAux, dbPath + suffix)
-      }
-    }
+    return DatabaseManager.initializing
   }
 
   /**
@@ -123,8 +155,8 @@ export class DatabaseManager {
     }
 
     try {
-      DatabaseManager.migrateFromOldPath()
-
+      DatabaseManager.progress = { status: 'initializing', phase: 'opening', startedAt: Date.now() }
+      const { database: dbPath, overlayStorage } = resolveStorageConfiguration(app.getPath('userData'), path.join(getResourcePath(), 'database', 'drizzle'))
       logger.info(`Initializing database at: ${dbPath}`)
 
       // Ensure database directory exists
@@ -134,42 +166,26 @@ export class DatabaseManager {
         fs.mkdirSync(dbDir, { recursive: true })
       }
 
-      // Check if database file is corrupted (Windows specific check)
-      if (fs.existsSync(dbPath)) {
-        const stats = fs.statSync(dbPath)
-        if (stats.size === 0) {
-          logger.warn('Database file is empty, removing corrupted file')
-          fs.unlinkSync(dbPath)
-        }
-      }
-
-      // Create client with platform-specific options
-      this.client = createClient({
+      this.client = new WorkerDatabaseClient({
         url: `file:${dbPath}`,
         // intMode: 'number' helps avoid some Windows compatibility issues
         intMode: 'number'
-      })
+      }, undefined, DatabaseManager.reportProgress, overlayStorage)
 
       // Create drizzle instance
       this.db = drizzle(this.client, { schema })
 
-      // Run schema migrations (fast; required before any table access)
-      const migrationService = new MigrationService(this.db, this.client)
-      await migrationService.runMigrations()
+      // The worker owns overlay/schema initialization; never migrate legacy sources here.
+      await this.client.waitUntilReady()
 
       this.state = InitState.INITIALIZED
+      DatabaseManager.progress = { ...DatabaseManager.progress, status: 'initialized' }
       logger.info('Database initialized successfully')
 
-      // Heavy maintenance (legacy transcript backfill + crash reconciliation)
-      // runs in the background so window creation, login, and the API server
-      // are not blocked behind multi-second scans on large histories. Reads
-      // fall back to legacy storage until the backfill finishes, and
-      // reconciliation is watermarked to this process's start time so it can
-      // never settle a live turn started by the current process. Data
-      // migrations are idempotent and re-run on the next startup if this is
-      // interrupted.
-      void this.runDeferredAgentMaintenance()
+      // Restart reads committed records. It must not resume unfinished
+      // backfills or append crash-repair business records automatically.
     } catch (error) {
+      DatabaseManager.progress = { ...DatabaseManager.progress, status: 'failed' }
       const err = error as Error
       logger.error('Database initialization failed:', {
         error: err.message,
@@ -177,7 +193,7 @@ export class DatabaseManager {
       })
 
       // Clean up failed initialization
-      this.cleanupFailedInit()
+      await this.cleanupFailedInit()
 
       // Set failed state
       this.state = InitState.FAILED
@@ -186,34 +202,14 @@ export class DatabaseManager {
   }
 
   /**
-   * Background maintenance started right after initialization is published:
-   * idempotent data migrations (legacy transcript backfill) followed by crash
-   * reconciliation of state left by previous processes. Never fails startup.
-   */
-  private async runDeferredAgentMaintenance(): Promise<void> {
-    try {
-      const dataMigrationService = new DataMigrationService(this.db!, this.client!)
-      await dataMigrationService.runDataMigrations()
-      const reconciliation = await reconcileInterruptedAgentWork(this.db!, {
-        beforeTimestamp: PROCESS_STARTED_AT
-      })
-      logger.info('Agent deferred maintenance completed', reconciliation)
-    } catch (error) {
-      logger.error('Agent deferred maintenance failed; will retry on next startup', {
-        error: error as Error
-      })
-    }
-  }
-
-  /**
    * Clean up after failed initialization
    */
-  private cleanupFailedInit(): void {
+  private async cleanupFailedInit(): Promise<void> {
     if (this.client) {
       try {
         // On Windows, closing a partially initialized client can crash
         // Wrap in try-catch and ignore errors during cleanup
-        this.client.close()
+        await this.client.closeAsync()
       } catch (error) {
         logger.warn('Failed to close client during cleanup:', error as Error)
       }
@@ -240,6 +236,21 @@ export class DatabaseManager {
     return this.client!
   }
 
+  public backupDatabase(destination: string): Promise<void> {
+    return this.client!.backupDatabase(destination)
+  }
+
+  public backupStorage(directory: string): Promise<StorageManifest> {
+    return this.client!.backupStorage(directory)
+  }
+
+  public static async beginStorageMaintenance(): Promise<void> {
+    const manager = await DatabaseManager.getInstance()
+    // Keep the broker endpoint reserved while files are replaced. Other clients
+    // fail closed instead of spawning a writer against partially restored files.
+    await manager.client!.beginStorageMaintenance()
+  }
+
   /**
    * Check if database is initialized
    */
@@ -249,26 +260,27 @@ export class DatabaseManager {
 
   /**
    * Close the database connection and reset the singleton.
-   * Must be called before deleting agents.db (e.g. during backup restore).
+   * Must be called before replacing storage (e.g. during backup restore).
    * After calling this, getInstance() will re-initialize a fresh connection.
    */
+  private static shuttingDown = false
+
+  public static async shutdown(): Promise<void> {
+    DatabaseManager.shuttingDown = true
+    await DatabaseManager.close()
+  }
+
   public static async close(): Promise<void> {
-    const instance = DatabaseManager.instance
-    if (!instance) {
-      return
-    }
-
-    // Detach singleton first so concurrent getInstance() creates a fresh connection
-    // instead of returning a stale instance with null client.
-    DatabaseManager.instance = null
-
-    if (instance.client) {
-      try {
-        instance.client.close()
+    if (!DatabaseManager.closing) {
+      DatabaseManager.closing = (async () => {
+        if (DatabaseManager.initializing) await DatabaseManager.initializing.catch(() => undefined)
+        const instance = DatabaseManager.instance
+        if (!instance) return
+        await instance.client?.closeAsync()
+        DatabaseManager.instance = null
         logger.info('Database connection closed')
-      } catch (error) {
-        logger.warn('Failed to close database connection:', error as Error)
-      }
+      })().finally(() => { DatabaseManager.closing = null })
     }
+    await DatabaseManager.closing
   }
 }

@@ -10,6 +10,13 @@ import type {
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {}
 
+// An absent legacy error must not become a truthy `{}` in error_json.
+// Also normalize empty records already persisted by older dual-writes.
+const optionalError = (value: unknown): Record<string, any> | undefined => {
+  const error = record(value)
+  return Object.keys(error).length > 0 ? error : undefined
+}
+
 const messageStatus = (status: AgentMessageStatus, role: string): string => {
   if (role === 'user') return 'success'
   if (status === 'completed') return 'success'
@@ -41,13 +48,14 @@ const legacyBlockType = (type: string): string => {
 export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPersistedMessage {
   const { message } = entry
   const status = messageStatus(message.status, message.role)
+  const messageError = optionalError(message.error)
   const blocks: Record<string, any>[] = entry.parts.map((part) => {
     const data = record(part.data)
     const type = legacyBlockType(part.type)
     const content = typeof data.text === 'string' && data.content === undefined ? data.text : data.content
-    const error = data.error ?? (message.status === 'interrupted'
+    const error = optionalError(data.error) ?? (message.status === 'interrupted'
       ? { message: 'Generation was interrupted before completion', code: 'interrupted' }
-      : message.error)
+      : messageError)
     return {
       ...data,
       id: part.id,
@@ -58,7 +66,7 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
       status: blockStatus(message.status, data),
       ...(content !== undefined ? { content } : {}),
       ...(type === 'thinking' && data.thinking_millsec === undefined ? { thinking_millsec: 0 } : {}),
-      ...(error ? { error } : {})
+      error
     }
   })
 
@@ -66,7 +74,7 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
     blocks.push({
       id: `${message.id}:error`, messageId: message.id, type: 'error', createdAt: message.createdAt,
       updatedAt: message.updatedAt, status: 'error',
-      error: message.error ?? {
+      error: messageError ?? {
         message: message.status === 'interrupted' ? 'Generation was interrupted before completion' : 'Generation failed',
         code: message.status
       }
@@ -86,7 +94,7 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
       ...(message.provider?.modelId ? { modelId: message.provider.modelId } : {}),
       ...(message.provider?.requestId ? { traceId: message.provider.requestId } : {}),
       ...(message.usage ? { usage: message.usage } : {}),
-      ...(message.error ? { error: message.error } : {}),
+      ...(messageError ? { error: messageError } : {}),
       ...(message.status === 'cancelled' ? { aborted: true } : {}),
       canonicalStatus: message.status,
       sequence: message.sequence,
@@ -139,7 +147,7 @@ export function persistedToCanonicalInputs(
         ...(legacyMessage.traceId ? { requestId: legacyMessage.traceId } : {})
       },
       usage: record(legacyMessage.usage),
-      error: record(legacyMessage.error),
+      error: optionalError(legacyMessage.error),
       createdAt,
       updatedAt,
       completedAt: ['completed', 'cancelled', 'failed', 'interrupted'].includes(status) ? updatedAt : undefined

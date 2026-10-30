@@ -16,6 +16,7 @@ import { configManager } from './ConfigManager'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
 import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { mainHttpClient } from './network/MainHttpClient'
+import { isDeterministicHeaderError } from './network/responseHeaders'
 import { windowService } from './WindowService'
 import { registerTemplateIpc } from '../template/registerTemplateIpc'
 import { isTemplatePresetId } from '../../shared/templatePresets'
@@ -804,7 +805,9 @@ async function downloadViaWindowSession(
               await fs.promises.unlink(localFilename)
             } catch {}
 
-            if (sessionFetchAttempt >= sessionFetchMaxAttempts || timeoutError) {
+            // Header conversion/rejection is deterministic; retries cannot fix it.
+            const invalidResponseHeaders = isDeterministicHeaderError(sessionFetchMessage)
+            if (sessionFetchAttempt >= sessionFetchMaxAttempts || timeoutError || invalidResponseHeaders) {
               throw sessionFetchError
             }
 
@@ -890,8 +893,17 @@ function resolveWorkerScriptPath() {
 }
 
 function registerLegacyLoginInitChannels() {
+  safeHandle('app:database-initialization-progress', async () => {
+    const { DatabaseManager } = await import('./agents/database/DatabaseManager')
+    return DatabaseManager.getInitializationProgress()
+  })
   safeHandle('app:register-extended-ipc', async () => ({ success: true }))
   safeHandle('app:initialize-login-services', async () => {
+    // Schema readiness is blocking; DatabaseManager shares in-flight initialization.
+    // Deferred transcript maintenance remains owned by DatabaseManager in the background.
+    const { DatabaseManager } = await import('./agents/database/DatabaseManager')
+    await DatabaseManager.getInstance()
+
     // 登录期并行预热：让首消息关键路径上的 shell env 探测与模型列表拉取
     // 提前发生在登录/初始化阶段，首次业务调用直接命中缓存。
     // 全部 fire-and-forget，不阻塞登录流程。

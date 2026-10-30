@@ -1,0 +1,305 @@
+diff --git a/lib-cjs/node.js b/lib-cjs/node.js
+index 212494175327cc15d3bdbc1a60b56e436a086177..d81f8e9c9a364ff55f1d95c827c23ea5ce4c372b 100644
+--- a/lib-cjs/node.js
++++ b/lib-cjs/node.js
+@@ -25,6 +25,10 @@ __exportStar(require("@libsql/core/api"), exports);
+  * You must pass at least an `url` in the {@link Config} object.
+  */
+ function createClient(config) {
++    if ((config.url.startsWith("file:") || config.url === ":memory:") &&
++        (config.encryptionKey !== undefined || config.remoteEncryptionKey !== undefined || config.syncUrl !== undefined)) {
++        throw new Error("The local SQLite adapter does not support encryption or embedded replicas");
++    }
+     return _createClient((0, config_1.expandConfig)(config, true));
+ }
+ exports.createClient = createClient;
+diff --git a/lib-cjs/sqlite3.js b/lib-cjs/sqlite3.js
+index e8a763adadb90e561ebbd2bdfd3922f9aa5dac23..8efb8e773a4fc7e8e4650be47a26f5112adbe75e 100644
+--- a/lib-cjs/sqlite3.js
++++ b/lib-cjs/sqlite3.js
+@@ -18,13 +18,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
+ };
+ Object.defineProperty(exports, "__esModule", { value: true });
+ exports.Sqlite3Transaction = exports.Sqlite3Client = exports._createClient = exports.createClient = void 0;
+-const libsql_1 = __importDefault(require("libsql"));
++const libsql_1 = __importDefault(require("better-sqlite3"));
+ const node_buffer_1 = require("node:buffer");
+ const api_1 = require("@libsql/core/api");
+ const config_1 = require("@libsql/core/config");
+ const util_1 = require("@libsql/core/util");
+ __exportStar(require("@libsql/core/api"), exports);
+ function createClient(config) {
++    if ((config.url.startsWith("file:") || config.url === ":memory:") &&
++        (config.encryptionKey !== undefined || config.remoteEncryptionKey !== undefined || config.syncUrl !== undefined)) {
++        throw new Error("The local SQLite adapter does not support encryption or embedded replicas");
++    }
+     return _createClient((0, config_1.expandConfig)(config, true));
+ }
+ exports.createClient = createClient;
+@@ -34,6 +38,11 @@ function _createClient(config) {
+         throw new api_1.LibsqlError(`URL scheme ${JSON.stringify(config.scheme + ":")} is not supported by the local sqlite3 client. ` +
+             `For more information, please read ${util_1.supportedUrlLink}`, "URL_SCHEME_NOT_SUPPORTED");
+     }
++    // This application's local adapter cannot encrypt or synchronize replicas.
++    // Never silently create plaintext/local-only storage for those options.
++    if (config.encryptionKey !== undefined || config.remoteEncryptionKey !== undefined || config.syncUrl !== undefined) {
++        throw new api_1.LibsqlError("The local SQLite adapter does not support encryption or embedded replicas", "CONFIG_NOT_SUPPORTED");
++    }
+     const authority = config.authority;
+     if (authority !== undefined) {
+         const host = authority.host.toLowerCase();
+@@ -57,7 +66,7 @@ function _createClient(config) {
+     let path = config.path;
+     if (isInMemory) {
+         // note: we should prepend file scheme in order for SQLite3 to recognize :memory: connection query parameters
+-        path = `${config.scheme}:${config.path}`;
++        path = ":memory:";
+     }
+     const options = {
+         authToken: config.authToken,
+@@ -67,6 +76,7 @@ function _createClient(config) {
+         syncPeriod: config.syncInterval,
+         readYourWrites: config.readYourWrites,
+         offline: config.offline,
++        timeout: Number(process.env.CHATCUT_SQLITE_BUSY_TIMEOUT ?? 250),
+     };
+     const db = new libsql_1.default(path, options);
+     executeStmt(db, "SELECT 1 AS checkThatTheDatabaseCanBeOpened", config.intMode);
+@@ -78,6 +88,7 @@ class Sqlite3Client {
+     #options;
+     #db;
+     #intMode;
++    #transactions = new Set();
+     closed;
+     protocol;
+     /** @private */
+@@ -174,10 +185,13 @@ class Sqlite3Client {
+         }
+     }
+     async transaction(mode = "write") {
++        this.#checkNotClosed();
+         const db = this.#getDb();
+         executeStmt(db, (0, util_1.transactionModeToBegin)(mode), this.#intMode);
+         this.#db = null; // A new connection will be lazily created on next use
+-        return new Sqlite3Transaction(db, this.#intMode);
++        const tx = new Sqlite3Transaction(db, this.#intMode, () => this.#transactions.delete(tx));
++        this.#transactions.add(tx);
++        return tx;
+     }
+     async executeMultiple(sql) {
+         this.#checkNotClosed();
+@@ -212,6 +226,7 @@ class Sqlite3Client {
+     }
+     close() {
+         this.closed = true;
++        for (const tx of this.#transactions) tx.close();
+         if (this.#db !== null) {
+             this.#db.close();
+             this.#db = null;
+@@ -235,7 +250,9 @@ class Sqlite3Transaction {
+     #database;
+     #intMode;
+     /** @private */
+-    constructor(database, intMode) {
++    #onClose;
++    constructor(database, intMode, onClose = () => {}) {
++        this.#onClose = onClose;
+         this.#database = database;
+         this.#intMode = intMode;
+     }
+@@ -285,19 +302,22 @@ class Sqlite3Transaction {
+             return;
+         }
+         this.#checkNotClosed();
+-        executeStmt(this.#database, "ROLLBACK", this.#intMode);
++        try { executeStmt(this.#database, "ROLLBACK", this.#intMode); }
++        finally { this.#database.close(); this.#onClose(); }
+     }
+     async commit() {
+         this.#checkNotClosed();
+-        executeStmt(this.#database, "COMMIT", this.#intMode);
++        try { executeStmt(this.#database, "COMMIT", this.#intMode); }
++        finally { this.close(); }
+     }
+     close() {
+-        if (this.#database.inTransaction) {
+-            executeStmt(this.#database, "ROLLBACK", this.#intMode);
+-        }
++        if (!this.#database.open) return;
++        try {
++            if (this.#database.inTransaction) executeStmt(this.#database, "ROLLBACK", this.#intMode);
++        } finally { this.#database.close(); this.#onClose(); }
+     }
+     get closed() {
+-        return !this.#database.inTransaction;
++        return !this.#database.open || !this.#database.inTransaction;
+     }
+     #checkNotClosed() {
+         if (this.closed) {
+@@ -454,7 +474,7 @@ function executeMultiple(db, sql) {
+ function mapSqliteError(e) {
+     if (e instanceof libsql_1.default.SqliteError) {
+         const extendedCode = e.code;
+-        const code = mapToBaseCode(e.rawCode);
++        const code = e.code?.replace(/^(SQLITE_[A-Z]+).*$/, "$1") ?? mapToBaseCode(e.rawCode);
+         return new api_1.LibsqlError(e.message, code, extendedCode, e.rawCode, e);
+     }
+     return e;
+diff --git a/lib-esm/node.js b/lib-esm/node.js
+index 417b835163c2ea06104bf9e27486b2a210cec8fe..a77dec642e5a7c76a4c98aab16658b1017283f5a 100644
+--- a/lib-esm/node.js
++++ b/lib-esm/node.js
+@@ -8,6 +8,10 @@ export * from "@libsql/core/api";
+  * You must pass at least an `url` in the {@link Config} object.
+  */
+ export function createClient(config) {
++    if ((config.url.startsWith("file:") || config.url === ":memory:") &&
++        (config.encryptionKey !== undefined || config.remoteEncryptionKey !== undefined || config.syncUrl !== undefined)) {
++        throw new Error("The local SQLite adapter does not support encryption or embedded replicas");
++    }
+     return _createClient(expandConfig(config, true));
+ }
+ function _createClient(config) {
+diff --git a/lib-esm/sqlite3.js b/lib-esm/sqlite3.js
+index 17444d977e87c352069cee287429a9b8317f4214..b7084ab86f983cef0de7f19ab33405524d3be539 100644
+--- a/lib-esm/sqlite3.js
++++ b/lib-esm/sqlite3.js
+@@ -1,10 +1,14 @@
+-import Database from "libsql";
++import Database from "better-sqlite3";
+ import { Buffer } from "node:buffer";
+ import { LibsqlError, LibsqlBatchError } from "@libsql/core/api";
+ import { expandConfig, isInMemoryConfig } from "@libsql/core/config";
+ import { supportedUrlLink, transactionModeToBegin, ResultSetImpl, } from "@libsql/core/util";
+ export * from "@libsql/core/api";
+ export function createClient(config) {
++    if ((config.url.startsWith("file:") || config.url === ":memory:") &&
++        (config.encryptionKey !== undefined || config.remoteEncryptionKey !== undefined || config.syncUrl !== undefined)) {
++        throw new Error("The local SQLite adapter does not support encryption or embedded replicas");
++    }
+     return _createClient(expandConfig(config, true));
+ }
+ /** @private */
+@@ -13,6 +17,11 @@ export function _createClient(config) {
+         throw new LibsqlError(`URL scheme ${JSON.stringify(config.scheme + ":")} is not supported by the local sqlite3 client. ` +
+             `For more information, please read ${supportedUrlLink}`, "URL_SCHEME_NOT_SUPPORTED");
+     }
++    // This application's local adapter cannot encrypt or synchronize replicas.
++    // Never silently create plaintext/local-only storage for those options.
++    if (config.encryptionKey !== undefined || config.remoteEncryptionKey !== undefined || config.syncUrl !== undefined) {
++        throw new LibsqlError("The local SQLite adapter does not support encryption or embedded replicas", "CONFIG_NOT_SUPPORTED");
++    }
+     const authority = config.authority;
+     if (authority !== undefined) {
+         const host = authority.host.toLowerCase();
+@@ -36,7 +45,7 @@ export function _createClient(config) {
+     let path = config.path;
+     if (isInMemory) {
+         // note: we should prepend file scheme in order for SQLite3 to recognize :memory: connection query parameters
+-        path = `${config.scheme}:${config.path}`;
++        path = ":memory:";
+     }
+     const options = {
+         authToken: config.authToken,
+@@ -46,6 +55,7 @@ export function _createClient(config) {
+         syncPeriod: config.syncInterval,
+         readYourWrites: config.readYourWrites,
+         offline: config.offline,
++        timeout: Number(process.env.CHATCUT_SQLITE_BUSY_TIMEOUT ?? 250),
+     };
+     const db = new Database(path, options);
+     executeStmt(db, "SELECT 1 AS checkThatTheDatabaseCanBeOpened", config.intMode);
+@@ -56,6 +66,7 @@ export class Sqlite3Client {
+     #options;
+     #db;
+     #intMode;
++    #transactions = new Set();
+     closed;
+     protocol;
+     /** @private */
+@@ -152,10 +163,13 @@ export class Sqlite3Client {
+         }
+     }
+     async transaction(mode = "write") {
++        this.#checkNotClosed();
+         const db = this.#getDb();
+         executeStmt(db, transactionModeToBegin(mode), this.#intMode);
+         this.#db = null; // A new connection will be lazily created on next use
+-        return new Sqlite3Transaction(db, this.#intMode);
++        const tx = new Sqlite3Transaction(db, this.#intMode, () => this.#transactions.delete(tx));
++        this.#transactions.add(tx);
++        return tx;
+     }
+     async executeMultiple(sql) {
+         this.#checkNotClosed();
+@@ -190,6 +204,7 @@ export class Sqlite3Client {
+     }
+     close() {
+         this.closed = true;
++        for (const tx of this.#transactions) tx.close();
+         if (this.#db !== null) {
+             this.#db.close();
+             this.#db = null;
+@@ -212,7 +227,9 @@ export class Sqlite3Transaction {
+     #database;
+     #intMode;
+     /** @private */
+-    constructor(database, intMode) {
++    #onClose;
++    constructor(database, intMode, onClose = () => {}) {
++        this.#onClose = onClose;
+         this.#database = database;
+         this.#intMode = intMode;
+     }
+@@ -262,19 +279,22 @@ export class Sqlite3Transaction {
+             return;
+         }
+         this.#checkNotClosed();
+-        executeStmt(this.#database, "ROLLBACK", this.#intMode);
++        try { executeStmt(this.#database, "ROLLBACK", this.#intMode); }
++        finally { this.#database.close(); this.#onClose(); }
+     }
+     async commit() {
+         this.#checkNotClosed();
+-        executeStmt(this.#database, "COMMIT", this.#intMode);
++        try { executeStmt(this.#database, "COMMIT", this.#intMode); }
++        finally { this.close(); }
+     }
+     close() {
+-        if (this.#database.inTransaction) {
+-            executeStmt(this.#database, "ROLLBACK", this.#intMode);
+-        }
++        if (!this.#database.open) return;
++        try {
++            if (this.#database.inTransaction) executeStmt(this.#database, "ROLLBACK", this.#intMode);
++        } finally { this.#database.close(); this.#onClose(); }
+     }
+     get closed() {
+-        return !this.#database.inTransaction;
++        return !this.#database.open || !this.#database.inTransaction;
+     }
+     #checkNotClosed() {
+         if (this.closed) {
+@@ -430,7 +450,7 @@ function executeMultiple(db, sql) {
+ function mapSqliteError(e) {
+     if (e instanceof Database.SqliteError) {
+         const extendedCode = e.code;
+-        const code = mapToBaseCode(e.rawCode);
++        const code = e.code?.replace(/^(SQLITE_[A-Z]+).*$/, "$1") ?? mapToBaseCode(e.rawCode);
+         return new LibsqlError(e.message, code, extendedCode, e.rawCode, e);
+     }
+     return e;
+diff --git a/package.json b/package.json
+index 4eec8ad78b08264a7812beb40810269a533cd6aa..583c6fb69c1f81236faa014286d8cf94ac99a5b8 100644
+--- a/package.json
++++ b/package.json
+@@ -107,7 +107,8 @@
+         "@libsql/hrana-client": "^0.10.0",
+         "js-base64": "^3.7.5",
+         "libsql": "^0.5.28",
+-        "promise-limit": "^2.7.0"
++        "promise-limit": "^2.7.0",
++        "better-sqlite3": "12.4.1"
+     },
+     "devDependencies": {
+         "@types/jest": "^29.2.5",

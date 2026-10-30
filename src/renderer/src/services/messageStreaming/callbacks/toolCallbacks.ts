@@ -1,6 +1,6 @@
 import { loggerService } from '@logger'
 import type { AppDispatch } from '@renderer/store'
-import { selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
+import { selectPendingPermission, selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
 import type { MCPToolResponse, MCPToolResultContent, NormalToolResponse } from '@renderer/types'
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { FileMessageBlock, ImageMessageBlock, Message, ToolMessageBlock } from '@renderer/types/newMessage'
@@ -8,7 +8,7 @@ import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage
 import { createCitationBlock, createErrorBlock, createToolBlock } from '@renderer/utils/messageUtils/create'
 import { isInsufficientBalanceError } from '@renderer/utils/errorClassifier'
 import { sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
-import { parseMaybeJsonToolArguments } from '@shared/parseToolArguments'
+import { resolveToolArguments } from '@shared/parseToolArguments'
 import { isPlainObject } from 'lodash'
 
 import type { BlockManager } from '../BlockManager'
@@ -250,6 +250,23 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
 
   // 内部维护的状态
   const toolCallIdToBlockIdMap = new Map<string, string>()
+  const terminalToolCallIds = new Set<string>()
+  const isTerminal = (id: string): boolean => {
+    if (terminalToolCallIds.has(id)) return true
+    const entities = getState().messageBlocks.entities
+    let blockId = toolCallIdToBlockIdMap.get(id)
+    if (!blockId) {
+      const block = Object.values(entities).find((entry: any) =>
+        entry?.messageId === assistantMsgId && entry?.metadata?.rawMcpToolResponse?.id === id
+      ) as ToolMessageBlock | undefined
+      if (block) {
+        blockId = block.id
+        toolCallIdToBlockIdMap.set(id, blockId)
+      }
+    }
+    const response = blockId && entities[blockId]?.metadata?.rawMcpToolResponse
+    return !!response && ['done', 'error', 'cancelled'].includes(response.status)
+  }
   let toolBlockId: string | null = null
   let citationBlockId: string | null = null
 
@@ -309,12 +326,18 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
 
   return {
     onToolCallPending: (toolResponse: ToolResponse) => {
+      if (isTerminal(toolResponse.id)) return
       const state = getState()
       const nextToolResponse = sanitizeToolResponse({
         ...toolResponse,
         arguments: enhanceImageGenerationArguments(toolResponse.tool?.name, toolResponse.arguments, state, userMessageId, assistantMsgId)
       })
       const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
+      if (nextToolResponse.tool?.name === 'AskUserQuestion') {
+        const existing = existingBlockId ? state.messageBlocks.entities[existingBlockId]?.metadata?.rawMcpToolResponse : undefined
+        nextToolResponse.arguments = resolveToolArguments(nextToolResponse.arguments, nextToolResponse.partialArguments,
+          selectPendingPermission(state.toolPermissions, nextToolResponse.id)?.input, existing?.arguments, existing?.partialArguments)
+      }
 
       if (existingBlockId) {
         blockManager.smartBlockUpdate(
@@ -331,6 +354,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       const equivalentBlockId = findEquivalentAskUserQuestionBlockId(nextToolResponse)
       if (equivalentBlockId) {
         toolCallIdToBlockIdMap.set(nextToolResponse.id, equivalentBlockId)
+        if (isTerminal(nextToolResponse.id)) return
         blockManager.smartBlockUpdate(
           equivalentBlockId,
           {
@@ -369,6 +393,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     },
 
     onToolArgumentStreaming: (toolResponse: ToolResponse) => {
+      if (isTerminal(toolResponse.id)) return
       const state = getState()
       const nextToolResponse = sanitizeToolResponse({
         ...toolResponse,
@@ -381,6 +406,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         const equivalentBlockId = findEquivalentAskUserQuestionBlockId(nextToolResponse)
         if (equivalentBlockId) {
           toolCallIdToBlockIdMap.set(nextToolResponse.id, equivalentBlockId)
+          if (isTerminal(nextToolResponse.id)) return
           existingBlockId = equivalentBlockId
         }
       }
@@ -411,6 +437,15 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         }
       }
 
+      if (nextToolResponse.tool?.name === 'AskUserQuestion') {
+        const existing = state.messageBlocks.entities[existingBlockId]?.metadata?.rawMcpToolResponse
+        nextToolResponse.arguments = resolveToolArguments(
+          nextToolResponse.arguments, nextToolResponse.partialArguments,
+          selectPendingPermission(state.toolPermissions, nextToolResponse.id)?.input,
+          existing?.arguments, existing?.partialArguments
+        )
+      }
+
       // Update the tool block with streaming arguments
       const changes: Partial<ToolMessageBlock> = {
         status: MessageBlockStatus.PENDING,
@@ -421,6 +456,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     },
 
     onToolCallComplete: (toolResponse: ToolResponse) => {
+      if (isTerminal(toolResponse.id)) return
       const baseState = getState()
       const nextToolResponse = sanitizeToolResponse({
         ...toolResponse,
@@ -435,10 +471,10 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       // Read resolvedInput BEFORE removing from store (removeByToolCallId deletes it)
       const state = getState()
       const toolPermissionsState = state.toolPermissions ?? { requests: {}, resolvedInputs: {} }
-      const fallbackPermission =
+      const fallbackPermission = selectPendingPermission(toolPermissionsState, nextToolResponse.id) ?? (
         nextToolResponse.tool?.name === 'AskUserQuestion'
           ? selectUniqueActivePermissionByToolName(toolPermissionsState, 'AskUserQuestion')
-          : undefined
+          : undefined)
       const resolvedInput =
         (nextToolResponse?.id ? toolPermissionsState.resolvedInputs[nextToolResponse.id] : undefined) ??
         fallbackPermission?.resolvedInput
@@ -449,16 +485,27 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       if (fallbackPermission?.toolCallId && fallbackPermission.toolCallId !== nextToolResponse?.id) {
         dispatch(toolPermissionsActions.removeByToolCallId({ toolCallId: fallbackPermission.toolCallId }))
       }
-      const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
-      toolCallIdToBlockIdMap.delete(nextToolResponse.id)
+      let existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
 
       if (nextToolResponse.status === 'done' || nextToolResponse.status === 'error' || nextToolResponse.status === 'cancelled') {
         if (!existingBlockId) {
-          logger.error(
-            `[onToolCallComplete] No existing block found for completed/error tool call ID: ${nextToolResponse.id}. Cannot update.`
-          )
-          return
+          const recovered = Object.values(state.messageBlocks.entities).find((block: any) =>
+            block?.messageId === assistantMsgId && block?.metadata?.rawMcpToolResponse?.id === nextToolResponse.id
+          ) as ToolMessageBlock | undefined
+          if (recovered) {
+            existingBlockId = recovered.id
+          } else {
+            const block = createToolBlock(assistantMsgId, nextToolResponse.id, {
+              toolName: nextToolResponse.tool.name,
+              status: MessageBlockStatus.PENDING,
+              metadata: { rawMcpToolResponse: nextToolResponse }
+            })
+            existingBlockId = block.id
+            void blockManager.handleBlockTransition(block, MessageBlockType.TOOL)
+          }
+          toolCallIdToBlockIdMap.set(nextToolResponse.id, existingBlockId)
         }
+        terminalToolCallIds.add(nextToolResponse.id)
 
         const finalStatus =
           nextToolResponse.status === 'done' || nextToolResponse.status === 'cancelled'
@@ -470,7 +517,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         const existingResponse = existingBlock?.metadata?.rawMcpToolResponse
         // 流式阶段参数可能只落在 partialArguments（JSON 字符串）上，完成合并时兜底提升，避免卡片丢问题内容
         const existingArguments =
-          existingResponse?.arguments ?? parseMaybeJsonToolArguments(existingResponse?.partialArguments)
+          resolveToolArguments(existingResponse?.arguments, existingResponse?.partialArguments, nextToolResponse.arguments, nextToolResponse.partialArguments, fallbackPermission?.input)
         // Merge order: toolResponse.arguments (base) -> existingResponse arguments (incl. streamed partials) -> resolvedInput (user answers take precedence)
         const mergedArguments = Object.assign(
           {},

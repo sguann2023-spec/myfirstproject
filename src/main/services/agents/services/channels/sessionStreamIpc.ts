@@ -1,3 +1,4 @@
+import { insertAgentAtFront } from '../../database/repositories/servicePersistence'
 import { modelsService } from '@main/apiServer/services/models'
 import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import { normalizeDirectAudioAddRequest } from './audioAddRequest'
@@ -2521,9 +2522,7 @@ async function ensureDefaultAgentExists(modelHint?: string): Promise<boolean> {
 
   try {
     const database = await (agentService as any).getDatabase()
-    await database.transaction(async (tx: any) => {
-      await tx.update(agentsTable).set({ sort_order: sql`${agentsTable.sort_order} + 1` })
-      await tx.insert(agentsTable).values({
+    await insertAgentAtFront(database, {
         id: DEFAULT_RUNTIME_AGENT_ID,
         type: 'claude-code',
         name: 'Default Agent',
@@ -2540,7 +2539,6 @@ async function ensureDefaultAgentExists(modelHint?: string): Promise<boolean> {
         sort_order: 0,
         created_at: now,
         updated_at: now
-      })
     })
   } catch {
     // ignore duplicate/parallel insert races
@@ -4749,8 +4747,8 @@ export function registerSessionStreamIpc(): void {
           }
         : mode === 'seedance'
           ? {
-              name: 'create_seedance_digital_human',
-              fullName: 'mcp__vectcut__digital-human__create_seedance_digital_human',
+              name: 'create_default_image_driven_digital_human',
+              fullName: 'mcp__vectcut__digital-human__create_default_image_driven_digital_human',
               args: {
                 copywriting: normalizedRequest.copywriting,
                 voiceId: normalizedRequest.voice_id,

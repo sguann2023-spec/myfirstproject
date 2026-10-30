@@ -62,6 +62,17 @@ describe('agent history mapper', () => {
 })
 
 describe('AgentHistoryService', () => {
+  it('queries canonical and legacy current readers without a snapshot prefix', async () => {
+    const transcript = {
+      listTranscript: vi.fn().mockResolvedValue([entry('canonical', 0)])
+    }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(transcript.listTranscript).toHaveBeenCalledExactlyOnceWith('session-a')
+    expect(legacy.getSessionHistory).toHaveBeenCalledExactlyOnceWith('session-a')
+    expect(result.messages.map(item => item.message.id)).toEqual(['canonical'])
+  })
+
   it('uses canonical ordering, appends legacy-only fallback, and deduplicates IDs', async () => {
     const transcript = { listTranscript: vi.fn().mockResolvedValue([entry('same', 0), entry('canonical', 1)]) }
     const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
