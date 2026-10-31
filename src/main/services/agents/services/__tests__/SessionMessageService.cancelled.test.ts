@@ -762,7 +762,7 @@ describe('SessionMessageService cancelled persistence', () => {
     }))
   })
 
-  it('delivers consecutive deltas immediately and writes only the completed turn snapshot', async () => {
+  it('delivers consecutive deltas immediately and writes only the completed invocation snapshot without checkpoints', async () => {
     const { agentStream, reader, result } = await startCanonicalStream()
     const gate = deferred()
     upsertCanonicalPartsMock.mockReturnValueOnce(gate.promise)
@@ -792,7 +792,67 @@ describe('SessionMessageService cancelled persistence', () => {
     }
   })
 
-  it('saves reasoning, text, tools, and final usage once after all chunks in the turn', async () => {
+  it('queues immutable PI turn snapshots while later turns and completion proceed with SQL pending', async () => {
+    const { agentStream, send, finish, result } = await startCanonicalStream()
+    const gate = deferred()
+    const completed = vi.fn()
+    void result.completion.then(completed)
+    upsertCanonicalPartsMock.mockReturnValueOnce(gate.promise)
+    try {
+      await send({ type: 'reasoning-delta', id: 'reasoning-1', text: 'think' })
+      await send({ type: 'text-delta', id: 'text-1', text: 'A' })
+      await send({ type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: { path: 'a' } })
+      await send({ type: 'tool-result', toolCallId: 'tool-1', toolName: 'Read', output: 'ok' })
+      expect(upsertCanonicalPartsMock).not.toHaveBeenCalled()
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      await flushMicrotasks(16)
+      expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
+      expect(upsertCanonicalPartsMock.mock.calls[0][0]).toEqual([
+        expect.objectContaining({ type: 'reasoning', data: { text: 'think', status: 'streaming' } }),
+        expect.objectContaining({ type: 'text', data: { text: 'A', status: 'streaming' } }),
+        expect.objectContaining({ type: 'tool', data: expect.objectContaining({ toolId: 'tool-1', content: 'ok' }) })
+      ])
+      expect(completed).not.toHaveBeenCalled()
+      // Neither another turn nor terminal delivery waits for the first write.
+      await send({ type: 'text-delta', id: 'text-1', text: 'B' })
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      await send({ type: 'text-delta', id: 'text-1', text: 'C' })
+      agentStream.emit('data', { type: 'complete' })
+      await result.completion
+      expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
+    } finally {
+      gate.resolve()
+      await finish()
+    }
+    const textWrites = upsertCanonicalPartsMock.mock.calls.map(([parts]) => parts.find(part => part.type === 'text'))
+    expect(textWrites.map(part => part.data)).toEqual([
+      { text: 'A', status: 'streaming' },
+      { text: 'AB', status: 'streaming' },
+      { text: 'ABC', status: 'completed' }
+    ])
+    expect(new Set(textWrites.map(part => part.id)).size).toBe(1)
+    expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.status)).toEqual([
+      'streaming', 'streaming', 'completed'
+    ])
+    expect(upsertCanonicalMessageMock.mock.calls[0][0].completedAt).toBeUndefined()
+  })
+
+  it('persists a PI checkpoint before invocation termination and ignores late checkpoints', async () => {
+    const { agentStream, send, finish } = await startCanonicalStream()
+    await send({ type: 'text-delta', id: 'text-1', text: 'saved before the next model round' })
+    agentStream.emit('data', { type: 'turn-checkpoint' })
+    await flushMicrotasks(32)
+    expect(upsertCanonicalPartsMock).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ data: { text: 'saved before the next model round', status: 'streaming' } })
+    ])
+    expect(upsertCanonicalMessageMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 'streaming' }))
+    await finish()
+    agentStream.emit('data', { type: 'turn-checkpoint' })
+    await flushMicrotasks(16)
+    expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('saves reasoning, text, tools, and final usage once after all chunks in the invocation', async () => {
     const { send, finish } = await startCanonicalStream()
     await send({ type: 'reasoning-delta', id: 'reasoning-1', text: 'think' })
     await send({ type: 'text-delta', id: 'text-1', text: 'A' })

@@ -662,6 +662,11 @@ export async function processPiHarnessQuery(input: {
     // 每收到任何 harness 事件都视为有活性，重置并重新武装空闲超时，
     // 确保流中途断网后 idleTimeoutMs 内无新事件即可触发重试。
     armIdleTimeout()
+    if (event.type === 'turn_end') {
+      // Tool results have already been emitted. Queue history without awaiting SQL.
+      stream.emit('data', { type: 'turn-checkpoint' })
+      return
+    }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       const now = Date.now()
       assistantRound += 1

@@ -191,6 +191,34 @@ describe('processPiHarnessQuery', () => {
     delete process.env.PI_IDLE_TIMEOUT_MS
   })
 
+  it('emits one history checkpoint per PI turn without terminating the invocation', async () => {
+    const stream = createStreamRecorder()
+    const stub = createHarnessStub({ prompt: async () => {
+      for (let round = 0; round < 2; round++) {
+        await stub.emitAgentEvent({ type: 'message_start', message: { role: 'assistant', content: [] } })
+        await stub.emitAgentEvent({ type: 'message_end', message: {
+          role: 'assistant', content: [], stopReason: 'stop', usage: {}
+        } })
+        expect(stream.events.filter(event => event.type === 'turn-checkpoint')).toHaveLength(round)
+        await stub.emitAgentEvent({ type: 'turn_end', message: { role: 'assistant' }, toolResults: [] })
+        await stub.emitAgentEvent({ type: 'save_point', hadPendingMutations: false })
+        expect(stream.events.filter(event => event.type === 'turn-checkpoint')).toHaveLength(round + 1)
+        expect(stream.events.some(event => event.type === 'complete')).toBe(false)
+      }
+      return { role: 'assistant', content: [], stopReason: 'stop', usage: {} }
+    } })
+    await processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn,
+        pendingFileChanges: new Map()
+      } as any,
+      harness: stub.harness, prompt: 'hello'
+    })
+    expect(stream.events.filter(event => event.type === 'turn-checkpoint')).toHaveLength(2)
+    expect(stream.events.at(-1)?.type).toBe('complete')
+  })
+
   it.each(['completed', 'failed', 'cancelled-result', 'cancelled-error'])('notifies %s before a pending status write settles and only logs its later failure', async (outcome) => {
     let rejectUpdate!: (error: Error) => void
     vi.mocked(agentTurnRepository.update).mockReturnValueOnce(new Promise<void>((_, reject) => {

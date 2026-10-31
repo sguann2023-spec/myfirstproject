@@ -411,9 +411,26 @@ export class SessionMessageService extends BaseService {
                   logger.warn('Received agent chunk event without chunk payload')
                   return
                 }
-                // Streaming state stays in memory; finishPersistence writes the turn snapshot.
+                // Persist at PI turn checkpoints and invocation termination, never per chunk.
                 accumulator.add(chunk)
                 if (!readerCancelled) controller.enqueue(chunk)
+                break
+              }
+
+              case 'turn-checkpoint': {
+                // Freeze this boundary before later chunks mutate the accumulator.
+                const blocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
+                const usage = structuredClone(accumulator.getUsage())
+                void queuePersistence(() => this.finalizeCanonicalAssistant({
+                  sessionId: session.id,
+                  invocationIds,
+                  modelId: req.model,
+                  blocks,
+                  usage,
+                  createdAtIso,
+                  status: 'streaming',
+                  partIds: canonicalPartIds
+                }), 'Failed to persist PI turn checkpoint')
                 break
               }
 
