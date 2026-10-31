@@ -99,6 +99,10 @@ import {
 const { shell } = window.require('electron');
 
 const CHAT_MODEL_ANALYTICS_EVENTS = new Map([
+  ['claude-opus-5-5', { exposure: 'claude_opus_5_5_expore', click: 'claude_opus_5_5_click' }],
+  ['claude-haiku-5-5', { exposure: 'claude_haiku_5_5_expore', click: 'claude_haiku_5_5_click' }],
+  ['gpt-6.1-sol', { exposure: 'gpt_6_1_sol_expore', click: 'gpt_6_1_sol_click' }],
+  ['gpt-6-luna', { exposure: 'gpt_6_luna_expore', click: 'gpt_6_luna_click' }],
   ['deepseek-v4.1-flash', { exposure: 'deepseek_v4_1_flash_expore', click: 'deepseek_v4_1_flash_click' }],
   ['qwen3.8-flash', { exposure: 'qwen_3_8_flash_expore', click: 'qwen_3_8_flash_click' }],
   ['gemini-3.8-flash', { exposure: 'gemini_3_8_flash_expore', click: 'gemini_3_8_flash_click' }],
