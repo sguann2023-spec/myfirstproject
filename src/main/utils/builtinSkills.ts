@@ -8,8 +8,7 @@ import semver from 'semver'
 import Store from 'electron-store'
 import { getStoredVectcutApiKey } from '../mcpServers/vectcut-auth'
 import { isSafeSkillFolder, isQuickSkillCompatible, parseQuickSkillsResponse, type QuickSkillEntry as QuickSkillManifestEntry, type QuickSkillsManifest } from '../../shared/quickSkillManifest'
-import { getActiveQuickSkills, getQuickSkillsRoot } from './quickSkillStorage'
-import { isHomepageOperationsMockEnabled, readHomepageOperationsMockResponse, extractHomepageMockPackage } from './homepageOperationsMock'
+import { getActiveQuickSkills, getQuickSkillsRoot, useBundledHomepageSkills } from './quickSkillStorage'
 
 import { getGlobalSkillsRoot } from '../services/agents/skills/paths'
 import { skillService } from '../services/agents/skills/SkillService'
@@ -58,22 +57,14 @@ interface BuiltinSkillSyncState {
   skills: Record<string, BuiltinSkillSyncStateEntry>
 }
 
-/** Activate staged operations before creating a renderer; no network work here. */
+/** Freeze bundled templates before creating a renderer; staged operations are disabled this release. */
 export async function prepareHomepageSkills(): Promise<void> {
+  if (useBundledHomepageSkills()) {
+    await getActiveQuickSkills()
+    return
+  }
   if (!quickSkillsActivated) {
     quickSkillsActivated = true
-    if (isHomepageOperationsMockEnabled()) {
-      // Seed the isolated developer cache immediately so the first dev launch is reviewable.
-      const manifest = parseQuickSkillsResponse(await readHomepageOperationsMockResponse())
-      const materialized = await materializeQuickSkillsManifest(manifest)
-      const cachePath = getQuickSkillsManifestCachePath()
-      await fs.mkdir(path.dirname(cachePath), { recursive: true })
-      await fs.writeFile(`${cachePath}.tmp`, JSON.stringify(materialized, null, 2), 'utf-8')
-      await fs.rename(`${cachePath}.tmp`, cachePath)
-      await getActiveQuickSkills()
-      logger.info('Homepage operations mock enabled (development only)', { cachePath })
-      return
-    }
     const activePath = getQuickSkillsManifestCachePath()
     const pendingPath = path.join(getQuickSkillsRoot(), 'pending-manifest.json')
     let activated = false
@@ -396,6 +387,7 @@ async function fetchRemoteBuiltinSkillsManifest(): Promise<BuiltinSkillManifest 
 }
 
 async function syncQuickSkillsManifestFromRemote(): Promise<void> {
+  if (useBundledHomepageSkills()) return
   if (!quickSkillsSyncTask) quickSkillsSyncTask = runQuickSkillsManifestSync().finally(() => { quickSkillsSyncTask = undefined })
   return quickSkillsSyncTask
 }
@@ -430,7 +422,6 @@ async function runQuickSkillsManifestSync(): Promise<void> {
 
 async function fetchRemoteQuickSkillsManifest(): Promise<QuickSkillsManifest | null> {
   try {
-    if (isHomepageOperationsMockEnabled()) return parseQuickSkillsResponse(await readHomepageOperationsMockResponse())
     const apiKey = getStoredVectcutApiKey(new Store({ name: 'vectcut' }))
     if (!apiKey) return null
     const requestUrl = new URL(REMOTE_QUICK_SKILLS_MANIFEST_URL)
@@ -577,9 +568,8 @@ async function downloadAndCacheQuickSkill(skillName: string, entry: QuickSkillMa
     version,
     downloadUrl
   })
-  const mockPackage = isHomepageOperationsMockEnabled()
-  const response = mockPackage ? null : await net.fetch(downloadUrl)
-  if (response && !response.ok) {
+  const response = await net.fetch(downloadUrl)
+  if (!response.ok) {
     throw new Error(`Download failed: HTTP ${response.status}`)
   }
 
@@ -593,13 +583,9 @@ async function downloadAndCacheQuickSkill(skillName: string, entry: QuickSkillMa
   await fs.mkdir(extractDir, { recursive: true })
 
   try {
-    if (mockPackage) {
-      await extractHomepageMockPackage(folderName, downloadUrl, extractDir)
-    } else {
-      const buffer = Buffer.from(await response!.arrayBuffer())
-      await fs.writeFile(zipPath, buffer)
-      await extractQuickSkillZip(zipPath, extractDir)
-    }
+    const buffer = Buffer.from(await response.arrayBuffer())
+    await fs.writeFile(zipPath, buffer)
+    await extractQuickSkillZip(zipPath, extractDir)
 
     const extractedSkillPath = path.join(extractDir, folderName)
     await fs.mkdir(path.dirname(destPath), { recursive: true })

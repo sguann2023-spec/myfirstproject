@@ -3,25 +3,20 @@ import path from 'node:path'
 import { app } from 'electron'
 import { isQuickSkillCompatible, isSafeSkillFolder, type QuickSkillsManifest } from '../../shared/quickSkillManifest'
 import { getDataPath, getResourcePath } from '.'
-import { isHomepageOperationsMockEnabled } from './homepageOperationsMock'
 
-export const getQuickSkillsRoot = () => path.join(getDataPath(), isHomepageOperationsMockEnabled() ? 'QuickSkillsMock' : 'QuickSkills')
+// This release reads bundled templates exclusively; remote activation stays disabled.
+export const useBundledHomepageSkills = (): boolean => true
+export const getQuickSkillsRoot = () => path.join(getDataPath(), 'QuickSkills')
 export const getQuickSkillsManifestPath = () => path.join(getQuickSkillsRoot(), 'manifest.json')
 
-/** One immutable active snapshot per process, including first-run bundle fallback. */
+/** One immutable bundled snapshot per process; ignore all previous operation caches. */
 let activeSnapshot: Promise<{ manifest: QuickSkillsManifest; basePath: string }> | undefined
 export function getActiveQuickSkills() {
   if (!activeSnapshot) activeSnapshot = (async () => {
+    const basePath = path.join(getResourcePath(), 'quick', 'skills')
     try {
-      const manifest = JSON.parse(await fs.readFile(getQuickSkillsManifestPath(), 'utf-8'))
-      if (!manifest?.skills || typeof manifest.skills !== 'object' || Array.isArray(manifest.skills)) throw new Error('Invalid cache')
-      return { manifest: manifest as QuickSkillsManifest, basePath: path.join(getQuickSkillsRoot(), 'skills') }
-    } catch {
-      const basePath = path.join(getResourcePath(), 'quick', 'skills')
-      try {
-        return { manifest: JSON.parse(await fs.readFile(path.join(basePath, 'manifest.json'), 'utf-8')) as QuickSkillsManifest, basePath }
-      } catch { return { manifest: { skills: {} } as QuickSkillsManifest, basePath } }
-    }
+      return { manifest: JSON.parse(await fs.readFile(path.join(basePath, 'manifest.json'), 'utf-8')) as QuickSkillsManifest, basePath }
+    } catch { return { manifest: { skills: {} } as QuickSkillsManifest, basePath } }
   })()
   return activeSnapshot
 }

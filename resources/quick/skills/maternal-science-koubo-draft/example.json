@@ -1,0 +1,168 @@
+{
+  "schema_version": "1.0.0",
+  "folder_name": "maternal-science-koubo-draft",
+  "skill_name": "母婴知识带货奶粉",
+  "example_id": "maternal_science_talking_head_editable_draft",
+  "title": "母婴知识带货奶粉",
+  "display_info": {
+    "title": "母婴知识带货奶粉",
+    "content": "上传已录好的真人或数字人口播视频，并填写主题与要求。技能不携带素材，无需参考视频；产品特写需上传产品视频或图片，品牌包装需上传Logo或招牌。采用AI情景开头、口播近景跳切、黄白描边字幕、轻钢琴和黑底尾卡，输出不超过60秒的可编辑剪映草稿。",
+    "followers_count": "110万+",
+    "likes_count": "6千+",
+    "comment_count": "52",
+    "share_count": "419",
+    "web_share": "https://www.douyin.com/video/7690886217742798089",
+    "jump_url": "https://www.douyin.com/video/7690886217742798089",
+    "cover_url": "https://player.install-ai-guider.top/example/skill_market/maternal-science-koubo-draft/example/cover.jpg",
+    "estimated_usage": 300
+  },
+  "parameters": {
+    "model": {
+      "type": "string",
+      "label": "执行模型",
+      "required": false,
+      "description": "可选的对话执行模型标识，不是视频生成模型。未填写时使用当前执行模型；AI情景开头优先使用minimax-h3，调用前检查当前工具支持情况。"
+    },
+    "prompt": {
+      "type": "string",
+      "label": "主题与制作要求",
+      "required": true,
+      "default": "使用「母婴知识带货奶粉」技能，用我上传的已完成口播视频，制作一条不超过60秒的可编辑剪映草稿。本次主题是【填写主题，也可以写从口播自动识别】。无需参考视频，直接沿用技能固定风格：约5.4秒AI情景开头、约0.5秒产品特写、按实际语音切分的口播跳切、白字黑描边与黄色关键词、品牌贴片、轻钢琴和约2.8秒黑底尾卡。AI开头优先minimax-h3，画面和情景音效须匹配本次话题，不照搬上一条内容。品牌要求是【填写品牌，或不加品牌】；产品素材【使用本次上传的产品视频或图片；不要产品露出则注明】。准确文案如有会【一并提供】。字幕和跳切按真实语音时间戳安排，保持健康风险提醒，不虚构医学结论、产品功效或认证。超过时长先处理无意义停顿，必要时统一提速且不超过1.12倍；仍超时先询问，不擅自删减正文。使用基础剪辑逐层搭建，字幕与包装尽量保持可编辑，云渲染抽检后导出新的剪映草稿，不导出最终成片。",
+      "description": "用户可直接修改的完整请求。从自然语言提取主题、品牌、产品、时长、标题、尾卡和禁用要求。无需填写分镜、切点、轨道、字幕分组或草稿ID。方括号内容须替换或删除，不能作为实际文案直接上屏。准确口播文案也可直接粘贴在这里；不提供则以视频ASR为准。"
+    },
+    "videos": {
+      "type": "video_groups",
+      "label": "口播及可选视频素材",
+      "required": true,
+      "min_count": 1,
+      "count_unit": "files",
+      "description": "必须上传带声音的口播视频；需要产品闪切时提供产品视频或产品图片。inputs使用同名分组和媒体数组，每项统一填写可访问的url。技能无附带素材，不读取旧工作区。",
+      "groups": [
+        {
+          "id": "talking_head",
+          "label": "口播视频",
+          "type": "array",
+          "item_type": "video",
+          "required": true,
+          "min_count": 1,
+          "description": "真人或数字人口播，必须包含可用的说话声音。推荐一条完整竖屏素材；多条素材须明确先后或用途。无需重新生成口播；只提供文案或人物图片不满足此输入要求。默认结构为口播预留约51秒，实际是否可用需检查完整语音时长。"
+        }
+      ]
+    },
+    "images": {
+      "type": "image_groups",
+      "label": "品牌图片",
+      "required": false,
+      "min_count": 1,
+      "count_unit": "files",
+      "groups": [
+        {
+          "id": "product",
+          "label": "产品图片",
+          "type": "array",
+          "item_type": "image",
+          "required": false,
+          "min_count": 1,
+          "description": "清晰产品正面图，用于产品特写。换产品时建议提供，产品视频已清楚展示包装时不必重复上传；不凭空生成包装文字。"
+        },
+        {
+          "id": "brand_logo",
+          "label": "品牌Logo",
+          "type": "array",
+          "item_type": "image",
+          "required": false,
+          "min_count": 1,
+          "description": "需要品牌包装时上传本次品牌Logo、透明角标或招牌；不携带默认品牌素材。缺少时询问或说明省略，不从历史项目取图。专利认证等文字须有可靠依据。"
+        },
+        {
+          "id": "brand_assets",
+          "label": "品牌招牌",
+          "type": "array",
+          "item_type": "image",
+          "required": false,
+          "min_count": 1,
+          "description": "需要品牌包装时上传本次品牌Logo、透明角标或招牌；不携带默认品牌素材。缺少时询问或说明省略，不从历史项目取图。专利认证等文字须有可靠依据。"
+        }
+      ]
+    }
+  },
+  "inputs": {
+    "model": "gpt-6.1-sol",
+    "prompt": "使用「母婴知识带货奶粉」技能，用这条已经做好的口播视频，做一条不超过60秒的新剪映草稿。主题是宝宝睡着后突然哼唧、哭闹是不是做噩梦。产品和品牌仅使用本次上传的素材；技能不携带任何媒体。公网演示素材不随技能打包；实际制作时请替换为本次素材的url，执行前验证地址可访问性和媒体内容。不读取参考视频、历史工作区或复制旧草稿。配乐和音效使用本次提供的文件或经许可获取/生成的素材；不可用则说明并询问或省略。开头优先用minimax-h3生成暖色夜灯下宝宝在婴儿床熟睡、轻轻皱眉和活动手指的写实情景，避免危险睡姿和夸张惊吓。口播保留原视频声音，不重新生成数字人，不另配音。按真实ASR时间做字幕和句间跳切，白字黑描边、少量黄色关键词；讲大脑与神经系统时放匹配的科普贴纸。保留末尾就医提醒。尾卡用黑底和可编辑文字「下期再见 / 记得点赞关注加粉丝群哦」。用基础剪辑逐层搭建并云渲染抽检，最后导出可编辑剪映草稿，不渲染最终成片。",
+    "videos": {
+      "talking_head": [
+        {
+          "id": "talking_head_01",
+          "label": "口播",
+          "role": "input_video",
+          "filename": "digital_human__cgbrvhz.mp4",
+          "url": "https://player.install-ai-guider.top/example/skill_market/maternal-science-koubo-draft/example/digital_human_naifen.mp4",
+          "media_kind": "video",
+          "description": "公网口播示例，执行前验证可访问性和媒体内容；实际使用时替换为新口播，不是技能内置素材。"
+        }
+      ]
+    },
+    "images": {
+      "product": [
+        {
+          "id": "product_image_01",
+          "label": "产品图",
+          "role": "input_image",
+          "filename": "prod.jpg",
+          "url": "https://player.install-ai-guider.top/example/skill_market/maternal-science-koubo-draft/example/prod.jpg",
+          "media_kind": "image",
+          "description": "公网演示素材，不随技能打包。实际制作时请替换为本次对应素材的url；执行前验证地址可访问性和媒体内容。不使用此层时删除该示例项。"
+        }
+      ],
+      "brand_logo": [
+        {
+          "id": "brand_corner_01",
+          "label": "品牌Logo",
+          "role": "input_image",
+          "filename": "plate_tl_raw.png",
+          "url": "https://player.install-ai-guider.top/example/skill_market/maternal-science-koubo-draft/example/plate_tl_raw.png",
+          "media_kind": "image",
+          "description": "公网演示素材，不随技能打包。实际制作时请替换为本次对应素材的url；执行前验证地址可访问性和媒体内容。不使用此层时删除该示例项。"
+        }
+      ],
+      "brand_assets": [
+        {
+          "id": "brand_sign_01",
+          "label": "品牌招牌",
+          "role": "input_image",
+          "filename": "plate_sign_raw.png",
+          "media_kind": "image",
+          "description": "公网演示素材，不随技能打包。实际制作时请替换为本次对应素材的url；执行前验证地址可访问性和媒体内容。不使用此层时删除该示例项。",
+          "url": "https://player.install-ai-guider.top/example/skill_market/maternal-science-koubo-draft/example/plate_sign_raw.png"
+        }
+     ]
+    }
+  },
+  "execution_modes": {
+    "branded": {
+      "使用场景": "提供新口播、本次品牌与产品素材",
+      "步骤": "核对本次上传的产品视频或产品图片、Logo和招牌；缺失时询问补齐或说明省略。无内置品牌、无历史资产回退。按固定风格新建草稿、云渲染抽检并导出。"
+    },
+    "unbranded": {
+      "使用场景": "提供新口播，明确不要品牌或产品露出",
+      "步骤": "省略品牌与产品层，保留情景钩子、跳切、黄白字幕、配乐和黑底尾卡，并重算连续时间轴。"
+    }
+  },
+  "validation_rules": [
+    "最低输入是制作要求和一条包含有效语音的口播视频；不要求参考视频，不要求用户填写分镜、时间轴、字体、轨道或草稿ID。",
+    "只有文案、音频或人物图片时，不默认为已具备口播视频；先索取视频。若用户明确改为生成数字人，另行补齐所需人物与音色，不在本技能中自动重复生成。",
+    "技能分发包不得包含任何媒体资产。示例输入只说明用户应提交的素材，不是可自动复用的默认内容；产品和品牌只使用本次输入。",
+    "所有媒体输入统一使用url字段，填写可访问的实际素材地址；公网演示素材不随技能打包，实际制作时应替换为本次素材。不得使用作者本机路径、旧工作区或历史签名URL回退。执行前验证所有实际输入的可访问性和媒体内容。",
+    "准确文案可选；提供时仅用于校对，字幕和剪辑仍依据真实语音时间戳。不得均分文字估算时间，不得沿用旧ASR和切点。",
+    "默认1080×1920、30fps，计划上限59.5秒，实际交付不超过60秒。开头5.4秒、产品0.5秒、尾卡2.8秒是风格预算，不是所有输入的固定切点。",
+    "口播过长先去除无意义静默，必要时统一提速至不超过1.12倍并同步映射画面、人声和字幕；仍超时则询问授权删减，不擅截正文及就医提醒。",
+    "AI开头、情景音效和科普贴纸适配新话题；宝宝哭声和大脑贴纸不是所有主题的必选内容。minimax-h3不可用时说明，不冒称已使用，也不擅自换付费模型。",
+    "不新增未经确认的医学结论、商品功效、专利认证或治疗暗示，不将奶粉或产品闪切包装成睡眠问题的治疗建议。",
+    "产品视频与产品图片按用途二选一；需要产品闪切时至少提供一种。品牌包装需要对应品牌图片。缺少时询问或明确说明省略，不擅自补旧品牌；省略后重新计算时间轴。",
+    "使用基础剪辑能力新建草稿，不调用整片模板包装，不覆盖旧工程。正文字幕优先单层富文本黄白高亮；尾卡优先黑底加独立文字和Logo。",
+    "保持人声清晰，不叠放两份人声；BGM、情景音效、结尾提示音分轨。云渲染用于抽检，不等同于最终成片交付。",
+    "最终检查主轨连续、源区间有效、字幕同步、无丢失素材、真实总时长、排版和音量；记录实际验收结果，未完成不能声称通过。",
+    "本次素材和配置保存到独立运行目录；草稿使用可访问且持久的媒体路径，云预览需要时单独上传。最后导出剪映草稿，导出仅返回accepted时只报告已提交，不保证客户端已经打开。",
+    "配乐、情景音效和科普贴纸由本次用户输入或通过可用工具获取/生成；涉及外部调用按授权执行，记录来源。不可用时说明并询问或省略，不能以不存在的内置文件继续。所有运行素材只保存到本次工作区，不回写技能目录。"
+  ]
+}

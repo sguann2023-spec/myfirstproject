@@ -136,6 +136,27 @@ describe('toolbar attachment sidebar previews', () => {
     expect(onAddFile).toHaveBeenCalledExactlyOnceWith({ key: 'skill-example-group:ingredients', label: '添加原料展示' });
   });
 
+  it.each(['video/mp4', 'audio/mpeg', 'image/png'])('opens centered template %s with the matching viewer', async (fileType) => {
+    const file = { uid: 'media', name: 'preview', fileType, url: 'https://example.com/media' };
+    await render({ files: [], fileGroups: [{ key: 'media', label: '素材', files: [file] }] });
+    await open(file.name);
+    const kind = fileType.split('/')[0];
+    const modal = document.querySelector(`.chat-panel__media-click-modal--${kind}`);
+    expect(modal).not.toBeNull();
+    expect(modal.querySelector('.ant-modal-header, .ant-modal-footer')).toBeNull();
+    expect(modal.querySelector(kind === 'image' ? 'img' : kind).getAttribute('src')).toBe(file.url);
+    if (kind === 'image') {
+      const image = modal.querySelector('img');
+      await click(modal.querySelector('[aria-label="放大"]'));
+      expect(image.style.transform).toContain('scale(1.25, 1.25)');
+      await click(modal.querySelector('[aria-label="向右旋转"]'));
+      expect(image.style.transform).toContain('rotate(90deg)');
+      await click(modal.querySelector('[aria-label="水平翻转"]'));
+      expect(image.style.transform).toContain('scale(-1.25, 1.25)');
+    } else expect(modal.querySelector(kind).controls).toBe(true);
+    expect(openAttachmentPreview).not.toHaveBeenCalled();
+  });
+
   it('renders image groups with a thumbnail, preview, remove and refill actions', async () => {
     const onRemove = vi.fn();
     const onAddFile = vi.fn();

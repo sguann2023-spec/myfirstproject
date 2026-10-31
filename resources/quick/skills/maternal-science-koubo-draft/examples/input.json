@@ -1,0 +1,11 @@
+{
+  "talking_head": "upload://talking-head.mp4",
+  "script": "可选：准确口播文案",
+  "title": "宝宝睡眠科普",
+  "brand_mode": "unbranded",
+  "product": null,
+  "target_seconds": 59.5,
+  "intro_model": "minimax-h3",
+  "output": "jianying_draft",
+  "note": "占位地址须替换为真实输入；完整用户输入契约见../example.json；本技能不携带媒体素材。"
+}

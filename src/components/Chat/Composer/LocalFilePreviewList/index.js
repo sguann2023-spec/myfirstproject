@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, Popover } from 'antd';
-import { AudioLines, File, FileAudio, FileVideo, LoaderCircle, X } from 'lucide-react';
+import { AudioLines, File, FileAudio, FileVideo, LoaderCircle, X, FlipHorizontal2, FlipVertical2, RotateCcw, RotateCw, ZoomIn, ZoomOut } from 'lucide-react';
 import FirstFrameIcon from '../../../../../public/first_frame.svg';
 import MaterialPlusIcon from '../../../../../public/material-plus.svg';
 import MaterialPlusErrorIcon from '../../../../../public/material-plus-error.svg';
@@ -197,6 +197,8 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
   onActiveGroupChange, onRemove, onAddFile, openAttachmentPreview }) => {
   const [localGroupKey, setLocalGroupKey] = React.useState('');
   const [modalFile, setModalFile] = React.useState(null);
+  const [imageTransform, setImageTransform] = React.useState({ rotation: 0, scale: 1, flipX: 1, flipY: 1 });
+  const updateImageTransform = (change) => setImageTransform((current) => ({ ...current, ...change(current) }));
   const resolvedFiles = Array.isArray(files) ? files : [];
   const resolvedPlaceholders = Array.isArray(placeholders) ? placeholders : [];
   const resolvedFileGroups = Array.isArray(fileGroups) ? fileGroups : null;
@@ -222,7 +224,11 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
   };
   // Opened sidebar tabs are independent of the composer's attachment list.
   const selectFile = (file) => {
-    if (resolvedFileGroups) { setModalFile(file); return; }
+    if (resolvedFileGroups) {
+      setImageTransform({ rotation: 0, scale: 1, flipX: 1, flipY: 1 });
+      setModalFile(file);
+      return;
+    }
     const key = `chat-attachment:${getFileKey(file)}`;
     const name = getFileDisplayName(file);
     openAttachmentPreview?.({
@@ -354,9 +360,29 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
         ))}
         {selectedGroup ? renderGroupSection(selectedGroup) : null}
       </div>
-      <Modal open={Boolean(modalFile)} title={modalFile ? getFileDisplayName(modalFile) : ''}
+      <Modal open={Boolean(modalFile)} centered title={null} closable={false}
+        width={modalFile && getPreviewKind(modalFile) === 'audio' ? 492 : modalFile && getPreviewKind(modalFile) === 'video' ? 214 : 200}
+        rootClassName={`chat-panel__media-click-modal chat-panel__media-click-modal--${modalFile ? getPreviewKind(modalFile) : ''}`}
         onCancel={() => setModalFile(null)} footer={null} destroyOnHidden>
-        {modalFile ? renderMedia(modalFile) : null}
+        {modalFile ? (
+          <div className="chat-panel__media-click-content">
+            {getPreviewKind(modalFile) === 'image' ? <>
+              <img className="chat-panel__media-click-image" src={getMediaPreviewUrl(modalFile)} alt={getFileDisplayName(modalFile)}
+                style={{ transform: `rotate(${imageTransform.rotation}deg) scale(${imageTransform.scale * imageTransform.flipX}, ${imageTransform.scale * imageTransform.flipY})` }} />
+              <div className="chat-panel__media-click-image-tools" role="toolbar" aria-label="图片预览工具">
+                <button aria-label="垂直翻转" onClick={() => updateImageTransform((v) => ({ flipY: -v.flipY }))}><FlipVertical2 size={16} /></button>
+                <button aria-label="水平翻转" onClick={() => updateImageTransform((v) => ({ flipX: -v.flipX }))}><FlipHorizontal2 size={16} /></button>
+                <button aria-label="向左旋转" onClick={() => updateImageTransform((v) => ({ rotation: v.rotation - 90 }))}><RotateCcw size={16} /></button>
+                <button aria-label="向右旋转" onClick={() => updateImageTransform((v) => ({ rotation: v.rotation + 90 }))}><RotateCw size={16} /></button>
+                <button aria-label="缩小" disabled={imageTransform.scale <= 0.5} onClick={() => updateImageTransform((v) => ({ scale: Math.max(0.5, v.scale - 0.25) }))}><ZoomOut size={16} /></button>
+                <button aria-label="放大" disabled={imageTransform.scale >= 3} onClick={() => updateImageTransform((v) => ({ scale: Math.min(3, v.scale + 0.25) }))}><ZoomIn size={16} /></button>
+              </div>
+            </> : getPreviewKind(modalFile) === 'video' ? <>
+              <video key={getMediaPreviewUrl(modalFile)} src={getMediaPreviewUrl(modalFile)} controls playsInline preload="metadata" />
+              <div className="chat-panel__media-click-title" title={getFileDisplayName(modalFile)}>{getFileDisplayName(modalFile)}</div>
+            </> : <audio key={getMediaPreviewUrl(modalFile)} src={getMediaPreviewUrl(modalFile)} controls preload="metadata" />}
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

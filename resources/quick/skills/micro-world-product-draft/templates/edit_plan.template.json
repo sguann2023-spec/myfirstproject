@@ -1,0 +1,375 @@
+{
+  "meta": {
+    "title": "待填写_微缩英雄带货",
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "total": 30.5,
+    "timing_status": "provisional_requires_final_vo_asr",
+    "note": "本模板时长仅为预算；完成最终VO与ASR后重排。"
+  },
+  "global_text": {
+    "top_disclaimer": "本视频为广告创意演绎 · 非真实使用效果 · 部分画面由AI生成",
+    "bottom_right": "AI画面仅作创意示意",
+    "footer": "待填写商品名称"
+  },
+  "shots": [
+    {
+      "id": "s01",
+      "role": "hook",
+      "type": "video",
+      "src": "assets/ai/s01.mp4",
+      "in": 0,
+      "dur": 3.7,
+      "motion": "push_in",
+      "grade": "ai",
+      "vo": "assets/vo/proc/s01.wav",
+      "vo_offset": 0.06,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：hook"
+    },
+    {
+      "id": "s02",
+      "role": "pain",
+      "type": "video",
+      "src": "assets/ai/s02.mp4",
+      "in": 0,
+      "dur": 3.35,
+      "motion": "push_in",
+      "grade": "ai",
+      "vo": "assets/vo/proc/s02.wav",
+      "vo_offset": 0.1,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：pain"
+    },
+    {
+      "id": "s03",
+      "role": "hero",
+      "type": "video",
+      "src": "assets/ai/s03.mp4",
+      "in": 0,
+      "dur": 2.3,
+      "motion": "push_in",
+      "grade": "ai",
+      "vo": "assets/vo/proc/s03.wav",
+      "vo_offset": 0.08,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：hero"
+    },
+    {
+      "id": "s04",
+      "role": "solve",
+      "type": "video",
+      "src": "assets/ai/s04.mp4",
+      "in": 0,
+      "dur": 3.25,
+      "motion": "push_in",
+      "grade": "ai",
+      "vo": "assets/vo/proc/s04.wav",
+      "vo_offset": 0.1,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：solve"
+    },
+    {
+      "id": "s05",
+      "role": "texture",
+      "type": "video",
+      "src": "assets/source/s05.mp4",
+      "in": 0,
+      "dur": 1.2,
+      "motion": "push_in",
+      "grade": "real",
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：texture"
+    },
+    {
+      "id": "s06",
+      "role": "product",
+      "type": "video",
+      "src": "assets/source/s06.mp4",
+      "in": 0,
+      "dur": 3.25,
+      "motion": "push_in",
+      "grade": "real",
+      "vo": "assets/vo/proc/s06.wav",
+      "vo_offset": 0.1,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：product"
+    },
+    {
+      "id": "s07a",
+      "role": "ingredient",
+      "type": "video",
+      "src": "assets/source/s07a.mp4",
+      "in": 0,
+      "dur": 2.6,
+      "motion": "push_in",
+      "grade": "real",
+      "vo": "assets/vo/proc/s07a.wav",
+      "vo_offset": 0.1,
+      "key": "待核实卖点",
+      "keysub": "待核实解释",
+      "note": "待根据本次商品素材填写；镜头功能：ingredient",
+      "sub": ""
+    },
+    {
+      "id": "s07b",
+      "role": "ingredient",
+      "type": "video",
+      "src": "assets/source/s07b.mp4",
+      "in": 0,
+      "dur": 2.2,
+      "motion": "push_out",
+      "grade": "real",
+      "vo": "assets/vo/proc/s07b.wav",
+      "vo_offset": 0.1,
+      "key": "待核实卖点",
+      "keysub": "待核实解释",
+      "note": "待根据本次商品素材填写；镜头功能：ingredient",
+      "sub": ""
+    },
+    {
+      "id": "s07c",
+      "role": "ingredient",
+      "type": "video",
+      "src": "assets/source/s07c.mp4",
+      "in": 0,
+      "dur": 2.8,
+      "motion": "push_in",
+      "grade": "real",
+      "vo": "assets/vo/proc/s07c.wav",
+      "vo_offset": 0.1,
+      "key": "待核实卖点",
+      "keysub": "待核实解释",
+      "note": "待根据本次商品素材填写；镜头功能：ingredient",
+      "sub": ""
+    },
+    {
+      "id": "s08",
+      "role": "proof",
+      "type": "image",
+      "src": "assets/cards/s08.png",
+      "in": 0,
+      "dur": 2.8,
+      "motion": "push_in",
+      "grade": "real",
+      "vo": "assets/vo/proc/s08.wav",
+      "vo_offset": 0.1,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：proof"
+    },
+    {
+      "id": "s09",
+      "role": "cta",
+      "type": "card",
+      "src": "assets/cards/s09.png",
+      "dur": 3.05,
+      "motion": "push_in",
+      "vo": "assets/vo/proc/s09.wav",
+      "vo_offset": 0.18,
+      "sub": "",
+      "note": "待根据本次商品素材填写；镜头功能：cta",
+      "in": 0
+    }
+  ],
+  "audio": {
+    "bgm": "assets/audio/bgm_raw.wav",
+    "bgm_loop": "assets/audio/bgm_loop.wav",
+    "bgm_gain_db": -12,
+    "vo_gain_db": 0,
+    "fade_out": 0.7
+  },
+  "draft": {
+    "note": "继承固定风格版式；字体/动画须在执行时查询工具支持情况。",
+    "tracks": {
+      "video": "01主视频",
+      "sub": "02字幕",
+      "keyword": "03关键词",
+      "key": "04成分花字",
+      "endcard": "05结尾卡",
+      "persist": "06常驻标注",
+      "vo": "10配音",
+      "sfx": "11音效",
+      "bgm": "12BGM",
+      "keysub": "04b成分副标"
+    },
+    "fonts": {
+      "sub": "优设标题黑",
+      "keyword": "抖音美好体",
+      "key": "抖音美好体",
+      "keysub": "优设标题黑",
+      "small": "SourceHanSansCN_Regular",
+      "display": "得意黑"
+    },
+    "colors": {
+      "white": "#FFFFFF",
+      "yellow": "#FFD100",
+      "mint": "#CFE9DC",
+      "outline": "#061A13",
+      "panel": "#081E16",
+      "cta_text": "#FFFFFF",
+      "muted": "#8EBEA6"
+    },
+    "size": {
+      "sub": 60,
+      "keyword": 84,
+      "key": 96,
+      "keysub": 42
+    },
+    "stroke": {
+      "sub": 4,
+      "keyword": 6,
+      "key": 8
+    },
+    "pos": {
+      "sub": 1468,
+      "keyword": 1290,
+      "key": 1268,
+      "keysub": 1456,
+      "top": 92,
+      "foot": 1858,
+      "watermark": 1812
+    },
+    "anim": {
+      "sub_in": "弹入",
+      "keyword_in": "二段缩放"
+    },
+    "motion": {
+      "amount": 0.07,
+      "note": "push_in 从 0.93 推到 1.07；起始值必须≠1.0，否则后端会丢掉该关键帧"
+    },
+    "endcard_texts": [
+      {
+        "text": "待填写本次商品文案",
+        "size": 32,
+        "color": "white",
+        "alpha": 0.92,
+        "y": 92,
+        "align": 0,
+        "start": 0.15,
+        "end": 0.05,
+        "stroke": 2
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 30,
+        "color": "white",
+        "alpha": 0.8,
+        "y": 142,
+        "align": 0,
+        "start": 0.25,
+        "end": 0.05,
+        "stroke": 2
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 74,
+        "color": "white",
+        "y": 1228,
+        "align": 0,
+        "font": "sub",
+        "stroke": 3,
+        "start": 0.35,
+        "end": 0.05,
+        "anim": "向上滑动",
+        "anim_dur": 0.28
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 134,
+        "color": "yellow",
+        "y": 1306,
+        "align": 0,
+        "font": "keyword",
+        "stroke": 6,
+        "start": 0.5,
+        "end": 0.05,
+        "anim": "二段缩放",
+        "anim_dur": 0.34
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 38,
+        "color": "mint",
+        "y": 1470,
+        "align": 0,
+        "stroke": 2,
+        "start": 0.7,
+        "end": 0.05
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 50,
+        "color": "cta_text",
+        "y": 1577,
+        "align": 1,
+        "font": "display",
+        "box": 912,
+        "start": 0.9,
+        "end": 0.05,
+        "anim": "弹入",
+        "anim_dur": 0.3,
+        "stroke": 2
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 34,
+        "color": "mint",
+        "y": 1712,
+        "align": 0,
+        "stroke": 2,
+        "start": 1.15,
+        "end": 0.05
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 30,
+        "color": "muted",
+        "y": 1760,
+        "align": 0,
+        "start": 1.3,
+        "end": 0.05,
+        "stroke": 2
+      },
+      {
+        "text": "待填写本次商品文案",
+        "size": 22,
+        "color": "muted",
+        "y": 1838,
+        "align": 0,
+        "start": 1.45,
+        "end": 0.05,
+        "stroke": 2
+      }
+    ],
+    "text_defaults": {
+      "border_alpha": 1.0,
+      "shadow_enabled": true,
+      "shadow_alpha": 0.65,
+      "shadow_angle": 45,
+      "shadow_color": "#000000",
+      "shadow_distance": 6,
+      "shadow_smoothing": 0.15
+    },
+    "text_templates": [],
+    "typography_policy": {
+      "reference": "references/文字视觉规范.md",
+      "font_fallback": "预览当前可用字体后，选择同气质的标题字体；禁止静默回退为系统字体",
+      "template_policy": "开场钩子、英雄登场、三连卖点或CTA中至少选择2处使用已预览的剪映文字模板；不可用需记录原因并使用原生分层替代"
+    }
+  },
+  "_calib": {
+    "font_px_per_unit": 5.7,
+    "font_w_per_unit": 6.08,
+    "transform_effective": "屏幕中心y = 960 - transform_y_px/2",
+    "stroke": "border_width = 描边像素 / 字号像素 / 0.002",
+    "note": "由 draft-render 云渲染标定，见 剪辑逻辑.md"
+  },
+  "product": {
+    "name": "",
+    "claims": [],
+    "evidence": [],
+    "cta": "查看详情"
+  },
+  "generation_log": []
+}

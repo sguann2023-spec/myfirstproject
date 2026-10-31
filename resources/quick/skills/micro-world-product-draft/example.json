@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0.0",
+  "folder_name": "micro-world-product-draft",
+  "skill_name": "微缩世界化妆品带货",
+  "example_id": "product_micro_world_30s_editable_draft",
+  "title": "微缩世界化妆品带货",
+  "display_info": {
+    "title": "微缩世界化妆品带货",
+    "content": "提供商品图或商品实拍，再告诉我商品名称、真实卖点和制作要求。无需参考视频，直接沿用微观奇观、小怪反派、产品英雄、实拍落地、三连卖点的固定风格，生成新的可编辑剪映草稿。",
+    "followers_count": "160万+",
+    "likes_count": "1万+",
+    "comment_count": "52",
+    "share_count": "419",
+    "web_share": "https://www.douyin.com/video/7693603351920938259",
+    "jump_url": "https://www.douyin.com/video/7693603351920938259",
+    "cover_url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/cover.jpg",
+    "estimated_usage": 800
+  },
+  "parameters": {
+    "model": {
+      "type": "string",
+      "label": "执行模型",
+      "required": false,
+      "description": "可选的对话执行模型标识，不是视频生成模型；未填写时使用当前执行模型。AI视频优先 MiniMax H3，需检查当次可用能力。"
+    },
+    "prompt": {
+      "type": "string",
+      "label": "商品信息与制作要求",
+      "required": true,
+      "default": "使用微缩世界英雄叙事技能，用我上传的商品图和实拍，做一条约30秒的同款带货剪映草稿。不提供参考视频，直接沿用本技能固定的微观奇观、小怪反派、产品能力英雄登场、爽点解决、实拍落地、三连卖点、信息佐证和CTA结构。商品名称是【填写真实商品名】，目标人群是【填写目标人群】，真实卖点是【填写已确认的卖点，也可以说明见包装或详情图】。先检查本次素材，根据商品特点设计新的小怪、微观世界和台词，不要照搬上一条商品内容。AI视频优先用MiniMax H3。字幕、关键词、卖点花字、CTA、标注和运镜尽量使用剪映原生可编辑元素，旁白、音效和BGM分轨。先完成旁白和最终配音，再按ASR实际时间对齐画面。没有提供的功效、价格和优惠不要编造，CTA用“查看商品详情”。保存本次剪辑逻辑和配置，最终交付新的可编辑剪映草稿，不要导出成片。",
+      "description": "用户点击示例后可修改的完整请求。从这里提取商品名称、受众、真实卖点、时长、模型偏好、CTA和禁用要求；不要求用户额外填写分镜、切点、轨道或文案分组。方括号内容需替换或删除，不能直接用于制作。"
+    },
+    "images": {
+      "type": "image_groups",
+      "label": "商品图片",
+      "required": false,
+      "min_count": 0,
+      "count_unit": "files",
+      "description": "与 videos 合并检查：至少提供一项能辨认真实商品外观的图片或视频，不要求图片、视频同时提供。支持商品正面、背标、详情页和使用过程图片。",
+      "groups": [
+        {
+          "id": "product",
+          "label": "商品正面图",
+          "type": "array",
+          "item_type": "image",
+          "required": true,
+          "min_count": 1,
+          "description": "确认本次商品外观、品牌和包装；如果实拍视频已能清楚展示商品，可不单独提供。"
+        },
+        {
+          "id": "details",
+          "label": "详情使用图",
+          "type": "array",
+          "item_type": "image",
+          "required": true,
+          "min_count": 1,
+          "description": "可选的卖点和信息佐证。先读取核对，不把AI概念画面当作真实使用证据。"
+        }
+      ]
+    },
+    "videos": {
+      "type": "video_groups",
+      "label": "商品实拍视频",
+      "required": true,
+      "min_count": 1,
+      "count_unit": "files",
+      "description": "用户本次的商品、使用或质地素材，不是参考风格视频。可上传多条，自动识别内容和可用区间，不要求全部使用。按 parameters.videos.groups 定义分组，inputs.videos 使用同名分组键和媒体对象数组；每项提供 url 或 uri。",
+      "groups": [
+        {
+          "id": "product_footage",
+          "label": "商品实拍",
+          "type": "array",
+          "item_type": "video",
+          "required": true,
+          "min_count": 1,
+          "description": "手持产品、正面包装、背标等，用于商品识别和真实信息展示。"
+        },
+        {
+          "id": "usage_footage",
+          "label": "使用实拍",
+          "type": "array",
+          "item_type": "video",
+          "required": true,
+          "min_count": 1,
+          "description": "起泡、涂抹、冲洗、清洁等真实过程；自动判断适合的镜头功能，不据此虚构功效。"
+        }
+      ]
+    }
+  },
+  "inputs": {
+    "model": "gemini-3.8-flash",
+    "prompt": "使用微缩世界英雄叙事技能，用这些【欧莱雅男士氨基酸净澈洁面乳】的商品素材，做一条约30秒的同款带货剪映草稿。目标人群是【关注洗脸清洁和肤感的男士】；商品准确名称、成分和卖点先核对包装及详情图，无法确认的不要写。微观世界、小怪、英雄登场和爽点解决沿用技能风格，但重新设计本次文案和镜头，不用再找参考视频。AI视频尽量用MiniMax H3，后半段结合我上传的商品和使用实拍。字幕、花字、CTA、标注和运镜保留可编辑，配音、音效、BGM分轨。其中【价格和优惠信息】，如果没有，收尾用“查看商品详情”。保存剪辑逻辑和配置，直接生成一个新的剪映草稿，不要导出成片。",
+    "images": {
+      "product": [
+        {
+          "id": "product1",
+          "label": "商品图片",
+          "role": "input_image",
+          "filename": "image1.webp",
+          "url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/image1.webp",
+          "media_kind": "image",
+          "description": "商品附件示例。分组只表达输入意图，执行时须下载并看图确认是否适合商品识别；下次替换为新商品附件。"
+        }
+      ],
+      "details": [
+        {
+          "id": "details1",
+          "label": "商品图片1",
+          "role": "input_image",
+          "filename": "image2.webp",
+          "url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/image2.webp",
+          "media_kind": "image",
+          "description": "先看图判断信息价值；不能仅凭文件名或分组认定是背标、详情或功效证据。"
+        },
+        {
+          "id": "details2",
+          "label": "商品图片",
+          "role": "input_image",
+          "filename": "image3.webp",
+          "url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/image3.webp",
+          "media_kind": "image",
+          "description": "先看图判断信息价值；不能仅凭文件名或分组认定是背标、详情或功效证据。"
+        }
+      ]
+    },
+    "videos": {
+      "product_footage": [
+        {
+          "id": "product_video_01",
+          "label": "商品实拍1",
+          "role": "input_video",
+          "filename": "video1.mp4",
+          "url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/video1.mp4",
+          "media_kind": "video",
+          "description": "检查商品正面和手持展示的可用区间；不沿用旧项目入点。"
+        },
+        {
+          "id": "product_video_02",
+          "label": "商品实拍2",
+          "role": "input_video",
+          "filename": "video2.mp4",
+          "url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/video2.mp4",
+          "media_kind": "video",
+          "description": "检查包装与背标信息的清晰度，选择适合本次脚本的区间。"
+        }
+      ],
+      "usage_footage": [
+        {
+          "id": "usage_video_01",
+          "label": "使用与质地实拍",
+          "role": "input_video",
+          "filename": "video3.mp4",
+          "url": "https://player.install-ai-guider.top/example/skill_market/micro-world-product-draft/example/video3.mp4",
+          "media_kind": "video",
+          "description": "检查起泡、泡沫等过程的可用性，选择与本次旁白匹配的画面。"
+        }
+      ]
+    }
+  },
+  "execution_modes": {
+    "images_and_videos": {
+      "使用场景": "用户提供商品图片、实拍视频和自然语言要求",
+      "步骤": "读取本次附件并核对商品信息；套用固定风格重写脚本；完成最终配音和ASR；按缺口生成AI镜头；选取实拍；建立新的可编辑剪映草稿并质检、导出草稿。"
+    },
+    "images_only": {
+      "使用场景": "用户只有清晰商品图和商品信息",
+      "步骤": "用商品图确认真实外观；AI补微观概念镜头；后半段用真实商品图运镜和原生文字层，不伪造实拍、用户体验或效果证据。"
+    },
+    "videos_only": {
+      "使用场景": "用户只有能清楚展示商品的实拍视频和商品信息",
+      "步骤": "分析视频并按需提取商品参考帧，识别真实外观和信息；沿用固定风格制作，不强制用户另传图片。"
+    }
+  },
+  "validation_rules": [
+    "用户输入以 prompt 和本次商品图片、视频附件为主；model 可选。不要求新参考视频，不重新拆解其他视频风格。",
+    "images 与 videos 至少有一项能清楚确认商品真实外观；只有模糊附件或文字描述时应索取可靠商品素材。",
+    "从自然语言提取商品名、真实卖点、时长、人群和CTA；没有可靠成分、功效、价格、优惠和认证信息时不编造。关键身份信息无法确认时询问。",
+    "用户无需填写镜头时间、分镜、字体、轨道、草稿ID或工程名；助手按固定风格和本次内容自动安排。",
+    "输入示例中的欧莱雅及附件仅用于说明输入结构；换商品时全部替换，不作为技能固定商品或固定素材。",
+    "inputs 中的 url 为示例附件的 HTTPS 地址，用于示例展示与附件加载；执行时先下载到本次项目并检查可访问性和实际内容。示例输入地址与最终草稿引用分开处理：最终同机草稿媒体写入有效本地绝对路径，不能写相对路径；云预览按需要单独上传。前端解析成功不代表远程资源已经可访问。",
+    "先检查每项附件的实际内容，记录可用区间和未使用原因；不要求把全部素材硬塞进成片。",
+    "固定复用微观奇观、小怪反派、英雄登场、爽点解决、实拍落地、三连信息、信息佐证和CTA的创意语法；若商品无法适配，先说明并询问，不硬套。",
+    "每次重新生成适配本商品的脚本、AI镜头、最终配音、ASR和时间轴；不得直接调用旧商品素材、旧成分、旧时间戳或旧草稿ID。",
+    "AI视频优先MiniMax H3，实际调用前检查当前工具能力；不可用时说明替代方案，不冒称使用H3。不在此示例中写未经核验的费用、耗时和模型可用性。",
+    "AI用于概念和微观镜头，不用于伪造商品包装文字、检测信息或真实使用效果。",
+    "镜头、字幕、花字和音效按最终配音及ASR实际时间安排；约30秒为目标预算，不把示例时长当固定切点。",
+    "字幕、关键词、卖点、CTA和标注使用独立文字层；运镜优先原生关键帧；VO、现场声、音效、BGM分轨。AI视频内部动画仍是像素素材，不承诺全部原生可编辑。",
+    "保存本次剪辑逻辑、edit_plan.json和素材来源；新建草稿，不覆盖旧商品工程。",
+    "交付前检查实际草稿结构、媒体绝对路径和存在性、时间轴覆盖及视觉排版；导出入队不等于客户端已成功打开。默认交付可编辑剪映草稿，不渲染最终成片。"
+  ]
+}

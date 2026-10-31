@@ -379,7 +379,7 @@ describe('installBuiltinSkills', () => {
     )
   })
 
-  it('should cache remote quick skills manifest during startup sync', async () => {
+  it('should skip the homepage operations service during startup sync', async () => {
     vi.mocked(fs.access).mockResolvedValueOnce(undefined)
     vi.mocked(fs.readdir)
       .mockResolvedValueOnce([] as any)
@@ -429,14 +429,8 @@ describe('installBuiltinSkills', () => {
     const { installBuiltinSkills } = await import('../utils/builtinSkills')
     await installBuiltinSkills({ waitForRemoteSync: true })
 
-    expect(fs.rename).toHaveBeenCalledWith(
-      expect.stringContaining(`${path.sep}trendykoubo`), quickSkillStoragePath
-    )
-    expect(fs.writeFile).toHaveBeenCalledWith(expect.stringContaining(`${path.sep}trendykoubo${path.sep}.version`), '1.0.0', 'utf-8')
-    expect(fs.writeFile).toHaveBeenCalledWith(
-      path.join('/userData/Data/QuickSkills', 'pending-manifest.json.tmp'),
-      expect.stringContaining('"网感口播"'),
-      'utf-8'
-    )
+    expect(mockNetFetch).toHaveBeenCalledTimes(1)
+    expect(mockNetFetch.mock.calls.some(([url]) => String(url).includes('skill_templates'))).toBe(false)
+    expect(fs.rename).not.toHaveBeenCalled()
   })
 })

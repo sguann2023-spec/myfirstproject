@@ -144,7 +144,7 @@
 }
 
 .chat-panel__welcome-skill-content { box-sizing: border-box; height: 100%; position: relative; }
-.chat-panel__welcome-skill-stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 26px; margin-top: 12px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+.chat-panel__welcome-skill-stats { color: #000000; display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 26px; margin-top: 12px; font-size: 12px; line-height: 20px; white-space: nowrap; }
 .chat-panel__welcome-skill-stats > span:last-child { display: flex; align-items: center; gap: 5px; }
 .chat-panel__welcome-skill-actions { display: none; gap: 12px; margin-top: 12px; }
 .chat-panel__welcome-skill-actions button, .chat-panel__welcome-do-same {
@@ -156,7 +156,7 @@
 .chat-panel__welcome-skill-actions button:first-child { width: 66px; }
 .chat-panel__welcome-skill-actions button:last-child { width: 78px; }
 .chat-panel__welcome-skill-card:hover .chat-panel__welcome-skill-stats,
-.chat-panel__welcome-skill-card:focus-within .chat-panel__welcome-skill-stats { display: none; }
+.chat-panel__welcome-skill-card:focus-within .chat-panel__welcome-skill-stats { color: #000000; display: none; }
 .chat-panel__welcome-skill-card:hover .chat-panel__welcome-skill-actions,
 .chat-panel__welcome-skill-card:focus-within .chat-panel__welcome-skill-actions { display: flex; }
 

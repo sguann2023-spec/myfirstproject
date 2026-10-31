@@ -1,0 +1,227 @@
+[
+  {
+    "segment": {
+      "enable_adjust": true,
+      "enable_color_correct_adjust": false,
+      "enable_color_curves": true,
+      "enable_color_match_adjust": false,
+      "enable_color_wheels": true,
+      "enable_lut": true,
+      "enable_smart_color_adjust": false,
+      "last_nonzero_volume": 1,
+      "reverse": false,
+      "track_attribute": 0,
+      "track_render_index": 0,
+      "visible": true,
+      "id": "ce8d86dafb9d4ce99c771e40115fada2",
+      "material_id": "f941f157cd484dcc9636386b52292b64",
+      "target_timerange": {
+        "start": 1000000,
+        "duration": 2100000
+      },
+      "common_keyframes": [],
+      "keyframe_refs": [],
+      "source_timerange": null,
+      "speed": 1,
+      "volume": 1.1220184543019633,
+      "extra_material_refs": [
+        "2be16e748c40467493078a70821a2355"
+      ],
+      "clip": {
+        "alpha": 1,
+        "flip": {
+          "horizontal": false,
+          "vertical": false
+        },
+        "rotation": 0,
+        "scale": {
+          "x": 1,
+          "y": 1
+        },
+        "transform": {
+          "x": 0,
+          "y": -0.4791666666666667
+        }
+      },
+      "uniform_scale": {
+        "on": true,
+        "value": 1
+      },
+      "render_index": 15000
+    },
+    "material": {
+      "id": "f941f157cd484dcc9636386b52292b64",
+      "content": "{\"styles\": [{\"fill\": {\"alpha\": 1.0, \"content\": {\"render_type\": \"solid\", \"solid\": {\"alpha\": 1.0, \"color\": [1.0, 1.0, 1.0]}}}, \"range\": [0, 4], \"size\": 11, \"bold\": false, \"italic\": false, \"underline\": false, \"strokes\": [{\"content\": {\"solid\": {\"alpha\": 1.0, \"color\": [0.0, 0.0, 0.0]}}, \"width\": 0.12}], \"font\": {\"id\": \"7217732136894206501\", \"path\": \"C:/尔雅新大黑.ttf\"}}, {\"fill\": {\"alpha\": 1.0, \"content\": {\"render_type\": \"solid\", \"solid\": {\"alpha\": 1.0, \"color\": [0.9921568627450981, 0.9568627450980393, 0.5411764705882353]}}}, \"range\": [4, 7], \"size\": 11, \"bold\": false, \"italic\": false, \"underline\": false, \"strokes\": [{\"content\": {\"solid\": {\"alpha\": 1.0, \"color\": [0.0, 0.0, 0.0]}}, \"width\": 0.12}], \"font\": {\"id\": \"7217732136894206501\", \"path\": \"C:/尔雅新大黑.ttf\"}}], \"text\": \"宝宝夜里突然哭\"}",
+      "typesetting": 0,
+      "alignment": 1,
+      "letter_spacing": 0,
+      "line_spacing": 0.02,
+      "line_feed": 1,
+      "line_max_width": 0.82,
+      "force_apply_line_max_width": false,
+      "check_flag": 7,
+      "type": "text",
+      "fixed_width": -1,
+      "fixed_height": -1,
+      "global_alpha": 1,
+      "font_category_id": "",
+      "font_category_name": "",
+      "font_id": "",
+      "font_name": "",
+      "font_path": "",
+      "font_resource_id": "",
+      "font_size": 15,
+      "font_source_platform": 0,
+      "font_team_id": "",
+      "font_title": "none",
+      "font_url": "",
+      "fonts": [
+        {
+          "category_id": "preset",
+          "category_name": "剪映预设",
+          "effect_id": "7217732136894206501",
+          "file_uri": "",
+          "id": "BFBA9655-1FE5-41A0-A85D-577EFFF17BDD",
+          "path": "C:/尔雅新大黑.ttf",
+          "request_id": "20250713102314DA3D8F267527925ADC9A",
+          "resource_id": "7217732136894206501",
+          "source_platform": 0,
+          "team_id": "",
+          "title": "尔雅新大黑"
+        },
+        {
+          "category_id": "preset",
+          "category_name": "剪映预设",
+          "effect_id": "7217732136894206501",
+          "file_uri": "",
+          "id": "BFBA9655-1FE5-41A0-A85D-577EFFF17BDD",
+          "path": "C:/尔雅新大黑.ttf",
+          "request_id": "20250713102314DA3D8F267527925ADC9A",
+          "resource_id": "7217732136894206501",
+          "source_platform": 0,
+          "team_id": "",
+          "title": "尔雅新大黑"
+        }
+      ]
+    }
+  },
+  {
+    "segment": {
+      "enable_adjust": true,
+      "enable_color_correct_adjust": false,
+      "enable_color_curves": true,
+      "enable_color_match_adjust": false,
+      "enable_color_wheels": true,
+      "enable_lut": true,
+      "enable_smart_color_adjust": false,
+      "last_nonzero_volume": 1,
+      "reverse": false,
+      "track_attribute": 0,
+      "track_render_index": 0,
+      "visible": true,
+      "id": "cacf9b6b688d4c04b3c80762bda63663",
+      "material_id": "c402e98d71fb4ea2bdfd77101ecf53d9",
+      "target_timerange": {
+        "start": 3100000,
+        "duration": 2200000
+      },
+      "common_keyframes": [],
+      "keyframe_refs": [],
+      "source_timerange": null,
+      "speed": 1,
+      "volume": 1.1220184543019633,
+      "extra_material_refs": [
+        "578d8b29a925436fb599fa7be700ef8d"
+      ],
+      "clip": {
+        "alpha": 1,
+        "flip": {
+          "horizontal": false,
+          "vertical": false
+        },
+        "rotation": 0,
+        "scale": {
+          "x": 1,
+          "y": 1
+        },
+        "transform": {
+          "x": 0,
+          "y": -0.4791666666666667
+        }
+      },
+      "uniform_scale": {
+        "on": true,
+        "value": 1
+      },
+      "render_index": 15000
+    },
+    "material": {
+      "id": "c402e98d71fb4ea2bdfd77101ecf53d9",
+      "content": "{\"styles\": [{\"fill\": {\"alpha\": 1.0, \"content\": {\"render_type\": \"solid\", \"solid\": {\"alpha\": 1.0, \"color\": [1.0, 1.0, 1.0]}}}, \"range\": [0, 2], \"size\": 11, \"bold\": false, \"italic\": false, \"underline\": false, \"strokes\": [{\"content\": {\"solid\": {\"alpha\": 1.0, \"color\": [0.0, 0.0, 0.0]}}, \"width\": 0.12}], \"font\": {\"id\": \"7217732136894206501\", \"path\": \"C:/尔雅新大黑.ttf\"}}, {\"fill\": {\"alpha\": 1.0, \"content\": {\"render_type\": \"solid\", \"solid\": {\"alpha\": 1.0, \"color\": [0.9921568627450981, 0.9568627450980393, 0.5411764705882353]}}}, \"range\": [2, 4], \"size\": 11, \"bold\": false, \"italic\": false, \"underline\": false, \"strokes\": [{\"content\": {\"solid\": {\"alpha\": 1.0, \"color\": [0.0, 0.0, 0.0]}}, \"width\": 0.12}], \"font\": {\"id\": \"7217732136894206501\", \"path\": \"C:/尔雅新大黑.ttf\"}}, {\"fill\": {\"alpha\": 1.0, \"content\": {\"render_type\": \"solid\", \"solid\": {\"alpha\": 1.0, \"color\": [1.0, 1.0, 1.0]}}}, \"range\": [4, 7], \"size\": 11, \"bold\": false, \"italic\": false, \"underline\": false, \"strokes\": [{\"content\": {\"solid\": {\"alpha\": 1.0, \"color\": [0.0, 0.0, 0.0]}}, \"width\": 0.12}], \"font\": {\"id\": \"7217732136894206501\", \"path\": \"C:/尔雅新大黑.ttf\"}}], \"text\": \"是做噩梦了吗？\"}",
+      "typesetting": 0,
+      "alignment": 1,
+      "letter_spacing": 0,
+      "line_spacing": 0.02,
+      "line_feed": 1,
+      "line_max_width": 0.82,
+      "force_apply_line_max_width": false,
+      "check_flag": 7,
+      "type": "text",
+      "fixed_width": -1,
+      "fixed_height": -1,
+      "global_alpha": 1,
+      "font_category_id": "",
+      "font_category_name": "",
+      "font_id": "",
+      "font_name": "",
+      "font_path": "",
+      "font_resource_id": "",
+      "font_size": 15,
+      "font_source_platform": 0,
+      "font_team_id": "",
+      "font_title": "none",
+      "font_url": "",
+      "fonts": [
+        {
+          "category_id": "preset",
+          "category_name": "剪映预设",
+          "effect_id": "7217732136894206501",
+          "file_uri": "",
+          "id": "BFBA9655-1FE5-41A0-A85D-577EFFF17BDD",
+          "path": "C:/尔雅新大黑.ttf",
+          "request_id": "20250713102314DA3D8F267527925ADC9A",
+          "resource_id": "7217732136894206501",
+          "source_platform": 0,
+          "team_id": "",
+          "title": "尔雅新大黑"
+        },
+        {
+          "category_id": "preset",
+          "category_name": "剪映预设",
+          "effect_id": "7217732136894206501",
+          "file_uri": "",
+          "id": "BFBA9655-1FE5-41A0-A85D-577EFFF17BDD",
+          "path": "C:/尔雅新大黑.ttf",
+          "request_id": "20250713102314DA3D8F267527925ADC9A",
+          "resource_id": "7217732136894206501",
+          "source_platform": 0,
+          "team_id": "",
+          "title": "尔雅新大黑"
+        },
+        {
+          "category_id": "preset",
+          "category_name": "剪映预设",
+          "effect_id": "7217732136894206501",
+          "file_uri": "",
+          "id": "BFBA9655-1FE5-41A0-A85D-577EFFF17BDD",
+          "path": "C:/尔雅新大黑.ttf",
+          "request_id": "20250713102314DA3D8F267527925ADC9A",
+          "resource_id": "7217732136894206501",
+          "source_platform": 0,
+          "team_id": "",
+          "title": "尔雅新大黑"
+        }
+      ]
+    }
+  }
+]

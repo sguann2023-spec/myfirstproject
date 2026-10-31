@@ -122,8 +122,6 @@ import { updateAppDataConfig } from './utils/init'
 import { getCpuName, getDeviceType, getHostname } from './utils/system'
 import { compress, decompress } from './utils/zip'
 import { installBuiltinSkills } from './utils/builtinSkills'
-import { getQuickSkillsRoot } from './utils/quickSkillStorage'
-import { isHomepageOperationsMockEnabled } from './utils/homepageOperationsMock'
 
 const logger = loggerService.withContext('IPC')
 const imageGenerateServer = new ImageGenerateServer()
@@ -653,8 +651,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     configPath: getConfigDir(),
     appDataPath: app.getPath('userData'),
     resourcesPath: getResourcePath(),
-    homepageOperationsPath: getQuickSkillsRoot(),
-    homepageOperationsMock: isHomepageOperationsMockEnabled(),
+    homepageOperationsPath: path.join(getResourcePath(), 'quick'),
     logsPath: mainLoggerService.getLogsDir(),
     arch: arch(),
     isPortable: isWin && 'PORTABLE_EXECUTABLE_DIR' in process.env,
