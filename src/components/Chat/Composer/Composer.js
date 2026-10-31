@@ -3906,7 +3906,9 @@ const Composer = ({
     digitalHumanCompletionState
   ]);
   const canSend = Boolean(toolSendState?.canSend);
-  const sendDisabledReason = !canSend ? String(toolSendState?.disabledReason || '').trim() : '';
+  const sendDisabledReason = modelListLoading
+    ? '正在获取可用模型'
+    : (!canSend ? String(toolSendState?.disabledReason || '').trim() : '');
   const isDigitalHumanSendBlocked = activeTool === 'digital-human' && !digitalHumanCompletionState.isComplete;
   const isAiWriteSendBlocked = activeTool === 'ai-write' && !aiWriteCompletionState.isComplete;
   const isSendDisabled = !canSend || modelListLoading || isDigitalHumanSendBlocked || isAiWriteSendBlocked;
@@ -5377,6 +5379,7 @@ const Composer = ({
                   type="button"
                   className={`chat-panel__send-btn ${isSendDisabled && !sessionSending ? 'disabled' : ''} ${sessionSending ? 'stopping' : ''}`}
                   onClick={attemptSendWithAttachments}
+                  disabled={modelListLoading && !sessionSending}
                   aria-label={sessionSending ? '停止生成' : '发送消息'}
                   aria-disabled={sessionSending ? false : isSendDisabled}
                 >
