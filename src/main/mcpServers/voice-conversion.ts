@@ -1,3 +1,4 @@
+import ipaddr from 'ipaddr.js'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
@@ -170,6 +171,89 @@ function sanitizePathSegment(value: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+// Validate before alias resolution. No DNS, redirects or media probing here;
+// the backend must enforce those policies at its download boundary.
+function publicMediaUrl(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value))
+    throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  const url = new URL(value)
+  const host = url.hostname
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase()
+    .replace(/\.$/, '')
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    (!ipaddr.isValid(host) && !host.includes('.')) ||
+    /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+    (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')
+  )
+    throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  return value
+}
+
+function externalFailure(result: Record<string, unknown>): boolean {
+  return (
+    result.success === false ||
+    ['failed', 'error', 'cancelled', 'canceled', 'failure'].includes(String(result.status || '').toLowerCase())
+  )
+}
+
+const EXTERNAL_TOOLS: Tool[] = [
+  {
+    name: 'submit',
+    description:
+      'Submit directly to the backend and return task_id immediately. Public HTTP(S) media URLs only; no preprocessing or waiting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        audioUrl: {
+          type: 'string',
+          description: 'Public HTTP(S) media URL only.'
+        },
+        audio_url: {
+          type: 'string',
+          description: 'Public HTTP(S) media URL only.'
+        },
+        videoUrl: {
+          type: 'string',
+          description: 'Public HTTP(S) media URL only.'
+        },
+        video_url: {
+          type: 'string',
+          description: 'Public HTTP(S) media URL only.'
+        },
+        voiceId: {
+          type: 'string',
+          description: 'voiceId'
+        },
+        voice_id: {
+          type: 'string',
+          description: 'voice_id'
+        }
+      },
+      additionalProperties: false,
+      required: []
+    }
+  },
+  {
+    name: 'task_status',
+    description: 'Query the backend once. Preserve results, billing and failures without downloading or waiting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          minLength: 1
+        }
+      },
+      required: ['task_id'],
+      additionalProperties: false
+    }
+  }
+]
+
 class VoiceConversionServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
@@ -178,7 +262,10 @@ class VoiceConversionServer {
   private refreshPromise: Promise<string> | null = null
   private readonly localVideoTasks = new Map<string, LocalVideoMergeJob>()
 
-  constructor(workspacePath?: string) {
+  constructor(
+    workspacePath?: string,
+    private readonly options: { external?: boolean } = {}
+  ) {
     this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
@@ -194,19 +281,98 @@ class VoiceConversionServer {
     this.setupHandlers()
   }
 
+  private async executeExternalRequest(name: string, args: Record<string, unknown>) {
+    let taskId = ''
+    try {
+      if (!['submit', 'task_status'].includes(name)) throw new Error(`Unknown external tool: ${name}`)
+      const allowed =
+        name === 'task_status' ? ['task_id'] : ['audioUrl', 'audio_url', 'videoUrl', 'video_url', 'voiceId', 'voice_id']
+      if (Object.keys(args).some((key) => !allowed.includes(key))) throw new Error('Unsupported external argument')
+      if (name === 'task_status') {
+        if (typeof args.task_id !== 'string' || !args.task_id.trim()) throw new Error("'task_id' is required")
+        taskId = args.task_id.trim()
+        const result = await this.queryVoiceConversionTaskStatus(taskId)
+        return this.externalFormat({ ...result, task_id: taskId }, externalFailure(result))
+      }
+      for (const field of ['audioUrl', 'audio_url', 'videoUrl', 'video_url']) {
+        if (Object.prototype.hasOwnProperty.call(args, field)) publicMediaUrl(args[field], field)
+      }
+      for (const field of ['voiceId', 'voice_id']) {
+        if (
+          Object.prototype.hasOwnProperty.call(args, field) &&
+          (typeof args[field] !== 'string' || !args[field].trim())
+        )
+          throw new Error('Invalid voice ID')
+      }
+      if (
+        (args.audioUrl && args.audio_url && args.audioUrl !== args.audio_url) ||
+        (args.videoUrl && args.video_url && args.videoUrl !== args.video_url) ||
+        (args.voiceId && args.voice_id && args.voiceId !== args.voice_id)
+      )
+        throw new Error('Conflicting aliases')
+      const audio = args.audioUrl ?? args.audio_url
+      const video = args.videoUrl ?? args.video_url
+      const voice = args.voiceId ?? args.voice_id
+      if (Boolean(audio) === Boolean(video) || !voice) throw new Error('Provide one media URL and a voice ID')
+      const payload = {
+        ...(audio ? { audio_url: audio } : { video_url: video }),
+        voice_id: voice
+      }
+      const result = await this.submitExternalPayload(payload)
+      const failed = externalFailure(result) || typeof result.task_id !== 'string' || !result.task_id.trim()
+      return this.externalFormat(
+        {
+          ...result,
+          ...(failed
+            ? {
+                success: false,
+                error: result.error || 'Backend submission failed or returned no task ID'
+              }
+            : { status: result.status || 'submitted' })
+        },
+        failed
+      )
+    } catch (error) {
+      return this.externalFormat(
+        {
+          ...(taskId ? { task_id: taskId, status: 'unknown' } : {}),
+          error: error instanceof Error ? error.message : String(error)
+        },
+        true
+      )
+    }
+  }
+
+  private externalFormat(payload: Record<string, unknown>, isError = false) {
+    return {
+      ...this.formatJsonResult(payload),
+      ...(isError ? { isError: true } : {})
+    }
+  }
+
+  private async submitExternalPayload(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await this.requestWithAuth(VOICE_CONVERSION_SUBMIT_ENDPOINT, { method: 'POST', body: payload })
+    if (!response.ok) throw new Error(`Voice conversion submit failed (${response.status}): ${await response.text()}`)
+    return response.json()
+  }
+
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [SUBMIT_VOICE_CONVERSION_TASK_TOOL]
+      tools: this.options.external ? EXTERNAL_TOOLS : [SUBMIT_VOICE_CONVERSION_TASK_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const toolName = request.params.name
       const args = request.params.arguments ?? {}
 
+      if (this.options.external) return this.executeExternalRequest(toolName, args)
       try {
         switch (toolName) {
           case 'submit_voice_conversion_task':
-            return await this.submitVoiceConversionTask(args as Record<string, unknown>, extra as ToolExecutionExtra | undefined)
+            return await this.submitVoiceConversionTask(
+              args as Record<string, unknown>,
+              extra as ToolExecutionExtra | undefined
+            )
           case 'get_voice_conversion_task_status':
             return await this.getVoiceConversionTaskStatus(args as Record<string, unknown>)
           default:

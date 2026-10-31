@@ -691,3 +691,153 @@ describe('VoiceConversionServer', () => {
     })
   })
 })
+
+
+describe('external asynchronous boundary', () => {
+  const valid = {
+    videoUrl: 'https://media.example.com/a.mp4',
+    voiceId: 'voice'
+  }
+  const call = async (server: VoiceConversionServer, name: string, args: Record<string, unknown>) =>
+    (server.mcpServer.server as any)._requestHandlers.get('tools/call')(
+      { method: 'tools/call', params: { name, arguments: args } },
+      {}
+    )
+  const parse = (reply: any) => JSON.parse(reply.content[0].text)
+  const serverFor = () => {
+    const server = new VoiceConversionServer('/tmp/external-unused-workspace', {
+      external: true
+    })
+    vi.spyOn(server as any, 'ensureValidAccessToken').mockResolvedValue('token')
+    return server
+  }
+  beforeEach(() => vi.resetAllMocks())
+
+  it('lists only submit/status and forbids legacy calls', async () => {
+    const server = serverFor()
+    const listed = await (server.mcpServer.server as any)._requestHandlers.get('tools/list')(
+      { method: 'tools/list' },
+      {}
+    )
+    expect(listed.tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+    for (const name of ['submit_voice_conversion_task', 'get_voice_conversion_task_status'])
+      expect((await call(server, name, valid)).isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('submits directly once and never preprocesses or queries', async () => {
+    const server = serverFor()
+    mockNetFetch.mockResolvedValue(new Response(JSON.stringify({ task_id: 'real-task', success: true })))
+    const reply = await call(server, 'submit', valid)
+    expect(reply.isError).toBeUndefined()
+    expect(parse(reply)).toMatchObject({
+      task_id: 'real-task',
+      status: 'submitted'
+    })
+    expect(mockNetFetch).toHaveBeenCalledOnce()
+    const body = JSON.parse(mockNetFetch.mock.calls[0][1].body)
+    expect(body).toEqual({
+      video_url: valid.videoUrl,
+      voice_id: valid.voiceId
+    })
+    expect(mockExecFile).not.toHaveBeenCalled()
+    expect(mockUploadLocalFile).not.toHaveBeenCalled()
+  })
+
+  it.each(['running', 'success', 'failed', 'cancelled'])(
+    'queries %s exactly once preserving result and billing',
+    async (status) => {
+      const server = serverFor()
+      const data = {
+        status,
+        result: {
+          converted_url: 'https://media.example.com/out',
+          billing: { points: 7 },
+          error: 'detail'
+        },
+        billing: { points: 8 },
+        error_code: 'code'
+      }
+      mockNetFetch.mockResolvedValue(new Response(JSON.stringify(data)))
+      const reply = await call(server, 'task_status', { task_id: 'real-task' })
+      expect(parse(reply)).toEqual({ ...data, task_id: 'real-task' })
+      expect(Boolean(reply.isError)).toBe(['failed', 'cancelled'].includes(status))
+      expect(mockNetFetch).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('marks query exceptions unknown rather than terminal failure', async () => {
+    const server = serverFor()
+    mockNetFetch.mockRejectedValue(new Error('offline'))
+    expect(parse(await call(server, 'task_status', { task_id: 'real-task' }))).toMatchObject({
+      task_id: 'real-task',
+      status: 'unknown',
+      error: 'offline'
+    })
+    expect(mockNetFetch).toHaveBeenCalledOnce()
+  })
+
+  it.each([{ success: false, task_id: 'rejected', billing: { points: 2 } }, { success: true }])(
+    'rejects invalid backend submission without losing details',
+    async (data) => {
+      const server = serverFor()
+      mockNetFetch.mockResolvedValue(new Response(JSON.stringify(data)))
+      const reply = await call(server, 'submit', valid)
+      expect(reply.isError).toBe(true)
+      expect(parse(reply)).toMatchObject(data.success === false ? data : { success: false })
+      expect(mockNetFetch).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each([
+    '/tmp/a.mp3',
+    'file:///tmp/a',
+    'data:audio/wav;base64,AA',
+    'http://127.1/a',
+    'http://10.0.0.1/a',
+    'http://[::1]/a',
+    'http://[::ffff:127.0.0.1]/a',
+    'https://user:pass@media.example.com/a',
+    'https://host.internal/a',
+    { url: 'https://media.example.com/a' },
+    ['https://media.example.com/a'],
+    '',
+    null
+  ])('rejects unsafe or nested source %j before network', async (url) => {
+    const server = serverFor()
+    const reply = await call(server, 'submit', { ...valid, video_url: url })
+    expect(reply.isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('external voice alias validation', () => {
+  it.each([
+    { audioUrl: 'https://media.example.com/a', audio_url: 'file:///tmp/a' },
+    {
+      videoUrl: 'https://media.example.com/a',
+      video_url: { url: 'https://media.example.com/a' }
+    },
+    {
+      audioUrl: 'https://media.example.com/a',
+      audio_url: 'https://media.example.com/b'
+    },
+    {
+      audio_url: 'https://media.example.com/a',
+      video_url: 'https://media.example.com/b'
+    },
+    { audio_url: 'https://media.example.com/a', voice_id: { value: 'voice' } },
+    {
+      audio_url: 'https://media.example.com/a',
+      source: { url: 'file:///tmp/a' }
+    }
+  ])('validates all aliases before resolving %j', async (args) => {
+    mockNetFetch.mockReset()
+    const result = await callTool(new VoiceConversionServer(undefined, { external: true }), 'submit', {
+      voiceId: 'voice',
+      ...args
+    })
+    expect(result.isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+})

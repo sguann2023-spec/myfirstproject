@@ -640,4 +640,65 @@ describe('SubtitleTemplateServer', () => {
       })
     )
   })
+  it('exposes external submit/status only and rejects legacy generation', async () => {
+    const server = new SubtitleTemplateServer({ external: true })
+    expect((await listTools(server)).tools.map((tool: { name: string }) => tool.name)).toEqual(['submit', 'task_status'])
+    expect((await callTool(server, 'generate_smart_subtitle', { url: 'https://example.com/a.mp4' })).isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('submits immediately, normalizes template settings and never processes local media', async () => {
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' })).mockResolvedValueOnce(mockJsonResponse({ task_id: 'task-1', billing: { consume: 1 } }))
+    const result = await callTool(new SubtitleTemplateServer({ external: true }), 'submit', { url: 'https://example.com/a.mp4', draftId: 'draft-1', addMedia: false })
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ task_id: 'task-1', status: 'submitted', billing: { consume: 1 } })
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body)).toMatchObject({ url: 'https://example.com/a.mp4', draft_id: 'draft-1', add_media: false })
+    expect(mockExecFile).not.toHaveBeenCalled()
+    expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    expect(mockStat).not.toHaveBeenCalled()
+  })
+
+  it.each(['/tmp/a', 'file:///tmp/a', 'data:audio/mp3;base64,AA', 'https://192.168.1.2/a', 'http://[::ffff:127.0.0.1]/a', 'http://host.local/a', 'http://user:pass@example.com/a'])('rejects unsafe external URLs and nested aliases %s', async url => {
+    const server = new SubtitleTemplateServer({ external: true })
+    for (const args of [{ url }, { url: 'https://example.com/a.mp4', source: { nested: { value: url } } }]) {
+      expect((await callTool(server, 'submit', args)).isError).toBe(true)
+    }
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('preserves failure output and billing on one query and marks exceptions unknown', async () => {
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token' })).mockResolvedValueOnce(mockJsonResponse({ status: 'failed', billing: { consume: 4 }, output: { draft_id: 'draft-1' }, error: 'render failed' }))
+    const server = new SubtitleTemplateServer({ external: true })
+    const result = await callTool(server, 'task_status', { task_id: 'task-1' })
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ status: 'failed', billing: { consume: 4 }, output: { draft_id: 'draft-1' } })
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    mockNetFetch.mockRejectedValueOnce(new Error('offline'))
+    expect(JSON.parse((await callTool(server, 'task_status', { task_id: 'task-1' })).content[0].text).status).toBe('unknown')
+  })
+
+  it('rejects external endpoints internally and requires a task ID before querying', async () => {
+    for (const name of ['submit', 'task_status']) expect((await callTool(createServer(), name, {})).isError).toBe(true)
+    expect((await callTool(new SubtitleTemplateServer({ external: true }), 'task_status', { task_id: '' })).isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps HTTP submit failure details and marks missing task IDs as errors', async () => {
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' })).mockResolvedValueOnce(mockJsonResponse({ status: 'queued', success: false, billing: { consume: 3 }, error: 'rejected' }, false, 422))
+    const server = new SubtitleTemplateServer({ external: true })
+    const failed = await callTool(server, 'submit', { url: 'https://example.com/a' })
+    expect(failed.isError).toBe(true)
+    expect(JSON.parse(failed.content[0].text)).toMatchObject({ billing: { consume: 3 }, error: 'rejected' })
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ status: 'queued' }))
+    expect((await callTool(server, 'submit', { url: 'https://example.com/a' })).isError).toBe(true)
+  })
+
+  it('returns processing once without treating the backend success flag as terminal failure', async () => {
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' })).mockResolvedValueOnce(mockJsonResponse({ success: false, status: 'processing' }))
+    const result = await callTool(new SubtitleTemplateServer({ external: true }), 'task_status', { task_id: 'task-1' })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(result.content[0].text).status).toBe('processing')
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+  })
+
 })

@@ -1,11 +1,12 @@
 import { loggerService } from '@logger'
 import type { AppDispatch } from '@renderer/store'
 import { selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
-import type { MCPToolResponse, NormalToolResponse } from '@renderer/types'
+import type { MCPToolResponse, MCPToolResultContent, NormalToolResponse } from '@renderer/types'
 import { WEB_SEARCH_SOURCE } from '@renderer/types'
 import type { FileMessageBlock, ImageMessageBlock, Message, ToolMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
-import { createCitationBlock, createToolBlock } from '@renderer/utils/messageUtils/create'
+import { createCitationBlock, createErrorBlock, createToolBlock } from '@renderer/utils/messageUtils/create'
+import { isInsufficientBalanceError } from '@renderer/utils/errorClassifier'
 import { sanitizeInlinePayload } from '@shared/sessionPayloadLimits'
 import { parseMaybeJsonToolArguments } from '@shared/parseToolArguments'
 import { isPlainObject } from 'lodash'
@@ -500,6 +501,29 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
           }
         }
         blockManager.smartBlockUpdate(existingBlockId, changes, MessageBlockType.TOOL, true)
+        // MCP failures normally stay inside the tool card. Surface explicit billing
+        // failures through the same recovery card as model errors, including failed
+        // background jobs returned successfully by the polling tool.
+        const response = nextToolResponse.response
+        const text = Array.isArray(response?.content)
+          ? (response.content as MCPToolResultContent[])
+            .filter((item) => item.type === 'text')
+            .map((item) => item.text || '')
+            .join('\n')
+          : ''
+        let failedJob = false
+        try {
+          const job = JSON.parse(text)
+          failedJob = job?.status === 'failed' || job?.status === 'interrupted'
+        } catch { /* Plain-text MCP errors are not job envelopes. */ }
+        const billingError = { name: 'MCPError', message: text, stack: null }
+        if ((finalStatus === MessageBlockStatus.ERROR || response?.isError || failedJob) &&
+          isInsufficientBalanceError(billingError)) {
+          void blockManager.handleBlockTransition(
+            createErrorBlock(assistantMsgId, billingError, { status: MessageBlockStatus.SUCCESS }),
+            MessageBlockType.ERROR
+          )
+        }
         // Handle citation block creation for web search results
         const citationSource = nextToolResponse.responseRaw ?? nextToolResponse.response
 

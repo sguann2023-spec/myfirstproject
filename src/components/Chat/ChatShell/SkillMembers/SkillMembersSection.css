@@ -195,7 +195,17 @@
 }
 
 .chat-panel__member-tooltip {
+  display: flex;
+  flex-direction: column;
+  max-height: min(320px, calc(100vh - 80px));
+  overflow-y: auto;
   color: #333;
+}
+
+.chat-panel__member-tooltip-name,
+.chat-panel__member-tooltip-folder,
+.chat-panel__member-tooltip-actions {
+  flex-shrink: 0;
 }
 
 .chat-panel__member-tooltip-name {
@@ -213,6 +223,9 @@
 }
 
 .chat-panel__member-tooltip-desc {
+  min-height: 0;
+  max-height: min(320px, max(80px, calc(100vh - 240px)));
+  overflow-y: auto;
   margin-top: 6px;
   font-size: 14px;
   line-height: 1.6;

@@ -14,6 +14,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
+import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:SubtitleTemplate')
@@ -98,6 +99,11 @@ const GENERATE_SMART_SUBTITLE_TOOL: Tool = {
     additionalProperties: true
   }
 }
+
+const EXTERNAL_TOOLS: Tool[] = [
+  { name: 'submit', description: 'Submit a backend subtitle template task immediately. Public HTTP(S) source URL only; poll task_status separately.', inputSchema: { ...GENERATE_SMART_SUBTITLE_TOOL.inputSchema, properties: { ...GENERATE_SMART_SUBTITLE_TOOL.inputSchema.properties, url: { type: 'string', description: 'Public HTTP(S) audio/video URL only.' } } } },
+  { name: 'task_status', description: 'Query backend status once without waiting or downloading.', inputSchema: { type: 'object', properties: { task_id: { type: 'string', minLength: 1 } }, required: ['task_id'], additionalProperties: false } }
+]
 
 type PendingToken = {
   accessToken: string
@@ -209,13 +215,31 @@ const sanitizeFileName = (value: string) => value.replace(/[^\w.-]+/g, '_').repl
 
 const getSourceBaseName = (source: string) => sanitizeFileName(path.parse(source).name || 'media')
 
+function validateExternalMedia(value: unknown, field = '') {
+  if (Array.isArray(value)) { value.forEach((item) => validateExternalMedia(item, field)); return }
+  if (value && typeof value === 'object') {
+    for (const [key, entry] of Object.entries(value)) validateExternalMedia(entry, field ? `${field}.${key}` : key)
+    return
+  }
+  if (!/(url|path|image|video|audio|frame|source|reference)/i.test(field) || ['type', 'role', 'generateAudio', 'generate_audio'].includes(field)) return
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value)) throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  let url: URL
+  try { url = new URL(value) } catch { throw new Error(`'${field}' requires a public HTTP(S) URL`) }
+  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase().replace(/\.$/, '')
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
+      (!ipaddr.isValid(host) && !host.includes('.')) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+      (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')) {
+    throw new Error(`'${field}' requires a public HTTP(S) URL, not a local/private address`)
+  }
+}
+
 class SubtitleTemplateServer {
   public mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(private readonly options: { external?: boolean } = {}) {
     this.mcpServer = new McpServer(
       {
         name: 'subtitle-template',
@@ -232,7 +256,7 @@ class SubtitleTemplateServer {
 
   private setupHandlers() {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [GENERATE_SMART_SUBTITLE_TOOL]
+      tools: this.options.external ? EXTERNAL_TOOLS : [GENERATE_SMART_SUBTITLE_TOOL]
     }))
 
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -240,6 +264,7 @@ class SubtitleTemplateServer {
       const args = request.params.arguments ?? {}
 
       try {
+        if (this.options.external) return await this.callExternal(toolName, args)
         switch (toolName) {
           case 'generate_smart_subtitle':
             return await this.generateSmartSubtitle(args as Record<string, unknown>, extra as ToolExecutionExtra)
@@ -250,11 +275,31 @@ class SubtitleTemplateServer {
         const message = error instanceof Error ? error.message : String(error)
         logger.error(`Tool error: ${toolName}`, { error: message })
         return {
-          content: [{ type: 'text' as const, text: `Error: ${message}` }],
+          content: [{ type: 'text' as const, text: this.options.external ? JSON.stringify({ provider: 'vectcut', action: toolName, task_id: args.task_id, success: false, status: toolName === 'task_status' ? 'unknown' : 'failed', error: message }) : `Error: ${message}` }],
           isError: true
         }
       }
     })
+  }
+
+  private externalResult(result: Record<string, unknown>, submission = false) {
+    const failed = ['failed', 'error', 'cancelled', 'canceled'].includes(String(result.status).toLowerCase()) || (result.success === false && (submission || !['processing', 'queued', 'pending', 'running'].includes(String(result.status).toLowerCase())))
+    return { ...this.formatJsonResult({ provider: 'vectcut', ...result }), ...(failed ? { isError: true } : {}) }
+  }
+
+  private async callExternal(name: string, args: Record<string, unknown>) {
+    if (name === 'task_status') {
+      if (typeof args.task_id !== 'string' || !args.task_id.trim()) throw new Error('task_id is required')
+      const result = await this.querySmartSubtitleTaskStatus(args.task_id.trim())
+      return this.externalResult({ action: name, task_id: args.task_id, ...result, status: result.status || 'unknown' })
+    }
+    if (name !== 'submit') throw new Error(`Unknown tool: ${name}`)
+    validateExternalMedia(args)
+    if (typeof args.url !== 'string' || !args.url) throw new Error('url is required')
+    const { payload, template } = this.buildGeneratePayload(args, { originalInput: args.url, submittedUrl: args.url, sourceKind: 'remote_url', extractedAudio: false })
+    const response = await this.requestWithAuth(SUBTITLE_TEMPLATE_GENERATE_ENDPOINT, { method: 'POST', body: payload })
+    const result = await response.json() as Record<string, unknown>
+    return this.externalResult({ action: name, template, ...result, success: response.ok && result.success !== false && Boolean(result.task_id), status: result.status || (response.ok && result.task_id ? 'submitted' : 'failed') }, true)
   }
 
   private async ensureValidAccessToken(forceRefresh = false): Promise<string> {
@@ -293,7 +338,8 @@ class SubtitleTemplateServer {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
     })
 
     if (!response.ok) {
@@ -346,7 +392,8 @@ class SubtitleTemplateServer {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: init.body ? JSON.stringify(init.body) : undefined
+        body: init.body ? JSON.stringify(init.body) : undefined,
+        ...(this.options.external ? { signal: AbortSignal.timeout(30_000) } : {})
       })
 
     let response = await doFetch(token)
@@ -609,6 +656,11 @@ class SubtitleTemplateServer {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '')
+      if (this.options.external) {
+        let result: Record<string, unknown> = {}
+        try { result = JSON.parse(body) } catch { /* retain non-JSON failure detail */ }
+        return { ...result, success: false, status: result.status || 'unknown', error: result.error || body || `HTTP ${response.status}` } as SmartSubtitleStatusResponse
+      }
       throw new Error(`Subtitle template status query failed (${response.status}): ${body || 'unknown error'}`)
     }
 

@@ -111,6 +111,95 @@ describe('ImageGenerateServer', () => {
     })
   })
 
+  it('isolates external tools on every transport and rejects hidden tools', async () => {
+    const external = new ImageGenerateServer({ external: true })
+    expect((await listTools(external)).tools.map((t: any) => t.name)).toEqual(['submit', 'task_status'])
+    expect((await listToolsFromMcpServer(external.createMcpServer())).tools.map((t: any) => t.name)).toEqual(['submit', 'task_status'])
+    for (const name of ['generate_or_edit_image', 'generate_image']) {
+      expect((await callTool(external, { prompt: 'test' }, name)).isError).toBe(true)
+    }
+    for (const name of ['submit', 'task_status']) {
+      expect((await callTool(createServer(), {}, name)).isError).toBe(true)
+    }
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it.each(['reference_images', 'referenceImages', 'referenceImage', 'sourceImage', 'sourceImages', 'baseImage', 'editImage'])(
+    'rejects unsafe references through %s before any IO, even when another alias overrides it', async (field) => {
+      const external = new ImageGenerateServer({ external: true })
+      for (const value of ['/tmp/a.png', 'file:///tmp/a.png', 'data:image/png;base64,AAAA', 'ftp://example.com/a',
+        'http://127.0.0.1/a', 'http://2130706433/a', 'http://10.0.0.1/a', 'http://[::1]/a',
+        'http://[::ffff:127.0.0.1]/a', 'http://localhost/a', 'http://169.254.169.254/a', 'https://user:pass@example.com/a', null, 123]) {
+        const result = await callTool(external, { prompt: 'test', [field]: [value] }, 'submit')
+        expect(result.isError, String(value)).toBe(true)
+        const overridden = await callTool(external, { prompt: 'test', [field]: [value], referenceImage: 'https://example.com/safe.png', ...(field === 'referenceImage' ? { referenceImage: value } : {}) }, 'submit')
+        expect(overridden.isError).toBe(true)
+      }
+      expect(mockNetFetch).not.toHaveBeenCalled()
+      expect(mockStat).not.toHaveBeenCalled()
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+      expect(mockUploadImageBase64).not.toHaveBeenCalled()
+    }
+  )
+
+  it('submits directly to the backend without polling, uploading or downloading references', async () => {
+    const external = new ImageGenerateServer({ external: true })
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, task_id: 'remote-task', status: 'queued' }))
+    const result = await callTool(external, { prompt: 'test', action: 'submit_and_wait', sourceImage: 'https://example.com/a.png' }, 'submit')
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.task_id).toBe('remote-task')
+    expect(payload.polling_hint).toContain('task_status')
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body).reference_images).toEqual(['https://example.com/a.png'])
+    expect(mockNetFetch.mock.calls[1][1].signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it.each([
+    { status: 'PROCESSING', progress: 0.5 },
+    { status: 'SUCCESS', result: { image: 'http://127.0.0.1/private', billing: { points: 1 } } },
+    { status: 'FAILED', result: { error: 'moderation rejected' } }
+  ])('queries once and preserves backend result without fetching images: $status', async (backend) => {
+    const external = new ImageGenerateServer({ external: true })
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse(backend))
+    const result = await callTool(external, { task_id: 'remote-task' }, 'task_status')
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload.task_id).toBe('remote-task')
+    expect(payload.status).toBe(backend.status.toLowerCase())
+    expect(payload.result).toEqual(backend.result)
+    expect(result.content).toHaveLength(1)
+    if (backend.status === 'FAILED') {
+      expect(result.isError).toBe(true)
+      expect(payload.error).toBe('moderation rejected')
+    }
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([{ success: false, error: 'quota exceeded' }, { success: true }])('reports rejected or malformed submissions', async (backend) => {
+    const external = new ImageGenerateServer({ external: true })
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse(backend))
+    const result = await callTool(external, { prompt: 'test' }, 'submit')
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text).status).toBe('failed')
+  })
+
+  it('returns a stable query error without claiming the backend task failed', async () => {
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ error: 'unavailable' }, false, 503))
+    const result = await callTool(new ImageGenerateServer({ external: true }), { task_id: 'existing' }, 'task_status')
+    expect(result.isError).toBe(true)
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ success: false, status: 'unknown', task_id: 'existing' })
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('requires a nonempty task_id without IO', async () => {
+    const result = await callTool(new ImageGenerateServer({ external: true }), { task_id: ' ' }, 'task_status')
+    expect(result.isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
   it('should expose only the generate_or_edit_image tool', async () => {
     const server = createServer()
     const result = await listTools(server)

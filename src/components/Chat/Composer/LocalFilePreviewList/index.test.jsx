@@ -117,6 +117,24 @@ describe('toolbar attachment sidebar previews', () => {
     expect(onAddFile).toHaveBeenCalledExactlyOnceWith({ key: 'skill-example-group:ingredients', label: '添加原料展示' });
   });
 
+  it('renders image groups with a thumbnail, preview, remove and refill actions', async () => {
+    const onRemove = vi.fn();
+    const onAddFile = vi.fn();
+    const image = { uid: 'hero', name: '主图-hero.png', fileType: 'image/png', url: 'https://example.com/hero.png' };
+    const placeholder = { key: 'skill-example-group:image:hero', label: '添加主图' };
+    const group = { key: placeholder.key, label: '主图', countHint: '1-2个', files: [image], placeholder };
+    await render({ files: [], fileGroups: [group], onRemove, onAddFile });
+    expect(container.querySelector('img.chat-panel__local-file-preview-thumb-image').getAttribute('src')).toBe(image.url);
+    expect(container.querySelector('video')).toBeNull();
+    await open(image.name);
+    expect(openAttachmentPreview).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', src: image.url }));
+    await click(container.querySelector(`[aria-label="移除 ${image.name}"]`));
+    expect(onRemove).toHaveBeenCalledWith(image);
+    await render({ files: [], fileGroups: [{ ...group, files: [] }], onAddFile });
+    await click(container.querySelector('.chat-panel__local-file-preview-placeholder'));
+    expect(onAddFile).toHaveBeenCalledWith(placeholder);
+  });
+
   it('shows a loading placeholder for remote video thumbs until metadata loads', async () => {
     await render({
       files: [

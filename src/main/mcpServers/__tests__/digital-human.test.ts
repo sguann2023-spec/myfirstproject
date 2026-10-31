@@ -147,6 +147,24 @@ describe('DigitalHumanServer', () => {
     }
   })
 
+  it.each([
+    ['Insufficient remaining points (剩余点数不足)，剩余点数: 63.96，所需点数: 1060.0', 'Insufficient remaining points'],
+    ['', '任务处理失败'],
+    [null, '任务处理失败']
+  ])('preserves polling failure details in the MCP error (%s)', async (error, expected) => {
+    mockStoreGet.mockImplementation((key: string) => key === 'auth.vectcut_api_key' ? 'external-api-key' : undefined)
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, output: { audio_url: 'https://example.com/audio.mp3' } }))
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'failed-task' }))
+      .mockResolvedValueOnce(mockJsonResponse({ task_status: 2, status: 'failed', message: '任务处理失败', error }))
+    const result = await callTool(createServer(), 'create_lip_sync_digital_human', {
+      copywriting: '文案', voiceId: 'voice-1', videoUrl: 'https://example.com/person.mp4'
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(expected)
+    if (error) expect(result.content[0].text).toContain(error)
+  })
+
   it('returns a job before synthesis and resolves it through the status tool', async () => {
     const records = new Map<string, unknown>()
     mockStoreGet.mockImplementation((key: string) =>
@@ -173,6 +191,24 @@ describe('DigitalHumanServer', () => {
     await new Promise<void>((resolve) => setImmediate(resolve))
     const completed = JSON.parse((await callTool(server, 'get_digital_human_job', { jobId: started.job_id })).content[0].text)
     expect(completed).toMatchObject({ status: 'success', result: { video_url: 'https://example.com/result.mp4' } })
+  })
+
+  it('preserves insufficient points details in a failed background job', async () => {
+    const records = new Map<string, unknown>()
+    mockStoreGet.mockImplementation((key: string) => key === 'settings.userId' ? 'billing-account' : records.get(key))
+    mockStoreSet.mockImplementation((key: string, value: unknown) => records.set(key, value))
+    const server = createServer()
+    const detail = 'Insufficient remaining points (剩余点数不足)，剩余点数: 63.96，所需点数: 1060.0'
+    vi.spyOn(server as any, 'queryStatus').mockResolvedValue({ task_status: 2, status: 'failed', message: '任务处理失败', error: detail })
+    vi.spyOn(server as any, 'createLipSyncDigitalHuman').mockImplementation(() =>
+      (server as any).waitForResult('lip_sync', 'failed-remote', '/status', undefined, '生成中'))
+    const started = JSON.parse((await callTool(server, 'start_digital_human_task', {
+      requestId: 'billing-failure', mode: 'lip_sync',
+      copywriting: '文案', voiceId: 'voice-1', videoUrl: 'https://example.com/person.mp4'
+    })).content[0].text)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    const result = await callTool(server, 'get_digital_human_job', { jobId: started.job_id })
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ status: 'failed', message: `Digital human task failed: ${detail}` })
   })
 
   it('restores an interrupted upstream task with original speech billing', async () => {
@@ -591,3 +627,117 @@ describe('DigitalHumanServer', () => {
     )
   })
 })
+
+  describe('external tools', () => {
+    beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
+    const invoke = (server: any, name: string, args: Record<string, unknown>) => callTool(server, name, args)
+    it('only lists async tools and rejects hidden legacy tools', async () => {
+      const server = new DigitalHumanServer({ external: true })
+      expect((await listTools(server)).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+      expect((await invoke(server, 'start_digital_human_task', {})).isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    })
+    it.each(['/tmp/ref.png', 'file:///tmp/ref.png', 'data:image/png;base64,AA', 'http://localhost/a', 'http://127.0.0.1/a', 'http://10.0.0.1/a', 'http://[::1]/a', 'https://user:pass@example.com/a'])('rejects unsafe media %s before submission', async (url) => {
+      const server = new DigitalHumanServer({ external: true })
+      const result = await invoke(server, 'submit', { mode: 'omni', imageUrl: 'https://example.com/a.png', image_url: url, audioUrl: 'https://example.com/a.mp3', prompt: 'scene' })
+      expect(result.isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+    it('submits exactly once and never polls or uploads', async () => {
+      const server = new DigitalHumanServer({ external: true })
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'backend-id', status: 'queued', billing: { points: 2 } }))
+      const result = await invoke(server, 'submit', { mode: 'omni', imageUrl: 'https://example.com/a.png', audioUrl: 'https://example.com/a.mp3', prompt: 'scene' })
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ task_id: 'backend-id', billing: { points: 2 } })
+      expect(request).toHaveBeenCalledTimes(1)
+      expect(request.mock.calls[0][0]).toBe('/cut_jianying/digital_human/omni/submit')
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+    })
+    it.each(['running', 'succeeded', 'failed'])('queries status once preserving %s and billing', async (status) => {
+      const server = new DigitalHumanServer({ external: true })
+      const payload = { task_id: 'backend-id', status, error: 'failure detail', result: { video_url: 'https://example.com/out.mp4', billing: { points: 3 } }, billing: { points: 2 } }
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(payload))
+      const result = await invoke(server, 'task_status', { task_id: 'backend-id', mode: 'omni' })
+      expect(JSON.parse(result.content[0].text)).toMatchObject(payload)
+      expect(request).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('external avatar backend routing', () => {
+    beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
+    it.each([
+      ['lip_sync', { video_url: 'https://example.com/a.mp4', audio_url: 'https://example.com/a.mp3' }, '/cut_jianying/digital_human/create'],
+      ['seedance', { image_url: 'https://example.com/a.png', copywriting: 'hello', voice_id: 'voice' }, '/llm/digital_human/seedance/submit']
+    ])('submits %s directly without synthesis', async (mode, args, endpoint) => {
+      const server = new DigitalHumanServer({ external: true })
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'real-task' }))
+      const result = await callTool(server, 'submit', { mode, ...args })
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ mode, task_id: 'real-task', success: true })
+      expect(request).toHaveBeenCalledExactlyOnceWith(endpoint, { method: 'POST', body: args })
+    })
+    it.each(['audioUrl', 'audio_url', 'videoUrl', 'video_url', 'imageUrl', 'image_url'])('validates ignored and overwritten alias %s', async (field) => {
+      const server = new DigitalHumanServer({ external: true })
+      const request = vi.spyOn(server as any, 'requestWithAuth')
+      const result = await callTool(server, 'submit', { mode: 'seedance', imageUrl: 'https://example.com/a.png', copywriting: 'hello', voiceId: 'voice', [field]: '/tmp/private' })
+      expect(result.isError).toBe(true)
+      expect(request).not.toHaveBeenCalled()
+    })
+    it.each(['create_lip_sync_digital_human', 'create_image_driven_digital_human', 'create_omni_image_driven_digital_human', 'create_seedance_digital_human', 'get_digital_human_job'])('blocks hidden tool %s', async (name) => {
+      const server = new DigitalHumanServer({ external: true })
+      expect((await callTool(server, name, {})).isError).toBe(true)
+      expect(mockNetFetch).not.toHaveBeenCalled()
+    })
+  })
+
+ describe('external failure semantics', () => {
+   beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
+   const invoke = (server: any, name: string, args: Record<string, unknown>) => callTool(server, name, args)
+   const submitArgs = { mode: 'omni', imageUrl: 'https://example.com/a.png', audioUrl: 'https://example.com/a.mp3', prompt: 'scene' }
+   it.each([
+     { success: false, task_id: 'task', error: 'Insufficient remaining points', message: 'original', billing: { points: 2 } },
+     { success: false, message: 'upstream rejected', billing: { points: 2 } },
+     { success: true, status: 'queued' },
+     { task_id: '   ' },
+     { task_id: 'task', status: 'failed', error: 'backend failure' }
+   ])('marks unsuccessful submission as an MCP error: %j', async (payload) => {
+     const server = new DigitalHumanServer({ external: true })
+     const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(payload))
+     const result = await invoke(server, 'submit', submitArgs)
+     const parsed = JSON.parse(result.content[0].text)
+     expect(result.isError).toBe(true)
+     expect(parsed).toMatchObject({ ...payload, success: false })
+     expect(parsed.error).toEqual(payload.error || ('message' in payload && payload.message) || expect.stringContaining('task_id'))
+     expect(request).toHaveBeenCalledTimes(1)
+   })
+   it.each([
+     { status: 'failed', error: 'original error', message: 'original message' },
+     { status: 'error', message: 'upstream rejected' },
+     { status: 'cancelled' },
+     { status: 'not_found' },
+     { success: false, status: 'running', message: 'backend rejected query' }
+   ])('marks explicit backend failure as an MCP error without dropping details: %j', async (payload) => {
+     const server = new DigitalHumanServer({ external: true })
+     const original = { ...payload, billing: { points: 3 }, result: { billing: { points: 1 }, detail: 'original' } }
+     const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(original))
+     const result = await invoke(server, 'task_status', { mode: 'omni', task_id: 'task' })
+     expect(result.isError).toBe(true)
+     expect(JSON.parse(result.content[0].text)).toMatchObject({ ...original, success: false, error: payload.error || payload.message || expect.any(String) })
+     expect(request).toHaveBeenCalledTimes(1)
+   })
+   it.each(['running', 'succeeded'])('does not mark %s as an error', async (status) => {
+     const server = new DigitalHumanServer({ external: true })
+     vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status }))
+     const result = await invoke(server, 'task_status', { mode: 'omni', task_id: 'task' })
+     expect(result.isError).not.toBe(true)
+   })
+   it.each(['network', 'http'])('reports %s status transport failure as unknown, not failed', async (failure) => {
+     const server = new DigitalHumanServer({ external: true })
+     const request = vi.spyOn(server as any, 'requestWithAuth')
+     if (failure === 'network') request.mockRejectedValue(new Error('network timeout'))
+     else request.mockResolvedValue(mockJsonResponse({ error: 'upstream unavailable' }, false, 503))
+     const result = await invoke(server, 'task_status', { mode: 'omni', task_id: 'task' })
+     expect(result.isError).toBe(true)
+     expect(JSON.parse(result.content[0].text)).toMatchObject({ task_id: 'task', status: 'unknown', success: false, error: expect.stringContaining(failure === 'network' ? 'network timeout' : 'upstream unavailable') })
+     expect(request).toHaveBeenCalledTimes(1)
+   })
+ })

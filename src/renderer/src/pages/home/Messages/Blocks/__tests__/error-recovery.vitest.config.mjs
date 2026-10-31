@@ -13,12 +13,15 @@ export default defineConfig({
   }],
   resolve: {
     alias: {
+      '@logger': fileURLToPath(new URL('../../../../../services/LoggerService.ts', import.meta.url)),
+      '@shared': fileURLToPath(new URL('../../../../../../../shared', import.meta.url)),
       '@renderer': fileURLToPath(new URL('../../../../..', import.meta.url))
     }
   },
   test: {
     environment: 'jsdom',
     include: [
+      'src/renderer/src/pages/home/Messages/Blocks/__tests__/toolBillingRecovery.test.ts',
       'src/renderer/src/pages/home/Messages/Blocks/__tests__/ErrorRecoveryBlock.test.tsx',
       'src/renderer/src/pages/home/Messages/Blocks/__tests__/EmbeddedMessageRetry.test.tsx',
       'src/components/Chat/NetworkCheck/NetworkCheck.test.jsx',

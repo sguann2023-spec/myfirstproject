@@ -1,3 +1,4 @@
+import ipaddr from 'ipaddr.js'
 import { createWriteStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -31,10 +32,14 @@ const TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
-      url: { type: 'string', description: 'Audio/video HTTP(S) URL, file URL, or absolute local path.' },
+      url: {
+        type: 'string',
+        description: 'Audio/video HTTP(S) URL, file URL, or absolute local path.'
+      },
       prompt: {
         type: 'string',
-        description: 'Question or instructions describing the desired audio analysis, including output language/format and approximate event timestamps when needed.'
+        description:
+          'Question or instructions describing the desired audio analysis, including output language/format and approximate event timestamps when needed.'
       }
     },
     required: ['url', 'prompt'],
@@ -47,13 +52,20 @@ type Extra = {
   _meta?: { progressToken?: ProgressToken }
   sendNotification?: (notification: {
     method: 'notifications/progress'
-    params: { progressToken: ProgressToken; progress: number; total: number; message: string }
+    params: {
+      progressToken: ProgressToken
+      progress: number
+      total: number
+      message: string
+    }
   }) => Promise<void>
 }
 type Completion = {
   billing?: Record<string, unknown>
   usage?: Record<string, unknown>
-  choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>
+  choices?: Array<{
+    message?: { content?: string | Array<{ text?: string }> }
+  }>
 }
 type TaskStatus = {
   status?: string
@@ -63,24 +75,162 @@ type TaskStatus = {
   error_code?: unknown
   progress?: number
   billing?: Record<string, unknown>
-  result?: { assistant?: string; response?: Completion; billing?: Record<string, unknown>; error?: string }
+  result?: {
+    assistant?: string
+    response?: Completion
+    billing?: Record<string, unknown>
+    error?: string
+  }
 }
+
+// Validate before alias resolution. No DNS, redirects or media probing here;
+// the backend must enforce those policies at its download boundary.
+function publicMediaUrl(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value || /[\\\s]/.test(value))
+    throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  const url = new URL(value)
+  const host = url.hostname
+    .replace(/^\[|\]$/g, '')
+    .toLowerCase()
+    .replace(/\.$/, '')
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    (!ipaddr.isValid(host) && !host.includes('.')) ||
+    /(^|\.)(localhost|local|internal|test|invalid)$/.test(host) ||
+    (ipaddr.isValid(host) && ipaddr.parse(host).range() !== 'unicast')
+  )
+    throw new Error(`'${field}' requires a public HTTP(S) URL`)
+  return value
+}
+
+function externalFailure(result: Record<string, unknown>): boolean {
+  return (
+    result.success === false ||
+    ['failed', 'error', 'cancelled', 'canceled', 'failure'].includes(String(result.status || '').toLowerCase())
+  )
+}
+
+const EXTERNAL_TOOLS: Tool[] = [
+  {
+    name: 'submit',
+    description:
+      'Submit directly to the backend and return task_id immediately. Public HTTP(S) media URLs only; no preprocessing or waiting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Public HTTP(S) media URL only.'
+        },
+        prompt: {
+          type: 'string',
+          description: 'prompt'
+        }
+      },
+      additionalProperties: false,
+      required: ['url', 'prompt']
+    }
+  },
+  {
+    name: 'task_status',
+    description: 'Query the backend once. Preserve results, billing and failures without downloading or waiting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          minLength: 1
+        }
+      },
+      required: ['task_id'],
+      additionalProperties: false
+    }
+  }
+]
 
 export default class AudioUnderstandServer {
   public readonly mcpServer: McpServer
   private readonly store = new Store({ name: 'vectcut' })
 
-  constructor(private readonly workspacePath?: string) {
+  constructor(
+    private readonly workspacePath?: string,
+    private readonly options: { external?: boolean } = {}
+  ) {
     this.mcpServer = new McpServer({ name: 'audio-understand', version: '1.0.0' }, { capabilities: { tools: {} } })
-    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [TOOL] }))
+    this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: this.options.external ? EXTERNAL_TOOLS : [TOOL]
+    }))
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      if (this.options.external)
+        return this.executeExternalRequest(request.params.name, request.params.arguments ?? {}, extra as Extra)
       if (request.params.name !== TOOL.name) return this.format({ error: `Unknown tool: ${request.params.name}` }, true)
       return this.executeDirectRequest(request.params.arguments ?? {}, extra as Extra)
     })
   }
 
+  private async executeExternalRequest(name: string, args: Record<string, unknown>, extra?: Extra) {
+    let taskId = ''
+    try {
+      if (!['submit', 'task_status'].includes(name)) throw new Error(`Unknown external tool: ${name}`)
+      const allowed = name === 'task_status' ? ['task_id'] : ['url', 'prompt']
+      if (Object.keys(args).some((key) => !allowed.includes(key))) throw new Error('Unsupported external argument')
+      if (name === 'task_status') {
+        if (typeof args.task_id !== 'string' || !args.task_id.trim()) throw new Error("'task_id' is required")
+        taskId = args.task_id.trim()
+        const result = (await this.request(
+          `task_status?${new URLSearchParams({ task_id: taskId })}`,
+          undefined,
+          extra?.signal
+        )) as Record<string, unknown>
+        return this.format({ ...result, task_id: taskId }, externalFailure(result))
+      }
+      const url = publicMediaUrl(args.url, 'url')
+      if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new Error("'prompt' is required")
+      const payload = {
+        model: MODEL,
+        stream: false,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'audio_url', audio_url: { url } },
+              { type: 'text', text: args.prompt.trim() }
+            ]
+          }
+        ]
+      }
+      const result = (await this.request('submit_chat_task', payload, extra?.signal)) as Record<string, unknown>
+      const failed = externalFailure(result) || typeof result.task_id !== 'string' || !result.task_id.trim()
+      return this.format(
+        {
+          ...result,
+          ...(failed
+            ? {
+                success: false,
+                error: result.error || 'Backend submission failed or returned no task ID'
+              }
+            : { status: result.status || 'submitted' })
+        },
+        failed
+      )
+    } catch (error) {
+      return this.format(
+        {
+          ...(taskId ? { task_id: taskId, status: 'unknown' } : {}),
+          error: error instanceof Error ? error.message : String(error)
+        },
+        true
+      )
+    }
+  }
+
   private format(payload: Record<string, unknown>, isError = false) {
-    return { content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }], ...(isError ? { isError: true } : {}) }
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+      ...(isError ? { isError: true } : {})
+    }
   }
 
   private async progress(extra: Extra | undefined, progress: number, message: string) {
@@ -150,6 +300,7 @@ export default class AudioUnderstandServer {
   }
 
   public async executeDirectRequest(args: Record<string, unknown>, extra?: Extra) {
+    if (this.options.external) return this.format({ error: 'Internal long-running tool is unavailable externally' }, true)
     try {
       const url = typeof args.url === 'string' ? args.url.trim() : ''
       const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
