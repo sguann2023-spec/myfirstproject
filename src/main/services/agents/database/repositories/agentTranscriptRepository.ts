@@ -1,15 +1,20 @@
 import { and, eq, inArray, max } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
+import type { AgentPersistedMessage } from '@types'
 
 import { readMessageProjection } from '../messageEventStore'
+import { canonicalEntryToPersisted, persistedToCanonicalInputs } from '../agentHistoryMapper'
+import { mergeLegacyHistory } from '../legacyHistoryOrder'
 import { DatabaseManager } from '../DatabaseManager'
 import { withoutTransaction } from '../withoutTransaction'
 import { OrderedTaskQueue } from '../orderedTaskQueue'
 import {
   agentMessagePartsTable,
   agentMessagesTable,
+  piSessionsTable,
   type AgentMessagePartRow,
-  type AgentMessageRow
+  type AgentMessageRow,
+  type SessionMessageRow
 } from '../schema'
 import type * as schema from '../schema'
 import type {
@@ -98,6 +103,7 @@ export interface IAgentTranscriptRepository {
   getPartsByMessageIds(sessionId: string, messageIds: string[]): Promise<AgentMessagePart[]>
   listMessageParts(sessionId: string, messageId: string): Promise<AgentMessagePart[]>
   listTranscript(sessionId: string): Promise<AgentMessageWithParts[]>
+  migrateLegacyHistory?(sessionId: string, legacy?: AgentPersistedMessage[]): Promise<void>
   tombstoneMessage(sessionId: string, messageId: string): Promise<boolean>
 }
 
@@ -232,6 +238,88 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
   async listMessages(sessionId: string): Promise<AgentMessage[]> {
     const rows = await readMessageProjection<AgentMessageRow>(await this.database(), 'agent_messages', sessionId)
     return rows.sort((a, b) => a.sequence - b.sequence).map(row => this.deserializeMessage(row))
+  }
+
+  async migrateLegacyHistory(sessionId: string, suppliedLegacy?: AgentPersistedMessage[]): Promise<void> {
+    await this.withOrderedWrite(async database => {
+      // Production reads the latest source inside the write queue, not a UI snapshot.
+      const legacy = suppliedLegacy ?? (await readMessageProjection<SessionMessageRow>(database, 'session_messages', sessionId))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+        .map(row => {
+          const item = typeof row.content === 'string' ? JSON.parse(row.content) : row.content
+          return { ...item, message: { ...item.message, createdAt: item.message.createdAt ?? row.created_at, updatedAt: item.message.updatedAt ?? row.updated_at } } as AgentPersistedMessage
+        })
+      if (!legacy.length) return
+      // Frozen PI prefixes depend on source sequence boundaries and parent digests.
+      // Keep their sources unchanged; the history reader still orders its fallback.
+      const [piSession] = await database.select().from(piSessionsTable).where(eq(piSessionsTable.topic_id, sessionId)).limit(1)
+      if (piSession?.metadata_json?.__overlayContext) return
+      const rows = await readMessageProjection<AgentMessageRow>(database, 'agent_messages', sessionId)
+      const existing = new Map(rows.map(row => [row.id, row]))
+      const canonical = rows.sort((a, b) =>
+        Number(a.semantics_json?.legacyHistoryOrder ?? a.sequence) - Number(b.semantics_json?.legacyHistoryOrder ?? b.sequence)).map(row =>
+        canonicalEntryToPersisted({ message: this.deserializeMessage(row), parts: [] }))
+      const ordered = mergeLegacyHistory(canonical, legacy)
+      const inputs = legacy.map(item => persistedToCanonicalInputs(sessionId, item)).filter(input => input !== null)
+      const pending = inputs.filter(input => {
+        const row = existing.get(input.message.id)
+        if (row?.semantics_json?.tombstone || row?.semantics_json?.uiVisibility === 'hidden' || row?.semantics_json?.transcriptVisibility === 'hidden') return false
+        return !row || (row.semantics_json?.origin === 'legacy_open_migration' && row.semantics_json?.legacyHistoryComplete !== true)
+      })
+      // Body writes are restartable. Existing canonical bodies (including tombstones)
+      // remain authoritative, and completion is recorded only after ordering succeeds.
+      for (const input of pending) {
+        await this.upsertMessageWith(database, {
+          ...input.message,
+          parentMessageId: undefined,
+          semantics: {
+            ...input.message.semantics,
+            origin: 'legacy_open_migration',
+            legacyHistoryComplete: false
+          }
+        })
+        for (const part of input.parts) await this.upsertPartWith(database, part)
+      }
+      const current = await readMessageProjection<AgentMessageRow>(database, 'agent_messages', sessionId)
+      const byId = new Map(current.map(row => [row.id, row]))
+      const ids = ordered.map(item => item.message.id).filter(id => byId.has(id))
+      const currentIds = [...current].sort((a, b) => a.sequence - b.sequence).map(row => row.id)
+      const needsReorder = ids.some((id, index) => currentIds[index] !== id) || current.some(row =>
+        row.semantics_json?.legacyHistoryOrder !== undefined && row.sequence !== row.semantics_json.legacyHistoryOrder)
+      if (needsReorder) {
+        for (const [index, id] of ids.entries()) {
+          const row = byId.get(id)!
+          row.semantics_json = { ...row.semantics_json, legacyHistoryOrder: index }
+          await database.update(agentMessagesTable).set({ semantics_json: row.semantics_json })
+            .where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, id)))
+        }
+        // Vacate the entire range first for databases that still enforce UNIQUE.
+        // After a partial failure the same legacy spine reconstructs the final order.
+        const offset = current.reduce((maximum, row) => Math.max(maximum, row.sequence), -1) + 1
+        for (const [index, id] of ids.entries()) {
+          await database.update(agentMessagesTable).set({ sequence: offset + index })
+            .where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, id)))
+        }
+        for (const [sequence, id] of ids.entries()) {
+          await database.update(agentMessagesTable).set({ sequence })
+            .where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, id)))
+        }
+      }
+      for (const input of pending) {
+        const row = byId.get(input.message.id)!
+        await database.update(agentMessagesTable).set({
+          parent_message_id: input.message.parentMessageId && byId.has(input.message.parentMessageId) ? input.message.parentMessageId : row.parent_message_id,
+          semantics_json: { ...row.semantics_json, legacyHistoryComplete: true }
+        }).where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, input.message.id)))
+      }
+      for (const input of inputs) {
+        const row = byId.get(input.message.id)
+        if (row && !row.parent_message_id && input.message.parentMessageId && byId.has(input.message.parentMessageId) && !pending.includes(input)) {
+          await database.update(agentMessagesTable).set({ parent_message_id: input.message.parentMessageId })
+            .where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, input.message.id)))
+        }
+      }
+    })
   }
 
   private async upsertPartWith(

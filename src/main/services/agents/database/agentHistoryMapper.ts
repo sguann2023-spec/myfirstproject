@@ -156,7 +156,9 @@ export function persistedToCanonicalInputs(
         origin: String(semantics.origin ?? 'legacy_dual_write'),
         uiVisibility: semantics.uiVisibility ?? 'visible',
         providerVisibility: semantics.providerVisibility ?? 'visible',
-        ...semantics
+        ...semantics,
+        ...(legacyMessage.visibility === 'hidden'
+          ? { uiVisibility: 'hidden', providerVisibility: 'hidden', transcriptVisibility: 'hidden' } : {})
       },
       provider: {
         ...(legacyMessage.modelId ? { modelId: legacyMessage.modelId } : {}),

@@ -258,7 +258,15 @@ class AgentMessageRepository extends BaseService {
       for (const row of rows) {
         const deserialized = this.deserialize(row)
         if (deserialized?.content) {
-          messages.push(deserialized.content as AgentPersistedMessage)
+          const content = deserialized.content as AgentPersistedMessage
+          messages.push({
+            ...content,
+            message: {
+              ...content.message,
+              createdAt: content.message.createdAt ?? row.created_at,
+              updatedAt: content.message.updatedAt ?? row.updated_at
+            }
+          })
         }
       }
 

@@ -158,6 +158,9 @@ export class SessionMessageService extends BaseService {
           .where(eq(sessionMessagesTable.id, row.id))
       }
     }
+    // A queued lazy migration may have inserted the canonical copy after the
+    // initial tombstone lookup. Hide the source first, then close that window.
+    if (rows.length > 0 && !canonicalDeleted) await agentTranscriptRepository.tombstoneMessage(sessionId, logicalMessageId)
     if (canonicalDeleted || rows.length > 0) return true
 
     // Compatibility for callers still passing the legacy integer row id. Keep

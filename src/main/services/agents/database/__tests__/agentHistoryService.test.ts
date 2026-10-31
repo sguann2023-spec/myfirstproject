@@ -129,22 +129,23 @@ describe('AgentHistoryService', () => {
     expect(result.messages.map((item) => item.message.id)).toEqual(['visible', 'legacy-only'])
   })
 
-  it('assigns stable fallback sequences after all canonical slots for cursor pagination', async () => {
+  it('reserves hidden slots while assigning fallback pagination cursors', async () => {
     const hidden = entry('hidden', 1)
     hidden.message.semantics = { uiVisibility: 'hidden', transcriptVisibility: 'hidden' }
     const transcript = { listTranscript: vi.fn().mockResolvedValue([entry('canonical', 0), hidden]) }
     const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
-      { message: { id: 'legacy-b', createdAt: '2026-01-03', role: 'user' }, blocks: [] },
-      { message: { id: 'legacy-a', createdAt: '2026-01-02', role: 'user' }, blocks: [] }
+      { message: { id: 'legacy-a', createdAt: '2026-01-02', role: 'user' }, blocks: [] },
+      { message: { id: 'legacy-b', createdAt: '2026-01-03', role: 'user' }, blocks: [] }
     ]) }
     const service = new AgentHistoryService(transcript as any, legacy as any)
     const firstPage = await service.getHistory('session-a', { afterSequence: -1, limit: 2 })
     expect(firstPage.messages.map((item) => item.message.id)).toEqual(['canonical', 'legacy-a'])
-    expect(firstPage.sequences).toEqual([0, 2])
-    expect(firstPage.nextAfterSequence).toBe(2)
-    const secondPage = await service.getHistory('session-a', { afterSequence: 2, limit: 2 })
+    const base = firstPage.sequences[0]
+    expect(firstPage.sequences).toEqual([base, base + 2])
+    expect(firstPage.nextAfterSequence).toBe(base + 2)
+    const secondPage = await service.getHistory('session-a', { afterSequence: firstPage.nextAfterSequence, limit: 2 })
     expect(secondPage.messages.map((item) => item.message.id)).toEqual(['legacy-b'])
-    expect(secondPage.sequences).toEqual([3])
+    expect(secondPage.sequences).toEqual([base + 3])
   })
 
   it('falls back when canonical records are unavailable or corrupt and paginates by sequence', async () => {
@@ -155,8 +156,120 @@ describe('AgentHistoryService', () => {
     ]) }
     const service = new AgentHistoryService(transcript as any, legacy as any)
     const result = await service.getHistory('session-a', { afterSequence: -1, limit: 1 })
-    expect(result.messages[0]?.message.id).toBe('a')
+    expect(result.messages[0]?.message.id).toBe('b')
     expect(result.hasMore).toBe(true)
-    expect(result.nextAfterSequence).toBe(0)
+    expect(result.nextAfterSequence).toBe(result.sequences[0])
+  })
+
+  it('keeps legacy row order for equal or missing times instead of sorting logical IDs', async () => {
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'z-user', role: 'user' }, blocks: [] },
+      { message: { id: 'a-assistant', role: 'assistant' }, blocks: [] }
+    ]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(result.messages.map(item => item.message.id)).toEqual(['z-user', 'a-assistant'])
+  })
+
+  it('places a legacy question before its canonical answer and paginates without omissions', async () => {
+    const answer = entry('answer', 0)
+    answer.message.role = 'assistant'
+    answer.message.parentMessageId = 'question'
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([answer]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'question', role: 'user', createdAt: answer.message.createdAt }, blocks: [] },
+      { message: { id: 'answer', role: 'assistant', createdAt: answer.message.createdAt }, blocks: [] }
+    ]) }
+    const service = new AgentHistoryService(transcript as any, legacy as any)
+    const first = await service.getHistory('session-a', { limit: 1 })
+    const second = await service.getHistory('session-a', { afterSequence: first.nextAfterSequence, limit: 1 })
+    expect([...first.messages, ...second.messages].map(item => item.message.id)).toEqual(['question', 'answer'])
+    expect(second.hasMore).toBe(false)
+  })
+
+  it('awaits lazy migration on opening history and reloads the canonical result', async () => {
+    const transcript = {
+      listTranscript: vi.fn().mockResolvedValueOnce([]).mockResolvedValue([entry('user', 0), entry('assistant', 1)]),
+      migrateLegacyHistory: vi.fn().mockResolvedValue(undefined)
+    }
+    const payloads = [
+      { message: { id: 'user', role: 'user' }, blocks: [] },
+      { message: { id: 'assistant', role: 'assistant' }, blocks: [] }
+    ]
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue(payloads) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(transcript.migrateLegacyHistory).toHaveBeenCalledWith('session-a')
+    expect(transcript.listTranscript).toHaveBeenCalledTimes(2)
+    expect(result.messages.map(item => item.message.id)).toEqual(['user', 'assistant'])
+  })
+
+  it('preserves ordered history and retries when lazy migration fails', async () => {
+    const transcript = {
+      listTranscript: vi.fn().mockResolvedValue([]),
+      migrateLegacyHistory: vi.fn().mockRejectedValue(new Error('write failed'))
+    }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'z-user', role: 'user' }, blocks: [] },
+      { message: { id: 'a-answer', role: 'assistant' }, blocks: [] }
+    ]) }
+    const service = new AgentHistoryService(transcript as any, legacy as any)
+    for (let index = 0; index < 2; index++) {
+      expect((await service.getHistory('session-a')).messages.map(item => item.message.id)).toEqual(['z-user', 'a-answer'])
+    }
+    expect(transcript.migrateLegacyHistory).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps full legacy text visible if canonical migration stopped before writing parts', async () => {
+    const partial = entry('question', 0)
+    partial.message.semantics = { origin: 'legacy_open_migration', legacyHistoryComplete: false }
+    partial.parts = []
+    const transcript = {
+      listTranscript: vi.fn().mockResolvedValue([partial]),
+      migrateLegacyHistory: vi.fn().mockRejectedValue(new Error('part write failed'))
+    }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'question', role: 'user' }, blocks: [{ id: 'text', type: 'main_text', content: 'complete old text' }] }
+    ]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(result.messages[0].blocks[0]).toMatchObject({ content: 'complete old text' })
+  })
+
+  it('keeps fallback cursor slots after a previously read message is removed', async () => {
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([]) }
+    const messages = ['a', 'b', 'c'].map(id => ({ message: { id, role: 'user' }, blocks: [] }))
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValueOnce(messages).mockResolvedValue(messages.slice(1)) }
+    const service = new AgentHistoryService(transcript as any, legacy as any)
+    const first = await service.getHistory('session-a', { limit: 1 })
+    const second = await service.getHistory('session-a', { afterSequence: first.nextAfterSequence, limit: 1 })
+    expect(second.messages.map(item => item.message.id)).toEqual(['b'])
+    expect(second.nextAfterSequence).toBe(first.nextAfterSequence! + 1)
+  })
+
+  it('repairs canonical parent order with only one legacy anchor without forming a cycle', async () => {
+    const answer = entry('answer', 0)
+    answer.message.parentMessageId = 'question'
+    answer.message.role = 'assistant'
+    const question = entry('question', 1)
+    question.message.role = 'user'
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([answer, question]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'question', role: 'user' }, blocks: [] }
+    ]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(result.messages.map(item => item.message.id)).toEqual(['question', 'answer'])
+  })
+
+  it('keeps separate fallback cursors when another reader refreshes canonical history', async () => {
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'a', role: 'user' }, blocks: [] },
+      { message: { id: 'b', role: 'assistant' }, blocks: [] }
+    ]) }
+    const service = new AgentHistoryService(transcript as any, legacy as any)
+    const first = await service.getHistory('session-a', { limit: 1 })
+    transcript.listTranscript.mockResolvedValue([entry('a', 5), entry('b', 6)])
+    await service.getHistory('session-a', { limit: 1 })
+    const next = await service.getHistory('session-a', { afterSequence: first.nextAfterSequence, limit: 1 })
+    expect(next.messages.map(item => item.message.id)).toEqual(['b'])
   })
 })

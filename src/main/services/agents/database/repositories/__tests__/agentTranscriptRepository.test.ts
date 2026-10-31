@@ -28,6 +28,7 @@ import { AgentTranscriptRepository } from '../agentTranscriptRepository'
 
 const createSchemaSql = `
   CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL);
+  CREATE TABLE pi_sessions (topic_id TEXT PRIMARY KEY, pi_session_id TEXT, created_at TEXT, active_leaf_id TEXT, metadata_json TEXT, updated_at TEXT);
   CREATE TABLE agent_messages (
     id TEXT PRIMARY KEY NOT NULL,
     session_id TEXT NOT NULL,
@@ -88,6 +89,113 @@ describe('AgentTranscriptRepository', () => {
   let client: WorkerDatabaseClient
   let repository: AgentTranscriptRepository
   let tempDirectory: string
+
+  const legacyPair = () => [
+    { message: { id: 'z-question', role: 'user', createdAt: '2026-01-01T00:00:00.000Z' }, blocks: [
+      { id: 'question-text', type: 'main_text', content: 'question' }
+    ] },
+    { message: { id: 'a-answer', role: 'assistant', askId: 'z-question', createdAt: '2026-01-01T00:00:00.000Z' }, blocks: [
+      { id: 'answer-text', type: 'main_text', content: 'answer' }
+    ] }
+  ] as any
+
+  it('materializes legacy history on first open and does not write again on reopening', async () => {
+    for (const item of legacyPair()) {
+      await client.execute({
+        sql: "INSERT INTO session_messages(session_id,role,content,created_at,updated_at) VALUES ('session-a',?,?,?,?)",
+        args: [item.message.role, JSON.stringify(item), item.message.createdAt, item.message.createdAt]
+      })
+    }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue(legacyPair()) }
+    const service = new AgentHistoryService(repository, legacy as any, { getQuestions: vi.fn().mockResolvedValue([]) } as any)
+    expect((await service.getHistory('session-a')).messages.map(item => item.message.id)).toEqual(['z-question', 'a-answer'])
+    const transcript = await repository.listTranscript('session-a')
+    expect(transcript).toMatchObject([
+      { message: { id: 'z-question', sequence: 0, semantics: { legacyHistoryComplete: true } }, parts: [{ data: { text: 'question' } }] },
+      { message: { id: 'a-answer', sequence: 1, parentMessageId: 'z-question' }, parts: [{ data: { text: 'answer' } }] }
+    ])
+    const before = await client.execute('SELECT count(*) AS count FROM entity_records')
+    await service.getHistory('session-a')
+    expect((await client.execute('SELECT count(*) AS count FROM entity_records')).rows).toEqual(before.rows)
+  })
+
+  it('repairs a partially migrated answer before its legacy question without overwriting canonical text', async () => {
+    await repository.upsertMessage({ id: 'a-answer', sessionId: 'session-a', role: 'assistant', status: 'completed', createdAt: '2026-01-01T00:00:00.000Z' })
+    await repository.upsertPart({ id: 'answer-text', sessionId: 'session-a', messageId: 'a-answer', type: 'text', data: { text: 'authoritative answer' } })
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    expect((await repository.listMessages('session-a')).map(item => [item.id, item.sequence])).toEqual([['z-question', 0], ['a-answer', 1]])
+    expect((await repository.listMessageParts('session-a', 'a-answer'))[0].data.text).toBe('authoritative answer')
+  })
+
+  it('resumes missing parts after an interrupted legacy materialization', async () => {
+    await repository.upsertMessage({
+      id: 'z-question', sessionId: 'session-a', role: 'user', status: 'completed',
+      semantics: { origin: 'legacy_open_migration', legacyHistoryComplete: false }
+    })
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    const transcript = await repository.listTranscript('session-a')
+    expect(transcript.map(item => item.message.id)).toEqual(['z-question', 'a-answer'])
+    expect(transcript[0].parts[0].data.text).toBe('question')
+    expect(transcript[0].message.semantics?.legacyHistoryComplete).toBe(true)
+  })
+
+  it('does not rewrite frozen PI prefix sources', async () => {
+    await client.execute({ sql: 'INSERT INTO pi_sessions(topic_id, metadata_json) VALUES (?, ?)', args: ['session-a', JSON.stringify({ __overlayContext: { canonicalSequence: -1, legacyId: 2 } })] })
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    expect(await repository.listTranscript('session-a')).toEqual([])
+  })
+
+  it('does not replay a tombstoned incomplete migration on retry', async () => {
+    await repository.upsertMessage({
+      id: 'z-question', sessionId: 'session-a', role: 'user', status: 'completed',
+      semantics: { origin: 'legacy_open_migration', legacyHistoryComplete: false }
+    })
+    await repository.tombstoneMessage('session-a', 'z-question')
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    expect((await repository.getMessage('session-a', 'z-question'))?.semantics).toMatchObject({
+      tombstone: true, uiVisibility: 'hidden', providerVisibility: 'hidden'
+    })
+    expect(await repository.listMessageParts('session-a', 'z-question')).toEqual([])
+  })
+
+  it('restores order after a failure midway through sequence staging', async () => {
+    await repository.upsertMessage({ id: 'a-answer', sessionId: 'session-a', role: 'assistant', status: 'completed' })
+    const original = client.execute.bind(client)
+    let sequenceWrites = 0
+    const execute = vi.spyOn(client, 'execute').mockImplementation(async statement => {
+      const text = typeof statement === 'string' ? statement : statement.sql
+      if (text.includes('set "sequence"') && ++sequenceWrites === 2) throw new Error('simulated sequence write failure')
+      return original(statement)
+    })
+    try {
+      await expect(repository.migrateLegacyHistory('session-a', legacyPair())).rejects.toMatchObject({
+        cause: { message: 'simulated sequence write failure' }
+      })
+    } finally {
+      execute.mockRestore()
+    }
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    expect((await repository.listMessages('session-a')).map(message => [message.id, message.sequence])).toEqual([
+      ['z-question', 0], ['a-answer', 1]
+    ])
+  })
+
+  it.each([[10, 11], [0, 11]])('finishes staged sequences %s/%s even when ID order is already correct', async (questionSequence, answerSequence) => {
+    await repository.upsertMessage({ id: 'a-answer', sessionId: 'session-a', role: 'assistant', status: 'completed' })
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    await client.execute({ sql: "UPDATE agent_messages SET sequence=? WHERE id='z-question'", args: [questionSequence] })
+    await client.execute({ sql: "UPDATE agent_messages SET sequence=? WHERE id='a-answer'", args: [answerSequence] })
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    expect((await repository.listMessages('session-a')).map(message => message.sequence)).toEqual([0, 1])
+  })
+
+  it('does not resurrect a canonical tombstone while migrating the remaining question', async () => {
+    await repository.upsertMessage({ id: 'a-answer', sessionId: 'session-a', role: 'assistant', status: 'completed' })
+    await repository.tombstoneMessage('session-a', 'a-answer')
+    await repository.migrateLegacyHistory('session-a', legacyPair())
+    expect((await repository.getMessage('session-a', 'a-answer'))?.semantics?.tombstone).toBe(true)
+    expect(await repository.listMessageParts('session-a', 'a-answer')).toEqual([])
+  })
 
   it('indexes command reads and writes with 30000 unrelated historical events', async () => {
     await client.executeMultiple(`WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<30000)
@@ -586,12 +694,13 @@ describe('AgentTranscriptRepository', () => {
     })
 
     const first = await service.getHistory('session-a', { afterSequence: -1, limit: 2 })
-    expect(first.messages.map(item => item.message.id)).toEqual(['page-0', 'page-3'])
-    expect(first.messages.map(item => item.blocks[0])).toMatchObject([{ content: 'text-0' }, { content: 'text-3' }])
-    expect(first).toMatchObject({ sequences: [0, 3], hasMore: true, nextAfterSequence: 3 })
+    expect(first.messages.map(item => item.message.id)).toEqual(['page-0', 'legacy-only'])
+    expect(first.messages[0].blocks[0]).toMatchObject({ content: 'text-0' })
+    expect(first).toMatchObject({ sequences: [0, 2], hasMore: true, nextAfterSequence: 2 })
     const second = await service.getHistory('session-a', { afterSequence: first.nextAfterSequence, limit: 2 })
-    expect(second.messages.map(item => item.message.id)).toEqual(['page-4', 'legacy-only'])
-    expect(second).toMatchObject({ sequences: [4, 5], hasMore: false, nextAfterSequence: 5 })
+    expect(second.messages.map(item => item.message.id)).toEqual(['page-3', 'page-4'])
+    expect(second.messages.map(item => item.blocks[0])).toMatchObject([{ content: 'text-3' }, { content: 'text-4' }])
+    expect(second).toMatchObject({ sequences: [3, 4], hasMore: false, nextAfterSequence: 4 })
     expect(await service.getHistory('session-a', { afterSequence: second.nextAfterSequence, limit: 2 })).toEqual({
       messages: [], sequences: [], hasMore: false, nextAfterSequence: undefined
     })

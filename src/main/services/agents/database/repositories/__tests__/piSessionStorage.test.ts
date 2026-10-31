@@ -260,6 +260,20 @@ describe('SqlitePiSessionStorage', () => {
     expect(await readFile(overlay.legacyPath)).toEqual(overlay.before)
   })
 
+  it('materializes a legacy overlay before first PI open without changing the old database', async () => {
+    await addLegacy(1, 'z-question', 'old question')
+    await addLegacy(2, 'a-answer', 'old answer')
+    const overlay = await useOverlay()
+    const repository = new AgentTranscriptRepository(database)
+    await repository.migrateLegacyHistory('topic-a')
+    expect((await repository.listMessages('topic-a')).map(message => message.id)).toEqual(['z-question', 'a-answer'])
+    const storage = await open()
+    expect((await new Session(storage).buildContext()).messages.map((message: any) => message.content)).toEqual(['old question', 'old answer'])
+    await overlay.restart()
+    expect((await new Session(await open()).buildContext()).messages.map((message: any) => message.content)).toEqual(['old question', 'old answer'])
+    expect(await readFile(overlay.legacyPath)).toEqual(overlay.before)
+  })
+
   it('overlay reads legacy-only histories without backfill, prefers terminal duplicates and freezes the prefix boundary', async () => {
     await addLegacy(1, 'legacy-user', 'partial', 'processing')
     await addLegacy(2, 'legacy-user', 'complete')
