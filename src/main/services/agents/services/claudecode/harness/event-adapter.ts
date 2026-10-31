@@ -17,21 +17,11 @@ function recordProjectionEvent(
 export function emitChunk(
   stream: AgentStream,
   chunk: TextStreamPart<any>,
-  harness?: ClaudeCodeHarnessAdapter
+  _harness?: ClaudeCodeHarnessAdapter
 ): void {
   stream.emit('data', {
     type: 'chunk',
     chunk
-  })
-  recordProjectionEvent(harness, {
-    kind: 'chunk',
-    streamEventType: 'chunk',
-    traceId: harness?.invokeContext.runtime.traceId ?? '',
-    topicId: harness?.invokeContext.projection.topicId ?? '',
-    turnId: harness?.invokeContext.projection.turnId,
-    segmentId: harness?.invokeContext.projection.segmentId,
-    piSessionId: harness?.invokeContext.projection.piSessionId ?? '',
-    chunkType: chunk.type
   })
 }
 
