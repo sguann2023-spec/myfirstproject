@@ -32,6 +32,26 @@ const entry = (id: string, sequence: number, status: AgentMessageWithParts['mess
 })
 
 describe('agent history mapper', () => {
+  it('restores canonical token fields in the format consumed by the footer', () => {
+    const source = entry('usage', 1)
+    source.message.usage = { inputTokens: 100, outputTokens: 50, totalTokens: 150, cacheReadTokens: 80, cacheWriteTokens: 10 }
+    const mapped = canonicalEntryToPersisted(source)
+    expect(mapped.message.usage).toMatchObject({
+      prompt_tokens: 100, completion_tokens: 50, total_tokens: 150,
+      cache_read_input_tokens: 80, cache_creation_input_tokens: 10
+    })
+    expect(mapped.blocks[0]).toMatchObject({ content: 'usage' })
+    expect(source.message.usage).not.toHaveProperty('prompt_tokens')
+  })
+
+  it('preserves legacy usage fields including explicit zero and provider details', () => {
+    const source = entry('legacy-usage', 1)
+    source.message.usage = { prompt_tokens: 0, inputTokens: 100, completion_tokens: 50, total_tokens: 50, extra: 'provider' }
+    expect(canonicalEntryToPersisted(source).message.usage).toMatchObject({
+      prompt_tokens: 0, completion_tokens: 50, total_tokens: 50, extra: 'provider'
+    })
+  })
+
   it.each([
     ['completed', 'success', 'success'],
     ['streaming', 'processing', 'streaming'],
@@ -62,6 +82,18 @@ describe('agent history mapper', () => {
 })
 
 describe('AgentHistoryService', () => {
+  it('returns usable tokens from canonical history even when the legacy ID is deduplicated', async () => {
+    const source = entry('same-usage', 1)
+    source.message.usage = { inputTokens: 100, outputTokens: 50, totalTokens: 150 }
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([source]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'same-usage', role: 'assistant' }, blocks: [] }
+    ]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0].message.usage).toMatchObject({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 })
+  })
+
   it('queries canonical and legacy current readers without a snapshot prefix', async () => {
     const transcript = {
       listTranscript: vi.fn().mockResolvedValue([entry('canonical', 0)])

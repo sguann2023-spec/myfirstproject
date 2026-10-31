@@ -11,6 +11,7 @@ import * as agentCore from '@earendil-works/pi-agent-core'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let mockIsWin = false
+const logMocks = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }))
 
 vi.mock('electron', () => ({
   net: { fetch: vi.fn() },
@@ -23,11 +24,7 @@ vi.mock('@main/services/WindowService', () => ({
 
 vi.mock('@logger', () => ({
   loggerService: {
-    withContext: () => ({
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn()
-    })
+    withContext: () => logMocks
   }
 }))
 
@@ -183,6 +180,34 @@ describe('OpenAI tool message normalization', () => {
     }
   })
 
+  it.each(['stream', 'streamSimple'] as const)('%s stays silent on success, warns on HTTP errors, and forwards callbacks', async method => {
+    const underlying = vi.fn((_model, _context, options) => options)
+    const wrapper = wrapPiApiModuleWithLogging({
+      apiModule: { stream: underlying, streamSimple: underlying } as any,
+      invokeContext: { runtime: { traceId: 'test' }, projection: { topicId: 'topic' } } as any,
+      providerApiType: 'openai-completions'
+    })
+    const onResponse = vi.fn(async () => {})
+    const model = { id: 'model', baseUrl: 'https://example.com/v1' }
+    const options = (wrapper[method] as any)(model, {}, { onResponse })
+    await options.onPayload({ messages: [] }, model)
+    const success = { status: 200 }
+    await options.onResponse(success, model)
+    expect(logMocks.info).not.toHaveBeenCalled()
+    expect(logMocks.warn).not.toHaveBeenCalled()
+    expect(onResponse).toHaveBeenLastCalledWith(success, model)
+
+    const failure = { status: 503 }
+    await options.onResponse(failure, model)
+    expect(logMocks.warn).toHaveBeenCalledExactlyOnceWith(
+      '[AgentCore] pi provider response error',
+      expect.objectContaining({ traceId: 'test', topicId: 'topic', status: 503, method })
+    )
+    expect(onResponse).toHaveBeenLastCalledWith(failure, model)
+    expect(onResponse).toHaveBeenCalledTimes(2)
+    expect(logMocks.info).not.toHaveBeenCalled()
+  })
+
   it.each(['stream', 'streamSimple'] as const)('%s preserves Anthropic messages and existing parameter semantics', async method => {
     const underlying = vi.fn((_model, _context, options) => options)
     const wrapper = wrapPiApiModuleWithLogging({
@@ -319,6 +344,21 @@ describe('buildPiBashTool', () => {
     await expect(createTool().execute(
       'bash-3', { command: 'sleep 5', timeout: 0.05 }, undefined, undefined, undefined
     )).rejects.toThrow('Command timed out after 0.05 seconds')
+  })
+
+  it('defaults Bash execution to a three-minute timeout', async () => {
+    vi.stubEnv('SHELL', '/bin/bash')
+    const execute = vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }], details: undefined }))
+    const tool = buildPiBashTool({
+      agentCore: { createBashTool: () => ({ ...agentCore.createBashTool(), execute }) } as any,
+      agentNode,
+      cwd: process.cwd(),
+      env: {}
+    })
+    await tool.execute('bash-default-timeout', { command: 'pwd' }, undefined, undefined, undefined)
+    expect(execute).toHaveBeenCalledWith(
+      'bash-default-timeout', { command: 'pwd', timeout: 180 }, undefined, undefined, expect.any(Object)
+    )
   })
 
   it('cancels a running command through the native tool', async () => {

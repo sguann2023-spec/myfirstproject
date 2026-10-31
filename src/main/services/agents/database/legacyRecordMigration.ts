@@ -6,9 +6,7 @@ import { deserialize } from 'node:v8'
 import { discoverEntities, entityKey, initializeRecords, installCurrentView, payload, quote, storedEntities, viewSql } from './recordSchema'
 import type { Entity } from './recordSchema'
 import { splitSqlStatements } from './sqlStatements'
-import type { MigrationProgress } from '../../../../shared/databaseInitializationProgress'
-
-type Progress = MigrationProgress
+type Progress = (phase: string, count?: number, total?: number, detail?: string) => void
 const seededDefinitions = new WeakMap<Database.Database, Map<string, string>>()
 const seededHistory = new WeakSet<Database.Database>()
 

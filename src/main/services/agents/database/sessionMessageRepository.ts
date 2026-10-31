@@ -262,7 +262,6 @@ class AgentMessageRepository extends BaseService {
         }
       }
 
-      logger.info(`Loaded ${messages.length} messages for session ${sessionId}`)
       return messages
     } catch (error) {
       logger.error('Failed to load session history', error as Error)

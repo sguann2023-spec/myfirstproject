@@ -1,11 +1,7 @@
 import React from 'react';
 import MessageItem from '../MessageItem/MessageItem';
 import { buildErrorSignature } from '../../../../shared/chatError';
-import { loggerService } from '@logger';
 import './MessageGroup.css';
-
-const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
-const logger = loggerService.withContext('ChatLoading/MessageGroup');
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
   (Array.isArray(attachments) ? attachments : []).map((item) => ({
@@ -34,15 +30,6 @@ const MessageGroup = ({
   userName,
   userAvatar,
 }) => {
-  React.useEffect(() => {
-    if (!DEBUG_CHAT_LOADING) return;
-    // logger.info({
-    //   role,
-    //   loadingMessageId,
-    //   messageIds: messages.map((item) => item?.id)
-    // });
-  }, [role, loadingMessageId, messages]);
-
   return (
     <div className={`chat-panel__message-group chat-panel__message-group--${role}`}>
       {messages.map((message, index) => (

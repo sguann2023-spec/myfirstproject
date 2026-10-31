@@ -81,6 +81,33 @@ it('writes request-only questions into streaming tool messages and keeps them on
   expect(entities['block-ask'].metadata.rawMcpToolResponse.arguments).toEqual(questionInput)
 })
 
+it.each([false, true])('resolves streaming questions before Redux freezes the response (placeholder: %s)', (hasInitialPlaceholder) => {
+  const entities: Record<string, any> = {}
+  const permissions = { requests: { request: { requestId: 'request', toolName: 'AskUserQuestion', toolCallId: 'ask', status: 'pending', input: questionInput } }, resolvedInputs: {} } as any
+  const saveBlock = (block: any) => {
+    Object.freeze(block.metadata.rawMcpToolResponse)
+    entities[block.id] = block
+  }
+  const manager = {
+    hasInitialPlaceholder,
+    initialPlaceholderBlockId: 'placeholder',
+    handleBlockTransition: vi.fn(saveBlock),
+    smartBlockUpdate: vi.fn((id, changes) => saveBlock({ ...entities[id], id, ...changes }))
+  }
+  const callbacks = createToolCallbacks({ blockManager: manager as any, assistantMsgId: 'assistant', userMessageId: 'user', dispatch: vi.fn(),
+    getState: () => ({ messageBlocks: { entities }, toolPermissions: permissions }) })
+  const response = Object.freeze({ id: 'ask', tool: { name: 'AskUserQuestion' }, arguments: {}, status: 'streaming' }) as any
+  expect(() => callbacks.onToolArgumentStreaming(response)).not.toThrow()
+  const blockId = hasInitialPlaceholder ? 'placeholder' : 'block-ask'
+  const firstWrite = hasInitialPlaceholder ? manager.smartBlockUpdate.mock.calls[0][1] : manager.handleBlockTransition.mock.calls[0][0]
+  expect(firstWrite.metadata.rawMcpToolResponse.arguments).toEqual(questionInput)
+  expect(Object.isFrozen(entities[blockId].metadata.rawMcpToolResponse)).toBe(true)
+  permissions.requests = {}
+  expect(() => callbacks.onToolArgumentStreaming(response)).not.toThrow()
+  expect(entities[blockId].metadata.rawMcpToolResponse.arguments).toEqual(questionInput)
+  expect(response.arguments).toEqual({})
+})
+
 it('ignores malformed question args in favor of valid partials', () => {
   expect(resolveToolArguments({ questions: [{ question: 'incomplete' }] }, JSON.stringify(questionInput))).toEqual(questionInput)
 })

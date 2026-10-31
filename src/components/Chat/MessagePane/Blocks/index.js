@@ -7,9 +7,6 @@ import ErrorBlock from './ErrorBlock';
 import MainTextBlock from './MainTextBlock';
 import ThinkingBlock from './ThinkingBlock';
 import { MessageBlockType } from './types';
-import { loggerService } from '@logger';
-const DEBUG_CHAT_LOADING = process.env.NODE_ENV !== 'production';
-const logger = loggerService.withContext('ChatBlocks/renderer');
 
 const normalizeToolRuntimeStatus = (status) => {
   const value = String(status || '').toLowerCase();
@@ -68,20 +65,6 @@ const groupBlocks = (blocks) => {
 
 const MessageBlockRenderer = ({ blocks = [] }) => {
   const groupedBlocks = React.useMemo(() => groupBlocks(blocks), [blocks]);
-
-  React.useEffect(() => {
-    if (!DEBUG_CHAT_LOADING) return;
-    const toolCount = groupedBlocks.reduce((acc, block) => {
-      if (block?.type === MessageBlockType.TOOL) return acc + 1;
-      if (block?.type === 'tool_group') return acc + (Array.isArray(block.blocks) ? block.blocks.length : 0);
-      return acc;
-    }, 0);
-    logger.info({
-      groupedCount: groupedBlocks.length,
-      toolCount,
-      blockTypes: groupedBlocks.map((block) => block?.type || 'unknown')
-    });
-  }, [groupedBlocks]);
 
   return (
     <div className="chat-message-blocks">

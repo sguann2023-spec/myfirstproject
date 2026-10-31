@@ -21,6 +21,8 @@ export interface AgentStream extends EventEmitter {
   once(event: 'data', listener: (data: AgentStreamEvent) => void): this
   /** SDK session_id captured from the init message, used for resume. */
   sdkSessionId?: string
+  /** Resolves after the provider runtime and its tool clients have stopped. */
+  runtimeFinished?: Promise<void>
 }
 
 export interface AgentThinkingOptions {
@@ -35,6 +37,16 @@ export interface AgentInvocationIds {
   assistantMessageId: string
 }
 
+export interface AgentPersistenceHooks {
+  onQuestionReceived?: (question: {
+    toolName: string
+    toolCallId: string
+    rawToolCallId?: string
+    aliases: readonly string[]
+    input: Record<string, unknown>
+  }, signal: AbortSignal) => void | Promise<void>
+}
+
 // Base agent service interface
 export interface AgentServiceInterface {
   invoke(
@@ -45,6 +57,7 @@ export interface AgentServiceInterface {
     thinkingOptions?: AgentThinkingOptions,
     modelOverride?: string,
     images?: Array<{ data: string; media_type: string }>,
-    invocationIds?: AgentInvocationIds
+    invocationIds?: AgentInvocationIds,
+    persistenceHooks?: AgentPersistenceHooks
   ): Promise<AgentStream>
 }

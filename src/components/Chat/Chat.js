@@ -630,6 +630,7 @@ const Chat = ({
       beginnerGuideEligible={messages.length === 0}>
       <MessagePane
         messages={messages}
+        chatSessionId={chatSessionId || session?.id}
         sending={sending}
         historyLoading={historyLoading}
         hasConnectedExternalAgent={hasConnectedExternalAgent}

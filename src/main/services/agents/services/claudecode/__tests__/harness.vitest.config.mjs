@@ -14,6 +14,7 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
     include: [
+      'src/preload/__tests__/requestReuse.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/image-generation-action.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/image-inspection-state.test.ts',
       'src/main/services/agents/database/repositories/__tests__/agentTurnRepository.test.ts',
@@ -31,7 +32,6 @@ export default defineConfig({
       'src/main/services/agents/database/repositories/__tests__/workerClient.overlay.integration.test.ts',
       'src/main/services/agents/database/repositories/__tests__/recordSchema.constraints.test.ts',
       'src/main/services/agents/database/repositories/__tests__/recordSchema.indexes.test.ts',
-      'src/main/services/agents/database/repositories/__tests__/databaseInitializationProgress.test.ts',
       'src/main/services/__tests__/BackupManager.database.test.ts',
       'src/main/utils/__tests__/deferredQuit.test.ts',
       'src/main/services/agents/database/repositories/__tests__/workerClient.transport.test.ts',

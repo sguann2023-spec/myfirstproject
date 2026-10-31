@@ -657,7 +657,6 @@ class FileStorage {
 
   public mkdir = async (_: Electron.IpcMainInvokeEvent, dirPath: string): Promise<string> => {
     try {
-      logger.debug(`Attempting to create directory: ${dirPath}`)
       await fs.promises.mkdir(dirPath, { recursive: true })
       return dirPath
     } catch (error) {
@@ -1384,10 +1383,8 @@ class FileStorage {
     }
 
     // Fallback: search by filename only (non-fuzzy mode)
-    logger.debug('Searching by filename pattern', { pattern: options.searchPattern, path: resolvedPath })
     const filenameResults = await this.searchByFilename(resolvedPath, options)
 
-    logger.debug('Found matches by filename', { count: filenameResults.length })
     return filenameResults.slice(0, options.maxEntries)
   }
 

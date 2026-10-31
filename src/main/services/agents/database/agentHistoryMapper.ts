@@ -10,6 +10,22 @@ import type {
 const record = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {}
 
+// Canonical records and legacy dual-writes use different token field names.
+const persistedUsage = (value: unknown): Record<string, any> => {
+  const usage = record(value)
+  const normalized = { ...usage }
+  for (const [legacy, canonical] of [
+    ['prompt_tokens', 'inputTokens'],
+    ['completion_tokens', 'outputTokens'],
+    ['total_tokens', 'totalTokens'],
+    ['cache_read_input_tokens', 'cacheReadTokens'],
+    ['cache_creation_input_tokens', 'cacheWriteTokens']
+  ]) {
+    if (normalized[legacy] == null && usage[canonical] != null) normalized[legacy] = usage[canonical]
+  }
+  return normalized
+}
+
 // An absent legacy error must not become a truthy `{}` in error_json.
 // Also normalize empty records already persisted by older dual-writes.
 const optionalError = (value: unknown): Record<string, any> | undefined => {
@@ -93,7 +109,7 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
       blocks: blocks.map((block) => block.id),
       ...(message.provider?.modelId ? { modelId: message.provider.modelId } : {}),
       ...(message.provider?.requestId ? { traceId: message.provider.requestId } : {}),
-      ...(message.usage ? { usage: message.usage } : {}),
+      ...(message.usage ? { usage: persistedUsage(message.usage) } : {}),
       ...(messageError ? { error: messageError } : {}),
       ...(message.status === 'cancelled' ? { aborted: true } : {}),
       canonicalStatus: message.status,

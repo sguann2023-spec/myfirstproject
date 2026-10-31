@@ -449,6 +449,75 @@ describe('AgentTranscriptRepository', () => {
     ])
   })
 
+  it('restores incrementally updated tool questions without duplicate parts after reopening without finalization', async () => {
+    await repository.upsertMessage({
+      id: 'question-message', sessionId: 'session-a', role: 'assistant', status: 'streaming'
+    })
+    const completeArguments = {
+      questions: [{
+        question: 'Which output format should be used?',
+        header: 'Format',
+        options: [
+          { label: 'MP4', description: 'Export an MP4 video' },
+          { label: 'MOV', description: 'Export a MOV video' }
+        ],
+        multiSelect: false
+      }]
+    }
+    const argumentSnapshots = [
+      {},
+      { questions: [{ question: 'Which output format' }] },
+      completeArguments
+    ]
+    const initial = await repository.upsertPart({
+      id: 'question-part', sessionId: 'session-a', messageId: 'question-message', type: 'tool',
+      data: { toolCallId: 'question-call', toolName: 'AskUserQuestion', status: 'pending', arguments: argumentSnapshots[0] }
+    })
+    expect(initial.data.arguments).toEqual({})
+    for (const args of argumentSnapshots.slice(1)) {
+      const updated = await repository.upsertPart({
+        id: initial.id, sessionId: 'session-a', messageId: 'question-message', type: 'tool',
+        data: { arguments: args }
+      })
+      expect(updated).toMatchObject({ id: initial.id, sequence: initial.sequence, createdAt: initial.createdAt })
+      expect(updated.data.arguments).toEqual(args)
+    }
+
+    // Persist streaming updates without a final message write or schema finalization.
+    await client.closeAsync()
+    expect(client.closed).toBe(true)
+    client = createClient({ url: `file:${path.join(tempDirectory, 'transcript.db')}`, intMode: 'number' })
+    repository = new AgentTranscriptRepository(drizzle(client, { schema }))
+
+    const parts = await repository.listMessageParts('session-a', 'question-message')
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toMatchObject({
+      id: initial.id, sequence: initial.sequence, createdAt: initial.createdAt,
+      data: { toolCallId: 'question-call', toolName: 'AskUserQuestion', status: 'pending', arguments: completeArguments }
+    })
+    expect(await repository.getMessage('session-a', 'question-message')).toMatchObject({
+      status: 'streaming', completedAt: undefined
+    })
+    const events = await client.execute("SELECT payload FROM entity_records WHERE entity_type='agent_message_parts' AND entity_key=json_array('question-part') ORDER BY position")
+    expect(events.rows.map(row => JSON.parse(JSON.parse(String(row.payload)).data_json).arguments)).toEqual(argumentSnapshots)
+
+    const getSessionHistory = vi.fn(async () => [])
+    const getInvocationQuestions = vi.fn(async () => [])
+    const service = new AgentHistoryService(repository, { getSessionHistory }, { getInvocationQuestions })
+    const history = await service.getHistory('session-a')
+    expect(history.messages).toHaveLength(1)
+    expect(history.messages[0].message).toMatchObject({
+      id: 'question-message', canonicalStatus: 'streaming', blocks: [initial.id]
+    })
+    expect(history.messages[0].blocks).toHaveLength(1)
+    expect(history.messages[0].blocks[0]).toMatchObject({
+      id: initial.id, type: 'tool', toolCallId: 'question-call', toolName: 'AskUserQuestion', arguments: completeArguments
+    })
+    expect(getInvocationQuestions).not.toHaveBeenCalled()
+    expect((await service.getHistory('session-a')).messages).toEqual(history.messages)
+    expect(await repository.listMessageParts('session-a', 'question-message')).toEqual(parts)
+  })
+
   it('supports ordered bulk lookup and transcript assembly', async () => {
     await repository.upsertMessages([
       { id: 'message-1', sessionId: 'session-a', role: 'user', status: 'completed' },

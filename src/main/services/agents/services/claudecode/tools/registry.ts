@@ -581,10 +581,6 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools.add(vt('claw', 'config'))
     allowMcpPattern(vp('claw'))
 
-    logger.debug('Injected autonomous claw MCP server', {
-      agentId: session.agent_id,
-      totalMcpServers: Object.keys(options.mcpServers).length
-    })
   }
 
   if (isAssistant && hasAuxiliaryDomain) {

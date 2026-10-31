@@ -9,7 +9,6 @@ import LogoIcon from '../../../public/logo.png'
 import './LoginPage.css';
 import { electronStore } from '../../shared/electronStore'; // 从共享模块导入
 import { ensureLoginServicesReady } from '../../shared/loginServicesReady';
-import { formatDatabaseInitializationProgress } from '../../shared/databaseInitializationProgress';
 import { ensureVectcutApiKeyForCurrentSession } from '../../auth/vectcutApiKey';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 const { Title, Text } = Typography;
@@ -299,30 +298,6 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
     const [viewState, setViewState] = useState('login');
     const [isLoginPreInitLoading, setIsLoginPreInitLoading] = useState(true);
     const [loginPreInitError, setLoginPreInitError] = useState('');
-    const [databaseProgress, setDatabaseProgress] = useState({ status: 'idle', phase: 'opening' });
-    const progressText = formatDatabaseInitializationProgress(databaseProgress);
-
-    useEffect(() => {
-        if (!isLoginPreInitLoading) return;
-        let active = true;
-        let pending = false;
-        const refresh = async () => {
-            if (!active) return;
-            if (pending) return;
-            pending = true;
-            try {
-                const progress = await ipcRenderer.invoke('app:database-initialization-progress');
-                if (active && progress?.status) setDatabaseProgress(progress);
-            } catch {
-                // The IPC may not be registered during the earliest startup frame.
-            } finally {
-                pending = false;
-            }
-        };
-        void refresh();
-        const timer = setInterval(refresh, 1000);
-        return () => { active = false; clearInterval(timer); };
-    }, [isLoginPreInitLoading]);
     // 展示用的用户名（初始从持久化里读一次）
     const [displayName, setDisplayName] = useState(() => electronStore.get('user')?.name || '');
     // 展示的用户头像
@@ -676,9 +651,6 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                 {isLoginPreInitLoading ? (
                     <div style={{ marginTop: 90, textAlign: 'center' }}>
                         <Spin size="medium" />
-                        <div role="status" aria-live="polite" style={{ marginTop: 20, padding: '0 24px', color: '#596579', fontSize: 14, lineHeight: 1.8, overflowWrap: 'anywhere' }}>
-                            {progressText}
-                        </div>
                     </div>
                 ) : (
                     <>

@@ -29,7 +29,6 @@ import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { preserveMcpResult } from './mcp-result-storage'
 import { ImageInspectionState } from './image-inspection-state'
 import { normalizeImageGenerationArguments } from './image-generation-action'
-import { summarizeProviderPayload } from './provider-payload-summary'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -306,9 +305,10 @@ export function buildPiBashTool(input: {
       const shellPath = resolveShellExecutable(input.env)
       const { NodeExecutionEnv } = input.agentNode
       const env = new NodeExecutionEnv({ cwd: input.cwd, shellPath, shellEnv: input.env })
+      const bashParams = params as import('@earendil-works/pi-agent-core').BashToolInput
       try {
         return await nativeTool.execute(
-          toolCallId, params as import('@earendil-works/pi-agent-core').BashToolInput, signal, onUpdate, { env }
+          toolCallId, { ...bashParams, timeout: bashParams.timeout ?? 180 }, signal, onUpdate, { env }
         )
       } finally {
         await env.cleanup()
@@ -677,15 +677,6 @@ function buildBuiltinTools(input: {
       onUpdate?: (value: { content: Array<PiTextContent | PiImageContent>; details: unknown }) => void
     ) {
       const params = rawParams as Record<string, unknown>
-      logger.info('[AgentCore] builtin tool execute start', {
-        traceId: invokeContext.runtime.traceId,
-        topicId: invokeContext.projection.topicId,
-        piSessionId: invokeContext.projection.piSessionId,
-        toolName: 'Bash',
-        toolCallId,
-        command: String(params.command ?? ''),
-        timeout: typeof params.timeout === 'number' ? params.timeout : undefined
-      })
       let result: Awaited<ReturnType<PiAgentHarnessTool['execute']>>
       try {
         result = await piBashTool.execute(toolCallId, params, signal, onUpdate, undefined)
@@ -700,15 +691,6 @@ function buildBuiltinTools(input: {
         })
         throw error
       }
-      logger.info('[AgentCore] builtin tool execute success', {
-        traceId: invokeContext.runtime.traceId,
-        topicId: invokeContext.projection.topicId,
-        piSessionId: invokeContext.projection.piSessionId,
-        toolName: 'Bash',
-        toolCallId,
-        outputChars: extractToolText(result.content).length,
-        details: result.details
-      })
       return result
     }
   } as any
@@ -955,16 +937,6 @@ export async function buildMcpTools(input: {
               : normalizeImageGenerationArguments(namespacedName, originalParams)
           const requestTimeoutMs =
             namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : bridge.timeoutMs
-          logger.info('[AgentCore] mcp tool execute start', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            toolName: namespacedName,
-            toolCallId,
-            serverKey,
-            paramKeys: Object.keys(params),
-            requestTimeoutMs
-          })
           let result
           try {
             result = await bridge.client.callTool(
@@ -976,15 +948,6 @@ export async function buildMcpTools(input: {
                 resetTimeoutOnProgress: bridge.longRunning,
                 maxTotalTimeout: bridge.longRunning ? requestTimeoutMs : undefined,
                 onprogress(progress) {
-                  logger.info('[AgentCore] mcp tool execute update', {
-                    traceId: invokeContext.runtime.traceId,
-                    topicId: invokeContext.projection.topicId,
-                    piSessionId: invokeContext.projection.piSessionId,
-                    toolName: namespacedName,
-                    toolCallId,
-                    serverKey,
-                    messageChars: typeof progress.message === 'string' ? progress.message.length : 0
-                  })
                   const total = Number((progress as { total?: unknown }).total || 1)
                   const current = Number((progress as { progress?: unknown }).progress || 0)
                   const normalizedProgress = total > 0 ? current / total : 0
@@ -1035,15 +998,6 @@ export async function buildMcpTools(input: {
           }
           imageInspectionState.recordSuccess(namespacedName, params, result)
           const preservedPayload = await preserveMcpResult(result, invokeContext.runtime.workspacePath)
-          logger.info('[AgentCore] mcp tool execute success', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            toolName: namespacedName,
-            toolCallId,
-            serverKey,
-            contentPreview: extractToolText((result as { content?: unknown }).content).slice(0, 500)
-          })
           return {
             content: toPiContentArray(preservedPayload.content),
             details: preservedPayload.details
@@ -1085,13 +1039,6 @@ export function buildCodemodeTool(input: {
           ? (args as Record<string, unknown>)
           : {}
       let resolvedArgs: Record<string, unknown> = toolArgs
-      logger.info('[CodemodeTiming] nested MCP tool start', {
-        traceId: invokeContext.runtime.traceId,
-        topicId: invokeContext.projection.topicId,
-        toolName: tool.name,
-        toolCallId: nestedToolCallId,
-        inputChars: summarizeValue(toolArgs).length
-      })
 
       try {
         await capturePendingFileChangeSnapshots({
@@ -1141,15 +1088,6 @@ export function buildCodemodeTool(input: {
           undefined
         )
         const text = extractToolText(result.content)
-        logger.info('[CodemodeTiming] nested MCP tool end', {
-          traceId: invokeContext.runtime.traceId,
-          topicId: invokeContext.projection.topicId,
-          toolName: tool.name,
-          toolCallId: nestedToolCallId,
-          elapsedMs: Date.now() - startedAt,
-          outputChars: text.length,
-          hasStructuredContent: result.details !== undefined
-        })
         await emitNestedToolEvent({
           type: 'success',
           toolCallId: nestedToolCallId,
@@ -1201,21 +1139,10 @@ export function buildCodemodeTool(input: {
       spread: true,
       signature: '(query: string, limit?: number): Promise<Array<{ name: string; description: string }>>',
       async execute(rawArgs) {
-        const startedAt = Date.now()
         const args = Array.isArray(rawArgs) ? rawArgs : [rawArgs]
         const query = String(args[0] || '').trim()
         const limit = Number(args[1] ?? 5)
         const results = searchCodemodeTools(searchableTools, query, limit)
-        logger.info('[CodemodeTiming] searchTools completed', {
-          traceId: invokeContext.runtime.traceId,
-          topicId: invokeContext.projection.topicId,
-          query,
-          limit,
-          catalogSize: searchableTools.length,
-          resultCount: results.length,
-          resultChars: JSON.stringify(results).length,
-          elapsedMs: Date.now() - startedAt
-        })
         return results
       }
     },
@@ -1225,18 +1152,10 @@ export function buildCodemodeTool(input: {
       spread: true,
       signature: '(name: string): Promise<{ name: string; description: string; inputSchema: object }>',
       async execute(rawArgs) {
-        const startedAt = Date.now()
         const args = Array.isArray(rawArgs) ? rawArgs : [rawArgs]
         const requestedName = String(args[0] || '').trim()
         const tool = searchableTools.find((entry) => entry.name === requestedName)
         if (!tool) throw new Error(`Unknown MCP tool: ${requestedName}`)
-        logger.info('[CodemodeTiming] describeTool completed', {
-          traceId: invokeContext.runtime.traceId,
-          topicId: invokeContext.projection.topicId,
-          toolName: requestedName,
-          schemaChars: JSON.stringify(tool.inputSchema || {}).length,
-          elapsedMs: Date.now() - startedAt
-        })
         return tool
       }
     }
@@ -1269,12 +1188,6 @@ export function buildCodemodeTool(input: {
       const params = (rawParams ?? {}) as Record<string, unknown>
       const code = String(params.code || '').trim()
       if (!code) throw new Error('codemode requires non-empty code')
-      logger.info('[CodemodeTiming] sandbox execution start', {
-        traceId: invokeContext.runtime.traceId,
-        topicId: invokeContext.projection.topicId,
-        toolCallId: _toolCallId,
-        codeChars: code.length
-      })
 
       const sandbox = new packageBridge.piCodemode.CodemodeSandbox({
         tools: codemodeTools,
@@ -1321,15 +1234,6 @@ export function buildCodemodeTool(input: {
               })
             }]
           : content
-        logger.info('[CodemodeTiming] sandbox execution end', {
-          traceId: invokeContext.runtime.traceId,
-          topicId: invokeContext.projection.topicId,
-          toolCallId: _toolCallId,
-          elapsedMs: Date.now() - startedAt,
-          callCount: result.calls.length,
-          outputItemCount: result.output.length,
-          outputChars: content.reduce((total, item) => total + ('text' in item ? item.text.length : 0), 0)
-        })
         return {
           content: modelContent.length > 0 ? modelContent : [{ type: 'text', text: '(codemode completed with no output)' }],
           details: {
@@ -1361,23 +1265,6 @@ function ensureOpenAiApiVersionBaseUrl(value: string): string {
   if (!normalized) return ''
   if (normalized.endsWith('/v1')) return normalized
   return `${normalized}/v1`
-}
-
-function describePiRequestTarget(input: {
-  providerApiType: 'anthropic-messages' | 'openai-completions'
-  baseUrl: string
-}): { expectedPathSuffix: string; expectedRequestUrl: string } {
-  const { providerApiType, baseUrl } = input
-  const normalizedBaseUrl = trimTrailingSlash(String(baseUrl || '').trim())
-  const expectedPathSuffix =
-    providerApiType === 'anthropic-messages'
-      ? '/v1/messages'
-      : '/chat/completions'
-
-  return {
-    expectedPathSuffix,
-    expectedRequestUrl: normalizedBaseUrl ? `${normalizedBaseUrl}${expectedPathSuffix}` : expectedPathSuffix
-  }
 }
 
 /** Repair only adjacent OpenAI tool-result blocks; never borrow results across turns.
@@ -1460,49 +1347,30 @@ export function wrapPiApiModuleWithLogging(input: {
       const requestStartedAt = Date.now()
       const typedModel = (model ?? {}) as Record<string, unknown>
       const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
-      logger.info('[AgentCore] pi provider wrapper invoked', {
-        traceId: invokeContext.runtime.traceId,
-        topicId: invokeContext.projection.topicId,
-        piSessionId: invokeContext.projection.piSessionId,
-        providerApiType,
-        method: 'stream',
-        requestIndex,
-        modelId: String(typedModel.id || ''),
-        baseUrl: String(typedModel.baseUrl || ''),
-        hasHeaders: Boolean(typedOptions.headers),
-        hasApiKey: Boolean(typedOptions.apiKey)
-      })
       const requestOptions = {
         ...typedOptions,
         onPayload: async (payload: unknown, payloadModel: unknown) => {
           const originalOnPayload = typeof typedOptions.onPayload === "function" ? typedOptions.onPayload : undefined
           const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
           normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
-          logger.info('[AgentCore] pi provider payload', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            providerApiType,
-            method: 'stream',
-            requestIndex,
-            modelId: String(typedModel.id || ''),
-            ...summarizeProviderPayload(replacement ?? payload)
-          })
           return replacement
         },
         onResponse: async (response: unknown, responseModel: unknown) => {
           const providerResponse = (response ?? {}) as Record<string, unknown>
-          logger.info('[AgentCore] pi provider response', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            providerApiType,
-            method: 'stream',
-            requestIndex,
-            responseHeadersElapsedMs: Date.now() - requestStartedAt,
-            modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
-            baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-            status: providerResponse.status
-          })
+          if (Number(providerResponse.status) >= 400) {
+            logger.warn('[AgentCore] pi provider response error', {
+              traceId: invokeContext.runtime.traceId,
+              topicId: invokeContext.projection.topicId,
+              piSessionId: invokeContext.projection.piSessionId,
+              providerApiType,
+              method: 'stream',
+              requestIndex,
+              responseHeadersElapsedMs: Date.now() - requestStartedAt,
+              modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
+              baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
+              status: providerResponse.status
+            })
+          }
           const originalOnResponse = typeof typedOptions.onResponse === "function" ? typedOptions.onResponse : undefined
           if (originalOnResponse) {
             await originalOnResponse(response as any, responseModel as any)
@@ -1517,49 +1385,30 @@ export function wrapPiApiModuleWithLogging(input: {
       const requestStartedAt = Date.now()
       const typedModel = (model ?? {}) as Record<string, unknown>
       const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
-      logger.info('[AgentCore] pi provider wrapper invoked', {
-        traceId: invokeContext.runtime.traceId,
-        topicId: invokeContext.projection.topicId,
-        piSessionId: invokeContext.projection.piSessionId,
-        providerApiType,
-        method: 'streamSimple',
-        requestIndex,
-        modelId: String(typedModel.id || ''),
-        baseUrl: String(typedModel.baseUrl || ''),
-        hasHeaders: Boolean(typedOptions.headers),
-        hasApiKey: Boolean(typedOptions.apiKey)
-      })
       const requestOptions = {
         ...typedOptions,
         onPayload: async (payload: unknown, payloadModel: unknown) => {
           const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
           const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
           normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
-          logger.info('[AgentCore] pi provider payload', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            providerApiType,
-            method: 'streamSimple',
-            requestIndex,
-            modelId: String(typedModel.id || ''),
-            ...summarizeProviderPayload(replacement ?? payload)
-          })
           return replacement
         },
         onResponse: async (response: unknown, responseModel: unknown) => {
           const providerResponse = (response ?? {}) as Record<string, unknown>
-          logger.info('[AgentCore] pi provider response', {
-            traceId: invokeContext.runtime.traceId,
-            topicId: invokeContext.projection.topicId,
-            piSessionId: invokeContext.projection.piSessionId,
-            providerApiType,
-            method: 'streamSimple',
-            requestIndex,
-            responseHeadersElapsedMs: Date.now() - requestStartedAt,
-            modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
-            baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-            status: providerResponse.status
-          })
+          if (Number(providerResponse.status) >= 400) {
+            logger.warn('[AgentCore] pi provider response error', {
+              traceId: invokeContext.runtime.traceId,
+              topicId: invokeContext.projection.topicId,
+              piSessionId: invokeContext.projection.piSessionId,
+              providerApiType,
+              method: 'streamSimple',
+              requestIndex,
+              responseHeadersElapsedMs: Date.now() - requestStartedAt,
+              modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
+              baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
+              status: providerResponse.status
+            })
+          }
           const originalOnResponse = typeof typedOptions.onResponse === 'function' ? typedOptions.onResponse : undefined
           if (originalOnResponse) {
             await originalOnResponse(response as any, responseModel as any)
@@ -1605,39 +1454,6 @@ async function buildPiRuntimeBridge(input: {
     apiModule: rawApiModule,
     invokeContext,
     providerApiType
-  })
-  const requestTarget = describePiRequestTarget({
-    providerApiType,
-    baseUrl
-  })
-
-  logger.info('[AgentCore] resolved pi provider request target', {
-    traceId: invokeContext.runtime.traceId,
-    topicId: invokeContext.projection.topicId,
-    piSessionId: invokeContext.projection.piSessionId,
-    modelId,
-    providerType: String(runtimeEnvironment.modelInfo.provider?.type || '').trim(),
-    providerApiType,
-    providerApiHost,
-    providerAnthropicHost,
-    baseUrl,
-    baseUrlSource:
-      providerApiType === 'anthropic-messages'
-        ? providerAnthropicHost
-          ? 'provider_anthropic_api_host'
-          : providerApiHost
-            ? 'provider_api_host'
-            : 'empty'
-        : providerApiHost
-          ? 'provider_api_host'
-          : 'empty',
-    hasRuntimeGatewayToken: Boolean(runtimeGatewayToken),
-    contextWindowTokens,
-    maxInputTokens: runtimeEnvironment.modelTokenLimits?.maxInputTokens,
-    maxOutputTokens,
-    compactionTriggerTokens: runtimeEnvironment.modelTokenLimits?.compactionTriggerTokens,
-    expectedPathSuffix: requestTarget.expectedPathSuffix,
-    expectedRequestUrl: requestTarget.expectedRequestUrl
   })
 
   const models = packageBridge.piAi.createModels()
@@ -1689,6 +1505,8 @@ async function buildPiRuntimeBridge(input: {
   })
   models.setProvider(provider)
 
+  // Await database recovery only. Runtime storage is shared topic memory;
+  // background persistence must never become a prompt/completion barrier.
   const storage = await SqlitePiSessionStorage.openOrCreate({
     topicId: invokeContext.projection.topicId,
     requestedSessionId: invokeContext.projection.piSessionId,
@@ -1756,14 +1574,6 @@ async function buildPiRuntimeBridge(input: {
   })
 
   harness.on('tool_call', async (context: any) => {
-    logger.info('[AgentCore] harness tool_call received', {
-      traceId: invokeContext.runtime.traceId,
-      topicId: invokeContext.projection.topicId,
-      piSessionId: invokeContext.projection.piSessionId,
-      toolName: context.toolName,
-      toolCallId: context.toolCallId,
-      inputPreview: summarizeValue(context.input).slice(0, 500)
-    })
     await capturePendingFileChangeSnapshots({
       toolName: context.toolName,
       toolInput: context.input,
@@ -1948,19 +1758,6 @@ export async function createClaudeCodeHarness(input: {
       agentCoreExportsPreview: Object.keys(packageBridge.agentCore).slice(0, 12),
       piAiExportsPreview: Object.keys(packageBridge.piAi).slice(0, 12)
     }
-
-    logger.info('[AgentCore] enabled pi harness adapter from npm packages', {
-      traceId: invokeContext.runtime.traceId,
-      topicId: invokeContext.projection.topicId,
-      piSessionId: invokeContext.projection.piSessionId,
-      importStrategy: 'npm-native-import',
-      bootstrapProviderId: packageStatus.bootstrapProviderId,
-      bootstrapModelId: packageStatus.bootstrapModelId,
-      bridgedToolCount: packageStatus.bridgedToolCount,
-      bridgedMcpServerCount: packageStatus.bridgedMcpServerCount,
-      agentCoreExportsPreview: packageStatus.agentCoreExportsPreview,
-      piAiExportsPreview: packageStatus.piAiExportsPreview
-    })
 
     return createAdapter('pi-npm', 'npm-native-import', {
       packageBridge,

@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 
 import type { CanUseTool, HookCallback } from '@anthropic-ai/claude-agent-sdk'
 import { loggerService } from '@logger'
+import type { AgentPersistenceHooks } from '../../../interfaces/AgentStreamInterface'
 
 import { buildNamespacedToolCallId } from '../claude-stream-state'
 import { promptForToolApproval } from '../tool-permissions'
@@ -20,6 +21,8 @@ export function createToolPermissionHandlers(input: {
   sessionAllowedTools: Set<string>
   readFilesInSession: Set<string>
   interactiveApprovalCache: Map<string, ApprovalCacheValue>
+  onQuestionReceived?: AgentPersistenceHooks['onQuestionReceived']
+  approvalSignal?: AbortSignal
   capturePendingFileChanges: (toolName: string, toolInput: unknown, toolCallId: string) => Promise<void>
   normalizeToolName: (name: string) => string
   requiresInteractiveApproval: (name: string) => boolean
@@ -51,6 +54,7 @@ export function createToolPermissionHandlers(input: {
   } = input
 
   const canUseTool: CanUseTool = async (toolName, toolInput, options) => {
+    options = { ...options, signal: input.approvalSignal ?? options.signal }
     const normalizedToolName = normalizeToolName(toolName)
 
     if (options.signal.aborted) {
@@ -85,7 +89,8 @@ export function createToolPermissionHandlers(input: {
       return promptForToolApproval(toolName, toolInput, {
         ...options,
         toolCallId: namespacedToolCallId,
-        rawToolCallId: options.toolUseID
+        rawToolCallId: options.toolUseID,
+        onQuestionReceived: input.onQuestionReceived
       })
     }
 
@@ -202,8 +207,10 @@ export function createToolPermissionHandlers(input: {
         )
         const approval = await promptForToolApproval(toolName, updatedToolInput, {
           ...options,
+          signal: input.approvalSignal ?? options.signal,
           toolCallId: namespacedToolCallId,
-          rawToolCallId: toolUseID
+          rawToolCallId: toolUseID,
+          onQuestionReceived: input.onQuestionReceived
         })
 
         if (approval.behavior === 'allow') {

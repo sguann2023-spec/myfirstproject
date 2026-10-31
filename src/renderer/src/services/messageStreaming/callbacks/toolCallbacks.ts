@@ -395,7 +395,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
     onToolArgumentStreaming: (toolResponse: ToolResponse) => {
       if (isTerminal(toolResponse.id)) return
       const state = getState()
-      const nextToolResponse = sanitizeToolResponse({
+      let nextToolResponse = sanitizeToolResponse({
         ...toolResponse,
         arguments: enhanceImageGenerationArguments(toolResponse.tool?.name, toolResponse.arguments, state, userMessageId, assistantMsgId)
       })
@@ -408,6 +408,19 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
           toolCallIdToBlockIdMap.set(nextToolResponse.id, equivalentBlockId)
           if (isTerminal(nextToolResponse.id)) return
           existingBlockId = equivalentBlockId
+        }
+      }
+
+      // Resolve arguments before publishing the response to Redux, which freezes it.
+      if (nextToolResponse.tool?.name === 'AskUserQuestion') {
+        const existing = existingBlockId ? state.messageBlocks.entities[existingBlockId]?.metadata?.rawMcpToolResponse : undefined
+        nextToolResponse = {
+          ...nextToolResponse,
+          arguments: resolveToolArguments(
+            nextToolResponse.arguments, nextToolResponse.partialArguments,
+            selectPendingPermission(state.toolPermissions, nextToolResponse.id)?.input,
+            existing?.arguments, existing?.partialArguments
+          )
         }
       }
 
@@ -435,15 +448,6 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
           toolCallIdToBlockIdMap.set(nextToolResponse.id, toolBlock.id)
           existingBlockId = toolBlock.id
         }
-      }
-
-      if (nextToolResponse.tool?.name === 'AskUserQuestion') {
-        const existing = state.messageBlocks.entities[existingBlockId]?.metadata?.rawMcpToolResponse
-        nextToolResponse.arguments = resolveToolArguments(
-          nextToolResponse.arguments, nextToolResponse.partialArguments,
-          selectPendingPermission(state.toolPermissions, nextToolResponse.id)?.input,
-          existing?.arguments, existing?.partialArguments
-        )
       }
 
       // Update the tool block with streaming arguments

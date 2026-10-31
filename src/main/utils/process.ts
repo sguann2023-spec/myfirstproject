@@ -611,7 +611,6 @@ export function findBundledPython(): string | null {
   for (const candidate of candidates) {
     const resolvedCandidate = path.resolve(candidate)
     if (fs.existsSync(resolvedCandidate)) {
-      logger.info('Using bundled Python runtime', { path: resolvedCandidate, arch })
       return resolvedCandidate
     }
   }

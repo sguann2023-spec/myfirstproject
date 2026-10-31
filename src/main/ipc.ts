@@ -1083,6 +1083,11 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     await DatabaseManager.beginStorageMaintenance()
     updateAppDataConfig(filePath)
     app.setPath('userData', filePath)
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(IpcChannel.App_InfoInvalidated)
+      }
+    }
   })
 
   ipcMain.handle(IpcChannel.App_GetDataPathFromArgs, () => {

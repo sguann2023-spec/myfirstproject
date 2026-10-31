@@ -25,8 +25,16 @@ import fs from 'fs'
 import path from 'path'
 
 import * as schema from './schema'
-import type { DatabaseInitializationProgress } from '../../../../shared/databaseInitializationProgress'
 import type { OverlayOptions, StorageManifest } from './persistentRecordStore'
+
+interface DatabaseInitializationProgress {
+  status: 'idle' | 'initializing' | 'initialized' | 'failed'
+  phase: string
+  startedAt?: number
+  count?: number
+  total?: number
+  detail?: string
+}
 
 /** Restored suites are self-contained. Never use originalPath to reopen live sources. */
 export function resolveStorageConfiguration(userData: string, migrationDir: string): { database: string; overlayStorage: OverlayOptions } {

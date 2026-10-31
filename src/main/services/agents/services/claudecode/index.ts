@@ -26,7 +26,8 @@ import type {
   AgentStream,
   AgentStreamEvent,
   AgentThinkingOptions,
-  AgentInvocationIds
+  AgentInvocationIds,
+  AgentPersistenceHooks
 } from '../../interfaces/AgentStreamInterface'
 import { resolveExplicitSkillMention } from '../../skill-mounting/ExplicitSkillMention'
 import { resolveWorkspaceSkillInvocation } from '../../skill-mounting/SkillInvokeService'
@@ -61,7 +62,6 @@ import { mountRuntimeMcpServers } from './tools/registry'
 
 const require_ = require
 const logger = loggerService.withContext('ClaudeCodeService')
-const NO_RESUME_COMMANDS = ['/clear']
 const GIT_BASH_PATH_ERROR_SIGNATURE = 'CLAUDE_CODE_GIT_BASH_PATH path'
 
 const summarizePathSnapshot = (targetPath?: string | null) => {
@@ -168,6 +168,7 @@ class ClaudeCodeStream extends EventEmitter implements AgentStream {
   declare once: (event: 'data', listener: (data: AgentStreamEvent) => void) => this
   /** SDK session_id captured from the init message, used for resume. */
   sdkSessionId?: string
+  runtimeFinished?: Promise<void>
 }
 
 class ClaudeCodeService implements AgentServiceInterface {
@@ -226,10 +227,6 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const browserServer = new BrowserServer()
     this.browserServers.set(sessionId, browserServer)
-    logger.info('Created browser MCP server for session', {
-      sessionId,
-      cachedSessionCount: this.browserServers.size
-    })
     return browserServer
   }
 
@@ -241,7 +238,8 @@ class ClaudeCodeService implements AgentServiceInterface {
     thinkingOptions?: AgentThinkingOptions,
     modelOverride?: string,
     images?: Array<{ data: string; media_type: string }>,
-    invocationIds?: AgentInvocationIds
+    invocationIds?: AgentInvocationIds,
+    persistenceHooks?: AgentPersistenceHooks
   ): Promise<AgentStream> {
     const throwIfCancelled = () => {
       if (abortController.signal.aborted) throw new DOMException('Request was aborted', 'AbortError')
@@ -251,11 +249,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     const cwd = resolveWorkspaceCwd(session)
     if (!cwd) {
-      aiStream.emit('data', {
-        type: 'error',
-        error: new Error('No accessible paths defined for the agent session')
-      })
-      return aiStream
+      throw new Error('No accessible paths defined for the agent session')
     }
 
     const agent = await agentService.getAgent(session.agent_id)
@@ -334,17 +328,6 @@ class ClaudeCodeService implements AgentServiceInterface {
     const sdkPrompt = prompt
     const toolGuidanceOptions = {}
 
-    logger.info('[Codemode] fixed tool surface', {
-      agentId: session.agent_id,
-      sessionId: session.id,
-      promptLength: prompt.length,
-      imageCount: images?.length ?? 0,
-      builtinRole: builtinRole ?? '',
-      isAssistant,
-      autonomousEnabled,
-      hasCustomMcpServers: Boolean(session.mcps?.length)
-    })
-
     let runtimeEnvironment: ClaudeRuntimeEnvironment
     try {
       runtimeEnvironment = await buildClaudeRuntimeEnvironment({
@@ -354,11 +337,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         enableToolSearch: false
       })
     } catch (error) {
-      aiStream.emit('data', {
-        type: 'error',
-        error: error instanceof Error ? error : new Error(String(error))
-      })
-      return aiStream
+      throw error instanceof Error ? error : new Error(String(error))
     }
     const { modelInfo, apiConfig, env } = runtimeEnvironment
 
@@ -410,7 +389,9 @@ class ClaudeCodeService implements AgentServiceInterface {
       requiresInteractiveApproval,
       isRecord,
       attachInternalToolContext,
-      resolveToolFilePath
+      resolveToolFilePath,
+      onQuestionReceived: persistenceHooks?.onQuestionReceived,
+      approvalSignal: abortController.signal
     })
 
     // Provision built-in agent workspace (copy skills/plugins to working directory)
@@ -444,29 +425,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       invocationIds: invocationIds ?? allocateAgentInvocationIds()
     })
 
-    logger.info('[SegmentCompose] start', {
-      topicId: session.id,
-      traceId,
-      activeSegmentId: activeSegment?.id ?? '',
-      sdkSessionId: activeSegment ? activeSegment.sdkSessionId : lastAgentSessionId ?? '',
-      hasContinuationSummary: Boolean(activeSegment?.continuationSummary),
-      hasPriorArtifacts: false,
-      artifactSourceSegmentId: ''
-    })
-
-    logger.info('[SegmentCompose] prompt-envelope', {
-      topicId: session.id,
-      traceId,
-      segmentId: activeSegment?.id ?? '',
-      systemPromptHash: promptEnvelope.systemPromptHash,
-      systemPromptVersion: promptEnvelope.systemPromptVersion,
-      stableBasePromptChars: (assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || '')).length,
-      dynamicContextPromptChars: promptEnvelope.systemPrompt.length,
-      systemPromptChars: promptEnvelope.systemPrompt.length,
-      continuationSummaryChars: promptEnvelope.promptView.continuationSummary?.length ?? 0,
-      recentTurnsCount: promptEnvelope.promptView.recentTurns.length,
-      referencedArtifactsCount: promptEnvelope.promptView.referencedArtifacts?.length ?? 0
-    })
     // Build SDK options from session configuration.
     // If thinking is not explicitly configured, leave it unset so the runtime
     // does not force adaptive thinking by default.
@@ -593,28 +551,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       resolveSourceChannel: (agentId, sessionId) => this.resolveSourceChannel(agentId, sessionId)
     })
 
-    logger.info('[Codemode] mounted MCP servers', {
-      agentId: session.agent_id,
-      sessionId: session.id,
-      requestPromptLength: prompt.length,
-      sdkPromptLength: sdkPrompt.length,
-      imageCount: images?.length ?? 0,
-      mountedRuntimeMcpServers,
-      toolGuidanceOptions,
-      activeClaudeSkillCount: activeClaudeSkillNames.length,
-      customMcpServerCount: session.mcps?.length ?? 0,
-      finalMcpServerNames: Object.keys(options.mcpServers || {}).sort(),
-      builtinToolLayer: toolSurface.layer,
-      builtinTools: toolSurface.builtinTools,
-      autoAllowToolCount: autoAllowTools.size,
-      promptLengths: {
-        clawSystemPrompt: clawSystemPrompt?.length ?? 0,
-        assistantSystemPrompt: assistantSystemPrompt?.length ?? 0,
-        sessionInstructions: session.instructions?.length ?? 0
-      },
-      strictMcpConfig: Boolean(options.strictMcpConfig)
-    })
-
     logPromptBudgetProbe({
       agentId: session.agent_id,
       sessionId: session.id,
@@ -669,19 +605,6 @@ class ClaudeCodeService implements AgentServiceInterface {
       }
     })
 
-    logger.info('[AgentCore] built invoke context snapshot', {
-      agentId: session.agent_id,
-      sessionId: session.id,
-      traceId: invokeContext.runtime.traceId,
-      visibleSkillCount: invokeContext.skills.visibleSkills.length,
-      activeSkillCount: invokeContext.skills.activeSkillNames.length,
-      activeToolCount: invokeContext.tools.activeToolNames.length,
-      mountedMcpServerCount: invokeContext.tools.mountedMcpServers.length,
-      promptTemplateCount: invokeContext.prompt.resources.promptTemplates.length,
-      hasSkillInvocationContext: Boolean(invokeContext.skills.skillInvocationContext),
-      projection: invokeContext.projection
-    })
-
     throwIfCancelled()
     const piHarness = await createClaudeCodeHarness({
       invokeContext,
@@ -692,17 +615,9 @@ class ClaudeCodeService implements AgentServiceInterface {
     })
 
     throwIfCancelled()
-    const shouldResumeExistingSession = !NO_RESUME_COMMANDS.some((cmd) => composedPrompt.includes(cmd))
-    if (activeSegment && !activeSegment.sdkSessionId && shouldResumeExistingSession) {
-      logger.info('[ForkContinuation] start-child-with-fresh-session', {
-        topicId: session.id,
-        traceId,
-        segmentId: activeSegment.id,
-        parentSegmentId: activeSegment.parentSegmentId ?? '',
-        forkFromSdkSessionId: activeSegment.forkFromSdkSessionId ?? ''
-      })
-    }
 
+    let resolveRuntimeFinished!: () => void
+    aiStream.runtimeFinished = new Promise<void>((resolve) => { resolveRuntimeFinished = resolve })
     // Start async processing on the next tick so listeners can subscribe first
     setImmediate(() => {
       const architectureContext = {
@@ -716,15 +631,6 @@ class ClaudeCodeService implements AgentServiceInterface {
         promptEnvelope,
         pendingFileChanges
       }
-
-      logger.info('[AgentCore] dispatching mandatory pi query path', {
-        traceId,
-        topicId: session.id,
-        piSessionId: invokeContext.projection.piSessionId,
-        importStrategy: piHarness.importStrategy,
-        mode: piHarness.mode,
-        hasRuntimeBridge: Boolean(piHarness.runtimeBridge)
-      })
 
       const queryPromise = processPiHarnessQuery({
         stream: aiStream,
@@ -771,7 +677,7 @@ class ClaudeCodeService implements AgentServiceInterface {
             originalMessage: rawMessage
           })
         })
-      })
+      }).finally(resolveRuntimeFinished)
     })
 
     return aiStream

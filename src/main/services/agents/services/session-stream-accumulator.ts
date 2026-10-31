@@ -38,7 +38,7 @@ export class TextStreamAccumulator {
   private currentReasoningId: string | null = null
   private readonly reasoningBlocks = new Map<string, string>()
   private readonly reasoningOrder: string[] = []
-  private readonly toolCalls = new Map<string, { toolName?: string; input?: unknown }>()
+  private readonly toolCalls = new Map<string, { toolName?: string; input?: unknown; partialArguments?: string }>()
   private readonly toolResults = new Map<
     string,
     {
@@ -88,10 +88,25 @@ export class TextStreamAccumulator {
     if (toolName) {
       const existing = this.toolCalls.get(toolCallId)
       this.toolCalls.set(toolCallId, {
-        toolName: existing?.toolName ?? toolName,
-        input: existing?.input
+        ...existing,
+        toolName: existing?.toolName || toolName
       })
     }
+  }
+
+  private getToolInput(toolCallId: string): unknown {
+    const toolCall = this.toolCalls.get(toolCallId)
+    if (toolCall?.input !== undefined) {
+      return toolCall?.input
+    }
+    if (toolCall?.partialArguments) {
+      try {
+        return JSON.parse(toolCall.partialArguments)
+      } catch {
+        // Keep incomplete or invalid JSON available as partialArguments.
+      }
+    }
+    return undefined
   }
 
   add(part: TextStreamPart<Record<string, any>>): void {
@@ -154,6 +169,15 @@ export class TextStreamAccumulator {
         }
         break
       }
+      case 'tool-input-delta': {
+        const toolCallId = this.getToolCallKey(chunk)
+        if (toolCallId && typeof chunk.delta === 'string' && chunk.delta) {
+          this.ensureToolEntry(toolCallId, chunk.toolName)
+          const toolCall = this.toolCalls.get(toolCallId)!
+          toolCall.partialArguments = (toolCall.partialArguments ?? '') + chunk.delta
+        }
+        break
+      }
       case 'tool-call': {
         const toolCallId = this.getToolCallKey(chunk)
         if (toolCallId) {
@@ -163,7 +187,7 @@ export class TextStreamAccumulator {
             providerMetadata?: { raw?: { input?: unknown } }
           }
           this.toolCalls.set(toolCallId, {
-            toolName: chunk.toolName,
+            ...this.toolCalls.get(toolCallId),
             input: chunk.input ?? legacyPart.args ?? legacyPart.providerMetadata?.raw?.input
           })
         }
@@ -426,7 +450,6 @@ export class TextStreamAccumulator {
       })
     }
 
-    const text = this.getText()
     const emittedToolBlocks = new Set<string>()
     for (const segment of this.orderedContentSegments) {
       if (segment.kind === 'text') {
@@ -446,6 +469,7 @@ export class TextStreamAccumulator {
 
       const toolCall = this.toolCalls.get(segment.toolCallId)
       if (!toolCall) continue
+      const toolInput = this.getToolInput(segment.toolCallId)
       const toolResult = this.toolResults.get(segment.toolCallId)
       const isToolError = toolResult?.status === 'error'
       emittedToolBlocks.add(segment.toolCallId)
@@ -459,7 +483,8 @@ export class TextStreamAccumulator {
         model: modelId,
         toolId: segment.toolCallId,
         toolName: toolCall.toolName,
-        arguments: toolCall.input && typeof toolCall.input === 'object' ? toolCall.input : undefined,
+        arguments: toolInput && typeof toolInput === 'object' ? toolInput : undefined,
+        partialArguments: toolCall.partialArguments,
         content: toolResult?.inline,
         ...(isToolError
           ? {
@@ -479,11 +504,12 @@ export class TextStreamAccumulator {
               name: toolCall.toolName || segment.toolCallId
             },
             arguments:
-              toolCall.input && typeof toolCall.input === 'object'
-                ? toolCall.input
-                : toolCall.input !== undefined
-                  ? String(toolCall.input)
+              toolInput && typeof toolInput === 'object'
+                ? toolInput
+                : toolInput !== undefined
+                  ? String(toolInput)
                   : undefined,
+            partialArguments: toolCall.partialArguments,
             status: isToolError ? 'error' : toolResult !== undefined ? 'done' : 'pending',
             response: toolResult?.inline,
             responseRaw: toolResult?.raw,
@@ -499,6 +525,7 @@ export class TextStreamAccumulator {
       }
       const toolCall = this.toolCalls.get(toolCallId)
       if (!toolCall) continue
+      const toolInput = this.getToolInput(toolCallId)
       const toolResult = this.toolResults.get(toolCallId)
       const isToolError = toolResult?.status === 'error'
       blocks.push({
@@ -511,7 +538,8 @@ export class TextStreamAccumulator {
         model: modelId,
         toolId: toolCallId,
         toolName: toolCall.toolName,
-        arguments: toolCall.input && typeof toolCall.input === 'object' ? toolCall.input : undefined,
+        arguments: toolInput && typeof toolInput === 'object' ? toolInput : undefined,
+        partialArguments: toolCall.partialArguments,
         content: toolResult?.inline,
         ...(isToolError
           ? {
@@ -531,11 +559,12 @@ export class TextStreamAccumulator {
               name: toolCall.toolName || toolCallId
             },
             arguments:
-              toolCall.input && typeof toolCall.input === 'object'
-                ? toolCall.input
-                : toolCall.input !== undefined
-                  ? String(toolCall.input)
+              toolInput && typeof toolInput === 'object'
+                ? toolInput
+                : toolInput !== undefined
+                  ? String(toolInput)
                   : undefined,
+            partialArguments: toolCall.partialArguments,
             status: isToolError ? 'error' : toolResult !== undefined ? 'done' : 'pending',
             response: toolResult?.inline,
             responseRaw: toolResult?.raw,
@@ -545,7 +574,8 @@ export class TextStreamAccumulator {
       })
     }
 
-    if (!this.orderedContentSegments.length && text) {
+    // Include the live tail without flushing so snapshot reads do not alter the stream.
+    if (this.textBuffer) {
       blocks.push({
         id: randomUUID(),
         messageId,
@@ -554,7 +584,7 @@ export class TextStreamAccumulator {
         updatedAt: now,
         status: 'success',
         modelId,
-        content: text
+        content: this.textBuffer
       })
     }
 

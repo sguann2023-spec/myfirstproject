@@ -18,6 +18,7 @@ import { BaseService } from '../BaseService'
 import { sessionMessagesTable } from '../database/schema'
 import { agentTranscriptRepository } from '../database/repositories/agentTranscriptRepository'
 import { agentTurnRepository } from '../database/repositories/agentTurnRepository'
+import { OrderedTaskQueue } from '../database/orderedTaskQueue'
 import type { AgentInvocationIds, AgentStream, AgentStreamEvent } from '../interfaces/AgentStreamInterface'
 import { agentMessageRepository } from '../database/sessionMessageRepository'
 import { allocateAgentInvocationIds } from './agent-invocation-ids'
@@ -28,11 +29,15 @@ const claudeCodeService = new ClaudeCodeService()
 
 const logger = loggerService.withContext('SessionMessageService')
 
-const HEADLESS_STREAMING_PERSIST_INTERVAL_MS = 2000
-
 type SessionStreamResult = {
   stream: ReadableStream<TextStreamPart<Record<string, any>>>
   streamFinished: Promise<void>
+  runtimeFinished?: Promise<void>
+  /** Optional history notification; never part of the message lifecycle. */
+  historyPersisted?: Promise<{
+    userMessage?: AgentSessionMessageEntity
+    assistantMessage?: AgentSessionMessageEntity
+  }>
   completion: Promise<{
     userMessage?: AgentSessionMessageEntity
     assistantMessage?: AgentSessionMessageEntity
@@ -190,7 +195,7 @@ export class SessionMessageService extends BaseService {
     workspaceActivity.runs++
     try {
       const result = await this.startSessionMessageStream(session, messageData, abortController, options)
-      void Promise.allSettled([result.streamFinished, result.completion]).then(
+      void Promise.allSettled([result.streamFinished, result.completion, result.runtimeFinished]).then(
         () => { workspaceActivity.runs-- })
       return result
     } catch (error) {
@@ -222,8 +227,50 @@ export class SessionMessageService extends BaseService {
       assistantReasoning: `part_${randomUUID()}`,
       assistantTools: new Map<string, string>()
     }
+    const persistenceQueue = new OrderedTaskQueue()
+    const persistedParts = new Map<string, string>()
+    let persistedUsage = ''
+    let finished = false
+    let readerCancelled = false
+    let acceptingEvents = true
 
-    await this.persistCanonicalTurnStart({
+    const queuePersistence = <T>(operation: () => Promise<T>, failureMessage: string): Promise<T | undefined> =>
+      persistenceQueue.run(operation).catch((error) => {
+        logger.error(failureMessage, error as Error)
+        return undefined
+      })
+
+    const persistStreamParts = () => {
+      try {
+        // Capture before enqueueing: later events may mutate nested tool inputs/results.
+        const parts = structuredClone(this.canonicalAssistantParts({
+          sessionId: session.id,
+          messageId: headlessAssistantMsgId,
+          blocks: accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
+          partIds: canonicalPartIds,
+          createdAtIso
+        }).map((part) => ({ ...part, data: { ...part.data, status: 'streaming' } })))
+        const usage = this.canonicalUsage(accumulator.getUsage())
+        void queuePersistence(async () => {
+          const changed = parts.filter((part) => persistedParts.get(part.id) !== JSON.stringify(part.data))
+          if (changed.length) {
+            await agentTranscriptRepository.upsertParts(changed)
+            for (const part of changed) persistedParts.set(part.id, JSON.stringify(part.data))
+          }
+          if (usage && JSON.stringify(usage) !== persistedUsage) {
+            await agentTranscriptRepository.upsertMessage({
+              id: headlessAssistantMsgId, sessionId: session.id, turnId: invocationIds.turnId,
+              role: 'assistant', status: 'streaming', usage, createdAt: createdAtIso
+            })
+            persistedUsage = JSON.stringify(usage)
+          }
+        }, 'Failed to persist streaming assistant parts')
+      } catch (error) {
+        logger.error('Failed to capture streaming assistant parts', error as Error)
+      }
+    }
+
+    void queuePersistence(() => this.persistCanonicalTurnStart({
       session,
       invocationIds,
       userContent: options?.displayContent ?? req.content,
@@ -231,16 +278,12 @@ export class SessionMessageService extends BaseService {
       createdAtIso,
       userTextPartId: canonicalPartIds.userText,
       images: options?.images
-    })
+    }), 'Failed to persist canonical turn at stream start')
 
-    // Startup may have timed out while persistence was awaiting SQLite. Never
-    // dispatch an abandoned attempt into the shared runtime after its retry starts.
     throwIfCancelled()
     if (options?.persist) {
-      // Persist the user message as soon as the turn is accepted, so a hard
-      // kill mid-stream cannot lose the prompt. The complete-time exchange
-      // persist reuses the same message id and updates this row.
-      void this.persistHeadlessUserMessage(
+      // Best-effort history writes never delay runtime dispatch or UI rendering.
+      void queuePersistence(() => this.persistHeadlessUserMessage(
         session,
         options?.displayContent ?? req.content,
         agentSessionId,
@@ -248,9 +291,7 @@ export class SessionMessageService extends BaseService {
         options?.images,
         options?.userMessageExtras,
         req.createdAt
-      ).catch((error) => {
-        logger.error('Failed to persist headless user message at stream start', error as Error)
-      })
+      ), 'Failed to persist headless user message at stream start')
     }
 
     let claudeStream: AgentStream
@@ -266,45 +307,65 @@ export class SessionMessageService extends BaseService {
         },
         req.model,
         options?.images,
-        invocationIds
+        invocationIds,
+        {
+          onQuestionReceived: (question, signal) => {
+            if (finished || !acceptingEvents || signal.aborted || abortController.signal.aborted) {
+              throw new DOMException('Request was aborted', 'AbortError')
+            }
+            const ids = [question.toolCallId, question.rawToolCallId, ...question.aliases].filter(Boolean)
+            const existing = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
+              .find((block) => block.type === 'tool' && ids.includes(block.toolId))
+            const toolCallId = existing?.toolId ?? question.aliases[question.aliases.length - 1] ?? question.rawToolCallId ?? question.toolCallId
+            accumulator.add({ type: 'tool-call', toolCallId, toolName: question.toolName, input: question.input } as TextStreamPart<any>)
+            persistStreamParts()
+          }
+        }
       )
     } catch (error) {
+      finished = true
+      acceptingEvents = false
       const serialized = serializeError(error)
-      await this.finalizeCanonicalAssistant({
+      const blocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
+      const usage = accumulator.getUsage()
+      void queuePersistence(() => this.finalizeCanonicalAssistant({
         sessionId: session.id,
         invocationIds,
         modelId: req.model,
-        blocks: [],
+        blocks,
+        usage,
         createdAtIso,
         status: 'failed',
         partIds: canonicalPartIds,
         error: serialized
-      })
-      const turn = await agentTurnRepository.getById(invocationIds.turnId)
-      if (turn?.status === 'running') {
-        await agentTurnRepository.update(invocationIds.turnId, {
-          status: 'failed',
-          completedAt: new Date().toISOString()
-        })
-      }
+      }), 'Failed to persist invocation initialization error')
+      void queuePersistence(async () => {
+        const turn = await agentTurnRepository.getById(invocationIds.turnId)
+        if (turn?.status === 'running') {
+          await agentTurnRepository.update(invocationIds.turnId, {
+            status: 'failed',
+            completedAt: new Date().toISOString()
+          })
+        }
+      }, 'Failed to finalize agent turn after initialization error')
       throw error
     }
 
-    let resolveCompletion!: (value: {
+    let resolveHistoryPersisted!: (value: {
       userMessage?: AgentSessionMessageEntity
       assistantMessage?: AgentSessionMessageEntity
     }) => void
-    let rejectCompletion!: (reason?: unknown) => void
+    let resolveCompletion!: (value: {}) => void
     let resolveStreamFinished!: () => void
     let streamFinishedResolved = false
 
-    const completion = new Promise<{
+    const historyPersisted = new Promise<{
       userMessage?: AgentSessionMessageEntity
       assistantMessage?: AgentSessionMessageEntity
-    }>((resolve, reject) => {
-      resolveCompletion = resolve
-      rejectCompletion = reject
+    }>((resolve) => {
+      resolveHistoryPersisted = resolve
     })
+    const completion = new Promise<{}>((resolve) => { resolveCompletion = resolve })
     const streamFinished = new Promise<void>((resolve) => {
       resolveStreamFinished = () => {
         if (streamFinishedResolved) return
@@ -313,78 +374,66 @@ export class SessionMessageService extends BaseService {
       }
     })
 
-    let finished = false
-    let firstStreamEventLogged = false
-    let streamingPersistTimer: ReturnType<typeof setInterval> | null = null
-    let streamingPersistChain: Promise<void> = Promise.resolve()
-    let lastSnapshotSignature = ''
-
     const cleanup = () => {
       if (finished) return
       finished = true
-      if (streamingPersistTimer) {
-        clearInterval(streamingPersistTimer)
-        streamingPersistTimer = null
-      }
+      acceptingEvents = false
       claudeStream.removeAllListeners()
     }
 
-    // Periodically checkpoint the in-progress assistant message so a hard kill
-    // mid-stream keeps the partial reply. Canonical persistence owns this for
-    // every main-path request; legacy UI persistence remains opt-in.
-    const persistStreamingSnapshot = (): Promise<void> => {
-      if (finished) return streamingPersistChain
-      const snapshotBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
-      const snapshotSignature = `${snapshotBlocks.length}:${accumulator.getText().length}:${accumulator.getReasoningText().length}`
-      if (!snapshotBlocks.length || snapshotSignature === lastSnapshotSignature) {
-        return streamingPersistChain
+    const finishPersistence = (
+      status: 'completed' | 'cancelled' | 'failed',
+      error?: unknown,
+      persistExchange = false
+    ) => {
+      try {
+        const assistantBlocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
+        const usage = structuredClone(accumulator.getUsage())
+        const usageSteps = structuredClone(accumulator.getUsageSteps())
+        const resolvedSessionId = claudeStream.sdkSessionId || agentSessionId
+        const serializedError = status === 'failed' ? serializeError(error) : undefined
+        const finalized = queuePersistence(() => this.finalizeCanonicalAssistant({
+          sessionId: session.id,
+          invocationIds,
+          modelId: req.model,
+          blocks: assistantBlocks,
+          usage,
+          createdAtIso,
+          status,
+          partIds: canonicalPartIds,
+          error: serializedError,
+          finish: status === 'failed' ? undefined : { reason: status === 'completed' ? 'complete' : 'cancelled' }
+        }), 'Failed to finalize canonical assistant state')
+        if (options?.persist && persistExchange && (status === 'completed' || assistantBlocks.length > 0 || usage)) {
+          void queuePersistence(() => this.persistHeadlessExchange(
+            session,
+            options?.displayContent ?? req.content,
+            assistantBlocks,
+            resolvedSessionId,
+            headlessAssistantMsgId,
+            options?.images,
+            options?.userMessageExtras,
+            req.model,
+            usage,
+            usageSteps,
+            req.createdAt,
+            status === 'cancelled',
+            headlessUserMsgId
+          ), 'Failed to persist headless exchange').then((result) => resolveHistoryPersisted(result ?? {}))
+        } else {
+          void finalized.then(() => resolveHistoryPersisted({}))
+        }
+      } catch (captureError) {
+        logger.error('Failed to capture final assistant history', captureError as Error)
+        resolveHistoryPersisted({})
       }
-      lastSnapshotSignature = snapshotSignature
-      streamingPersistChain = streamingPersistChain
-        .then(async () => {
-          if (finished) return
-          await this.checkpointCanonicalAssistant({
-            sessionId: session.id,
-            invocationIds,
-            modelId: req.model,
-            blocks: snapshotBlocks,
-            usage: accumulator.getUsage(),
-            createdAtIso,
-            status: 'streaming',
-            partIds: canonicalPartIds
-          })
-          if (options?.persist) {
-            await this.persistHeadlessAssistantSnapshot(
-              session,
-              claudeStream.sdkSessionId || agentSessionId,
-              headlessAssistantMsgId,
-              req.model,
-              snapshotBlocks,
-              accumulator.getUsage(),
-              req.createdAt
-            )
-          }
-        })
-        .catch((error) => {
-          logger.warn('Failed to persist streaming assistant snapshot', {
-            sessionId: session.id,
-            assistantMessageId: headlessAssistantMsgId,
-            error: error instanceof Error ? error.message : String(error)
-          })
-        })
-      return streamingPersistChain
     }
-
-    streamingPersistTimer = setInterval(() => {
-      void persistStreamingSnapshot()
-    }, HEADLESS_STREAMING_PERSIST_INTERVAL_MS)
 
     const stream = new ReadableStream<TextStreamPart<Record<string, any>>>({
       start: (controller) => {
-        claudeStream.on('data', async (event: AgentStreamEvent) => {
-          if (finished) return
+        const processEvent = (event: AgentStreamEvent) => {
+          if (finished || !acceptingEvents) return
           try {
-            if (!firstStreamEventLogged) firstStreamEventLogged = true
             switch (event.type) {
               case 'chunk': {
                 const chunk = event.chunk as TextStreamPart<Record<string, any>> | undefined
@@ -393,7 +442,8 @@ export class SessionMessageService extends BaseService {
                   return
                 }
                 accumulator.add(chunk)
-                controller.enqueue(chunk)
+                if (!readerCancelled) controller.enqueue(chunk)
+                persistStreamParts()
                 break
               }
 
@@ -404,130 +454,30 @@ export class SessionMessageService extends BaseService {
 
               case 'error': {
                 const stderrMessage = (event as any)?.data?.stderr as string | undefined
-                const underlyingError = event.error ?? (stderrMessage ? new Error(stderrMessage) : undefined)
+                const streamError = event.error ?? (stderrMessage ? new Error(stderrMessage) : new Error('Stream error'))
                 resolveStreamFinished()
                 cleanup()
-                const streamError = underlyingError ?? new Error('Stream error')
-                await streamingPersistChain.catch(() => undefined)
-                await this.finalizeCanonicalAssistantSafely({
-                  sessionId: session.id,
-                  invocationIds,
-                  modelId: req.model,
-                  blocks: accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
-                  usage: accumulator.getUsage(),
-                  createdAtIso,
-                  status: 'failed',
-                  partIds: canonicalPartIds,
-                  error: serializeError(streamError)
-                })
-                controller.error(streamError)
-                rejectCompletion(serializeError(streamError))
+                if (!readerCancelled) controller.error(streamError)
+                resolveCompletion({})
+                finishPersistence('failed', streamError)
                 break
               }
 
               case 'complete': {
                 resolveStreamFinished()
                 cleanup()
-                controller.close()
-                const assistantBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
-                await streamingPersistChain.catch(() => undefined)
-                await this.finalizeCanonicalAssistantSafely({
-                  sessionId: session.id,
-                  invocationIds,
-                  modelId: req.model,
-                  blocks: assistantBlocks,
-                  usage: accumulator.getUsage(),
-                  createdAtIso,
-                  status: 'completed',
-                  partIds: canonicalPartIds,
-                  finish: { reason: 'complete' }
-                })
-                if (options?.persist) {
-                  // Read SDK session_id from the stream object (set by ClaudeCodeService on init)
-                  const resolvedSessionId = claudeStream.sdkSessionId || agentSessionId
-                  logger.debug('Persisting headless exchange with agent session ID', {
-                    sdkSessionId: claudeStream.sdkSessionId,
-                    fallback: agentSessionId,
-                    resolved: resolvedSessionId,
-                    accumulator: accumulator.summarizeState(),
-                    assistantBlockCount: assistantBlocks.length,
-                    assistantBlockTypes: assistantBlocks.map((block) => block.type)
-                  })
-                  streamingPersistChain
-                    .then(() =>
-                      this.persistHeadlessExchange(
-                        session,
-                        options?.displayContent ?? req.content,
-                        assistantBlocks,
-                        resolvedSessionId,
-                        headlessAssistantMsgId,
-                        options?.images,
-                        options?.userMessageExtras,
-                        req.model,
-                        accumulator.getUsage(),
-                        accumulator.getUsageSteps(),
-                        req.createdAt,
-                        undefined,
-                        headlessUserMsgId
-                      )
-                    )
-                    .then(resolveCompletion)
-                    .catch((err) => {
-                      logger.error('Failed to persist headless exchange', err as Error)
-                      resolveCompletion({})
-                    })
-                } else {
-                  resolveCompletion({})
-                }
+                if (!readerCancelled) controller.close()
+                resolveCompletion({})
+                finishPersistence('completed', undefined, true)
                 break
               }
 
               case 'cancelled': {
                 resolveStreamFinished()
                 cleanup()
-                controller.close()
-                const resolvedSessionId = claudeStream.sdkSessionId || agentSessionId
-                const assistantBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
-                const usage = accumulator.getUsage()
-                await streamingPersistChain.catch(() => undefined)
-                await this.finalizeCanonicalAssistantSafely({
-                  sessionId: session.id,
-                  invocationIds,
-                  modelId: req.model,
-                  blocks: assistantBlocks,
-                  usage,
-                  createdAtIso,
-                  status: 'cancelled',
-                  partIds: canonicalPartIds,
-                  finish: { reason: 'cancelled' }
-                })
-                if (options?.persist && (assistantBlocks.length > 0 || usage)) {
-                  streamingPersistChain
-                    .then(() =>
-                      this.persistHeadlessExchange(
-                        session,
-                        options?.displayContent ?? req.content,
-                        assistantBlocks,
-                        resolvedSessionId,
-                        headlessAssistantMsgId,
-                        options?.images,
-                        options?.userMessageExtras,
-                        req.model,
-                        usage,
-                        accumulator.getUsageSteps(),
-                        req.createdAt,
-                        true,
-                        headlessUserMsgId
-                      )
-                    )
-                    .then(resolveCompletion)
-                    .catch((err) => {
-                      logger.error('Failed to persist cancelled exchange', err as Error)
-                      resolveCompletion({})
-                    })
-                } else {
-                  resolveCompletion({})
-                }
+                if (!readerCancelled) controller.close()
+                resolveCompletion({})
+                finishPersistence('cancelled', undefined, true)
                 break
               }
 
@@ -539,37 +489,27 @@ export class SessionMessageService extends BaseService {
             }
           } catch (error) {
             cleanup()
-            controller.error(error)
-            rejectCompletion(serializeError(error))
+            resolveStreamFinished()
+            abortController.abort(error)
+            if (!readerCancelled) controller.error(error)
+            resolveCompletion({})
+            finishPersistence('failed', error)
           }
-        })
+        }
+        claudeStream.on('data', processEvent)
       },
       cancel: (reason: unknown) => {
-        const assistantBlocks = accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model)
+        readerCancelled = true
+        if (finished) return
         cleanup()
+        resolveStreamFinished()
+        resolveCompletion({})
         abortController.abort(typeof reason === 'string' ? reason : 'stream cancelled')
-        void streamingPersistChain
-          .then(() =>
-            this.finalizeCanonicalAssistant({
-              sessionId: session.id,
-              invocationIds,
-              modelId: req.model,
-              blocks: assistantBlocks,
-              usage: accumulator.getUsage(),
-              createdAtIso,
-              status: 'cancelled',
-              partIds: canonicalPartIds,
-              finish: { reason: 'cancelled' }
-            })
-          )
-          .catch((error) => {
-            logger.error('Failed to finalize canonical assistant after stream cancellation', error as Error)
-          })
-          .finally(() => resolveCompletion({}))
+        finishPersistence('cancelled')
       }
     })
 
-    return { stream, streamFinished, completion }
+    return { stream, streamFinished, completion, historyPersisted, runtimeFinished: claudeStream.runtimeFinished }
   }
 
   private async persistCanonicalTurnStart(params: {
@@ -685,7 +625,7 @@ export class SessionMessageService extends BaseService {
         sessionId,
         messageId,
         type: 'tool',
-        data: { ...block, id: undefined, messageId: undefined },
+        data: { ...block, id: undefined, messageId: undefined, createdAt: undefined, updatedAt: undefined },
         createdAt: createdAtIso
       })
     }
@@ -703,7 +643,7 @@ export class SessionMessageService extends BaseService {
     }
   }
 
-  private async checkpointCanonicalAssistant(params: {
+  private async finalizeCanonicalAssistant(params: {
     sessionId: string
     invocationIds: AgentInvocationIds
     modelId?: string
@@ -720,6 +660,18 @@ export class SessionMessageService extends BaseService {
     finish?: { reason: string }
   }): Promise<void> {
     const now = new Date().toISOString()
+    const parts = this.canonicalAssistantParts({
+      sessionId: params.sessionId,
+      messageId: params.invocationIds.assistantMessageId,
+      blocks: params.blocks,
+      partIds: params.partIds,
+      createdAtIso: params.createdAtIso
+    }).map((part) => ({
+      ...part,
+      data: { ...part.data, status: params.status === 'streaming' ? 'streaming' : params.status }
+    }))
+    // Publish terminal message status only after its content has been acknowledged.
+    if (parts.length > 0) await agentTranscriptRepository.upsertParts(parts)
     await agentTranscriptRepository.upsertMessage({
       id: params.invocationIds.assistantMessageId,
       sessionId: params.sessionId,
@@ -736,44 +688,6 @@ export class SessionMessageService extends BaseService {
       completedAt: params.status === 'streaming' ? undefined : now,
       updatedAt: now
     })
-    const parts = this.canonicalAssistantParts({
-      sessionId: params.sessionId,
-      messageId: params.invocationIds.assistantMessageId,
-      blocks: params.blocks,
-      partIds: params.partIds,
-      createdAtIso: params.createdAtIso
-    }).map((part) => ({
-      ...part,
-      data: { ...part.data, status: params.status === 'streaming' ? 'streaming' : params.status }
-    }))
-    if (parts.length > 0) await agentTranscriptRepository.upsertParts(parts)
-  }
-
-  private async finalizeCanonicalAssistant(
-    params: Parameters<SessionMessageService['checkpointCanonicalAssistant']>[0]
-  ): Promise<void> {
-    await this.checkpointCanonicalAssistant(params)
-  }
-
-  /**
-   * Terminal persistence best effort: a database hiccup (e.g. transient
-   * SQLITE_BUSY) must never turn a completed or user-cancelled stream into a
-   * stream error for the UI. The last checkpoint stays durable and the
-   * deferred maintenance/retry paths reconcile the record later.
-   */
-  private async finalizeCanonicalAssistantSafely(
-    params: Parameters<SessionMessageService['checkpointCanonicalAssistant']>[0]
-  ): Promise<void> {
-    try {
-      await this.finalizeCanonicalAssistant(params)
-    } catch (error) {
-      logger.error('Failed to finalize canonical assistant state', {
-        sessionId: params.sessionId,
-        assistantMessageId: params.invocationIds.assistantMessageId,
-        status: params.status,
-        error: error instanceof Error ? error.message : String(error)
-      })
-    }
   }
 
   /**
@@ -807,11 +721,6 @@ export class SessionMessageService extends BaseService {
       createdAt: createdAtIso
     })
 
-    logger.info('Persisted headless user message at stream start', {
-      sessionId: session.id,
-      userMessageId: userMsgId,
-      agentSessionId: agentSessionId || ''
-    })
   }
 
   private static toIsoCreatedAt(userCreatedAt: number | undefined, fallbackIso: string): string {
@@ -935,48 +844,6 @@ export class SessionMessageService extends BaseService {
   }
 
   /**
-   * Checkpoint an in-progress assistant message during streaming so a hard
-   * kill mid-turn keeps the partial reply. The complete-time exchange persist
-   * overwrites this row with the final state.
-   */
-  private async persistHeadlessAssistantSnapshot(
-    session: GetAgentSessionResponse,
-    agentSessionId: string,
-    assistantMsgId: string,
-    modelId: string | undefined,
-    blocks: HeadlessPersistedBlock[],
-    usage: PersistedUsage | undefined,
-    userCreatedAt?: number
-  ): Promise<void> {
-    const now = new Date().toISOString()
-    const createdAtIso = SessionMessageService.toIsoCreatedAt(userCreatedAt, now)
-    const assistantPayload = this.buildHeadlessAssistantPayload({
-      session,
-      assistantMsgId,
-      blocks,
-      createdAtIso,
-      updatedAtIso: now,
-      modelId,
-      usage,
-      aborted: false,
-      status: 'streaming'
-    })
-
-    await agentMessageRepository.persistAssistantMessage({
-      sessionId: session.id,
-      agentSessionId,
-      payload: assistantPayload,
-      createdAt: createdAtIso
-    })
-
-    logger.debug('Persisted streaming assistant snapshot', {
-      sessionId: session.id,
-      assistantMessageId: assistantMsgId,
-      blockCount: blocks.length
-    })
-  }
-
-  /**
    * Persist user + assistant messages for headless callers (channels, scheduler)
    * that have no UI to handle persistence via IPC.
    */
@@ -1021,7 +888,6 @@ export class SessionMessageService extends BaseService {
       aborted,
       status: aborted ? 'cancelled' : 'success'
     })
-    const assistantBlocks: HeadlessPersistedBlock[] = assistantPayload.blocks as HeadlessPersistedBlock[]
 
     const result = await agentMessageRepository.persistExchange({
       sessionId: session.id,
@@ -1030,19 +896,6 @@ export class SessionMessageService extends BaseService {
       assistant: { payload: assistantPayload, createdAt: normalizedAssistantCreatedAt }
     })
 
-    logger.info('Persisted headless exchange', {
-      sessionId: session.id,
-      userMessageId: resolvedUserMsgId,
-      assistantMessageId: assistantMsgId,
-      assistantBlockCount: assistantBlocks.length,
-      assistantToolBlockCount: assistantBlocks.filter((block) => block.type === 'tool').length,
-      assistantUsage: usage,
-      assistantUsageStepsCount: usageSteps?.length ?? 0,
-      assistantBlockTypes: assistantBlocks.map((block) => String(block.type || 'unknown')),
-      assistantTextChars: assistantBlocks
-        .filter((block) => typeof (block as { content?: unknown }).content === 'string')
-        .reduce((total, block) => total + String((block as { content?: unknown }).content || '').length, 0)
-    })
     return result
   }
 
@@ -1056,7 +909,6 @@ export class SessionMessageService extends BaseService {
         .orderBy(desc(sessionMessagesTable.created_at))
         .limit(1)
 
-      logger.silly('Last agent session ID result:', { agentSessionId: result[0]?.agent_session_id, sessionId })
       return result[0]?.agent_session_id || ''
     } catch (error) {
       logger.error('Failed to get last agent session ID', {

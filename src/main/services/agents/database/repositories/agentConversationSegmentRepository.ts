@@ -101,7 +101,6 @@ class AgentConversationSegmentRepositoryImpl extends BaseService implements IAge
     const startedAt = Date.now()
     try {
       const [saved] = await database.insert(agentConversationSegmentsTable).values(insertData).returning()
-      logger.info('[SegmentRepo] saved', { topicId: segment.topicId, segmentId: insertData.id, status: segment.status })
       return this.deserialize(saved)!
     } catch (error) {
       logger.error('[DBDiagnostics] conversation segment insert failed', {

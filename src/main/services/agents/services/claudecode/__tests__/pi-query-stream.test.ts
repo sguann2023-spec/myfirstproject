@@ -2,12 +2,14 @@ import { EventEmitter } from 'node:events'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const { terminalStorageLogger } = vi.hoisted(() => ({ terminalStorageLogger: vi.fn() }))
+
 vi.mock('@logger', () => ({
   loggerService: {
     withContext: () => ({
       info: vi.fn(),
       warn: vi.fn(),
-      error: vi.fn()
+      error: terminalStorageLogger
     })
   }
 }))
@@ -16,6 +18,8 @@ vi.mock('@shared/sessionPayloadLimits', async (importOriginal) => await importOr
 
 vi.mock('../../../database/repositories/agentTurnRepository', () => ({
   agentTurnRepository: {
+    getById: vi.fn(),
+    listBySegmentId: vi.fn(),
     save: vi.fn(),
     update: vi.fn()
   }
@@ -23,6 +27,7 @@ vi.mock('../../../database/repositories/agentTurnRepository', () => ({
 
 vi.mock('../session-architecture/ConversationSegmentService', () => ({
   conversationSegmentService: {
+    getActiveSegment: vi.fn(),
     createRootSegment: vi.fn(),
     bindSdkSession: vi.fn()
   }
@@ -39,6 +44,7 @@ vi.mock('../../../BaseService', () => ({
 
 import { handleToolResultSideEffects } from '../harness/query-side-effects'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
+import { conversationSegmentService } from '../session-architecture/ConversationSegmentService'
 import type { AgentStream, AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
 import { convertPiUsage, processPiHarnessQuery } from '../harness/pi-query-stream'
@@ -173,6 +179,7 @@ describe('processPiHarnessQuery', () => {
   }
 
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.spyOn(agentTurnRepository, 'update').mockResolvedValue(undefined)
   })
 
@@ -182,6 +189,118 @@ describe('processPiHarnessQuery', () => {
     vi.useRealTimers()
     delete process.env.PI_TERMINAL_TIMEOUT_MS
     delete process.env.PI_IDLE_TIMEOUT_MS
+  })
+
+  it.each(['completed', 'failed', 'cancelled-result', 'cancelled-error'])('notifies %s before a pending status write settles and only logs its later failure', async (outcome) => {
+    let rejectUpdate!: (error: Error) => void
+    vi.mocked(agentTurnRepository.update).mockReturnValueOnce(new Promise<void>((_, reject) => {
+      rejectUpdate = reject
+    }))
+    const originalError = new Error(outcome === 'failed' ? '401 Unauthorized' : 'Request aborted')
+    if (outcome === 'cancelled-error') originalError.name = 'AbortError'
+    const stub = createHarnessStub({ prompt: async () => {
+      if (outcome === 'failed' || outcome === 'cancelled-error') throw originalError
+      return {
+        content: [{ type: 'text', text: 'done' }],
+        stopReason: outcome === 'cancelled-result' ? 'aborted' : 'stop',
+        usage: { input: 42 }
+      }
+    } })
+    const stream = createStreamRecorder()
+    await processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'hello'
+    })
+    const status = outcome.startsWith('cancelled') ? 'cancelled' : outcome
+    expect(agentTurnRepository.update).toHaveBeenCalledTimes(1)
+    expect(agentTurnRepository.update).toHaveBeenCalledWith('turn-1', expect.objectContaining({
+      status, completedAt: expect.any(String),
+      assistantText: outcome === 'completed' ? 'done' : undefined,
+      cumulativeInputTokens: outcome === 'completed' ? 42 : 0
+    }))
+    expect(stream.events.map(event => event.type)).toEqual(
+      outcome === 'completed' ? ['chunk', 'stream-finished', 'complete'] : [status === 'failed' ? 'error' : 'cancelled']
+    )
+    if (outcome === 'completed') expect(stream.events[0].chunk?.type).toBe('finish')
+    if (outcome === 'failed') expect(stream.events[0].error).toBe(originalError)
+    const eventsBeforeFailure = [...stream.events]
+    rejectUpdate(new Error('status write failed'))
+    await Promise.resolve()
+    expect(terminalStorageLogger).toHaveBeenCalledWith(
+      '[PiQuery] failed to persist terminal turn in background',
+      expect.objectContaining({ sessionId: 'session-1', turnId: 'turn-1', status })
+    )
+    expect(stream.events).toEqual(eventsBeforeFailure)
+    expect(stub.prompt).toHaveBeenCalledTimes(1)
+    expect(agentTurnRepository.update).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['reject', 'throw'])('does not report a successful model response as failed when a status write can %s', async (failureMode) => {
+    const storageError = new Error('status write failed')
+    vi.mocked(agentTurnRepository.update).mockImplementationOnce(() => {
+      if (failureMode === 'throw') throw storageError
+      return Promise.reject(storageError)
+    })
+    const stub = createHarnessStub()
+    const stream = createStreamRecorder()
+    await processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'hello'
+    })
+    expect(stream.events.map(event => event.type)).toEqual(['chunk', 'stream-finished', 'complete'])
+    expect(agentTurnRepository.update).toHaveBeenCalledTimes(1)
+    expect(stub.prompt).toHaveBeenCalledTimes(1)
+    expect(terminalStorageLogger).toHaveBeenCalledWith(
+      '[PiQuery] failed to persist terminal turn in background', expect.objectContaining({ status: 'completed' })
+    )
+    expect(terminalStorageLogger).not.toHaveBeenCalledWith('Pi harness query failed', expect.anything())
+  })
+
+  it.each(['reuse', 'create-segment', 'bind-session', 'save-turn'])('keeps startup DB access scoped to required initialization: %s', async (mode) => {
+    const stub = createHarnessStub()
+    const stream = createStreamRecorder()
+    const initializedTurn = { ...currentTurn, assistantMessageId: 'assistant-1' }
+    Object.assign(stub.harness.invokeContext.projection, {
+      turnId: currentTurn.id, userMessageId: currentTurn.userMessageId, assistantMessageId: 'assistant-1'
+    })
+    let releaseInitialization!: () => void
+    const pending = new Promise<void>(resolve => { releaseInitialization = resolve })
+    vi.mocked(conversationSegmentService.createRootSegment).mockImplementationOnce(async () => {
+      await pending
+      return activeSegment
+    })
+    vi.mocked(conversationSegmentService.bindSdkSession).mockImplementationOnce(() => pending)
+    vi.mocked(agentTurnRepository.save).mockImplementationOnce(async () => {
+      await pending
+      return initializedTurn
+    })
+    const run = processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', currentPrompt: 'hello',
+        activeSegment: mode === 'create-segment' ? undefined : mode === 'bind-session' ? { ...activeSegment, sdkSessionId: '' } : activeSegment,
+        currentTurn: mode === 'save-turn' ? undefined : initializedTurn,
+        promptEnvelope: { systemPromptVersion: 'v1', systemPromptHash: 'hash-1', systemPrompt: 'system' },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: stub.harness, prompt: 'hello'
+    })
+    if (mode !== 'reuse') {
+      await Promise.resolve()
+      expect(stub.prompt).not.toHaveBeenCalled()
+      expect(agentTurnRepository.update).not.toHaveBeenCalled()
+    }
+    releaseInitialization()
+    await run
+    expect(conversationSegmentService.createRootSegment).toHaveBeenCalledTimes(mode === 'create-segment' ? 1 : 0)
+    expect(conversationSegmentService.bindSdkSession).toHaveBeenCalledTimes(mode === 'bind-session' ? 1 : 0)
+    expect(agentTurnRepository.save).toHaveBeenCalledTimes(mode === 'save-turn' ? 1 : 0)
+    expect(agentTurnRepository.getById).not.toHaveBeenCalled()
+    expect(agentTurnRepository.listBySegmentId).not.toHaveBeenCalled()
+    expect(conversationSegmentService.getActiveSegment).not.toHaveBeenCalled()
+    expect(stub.prompt).toHaveBeenCalledTimes(1)
   })
 
   it.each(['direct', 'nested', 'parallel'])('keeps silent %s tools alive past the model deadlines and restores idle detection', async (kind) => {

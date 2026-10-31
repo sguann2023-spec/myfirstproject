@@ -209,12 +209,12 @@ export class SessionService extends BaseService {
     return await this.getSession(agentId, session.id)
   }
 
-  async getSession(agentId: string, id: string): Promise<GetAgentSessionResponse | null> {
+  async getSession(agentId: string | undefined, id: string): Promise<GetAgentSessionResponse | null> {
     const database = await this.getDatabase()
     const result = await database
       .select()
       .from(sessionsTable)
-      .where(and(eq(sessionsTable.id, id), eq(sessionsTable.agent_id, agentId)))
+      .where(agentId ? and(eq(sessionsTable.id, id), eq(sessionsTable.agent_id, agentId)) : eq(sessionsTable.id, id))
       .limit(1)
 
     if (!result[0]) {
@@ -229,7 +229,7 @@ export class SessionService extends BaseService {
     // If slash_commands is not in database yet (e.g., first invoke before init message),
     // fall back to builtin + local commands. Otherwise, use the merged commands from database.
     if (!session.slash_commands || session.slash_commands.length === 0) {
-      session.slash_commands = await this.listSlashCommands(session.agent_type, agentId)
+      session.slash_commands = await this.listSlashCommands(session.agent_type, session.agent_id)
     }
 
     return session

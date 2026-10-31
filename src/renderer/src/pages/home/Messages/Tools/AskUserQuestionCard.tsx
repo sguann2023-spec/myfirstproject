@@ -11,7 +11,7 @@ import { resolveToolArguments } from '@shared/parseToolArguments'
 import { Button, Checkbox, Input, Radio, Tag } from 'antd'
 import { CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle, Send } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import './AskUserQuestionCard.css'
@@ -263,9 +263,13 @@ function PendingContent({
 export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalToolResponse }) {
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
+  const isTerminal = ['done', 'error', 'cancelled'].includes(toolResponse.status)
   const request = useAppSelector((state) => {
     const directMatch = selectPendingPermission(state.toolPermissions, toolResponse.toolCallId)
+      ?? selectPendingPermission(state.toolPermissions, toolResponse.id)
     if (directMatch) return directMatch
+    // Finished cards may read their own request, but never borrow another call's input.
+    if (isTerminal) return undefined
 
     // pi-agent currently reports a synthetic streamed toolCallId to the renderer,
     // while the permission request keeps the namespaced provider toolCallId.
@@ -278,13 +282,18 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   // HomePage runtime may keep the tool block in "streaming" while the
   // permission request is already pending. Treat any active request as the
   // interactive state so we can render the question/options immediately.
-  const isPending = !!request
+  const isPending = !isTerminal && !!request
+  const retainedInput = useRef<{ toolCallId: string; input: unknown } | undefined>(undefined)
 
   // Parse from available sources - prefer request.input when pending, fall back to toolResponse.arguments.
   // 流式阶段参数可能只以 JSON 字符串形式停留在 partialArguments 上（arguments 尚未回填），
   // 此时也要能渲染出问题，否则多会话并行时卡片只剩标题和骨架。
   const { questions, answers } = useMemo(() => {
-    const source = resolveToolArguments(isPending ? request?.input : undefined, toolResponse.arguments, toolResponse.partialArguments)
+    const cached = retainedInput.current
+    const retained = cached && cached.toolCallId === toolResponse.toolCallId ? cached.input : undefined
+    const source = isPending
+      ? resolveToolArguments(request?.input, toolResponse.arguments, toolResponse.partialArguments, retained)
+      : resolveToolArguments(toolResponse.arguments, toolResponse.partialArguments, request?.input, retained)
     const parsed = parseAskUserQuestionToolInput(source)
 
     // Debug: log data source
@@ -303,7 +312,14 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
       questions: parsed?.questions ?? [],
       answers: parsed?.answers ?? {}
     }
-  }, [isPending, request?.input, toolResponse.arguments, toolResponse.partialArguments, toolResponse.status])
+  }, [isPending, request?.input, toolResponse.arguments, toolResponse.partialArguments, toolResponse.status, toolResponse.toolCallId, toolResponse.id])
+
+  // Keep the already displayed question through permission cleanup until the saved block catches up.
+  useEffect(() => {
+    retainedInput.current = questions.length > 0
+      ? { toolCallId: toolResponse.toolCallId, input: { questions, answers } }
+      : undefined
+  }, [questions, answers, toolResponse.toolCallId])
 
   const [currentIndex, setCurrentIndex] = useState(0)
   // Use question index as key to avoid collision when questions have identical text
@@ -372,7 +388,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   }, [isLastQuestion])
 
   const handleSubmit = useCallback(async () => {
-    if (!request) return
+    if (isTerminal || request?.status !== 'pending') return
 
     const collectedAnswers: Record<string, string> = {}
     questions.forEach((q, idx) => {
@@ -423,7 +439,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
       window.toast?.error?.(t('agent.toolPermission.error.sendFailed'))
       dispatch(toolPermissionsActions.submissionFailed({ requestId: request.requestId }))
     }
-  }, [dispatch, request, questions, selectedAnswers, customInputs, showCustomInput, t])
+  }, [dispatch, isTerminal, request, questions, selectedAnswers, customInputs, showCustomInput, t])
 
   if (isPending && (questions.length === 0 || !currentQuestion)) {
     return (

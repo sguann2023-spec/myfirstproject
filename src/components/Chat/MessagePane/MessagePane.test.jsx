@@ -56,10 +56,16 @@ const render = async (session = 'session-1', props = {}) => {
     <MessagePane messages={messages} runtimeSessionId={session} {...props} />
   ));
 };
-const flushFrames = async () => {
+const flushSingleFrame = async () => {
   const pending = [...frames.values()];
   frames.clear();
   await act(async () => pending.forEach((callback) => callback(0)));
+};
+const flushFrames = async () => {
+  for (let i = 0; frames.size > 0 && i < 10; i += 1) {
+    await flushSingleFrame();
+  }
+  expect(frames.size).toBe(0);
 };
 const scroller = () => container.querySelector('[data-testid="scroller"]');
 const scroll = async (top) => {
@@ -292,7 +298,7 @@ describe('MessagePane auto-scroll', () => {
     await render('session-2');
 
     // The first frame uses the height available when the session changed.
-    await flushFrames();
+    await flushSingleFrame();
     expect(scroller().scrollTop).toBe(1200);
 
     // Virtual-list measurement may settle after that first scroll.
@@ -302,6 +308,50 @@ describe('MessagePane auto-scroll', () => {
     await act(async () => observer.callback());
     await flushFrames();
     expect(scroller().scrollTop).toBe(1800);
+  });
+
+  it.each(['shared-runtime', null])('resets following by chat identity with runtime ID %s', async (runtimeSessionId) => {
+    await render(runtimeSessionId, { chatSessionId: 'chat-1' });
+    await flushFrames();
+    await wheelUp();
+    await scroll(200);
+    layout.scrollTo.mockClear();
+
+    await render(runtimeSessionId, { chatSessionId: 'chat-2' });
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(800);
+    expect(layout.scrollTo).toHaveBeenCalled();
+  });
+
+  it('preserves the second session scroll when message updates replace the first request', async () => {
+    await render();
+    await flushFrames();
+    await wheelUp();
+    await scroll(200);
+
+    layout.height = 1600;
+    messages = [{ id: 'new', role: 'assistant', content: 'Restored history' }];
+    await render('session-2');
+    await flushSingleFrame();
+    expect(scroller().scrollTop).toBe(1200);
+
+    // Total virtual height can change without a message ResizeObserver report.
+    layout.height = 2200;
+    await scroll(1000);
+    await flushSingleFrame();
+    expect(scroller().scrollTop).toBe(1800);
+  });
+
+  it('lets upward wheel input cancel the second session scroll', async () => {
+    await render();
+    await flushSingleFrame();
+    layout.scrollTo.mockClear();
+    await wheelUp();
+    await scroll(200);
+    layout.height = 2200;
+    await flushFrames();
+    expect(layout.scrollTo).not.toHaveBeenCalled();
+    expect(scroller().scrollTop).toBe(200);
   });
 
   it('cancels pending animation frames when unmounted', async () => {

@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { handleMock, publishMock, getSessionMock, listSessionsMock, createSessionMessageMock } = vi.hoisted(() => ({
+const { handleMock, publishMock, getSessionMock, listSessionsMock, createSessionMessageMock, sessionChangedMock, loggerError } = vi.hoisted(() => ({
   handleMock: vi.fn(),
   publishMock: vi.fn(),
   getSessionMock: vi.fn(),
   listSessionsMock: vi.fn(),
-  createSessionMessageMock: vi.fn()
+  createSessionMessageMock: vi.fn(),
+  sessionChangedMock: vi.fn(),
+  loggerError: vi.fn()
 }))
 
 vi.mock('@logger', () => ({
   loggerService: {
-    withContext: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn(), silly: vi.fn() })
+    withContext: () => ({ info: vi.fn(), error: loggerError, warn: vi.fn(), debug: vi.fn(), silly: vi.fn() })
   }
 }))
 
@@ -42,7 +44,7 @@ vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp') }
 }))
 
-vi.mock('@mcp-trace/trace-core', () => ({ TraceMethod: () => () => undefined }), { virtual: true })
+vi.mock('@mcp-trace/trace-core', () => ({ TraceMethod: () => () => undefined }))
 
 vi.mock('@main/apiServer/services/models', () => ({
   modelsService: {
@@ -77,7 +79,7 @@ vi.mock('../claudecode/session-architecture/ConversationSegmentService', () => (
 
 vi.mock('../../../../WindowService', () => ({
   windowService: {
-    getMainWindow: vi.fn(() => null)
+    getMainWindow: vi.fn(() => ({ isDestroyed: () => false, webContents: { send: sessionChangedMock } }))
   }
 }))
 
@@ -128,6 +130,14 @@ async function flushMicrotasks(times = 3) {
   }
 }
 
+function createMockStream(
+  stream: ReadableStream<any>,
+  streamFinished: Promise<void> = Promise.resolve(),
+  historyPersisted?: Promise<unknown>
+) {
+  return { stream, streamFinished, completion: Promise.resolve({}), ...(historyPersisted ? { historyPersisted } : {}) }
+}
+
 describe('sessionStreamIpc abort handling', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -147,6 +157,30 @@ describe('sessionStreamIpc abort handling', () => {
     vi.useRealTimers()
   })
 
+  it('gets a session by ID without listing or enriching unrelated sessions', async () => {
+    const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
+    handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => handlers.set(channel, handler))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const result = await handlers.get('CherryChatStream_SessionGet')?.(null, { sessionId: 'session-1' })
+    expect(result).toMatchObject({ ok: true, session: { id: 'session-1', agent_id: 'agent-1' } })
+    expect(getSessionMock).toHaveBeenCalledWith(undefined, 'session-1')
+    expect(getSessionMock).toHaveBeenCalledTimes(1)
+    expect(listSessionsMock).not.toHaveBeenCalled()
+  })
+
+  it('falls back to an ID lookup for a mismatched agent without a 2000-session limit', async () => {
+    getSessionMock.mockResolvedValueOnce(null)
+    const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
+    handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => handlers.set(channel, handler))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const result = await handlers.get('CherryChatStream_SessionGet')?.(null, { sessionId: 'session-1', agent_id: 'wrong-agent' })
+    expect(result).toMatchObject({ ok: true, session: { id: 'session-1' } })
+    expect(getSessionMock.mock.calls).toEqual([['wrong-agent', 'session-1'], [undefined, 'session-1']])
+    expect(listSessionsMock).not.toHaveBeenCalled()
+  })
+
   it('reuses stable invocation IDs across startup retries', async () => {
     const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
     handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => {
@@ -155,7 +189,7 @@ describe('sessionStreamIpc abort handling', () => {
     const stream = new ReadableStream({ start(controller) { controller.close() } })
     createSessionMessageMock
       .mockRejectedValueOnce(new Error('database is locked'))
-      .mockResolvedValue({ stream, streamFinished: Promise.resolve(), completion: Promise.resolve({}) })
+      .mockResolvedValue(createMockStream(stream))
 
     const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
     registerSessionStreamIpc()
@@ -175,6 +209,64 @@ describe('sessionStreamIpc abort handling', () => {
     expect(firstIds).toMatchObject({ traceId: 'request-stable' })
   })
 
+  it.each(['success', 'failure', 'best-effort-loss', 'absent'])('completes the UI before optional historyPersisted settles with %s', async (outcome) => {
+    const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
+    handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => {
+      handlers.set(channel, handler)
+    })
+    const streamFinished = deferred<void>()
+    const historyPersisted = deferred<{}>()
+    const historySettled = vi.fn()
+    void historyPersisted.promise.then(historySettled, historySettled)
+    let controller!: ReadableStreamDefaultController<any>
+    const stream = new ReadableStream({ start(value) { controller = value } })
+    const result = createMockStream(stream, streamFinished.promise, outcome === 'absent' ? undefined : historyPersisted.promise)
+    expect('historyPersisted' in result).toBe(outcome !== 'absent')
+    const completionSettled = vi.fn()
+    void result.completion.then(completionSettled)
+    createSessionMessageMock.mockResolvedValue(result)
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const createResult = await handlers.get('CherryChatStream_MessageCreate')?.(null, {
+      sessionId: 'session-1', agent_id: 'agent-1', content: 'hello', requestId: 'request-delayed'
+    })
+    expect(createResult).toEqual({ ok: true, requestId: 'request-delayed' })
+
+    streamFinished.resolve()
+    await flushMicrotasks(6)
+    expect(publishMock.mock.calls.some(([, event]) => event.type === 'complete')).toBe(false)
+    controller.enqueue({ type: 'text-delta', text: 'last' })
+    controller.close()
+    await flushMicrotasks(10)
+
+    const events = () => publishMock.mock.calls.map(([, event]) => event)
+    expect(events().map((event) => event.type)).toEqual(['started', 'stream-finished', 'chunk', 'complete'])
+    expect(events().find((event) => event.type === 'chunk')?.chunk.text).toBe('last')
+    expect(completionSettled).toHaveBeenCalledExactlyOnceWith({})
+    expect(historySettled).not.toHaveBeenCalled()
+    expect(sessionChangedMock).not.toHaveBeenCalled()
+
+    if (outcome === 'success') historyPersisted.resolve({ assistantMessage: { id: 'saved-assistant', content: { blocks: [] } } })
+    else if (outcome === 'best-effort-loss') historyPersisted.resolve({})
+    else if (outcome === 'failure') historyPersisted.reject(new Error('database is locked'))
+    await flushMicrotasks(10)
+    expect(events().filter((event) => event.type === 'complete')).toHaveLength(1)
+    expect(events().some((event) => event.type === 'error')).toBe(false)
+    expect(sessionChangedMock).toHaveBeenCalledTimes(outcome === 'success' ? 1 : 0)
+    if (outcome === 'success') {
+      expect(sessionChangedMock).toHaveBeenCalledWith('AgentSession_Changed', {
+        agentId: 'agent-1', sessionId: 'session-1', headless: true
+      })
+    }
+    if (outcome === 'failure') {
+      expect(loggerError).toHaveBeenCalledExactlyOnceWith('[SessionStreamIpc] Background history persistence failed', {
+        sessionId: 'session-1', requestId: 'request-delayed', error: 'database is locked'
+      })
+    } else {
+      expect(loggerError).not.toHaveBeenCalled()
+    }
+  })
+
   it('suppresses late chunk, stream-finished, and complete after abort', async () => {
     const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
     handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => {
@@ -182,7 +274,7 @@ describe('sessionStreamIpc abort handling', () => {
     })
 
     const streamFinished = deferred<void>()
-    const completion = deferred<{ assistantMessage?: unknown; userMessage?: unknown }>()
+    const historyPersisted = deferred<{ assistantMessage?: unknown; userMessage?: unknown }>()
     let streamController: ReadableStreamDefaultController<any> | null = null
     const streamCancelMock = vi.fn()
     const stream = new ReadableStream({
@@ -194,11 +286,7 @@ describe('sessionStreamIpc abort handling', () => {
       }
     })
 
-    createSessionMessageMock.mockResolvedValue({
-      stream,
-      streamFinished: streamFinished.promise,
-      completion: completion.promise
-    })
+    createSessionMessageMock.mockResolvedValue(createMockStream(stream, streamFinished.promise, historyPersisted.promise))
 
     const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
     registerSessionStreamIpc()
@@ -227,7 +315,7 @@ describe('sessionStreamIpc abort handling', () => {
     streamFinished.resolve()
     streamController?.enqueue({ type: 'text-delta', text: 'late' })
     streamController?.close()
-    completion.resolve({})
+    historyPersisted.resolve({ assistantMessage: { id: 'saved-after-abort' } })
 
     await flushMicrotasks(6)
 
@@ -240,5 +328,6 @@ describe('sessionStreamIpc abort handling', () => {
       publishedForRequest.filter((event) => event.type === 'chunk').map((event) => event.chunk?.text)
     ).toEqual(['first'])
     expect(streamCancelMock).not.toHaveBeenCalled()
+    expect(sessionChangedMock).not.toHaveBeenCalled()
   })
 })

@@ -64,25 +64,6 @@ const isVectcutGatewayUrl = (value: string): boolean => {
   }
 }
 
-const describeApiKey = (value?: string | null) => {
-  const normalized = String(value || '').trim()
-  if (!normalized) {
-    return {
-      exists: false,
-      length: 0,
-      prefix: '',
-      suffix: ''
-    }
-  }
-
-  return {
-    exists: true,
-    length: normalized.length,
-    prefix: normalized.slice(0, 6),
-    suffix: normalized.slice(-6)
-  }
-}
-
 export function resolveWorkspaceCwd(session: GetAgentSessionResponse): string {
   const configuredWorkspacePath = String(
     (session.configuration as Record<string, unknown> | undefined)?.selected_workspace_path || ''
@@ -144,22 +125,10 @@ export async function buildClaudeRuntimeEnvironment(input: {
 
   if (!provider.apiHost?.trim() && gatewayAnthropicBaseUrl) {
     provider.apiHost = gatewayAnthropicBaseUrl
-    logger.info('Hydrated provider apiHost from session gateway env', {
-      sessionId: session.id,
-      providerId: provider.id,
-      providerType: provider.type,
-      apiHost: provider.apiHost
-    })
   }
 
   if (!provider.anthropicApiHost?.trim() && gatewayAnthropicBaseUrl) {
     provider.anthropicApiHost = gatewayAnthropicBaseUrl
-    logger.info('Hydrated provider anthropicApiHost from session gateway env', {
-      sessionId: session.id,
-      providerId: provider.id,
-      providerType: provider.type,
-      anthropicApiHost: provider.anthropicApiHost
-    })
   }
 
   const hasAnthropicHost = provider.anthropicApiHost?.trim() || provider.apiHost?.trim() || gatewayAnthropicBaseUrl
@@ -176,11 +145,6 @@ export async function buildClaudeRuntimeEnvironment(input: {
   }
 
   const apiConfig = await apiConfigService.get()
-  logger.info('Resolved API server config in ClaudeCodeService', {
-    host: apiConfig.host,
-    port: apiConfig.port,
-    apiKey: describeApiKey(apiConfig.apiKey)
-  })
 
   const loginShellEnv = await getLoginShellEnvironment()
   const customGitBashPath = isWin ? autoDiscoverGitBash() : null
@@ -200,16 +164,13 @@ export async function buildClaudeRuntimeEnvironment(input: {
   const providerApiKey = String(provider.apiKey || '').trim()
   const shouldUseRuntimeGatewayToken = isVectcutGatewayUrl(anthropicBaseUrl)
   let runtimeAuthToken = providerApiKey
-  let authTokenSource: 'provider_api_key' | 'runtime_access_token' | 'session_fallback' = 'provider_api_key'
 
   if (shouldUseRuntimeGatewayToken) {
     try {
       runtimeAuthToken = await agentRuntimeAuthService.ensureValidAccessToken()
-      authTokenSource = 'runtime_access_token'
     } catch (error) {
       if (sessionVectcutApiKey) {
         runtimeAuthToken = sessionVectcutApiKey
-        authTokenSource = 'session_fallback'
         logger.warn('Falling back to session-scoped VECTCUT_API_KEY after runtime token refresh failed', {
           sessionId: session.id,
           error: error instanceof Error ? error.message : String(error)
@@ -219,14 +180,6 @@ export async function buildClaudeRuntimeEnvironment(input: {
       }
     }
   }
-
-  logger.info('Resolved Claude runtime auth token source', {
-    sessionId: session.id,
-    anthropicBaseUrl,
-    usesVectcutGatewayToken: shouldUseRuntimeGatewayToken,
-    authTokenSource,
-    hasRuntimeAuthToken: Boolean(runtimeAuthToken)
-  })
 
   const env: Record<string, string> = {
     ...loginShellEnv,

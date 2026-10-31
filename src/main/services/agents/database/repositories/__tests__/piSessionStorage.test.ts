@@ -33,7 +33,7 @@ import { insertMissingTaskSubscriptions } from '../taskSubscriptionRepository'
 
 import * as schema from '../../schema'
 import { AgentTranscriptRepository } from '../agentTranscriptRepository'
-import { canonicalMessageToPi, PI_HISTORY_LIMITS, SqlitePiSessionStorage } from '../piSessionStorage'
+import { canonicalMessageToPi, PI_HISTORY_LIMITS, PI_PERSISTENCE_LIMITS, SqlitePiSessionStorage } from '../piSessionStorage'
 
 vi.mock('../../canonicalTranscriptMigration', () => ({ backfillCanonicalTranscript: vi.fn(() => { throw new Error('backfill forbidden') }) }))
 
@@ -144,8 +144,27 @@ describe('SqlitePiSessionStorage', () => {
   let client: Client
   let database: ReturnType<typeof drizzle<typeof schema>>
   let tempDirectory: string
+  let storages: SqlitePiSessionStorage[]
+
+  // Test-only barrier for disk assertions/restarts; production exposes no drain.
+  async function settlePersistence() {
+    await Promise.all(storages.map(storage => (storage as any).state.writes.run(async () => undefined)))
+  }
+
+  async function recover() {
+    await settlePersistence()
+    database = drizzle(client, { schema })
+    return open()
+  }
 
   beforeEach(async () => {
+    storages = []
+    const originalOpen = SqlitePiSessionStorage.openOrCreate.bind(SqlitePiSessionStorage)
+    vi.spyOn(SqlitePiSessionStorage, 'openOrCreate').mockImplementation(async input => {
+      const storage = await originalOpen(input)
+      storages.push(storage)
+      return storage
+    })
     tempDirectory = await mkdtemp(path.join(tmpdir(), 'pi-session-storage-'))
     client = createClient({ url: `file:${path.join(tempDirectory, 'sessions.db')}`, intMode: 'number' })
     await client.executeMultiple(createSchemaSql)
@@ -157,6 +176,8 @@ describe('SqlitePiSessionStorage', () => {
   })
 
   afterEach(async () => {
+    await settlePersistence()
+    vi.restoreAllMocks()
     delete (globalThis as any).__pressureDatabase
     await (client as WorkerDatabaseClient).closeAsync()
     await rm(tempDirectory, { recursive: true, force: true })
@@ -182,6 +203,7 @@ describe('SqlitePiSessionStorage', () => {
   }
 
   async function useOverlay(sourcePath?: string) {
+    await settlePersistence()
     await (client as WorkerDatabaseClient).finalizeSchema()
     await (client as WorkerDatabaseClient).closeAsync()
     const legacyPath = sourcePath ?? path.join(tempDirectory, 'sessions.db.v2.db')
@@ -189,6 +211,7 @@ describe('SqlitePiSessionStorage', () => {
     const options = { legacyPaths: [legacyPath], migrationDir: path.resolve('resources/database/drizzle') }
     const filename = path.join(tempDirectory, 'overlay.db')
     const restart = async () => {
+      await settlePersistence()
       await (client as WorkerDatabaseClient).closeAsync()
       client = new WorkerDatabaseClient({ url: `file:${filename}`, intMode: 'number' }, workerPath, undefined, options)
       database = drizzle(client, { schema })
@@ -372,49 +395,49 @@ describe('SqlitePiSessionStorage', () => {
     await addCanonical('old', 'old context')
     const overlay = await useOverlay()
     await new Session(await open()).appendMessage(userMessage('new context'))
+    await settlePersistence()
     await (client as WorkerDatabaseClient).closeAsync()
     await rename(overlay.legacyPath, overlay.legacyPath + '.unavailable')
     await overlay.restart()
     await expect(open()).rejects.toThrow(/source context changed or is unavailable/)
   })
 
-  it('rejects an oversized UTF-8 entry during metadata checking, before reading its body', async () => {
-    const storage = await open()
+  it('rejects oversized UTF-8 history during initialization before reading bodies', async () => {
+    await open()
+    await settlePersistence()
     await insertHistory(1, '\u4f60'.repeat(Math.ceil(PI_HISTORY_LIMITS.entryBytes / 3)))
+    database = drizzle(client, { schema })
     const reads = vi.spyOn(database, 'all')
-    await expect(storage.getPathToRootOrCompaction('bounded-0')).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    await expect(open()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
     expect(reads).toHaveBeenCalledTimes(1)
-    reads.mockClear()
-    await expect(storage.getEntries()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
-    expect(reads).toHaveBeenCalledTimes(1)
-    reads.mockClear()
-    await expect(storage.getEntry('bounded-0')).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
-    expect(reads).toHaveBeenCalledTimes(1)
-    reads.mockRestore()
   })
 
-  it('rejects aggregate history overflow before loading any bodies', async () => {
-    const storage = await open()
+  it('rejects aggregate history overflow during initialization before reading bodies', async () => {
+    await open()
+    await settlePersistence()
     await insertHistory(5, 'x'.repeat(Math.floor(3.5 * 1024 * 1024)))
+    database = drizzle(client, { schema })
     const reads = vi.spyOn(database, 'all')
-    await expect(storage.getPathToRootOrCompaction('bounded-4')).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    await expect(open()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
     expect(reads).toHaveBeenCalledTimes(1)
-    reads.mockRestore()
   })
 
-  it('reads valid bodies in byte-bounded batches and preserves parent order', async () => {
-    const storage = await open()
+  it('recovers valid bodies in byte-bounded batches and uses no runtime SQL', async () => {
+    await open()
+    await settlePersistence()
     await insertHistory(3, 'x'.repeat(Math.floor(2.2 * 1024 * 1024)))
+    database = drizzle(client, { schema })
     const reads = vi.spyOn(database, 'all')
-    const entries = await storage.getPathToRootOrCompaction('bounded-2')
-    expect(entries.map(entry => entry.id)).toEqual(['bounded-0', 'bounded-1', 'bounded-2'])
-    // One metadata query, three body batches, one visibility query.
+    const storage = await open()
     expect(reads).toHaveBeenCalledTimes(5)
-    reads.mockRestore()
+    reads.mockClear()
+    expect((await storage.getPathToRootOrCompaction('bounded-2')).map(entry => entry.id)).toEqual(['bounded-0', 'bounded-1', 'bounded-2'])
+    expect(reads).not.toHaveBeenCalled()
   })
 
-  it('continues across metadata page boundaries without per-entry queries', async () => {
-    const storage = await open()
+  it('restores across metadata page boundaries without per-entry SQL', async () => {
+    await open()
+    await settlePersistence()
     const count = PI_HISTORY_LIMITS.metadataBatch + 1
     await client.execute({
       sql: `WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i+1 FROM n WHERE i+1<?)
@@ -424,40 +447,36 @@ describe('SqlitePiSessionStorage', () => {
             'timestamp','2026-01-01','message',json_object('role','user','content','hello','timestamp',0)), '2026-01-01' FROM n`,
       args: [count]
     })
+    database = drizzle(client, { schema })
     const reads = vi.spyOn(database, 'all')
+    const storage = await open()
+    expect(reads).toHaveBeenCalledTimes(5)
+    reads.mockClear()
     const entries = await storage.getPathToRootOrCompaction(`span-${count - 1}`)
     expect(entries).toHaveLength(count)
     expect(entries[0].id).toBe('span-0')
-    expect(entries[entries.length - 1]?.id).toBe(`span-${count - 1}`)
-    expect(reads).toHaveBeenCalledTimes(5)
-    reads.mockRestore()
+    expect(reads).not.toHaveBeenCalled()
   })
 
-  it('rejects a cyclic parent chain before fetching bodies', async () => {
-    const storage = await open()
+  it('rejects cyclic active trees during recovery and evicts failed initialization', async () => {
+    await open()
+    await settlePersistence()
     await insertHistory(2, 'hello')
-    await client.execute("UPDATE pi_session_entries SET parent_entry_id='bounded-1' WHERE entry_id='bounded-0'")
-    const reads = vi.spyOn(database, 'all')
-    await expect(storage.getPathToRootOrCompaction('bounded-1')).rejects.toThrow(/Cycle/)
-    expect(reads).toHaveBeenCalledTimes(1)
-    reads.mockRestore()
+    await client.execute("UPDATE pi_session_entries SET parent_entry_id='bounded-1', entry_json=json_set(entry_json,'$.parentId','bounded-1') WHERE entry_id='bounded-0'")
+    await client.execute("UPDATE pi_sessions SET active_leaf_id='bounded-1'")
+    database = drizzle(client, { schema })
+    await expect(open()).rejects.toThrow(/Cycle/)
+    await client.execute("UPDATE pi_session_entries SET parent_entry_id=NULL, entry_json=json_set(entry_json,'$.parentId',NULL) WHERE entry_id='bounded-0'")
+    expect((await (await open()).getEntries()).length).toBe(2)
   })
 
-  it('hydrates canonical history through sequential writes without transactions', async () => {
-    const storage = await open()
-    const repository = new AgentTranscriptRepository(database)
-    await repository.upsertMessage({ id: 'no-tx-user', sessionId: 'topic-a', role: 'user', status: 'completed' })
-    await repository.upsertPart({ id: 'no-tx-text', sessionId: 'topic-a', messageId: 'no-tx-user', type: 'text', data: { text: 'hello' } })
-    await client.execute("UPDATE pi_sessions SET metadata_json=NULL WHERE topic_id='topic-a'")
+  it('hydrates canonical history in memory without awaiting writes or using transactions', async () => {
+    await addCanonical('no-tx-user', 'hello')
     const transaction = vi.spyOn(database, 'transaction')
-    try {
-      await (storage as any).hydrateFromCanonicalTranscript()
-      expect(transaction).not.toHaveBeenCalled()
-      expect(await storage.getEntries()).toHaveLength(1)
-      expect(await storage.getLeafId()).toBe((await storage.getEntries())[0].id)
-    } finally {
-      transaction.mockRestore()
-    }
+    const storage = await open()
+    expect(transaction).not.toHaveBeenCalled()
+    expect(await storage.getEntries()).toHaveLength(1)
+    expect(await storage.getLeafId()).toBe((await storage.getEntries())[0].id)
   })
 
   it('serializes competing first openers and hydrates only once', async () => {
@@ -469,54 +488,26 @@ describe('SqlitePiSessionStorage', () => {
     expect(await storages[1].getEntries()).toHaveLength(1)
   })
 
-  it('preserves completed hydration writes after a callback failure and reopens without duplicates', async () => {
-    const storage = await open()
-    const repository = new AgentTranscriptRepository(database)
-    for (const id of ['first', 'second', 'third']) {
-      await repository.upsertMessage({ id, sessionId: 'topic-a', role: 'user', status: 'completed' })
-    }
-    await client.execute("UPDATE pi_sessions SET metadata_json=NULL WHERE topic_id='topic-a'")
-    const insert = (storage as any).insertEntry.bind(storage)
-    let calls = 0
-    const spy = vi.spyOn(storage as any, 'insertEntry').mockImplementation(async (...args) => {
-      await insert(...args)
-      if (++calls === 2) throw new Error('injected hydration failure')
-    })
-    await expect((storage as any).hydrateFromCanonicalTranscript()).rejects.toThrow('injected hydration failure')
-    spy.mockRestore()
-    expect(calls).toBe(2)
-    expect(await storage.getEntries()).toHaveLength(2)
-    expect(await storage.getLeafId()).toBe((await storage.getEntries())[1].id)
-    const reopened = await open()
-    expect(await reopened.getEntries()).toHaveLength(3)
-    expect(await reopened.getLeafId()).toBe((await reopened.getEntries())[2].id)
-  })
-
-  it('stops PI writes after a SQL append failure and restores only completed entries on explicit restart', async () => {
+  it('keeps PI usable after background SQL failure and restores only durable entries after restart', async () => {
     await (client as WorkerDatabaseClient).finalizeSchema()
     const storage = await open()
     const first = { type: 'custom' as const, id: 'first', parentId: null, timestamp: '2026-01-01', customType: 'test', data: { value: 1 } }
     await storage.appendEntry(first)
+    await settlePersistence()
     await client.executeMultiple(`CREATE TRIGGER reject_pi_entry BEFORE INSERT ON entity_records
       WHEN NEW.entity_type='pi_session_entries' AND json_extract(NEW.payload,'$.entry_id')='bad'
       BEGIN SELECT RAISE(ABORT,'injected PI append failure'); END;`)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const transaction = vi.spyOn(database, 'transaction')
-    const execute = vi.spyOn(client, 'execute')
-    try {
-      await expect(storage.appendEntry({ ...first, id: 'bad', parentId: 'first' })).rejects.toMatchObject({
-        cause: { message: 'injected PI append failure' }
-      })
-      expect(client.closed).toBe(true)
-      const inserts = execute.mock.calls.filter(([statement]) =>
-        /insert into/i.test(typeof statement === 'string' ? statement : (statement as { sql: string }).sql))
-      expect(inserts).toHaveLength(1)
-      await expect(storage.appendEntry({ ...first, id: 'tail', parentId: 'first' })).rejects.toThrow()
-      await expect(storage.getEntries()).rejects.toThrow()
-      expect(transaction).not.toHaveBeenCalled()
-    } finally {
-      execute.mockRestore()
-      transaction.mockRestore()
-    }
+    await expect(storage.appendEntry({ ...first, id: 'bad', parentId: 'first' })).resolves.toBeUndefined()
+    await settlePersistence()
+    expect(client.closed).toBe(true)
+    await storage.appendEntry({ ...first, id: 'tail', parentId: 'bad' })
+    expect((await storage.getEntries()).map(entry => entry.id)).toEqual(['first', 'bad', 'tail'])
+    expect(await storage.getLeafId()).toBe('tail')
+    expect(transaction).not.toHaveBeenCalled()
+    expect(errors).toHaveBeenCalledTimes(1)
+    await settlePersistence()
     await (client as WorkerDatabaseClient).closeAsync()
     client = createClient({ url: `file:${path.join(tempDirectory, 'sessions.db')}`, intMode: 'number' })
     database = drizzle(client, { schema })
@@ -524,7 +515,6 @@ describe('SqlitePiSessionStorage', () => {
     expect(await reopened.getEntries()).toEqual([first])
     expect(await reopened.getLeafId()).toBe('first')
     await reopened.appendEntry({ ...first, id: 'new', parentId: 'first' })
-    expect((await reopened.getEntries()).map(entry => entry.id)).toEqual(['first', 'new'])
     expect(await reopened.getLeafId()).toBe('new')
   })
 
@@ -574,10 +564,11 @@ describe('SqlitePiSessionStorage', () => {
     const before = await first.getMetadata()
     const reopened = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', requestedSessionId: 'pi-replacement', metadata: { replacement: true }, database })
     expect(await reopened.getMetadata()).toEqual(before)
+    await settlePersistence()
     expect(Number((await client.execute('SELECT count(*) FROM pi_session_records')).rows[0][0])).toBe(1)
     await client.execute("INSERT INTO sessions (id) VALUES ('topic-b')")
     await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-b', requestedSessionId: 'pi-other', database })
-    await expect(SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', requestedSessionId: 'pi-other', database })).rejects.toThrow('already belongs to topic topic-b')
+    expect(await (await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', requestedSessionId: 'pi-other', database })).getMetadata()).toEqual(before)
     expect(await reopened.getMetadata()).toEqual(before)
   })
 
@@ -621,6 +612,256 @@ describe('SqlitePiSessionStorage', () => {
     await insertMissingTaskSubscriptions(database, 'task', ['channel-a', 'channel-b'])
     await insertMissingTaskSubscriptions(database, 'other-task', ['channel-a'])
     expect(Number((await client.execute('SELECT count(*) FROM channel_task_subscriptions_records')).rows[0][0])).toBe(3)
+  })
+
+  it('serves all runtime APIs and topic reuse from memory while background writes are hung', async () => {
+    const storage = await open()
+    await settlePersistence()
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    void (storage as any).state.writes.run(() => gate)
+    const select = vi.spyOn(database, 'select')
+    const all = vi.spyOn(database, 'all')
+    const insert = vi.spyOn(database, 'insert')
+    const update = vi.spyOn(database, 'update')
+    try {
+      const session = new Session(storage)
+      const root = await session.appendMessage(userMessage('memory only'))
+      await session.appendSessionName('memory name')
+      await session.appendLabel(root, 'root label')
+      await storage.setLeafId(root)
+      expect(await storage.getMetadata()).toMatchObject({ id: 'pi-first' })
+      expect(await storage.getEntry(root)).toMatchObject({ id: root })
+      expect(await storage.findEntries('message')).toHaveLength(1)
+      expect(await storage.getLabel(root)).toBe('root label')
+      expect(await storage.getSessionName()).toBe('memory name')
+      expect(await storage.getSessionStats()).toMatchObject({ messageCount: 1 })
+      expect(await storage.getPathToRootOrCompaction(root)).toHaveLength(1)
+      expect(await storage.getEntries()).toHaveLength(4)
+      expect(await storage.createEntryId()).toBeTypeOf('string')
+      const reused = await open('ignored')
+      expect(await reused.getLeafId()).toBe(root)
+      expect((await new Session(reused).buildContext()).messages).toHaveLength(1)
+      expect(await SqlitePiSessionStorage.hasDurableConversation({ topicId: 'topic-a', database })).toBe(true)
+      expect(select).not.toHaveBeenCalled()
+      expect(all).not.toHaveBeenCalled()
+      expect(insert).not.toHaveBeenCalled()
+      expect(update).not.toHaveBeenCalled()
+      expect((storage as any).drain).toBeUndefined()
+    } finally {
+      release()
+    }
+    await settlePersistence()
+    expect((await (await recover()).getEntries())).toHaveLength(4)
+  })
+
+  it('does not wait for even the initial background session creation', async () => {
+    const original = database.insert.bind(database)
+    const insert = vi.spyOn(database, 'insert')
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    insert.mockImplementation(((table: any) => {
+      const builder = original(table)
+      return { values: async (values: any) => { await gate; return builder.values(values) } }
+    }) as any)
+    try {
+      const storage = await open()
+      await storage.appendEntry({ type: 'custom', id: 'before-disk', parentId: null, timestamp: '2026-01-01', customType: 'test' })
+      expect(await storage.getLeafId()).toBe('before-disk')
+      expect((await client.execute('SELECT topic_id FROM pi_sessions')).rows).toEqual([])
+    } finally {
+      release()
+    }
+    await settlePersistence()
+    expect((await client.execute('SELECT entry_id FROM pi_session_entries')).rows).toEqual([{ entry_id: 'before-disk' }])
+  })
+
+  it.each(['tasks', 'bytes'] as const)('bounds %s including an in-flight permanently pending write and keeps topic memory usable', async (limit) => {
+    const storage = await open()
+    await settlePersistence()
+    const state = (storage as any).state
+    const original = database.insert.bind(database)
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const running = new Promise<void>(resolve => { started = resolve })
+    const insert = vi.spyOn(database, 'insert').mockImplementation(((table: any) => {
+      const builder = original(table)
+      return { values: async (values: any) => { started(); await gate; return builder.values(values) } }
+    }) as any)
+    const scheduled = vi.spyOn(state.writes, 'run')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const text = limit === 'bytes' ? '\u4f60'.repeat(500000) : 'small'
+    const append = async (index: number) => storage.appendEntry({ type: 'custom', id: `pending-${index}`,
+      parentId: null, timestamp: '2026-01-01', customType: 'test', data: { text } })
+    try {
+      await append(0)
+      await running
+      expect(state.pendingWrites).toBe(1)
+      expect(state.pendingWriteBytes).toBeGreaterThan(Buffer.byteLength(text))
+      const maximum = limit === 'tasks' ? PI_PERSISTENCE_LIMITS.tasks + 1 : 8
+      for (let index = 1; index < maximum; index++) {
+        await append(index)
+        expect(state.pendingWrites).toBeLessThanOrEqual(PI_PERSISTENCE_LIMITS.tasks)
+        expect(state.pendingWriteBytes).toBeLessThanOrEqual(PI_PERSISTENCE_LIMITS.bytes)
+      }
+      expect(state.persistenceFailed).toBe(true)
+      const admitted = scheduled.mock.calls.length
+      const bytes = state.pendingWriteBytes
+      const count = state.pendingWrites
+      for (let index = maximum; index < maximum + 20; index++) await append(index)
+      expect(scheduled).toHaveBeenCalledTimes(admitted)
+      expect(state.pendingWriteBytes).toBe(bytes)
+      expect(state.pendingWrites).toBe(count)
+      expect(await (await open()).getEntries()).toHaveLength(maximum + 20)
+      expect(errors).toHaveBeenCalledTimes(1)
+      expect((storage as any).drain).toBeUndefined()
+    } finally {
+      // The write stays pending for all assertions; release solely for test teardown.
+      release()
+    }
+    await settlePersistence()
+    expect(state.pendingWrites).toBe(0)
+    expect(state.pendingWriteBytes).toBe(0)
+    expect(insert).toHaveBeenCalledTimes(1)
+    await append(99999)
+    expect(state.pendingWrites).toBe(0)
+    expect(insert).toHaveBeenCalledTimes(1)
+    expect((await client.execute('SELECT entry_id FROM pi_session_entries')).rows).toEqual([{ entry_id: 'pending-0' }])
+  })
+
+  it('releases queue capacity after successful writes instead of limiting total session writes', async () => {
+    const storage = await open()
+    await settlePersistence()
+    const state = (storage as any).state
+    for (let index = 0; index < 3; index++) {
+      await storage.appendEntry({ type: 'custom', id: `capacity-${index}`, parentId: null,
+        timestamp: '2026-01-01', customType: 'test', data: { text: 'x'.repeat(3 * 1024 * 1024) } })
+      expect(state.pendingWriteBytes).toBeGreaterThan(0)
+      await settlePersistence()
+      expect(state.pendingWrites).toBe(0)
+      expect(state.pendingWriteBytes).toBe(0)
+    }
+    expect(state.persistenceFailed).toBe(false)
+    expect(await storage.getEntries()).toHaveLength(3)
+  })
+
+  it('rejects a single oversized recording without rejecting its in-memory entry', async () => {
+    const storage = await open()
+    await settlePersistence()
+    const insert = vi.spyOn(database, 'insert')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await storage.appendEntry({ type: 'custom', id: 'oversized', parentId: null,
+      timestamp: '2026-01-01', customType: 'test', data: { text: 'x'.repeat(PI_PERSISTENCE_LIMITS.bytes) } })
+    expect(await storage.getLeafId()).toBe('oversized')
+    expect(await storage.getEntries()).toHaveLength(1)
+    expect((storage as any).state.pendingWrites).toBe(0)
+    expect((storage as any).state.pendingWriteBytes).toBe(0)
+    expect(insert).not.toHaveBeenCalled()
+    expect(errors).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds deferred recovery recordings before scheduling any SQL', async () => {
+    const count = PI_PERSISTENCE_LIMITS.tasks + 1
+    vi.spyOn(AgentTranscriptRepository.prototype, 'listTranscript').mockResolvedValue(
+      Array.from({ length: count }, (_, index) => ({
+        message: { id: `recovery-${index}`, sessionId: 'topic-a', role: 'user', createdAt: '2026-01-01' },
+        parts: [{ type: 'text', data: { text: 'history' } }]
+      })) as any)
+    const insert = vi.spyOn(database, 'insert')
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const storage = await open()
+    expect(await storage.getEntries()).toHaveLength(count)
+    expect((storage as any).state.persistenceFailed).toBe(true)
+    expect((storage as any).state.pendingWrites).toBe(0)
+    expect((storage as any).state.pendingWriteBytes).toBe(0)
+    expect((storage as any).recoveryWrites).toBeUndefined()
+    expect(insert).not.toHaveBeenCalled()
+    expect(errors).toHaveBeenCalledTimes(1)
+  })
+
+  it('counts session metadata against the recovery byte budget', async () => {
+    const insert = vi.spyOn(database, 'insert')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const storage = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database,
+      metadata: { large: 'x'.repeat(PI_PERSISTENCE_LIMITS.bytes) } })
+    expect((await storage.getMetadata()).metadata?.large).toHaveLength(PI_PERSISTENCE_LIMITS.bytes)
+    expect((storage as any).state.persistenceFailed).toBe(true)
+    expect((storage as any).state.pendingWrites).toBe(0)
+    expect((storage as any).state.pendingWriteBytes).toBe(0)
+    expect(insert).not.toHaveBeenCalled()
+  })
+
+  it('documents that database deletion does not currently invalidate an existing topic cache', async () => {
+    const storage = await open()
+    await new Session(storage).appendMessage(userMessage('cached conversation'))
+    await settlePersistence()
+    await client.execute("DELETE FROM pi_invocation_entries WHERE topic_id='topic-a'")
+    await client.execute("DELETE FROM pi_session_entries WHERE topic_id='topic-a'")
+    await client.execute("DELETE FROM pi_sessions WHERE topic_id='topic-a'")
+    await client.execute("DELETE FROM sessions WHERE id='topic-a'")
+    const select = vi.spyOn(database, 'select')
+    const reused = await open('replacement')
+    expect(await reused.getMetadata()).toMatchObject({ id: 'pi-first' })
+    expect(await reused.getEntries()).toHaveLength(1)
+    expect(await SqlitePiSessionStorage.hasDurableConversation({ topicId: 'topic-a', database })).toBe(true)
+    expect(select).not.toHaveBeenCalled()
+  })
+
+  it('preserves explicit branch parents and makes repeated IDs idempotent without moving the leaf', async () => {
+    const storage = await open()
+    const entry = { type: 'custom' as const, id: 'root', parentId: null, timestamp: '2026-01-01', customType: 'test', data: { value: 1 } }
+    await storage.appendEntry(entry)
+    await storage.appendEntry({ ...entry, id: 'old', parentId: 'root' })
+    await storage.appendEntry({ ...entry, id: 'branch', parentId: 'root' })
+    await storage.appendEntry(entry)
+    expect(await storage.getLeafId()).toBe('branch')
+    expect((await storage.getPathToRootOrCompaction('branch')).map(item => item.id)).toEqual(['root', 'branch'])
+    await expect(storage.appendEntry({ ...entry, data: { value: 2 } })).rejects.toThrow(/different content/)
+    await expect(storage.appendEntry({ ...entry, id: 'orphan', parentId: 'missing' })).rejects.toThrow(/Parent/)
+    const restored = await recover()
+    expect((await restored.getPathToRootOrCompaction('branch')).map(item => item.id)).toEqual(['root', 'branch'])
+  })
+
+  it('isolates invocation handles and snapshots caller-owned data', async () => {
+    const first = await open()
+    const second = await open()
+    first.setInvocationId('request-a')
+    second.setInvocationId('request-b')
+    const entry = { type: 'message' as const, id: 'a', parentId: null, timestamp: '2026-01-01', message: userMessage('original') }
+    await first.appendEntry(entry)
+    entry.message.content = 'mutated'
+    await second.appendEntry({ ...entry, id: 'b', parentId: 'a' })
+    await first.appendEntry({ ...entry, id: 'retry', parentId: 'b' })
+    expect(await first.getEntry('a')).toMatchObject({ message: { content: 'original' } })
+    const returned: any = await second.getEntry('a')
+    returned.message.content = 'mutated again'
+    expect(await first.getEntry('a')).toMatchObject({ message: { content: 'original' } })
+    expect((await first.getEntries()).map(item => item.id)).toEqual(['a', 'b'])
+    expect(await first.getLeafId()).toBe('b')
+  })
+
+  it('recovers invocation deduplication when the entry persisted but its claim did not', async () => {
+    const storage = await open()
+    storage.setInvocationId('request')
+    await new Session(storage).appendMessage(userMessage('once'))
+    await settlePersistence()
+    await client.execute('DELETE FROM pi_invocation_entries')
+    const restored = await recover()
+    restored.setInvocationId('request')
+    await new Session(restored).appendMessage(userMessage('retry'))
+    expect(await restored.getEntries()).toHaveLength(1)
+  })
+
+  it('restores canonical forks without flattening them', async () => {
+    await addCanonical('root', 'root')
+    await addCanonical('a', 'branch A', 'root')
+    await addCanonical('b', 'branch B', 'root')
+    const storage = await open()
+    const entries = await storage.getEntries()
+    expect(entries[2].parentId).toBe(entries[0].id)
+    expect((await new Session(storage).buildContext()).messages.map((message: any) => message.content)).toEqual(['root', 'branch B'])
+    expect((await new Session(await recover()).buildContext()).messages.map((message: any) => message.content)).toEqual(['root', 'branch B'])
   })
 
   it('preserves append ordering and cursor reads', async () => {
@@ -730,6 +971,7 @@ describe('SqlitePiSessionStorage', () => {
     expect(transcript[0]?.message.semantics).toEqual({ providerVisibility: 'visible' })
     expect(canonicalMessageToPi(transcript[0]!)).toHaveLength(1)
     const storage = await open()
+    await settlePersistence()
     expect((await client.execute('SELECT entry_id FROM pi_session_entries')).rows).toHaveLength(2)
     expect(await storage.getEntries()).toHaveLength(2)
     const messages = (await new Session(storage).buildContext()).messages as any[]
@@ -742,7 +984,7 @@ describe('SqlitePiSessionStorage', () => {
     expect(messages.filter((message) => message.role === 'toolResult')).toHaveLength(1)
   })
 
-  it('excludes tombstoned canonical messages from already-established PI context', async () => {
+  it('snapshots visibility in memory and restores tombstones on database restart', async () => {
     const now = '2026-01-01T00:00:00.000Z'
     await client.executeMultiple(`
       INSERT INTO agent_messages(id, session_id, sequence, role, status, semantics_json, created_at, updated_at)
@@ -758,7 +1000,22 @@ describe('SqlitePiSessionStorage', () => {
       SET semantics_json = '{"providerVisibility":"hidden","tombstone":true}'
       WHERE id = 'user-visible'
     `)
-    expect((await new Session(storage).buildContext()).messages).toEqual([])
+    expect((await new Session(storage).buildContext()).messages).toHaveLength(1)
+    expect((await new Session(await open()).buildContext()).messages).toHaveLength(1)
+    expect((await new Session(await recover()).buildContext()).messages).toEqual([])
+  })
+
+  it('documents that canonical tombstones do not yet hide native PI invocation entries even after recovery', async () => {
+    await addCanonical('native-request', 'remove native message')
+    const storage = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database,
+      invocationId: 'native-request' })
+    const entryId = await new Session(storage).appendMessage(userMessage('remove native message'))
+    await settlePersistence()
+    expect(await new AgentTranscriptRepository(database).tombstoneMessage('topic-a', 'native-request')).toBe(true)
+    expect((await new Session(await open()).buildContext()).messages).toHaveLength(1)
+    const restored = await recover()
+    expect((await new Session(restored).buildContext()).messages).toHaveLength(1)
+    expect((await restored.getEntries())[0].id).toBe(entryId)
   })
 
   it.each(['aborted', 'error'] as const)('does not fabricate tool results for %s partial assistants', async (stopReason) => {
@@ -792,6 +1049,7 @@ describe('SqlitePiSessionStorage', () => {
     const messages = (await new Session(reopened).buildContext()).messages
     expect(messages.filter((message: any) => message.role === 'toolResult')).toEqual([])
     // Audit/history records remain intact; this is only a context projection.
+    await settlePersistence()
     const rows = await client.execute("SELECT entry_id FROM pi_session_entries WHERE topic_id = 'topic-a'")
     expect(rows.rows).toHaveLength(2)
   })
@@ -805,7 +1063,7 @@ describe('SqlitePiSessionStorage', () => {
       stopReason: 'toolUse'
     })
 
-    const reopened = new Session(await open())
+    const reopened = new Session(await recover())
     const messages = (await reopened.buildContext()).messages as any[]
     expect(messages.map((message) => message.role)).toEqual(['assistant', 'toolResult'])
     expect(messages[1]).toMatchObject({
@@ -816,7 +1074,7 @@ describe('SqlitePiSessionStorage', () => {
     })
 
     await open()
-    expect((await storage.getEntries()).filter((entry: any) => entry.type === 'message' && entry.message.role === 'toolResult')).toHaveLength(1)
+    expect((await reopened.getEntries()).filter((entry: any) => entry.type === 'message' && entry.message.role === 'toolResult')).toHaveLength(1)
   })
 
   it('prefers existing durable entries and reports canonical history for legacy fallback detection', async () => {
@@ -855,6 +1113,7 @@ describe('SqlitePiSessionStorage', () => {
     const entries = await first.getEntries()
     expect(entries.filter((entry) => entry.type === 'message')).toHaveLength(1)
     expect(entries).toHaveLength(9)
+    await settlePersistence()
     expect((await client.execute('SELECT sequence FROM pi_session_entries ORDER BY sequence')).rows).toEqual(
       Array.from({ length: 9 }, (_, sequence) => ({ sequence }))
     )

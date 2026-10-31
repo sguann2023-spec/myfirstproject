@@ -893,10 +893,6 @@ function resolveWorkerScriptPath() {
 }
 
 function registerLegacyLoginInitChannels() {
-  safeHandle('app:database-initialization-progress', async () => {
-    const { DatabaseManager } = await import('./agents/database/DatabaseManager')
-    return DatabaseManager.getInitializationProgress()
-  })
   safeHandle('app:register-extended-ipc', async () => ({ success: true }))
   safeHandle('app:initialize-login-services', async () => {
     // Schema readiness is blocking; DatabaseManager shares in-flight initialization.

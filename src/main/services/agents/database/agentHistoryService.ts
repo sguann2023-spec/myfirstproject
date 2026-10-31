@@ -5,6 +5,8 @@ import { canonicalEntryToPersisted } from './agentHistoryMapper'
 import type { AgentMessageWithParts } from './repositories/agentTranscript.types'
 import { agentTranscriptRepository, type IAgentTranscriptRepository } from './repositories/agentTranscriptRepository'
 import { agentMessageRepository } from './sessionMessageRepository'
+import { recoverPiQuestionHistory } from './recoverPiQuestionHistory'
+import { piQuestionHistory, type PiQuestionHistoryReader } from './repositories/piQuestionHistory'
 
 const logger = loggerService.withContext('AgentHistoryService')
 
@@ -26,12 +28,11 @@ const record = (value: unknown): Record<string, any> =>
 export class AgentHistoryService {
   constructor(
     private readonly transcript: IAgentTranscriptRepository = agentTranscriptRepository,
-    private readonly legacy: Pick<typeof agentMessageRepository, 'getSessionHistory'> = agentMessageRepository
+    private readonly legacy: Pick<typeof agentMessageRepository, 'getSessionHistory'> = agentMessageRepository,
+    private readonly piQuestions: PiQuestionHistoryReader = piQuestionHistory
   ) {}
 
   async getHistory(sessionId: string, options: AgentHistoryOptions = {}): Promise<AgentHistoryPage> {
-    const startedAt = Date.now()
-    logger.info('History load started', { sessionId })
     let canonical: AgentMessageWithParts[] = []
     try {
       canonical = await this.transcript.listTranscript(sessionId)
@@ -75,9 +76,13 @@ export class AgentHistoryService {
     const after = options.afterSequence ?? -1
     const eligible = merged.filter((item) => Number(record(item.message).sequence) > after)
     const limit = Math.max(1, Math.min(options.limit ?? (eligible.length || 1), 500))
-    const page = eligible.slice(0, limit)
+    let page = eligible.slice(0, limit)
+    try {
+      page = await recoverPiQuestionHistory(sessionId, page, this.piQuestions)
+    } catch (error) {
+      logger.warn('PI question recovery failed; returning available history', { sessionId, error: error as Error })
+    }
     const sequences = page.map((item) => Number(record(item.message).sequence))
-    logger.info('History load completed', { sessionId, elapsedMs: Date.now() - startedAt, messages: page.length })
     return {
       messages: page,
       sequences,

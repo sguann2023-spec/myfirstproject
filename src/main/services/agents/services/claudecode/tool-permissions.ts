@@ -238,6 +238,7 @@ type PromptForToolApprovalOptions = {
   // the streamed synthetic tool call ID (e.g. `pi_tool_...`) so the renderer card
   // can match this permission request to its own tool block precisely.
   rawToolCallId?: string
+  onQuestionReceived?: import('../../interfaces/AgentStreamInterface').AgentPersistenceHooks['onQuestionReceived']
 }
 
 export async function promptForToolApproval(
@@ -302,6 +303,25 @@ export async function promptForToolApproval(
     createdAt,
     suggestions: sanitizedSuggestions,
     autoApprove: options.autoApprove
+  }
+
+  if (requiresUserResponse(toolName) && options.onQuestionReceived) {
+    try {
+      void Promise.resolve(options.onQuestionReceived({
+      toolName,
+      toolCallId: options.toolCallId,
+      rawToolCallId: options.rawToolCallId,
+      aliases: toolCallIdAliases,
+      input: sanitizedInput
+      }, options.signal)).catch((error) => {
+        logger.error('Failed to persist received question', error as Error)
+      })
+    } catch (error) {
+      logger.error('Failed to persist received question', error as Error)
+    }
+  }
+  if (options.signal.aborted) {
+    return { behavior: 'deny', message: 'Tool request was cancelled before prompting the user' }
   }
 
   const defaultDenyUpdate: PermissionResult = { behavior: 'deny', message: 'Tool request aborted before user decision' }

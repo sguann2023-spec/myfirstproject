@@ -11,6 +11,7 @@ export enum IpcChannel {
   App_Reload = 'app:reload',
   App_Quit = 'app:quit',
   App_Info = 'app:info',
+  App_InfoInvalidated = 'app:info-invalidated',
   App_GetVectcutApiKey = 'app:get-vectcut-api-key',
   App_Proxy = 'app:proxy',
   App_SetLaunchToTray = 'app:set-launch-to-tray',

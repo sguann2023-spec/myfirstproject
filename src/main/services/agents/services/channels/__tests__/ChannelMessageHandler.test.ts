@@ -1,15 +1,19 @@
 import { EventEmitter } from 'events'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { agentService } from '../../AgentService'
 import { channelService } from '../../ChannelService'
 import { sessionMessageService } from '../../SessionMessageService'
 import { sessionService } from '../../SessionService'
 import { channelMessageHandler } from '../ChannelMessageHandler'
+import { sessionStreamBus } from '../SessionStreamBus'
+import { broadcastSessionChanged } from '../sessionStreamIpc'
+
+const { loggerError } = vi.hoisted(() => ({ loggerError: vi.fn() }))
 
 vi.mock('@logger', () => ({
   loggerService: {
-    withContext: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn(), silly: vi.fn() })
+    withContext: () => ({ info: vi.fn(), error: loggerError, warn: vi.fn(), debug: vi.fn(), silly: vi.fn() })
   }
 }))
 
@@ -59,7 +63,10 @@ vi.mock('../sessionStreamIpc', () => ({
   broadcastSessionChanged: vi.fn()
 }))
 
-function createMockStream(parts: Array<{ type: string; text?: string }>) {
+function createMockStream(
+  parts: Array<{ type: string; text?: string }>,
+  historyPersisted?: Promise<unknown>
+) {
   const stream = new ReadableStream({
     start(controller) {
       for (const part of parts) {
@@ -68,7 +75,7 @@ function createMockStream(parts: Array<{ type: string; text?: string }>) {
       controller.close()
     }
   })
-  return { stream, completion: Promise.resolve({}) }
+  return { stream, completion: Promise.resolve({}), ...(historyPersisted ? { historyPersisted } : {}) }
 }
 
 function createMockAdapter(overrides: Record<string, unknown> = {}) {
@@ -112,7 +119,103 @@ describe('ChannelMessageHandler', () => {
     vi.useRealTimers()
   })
 
-  it('collectStreamResponse accumulates text across turns and sends via adapter', async () => {
+  it.each(['pending', 'absent'])('publishes complete and returns final text with historyPersisted %s', async (historyState) => {
+    const adapter = createMockAdapter()
+    const session = { id: 'session-1', agent_id: 'agent-1' }
+    let resolveHistoryPersisted!: (result: {}) => void
+    const historyPersisted = new Promise<{}>((resolve) => {
+      resolveHistoryPersisted = resolve
+    })
+    const historySettled = vi.fn()
+    void historyPersisted.then(historySettled)
+    const completionSettled = vi.fn()
+    const result = createMockStream([
+      { type: 'text-delta', text: 'Hello ' },
+      { type: 'text-delta', text: 'Hello world!' },
+      { type: 'text-end' },
+      { type: 'text-delta', text: 'Done.\n' }
+    ], historyState === 'pending' ? historyPersisted : undefined)
+    expect('historyPersisted' in result).toBe(historyState === 'pending')
+    void result.completion.then(completionSettled)
+    vi.mocked(sessionMessageService.createSessionMessage).mockResolvedValueOnce(
+      result as any
+    )
+
+    try {
+      const response = await channelMessageHandler['collectStreamResponse'](
+        session as any, 'Hi', new AbortController(), adapter, 'chat-1', 'Hi', undefined, true
+      )
+
+      expect(completionSettled).toHaveBeenCalledExactlyOnceWith({})
+      expect(historySettled).not.toHaveBeenCalled()
+      expect(response).toBe('Hello world!\n\nDone.')
+      expect(sessionStreamBus.publish).toHaveBeenLastCalledWith('session-1', {
+        sessionId: 'session-1', agentId: 'agent-1', type: 'complete'
+      })
+      expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'complete')).toHaveLength(1)
+      expect(broadcastSessionChanged).not.toHaveBeenCalled()
+      expect(adapter.onStreamError).not.toHaveBeenCalled()
+    } finally {
+      resolveHistoryPersisted({})
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    expect(broadcastSessionChanged).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('does not report historyPersisted failure as a UI model error (renderer watching: %s)', async (rendererIsWatching) => {
+    const adapter = createMockAdapter()
+    const session = { id: 'session-1', agent_id: 'agent-1' }
+    let rejectHistoryPersisted!: (error: Error) => void
+    const historyPersisted = new Promise<never>((_resolve, reject) => {
+      rejectHistoryPersisted = reject
+    })
+    vi.mocked(sessionMessageService.createSessionMessage).mockResolvedValueOnce(
+      createMockStream([{ type: 'text-delta', text: 'Final answer.' }, { type: 'text-end' }], historyPersisted) as any
+    )
+
+    const response = await channelMessageHandler['collectStreamResponse'](
+      session as any, 'Hi', new AbortController(), adapter, 'chat-1', 'Hi', undefined, rendererIsWatching
+    )
+    const persistenceError = new Error('History write failed')
+    rejectHistoryPersisted(persistenceError)
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(response).toBe('Final answer.')
+    expect(loggerError).toHaveBeenCalledExactlyOnceWith('Background channel history persistence failed', persistenceError)
+    expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'error')).toHaveLength(0)
+    expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'complete')).toHaveLength(rendererIsWatching ? 1 : 0)
+    expect(adapter.onStreamError).not.toHaveBeenCalled()
+    expect(broadcastSessionChanged).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('refreshes history only after historyPersisted succeeds (renderer watching: %s)', async (rendererIsWatching) => {
+    const adapter = createMockAdapter()
+    const session = { id: 'session-1', agent_id: 'agent-1' }
+    let resolveHistoryPersisted!: (result: unknown) => void
+    const historyPersisted = new Promise((resolve) => {
+      resolveHistoryPersisted = resolve
+    })
+    vi.mocked(sessionMessageService.createSessionMessage).mockResolvedValueOnce(
+      createMockStream([{ type: 'text-delta', text: 'Final answer.' }], historyPersisted) as any
+    )
+
+    const response = await channelMessageHandler['collectStreamResponse'](
+      session as any, 'Hi', new AbortController(), adapter, 'chat-1', 'Hi', undefined, rendererIsWatching
+    )
+    expect(response).toBe('Final answer.')
+    expect(broadcastSessionChanged).not.toHaveBeenCalled()
+
+    resolveHistoryPersisted({ assistantMessage: { id: 'saved-assistant' } })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(broadcastSessionChanged).toHaveBeenCalledExactlyOnceWith('agent-1', 'session-1', !rendererIsWatching)
+    expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'complete')).toHaveLength(rendererIsWatching ? 1 : 0)
+    expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'error')).toHaveLength(0)
+    expect(adapter.onStreamError).not.toHaveBeenCalled()
+    expect(loggerError).not.toHaveBeenCalled()
+  })
+
+  it.each(['pending', 'absent'])('accumulates text and sends the channel reply with historyPersisted %s', async (historyState) => {
     const adapter = createMockAdapter()
     const session = {
       id: 'session-1',
@@ -122,6 +225,9 @@ describe('ChannelMessageHandler', () => {
       configuration: {}
     }
 
+    const historySettled = vi.fn()
+    const historyPersisted = historyState === 'pending' ? new Promise<unknown>(() => {}) : undefined
+    void historyPersisted?.then(historySettled)
     vi.mocked(sessionService.createSession).mockResolvedValueOnce(session as any)
     vi.mocked(sessionMessageService.createSessionMessage).mockResolvedValueOnce(
       createMockStream([
@@ -132,7 +238,7 @@ describe('ChannelMessageHandler', () => {
         // Turn 2: new block after tool use
         { type: 'text-delta', text: 'Done.' },
         { type: 'text-end' }
-      ]) as any
+      ], historyPersisted) as any
     )
 
     await handleIncomingAndFlush(adapter, {
@@ -143,6 +249,11 @@ describe('ChannelMessageHandler', () => {
     })
 
     expect(adapter.sendMessage).toHaveBeenCalledWith('chat-1', 'Hello world!\n\nDone.')
+    expect(adapter.onStreamComplete).toHaveBeenCalledWith('chat-1', 'Hello world!\n\nDone.')
+    expect(historySettled).not.toHaveBeenCalled()
+    expect(broadcastSessionChanged).not.toHaveBeenCalled()
+    expect(adapter.onStreamError).not.toHaveBeenCalled()
+    expect(loggerError).not.toHaveBeenCalled()
   })
 
   it('skips final send when adapter handles stream completion', async () => {

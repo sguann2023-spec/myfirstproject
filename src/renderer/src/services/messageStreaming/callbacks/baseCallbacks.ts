@@ -433,7 +433,12 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
           updates: messageUpdates
         })
       )
-      await saveUpdatesToDB(assistantMsgId, topicId, messageUpdates, todoBlocksToSave)
+      // Persistence must not delay the completion event or UI cleanup.
+      void Promise.resolve()
+        .then(() => saveUpdatesToDB(assistantMsgId, topicId, messageUpdates, todoBlocksToSave))
+        .catch((error) => {
+          logger.error('Failed to persist completed message', { assistantMsgId, topicId, error })
+        })
 
       // Track token usage for agent sessions (chat sessions are tracked in fetchChatCompletion)
       if (status === 'success' && isAgentSessionTopicId(topicId)) {

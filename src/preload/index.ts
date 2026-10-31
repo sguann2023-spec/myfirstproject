@@ -18,6 +18,7 @@ import type {
 import type { MCPServerLogEntry } from '@shared/config/types'
 import type { ExternalAppInfo } from '@shared/externalApp/types'
 import { IpcChannel } from '@shared/IpcChannel'
+import { createSubscriptionRequests, createSuccessfulRequestCache } from './requestReuse'
 import type { Notification } from '@types'
 import type {
   AddMemoryOptions,
@@ -101,9 +102,21 @@ export function tracedInvoke(channel: string, spanContext: SpanContext | undefin
   return ipcRenderer.invoke(channel, ...args)
 }
 
+const appInfoRequests = createSuccessfulRequestCache(
+  () => ipcRenderer.invoke(IpcChannel.App_Info),
+  (info) => Boolean(info?.appDataPath && info?.resourcesPath)
+)
+ipcRenderer.on(IpcChannel.App_InfoInvalidated, () => appInfoRequests.invalidate())
+const cherrySubscriptions = createSubscriptionRequests((operation, sessionId) =>
+  ipcRenderer.invoke(
+    operation === 'subscribe' ? IpcChannel.CherryChatStream_Subscribe : IpcChannel.CherryChatStream_Unsubscribe,
+    { sessionId }
+  )
+)
+
 // Custom APIs for renderer
 const api = {
-  getAppInfo: () => ipcRenderer.invoke(IpcChannel.App_Info),
+  getAppInfo: () => appInfoRequests.get(),
   getVectcutApiKey: (): Promise<string> => ipcRenderer.invoke(IpcChannel.App_GetVectcutApiKey),
   getDiskInfo: (directoryPath: string): Promise<{ free: number; size: number } | null> =>
     ipcRenderer.invoke(IpcChannel.App_GetDiskInfo, directoryPath),
@@ -131,7 +144,14 @@ const api = {
   resolvePath: (path: string) => ipcRenderer.invoke(IpcChannel.App_ResolvePath, path),
   isPathInside: (childPath: string, parentPath: string) =>
     ipcRenderer.invoke(IpcChannel.App_IsPathInside, childPath, parentPath),
-  setAppDataPath: (path: string) => ipcRenderer.invoke(IpcChannel.App_SetAppDataPath, path),
+  setAppDataPath: async (path: string) => {
+    appInfoRequests.invalidate()
+    try {
+      return await ipcRenderer.invoke(IpcChannel.App_SetAppDataPath, path)
+    } finally {
+      appInfoRequests.invalidate()
+    }
+  },
   getDataPathFromArgs: () => ipcRenderer.invoke(IpcChannel.App_GetDataPathFromArgs),
   copy: (oldPath: string, newPath: string, occupiedDirs: string[] = []) =>
     ipcRenderer.invoke(IpcChannel.App_Copy, oldPath, newPath, occupiedDirs),
@@ -947,8 +967,8 @@ const legacyElectronAPI = {
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftExportRequest, payload),
     createDraftDownloadRequest: (payload: any = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_DraftDownloadRequest, payload),
-    subscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Subscribe, { sessionId }),
-    unsubscribe: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Unsubscribe, { sessionId }),
+    subscribe: (sessionId: string) => cherrySubscriptions.subscribe(sessionId),
+    unsubscribe: (sessionId: string) => cherrySubscriptions.unsubscribe(sessionId),
     abort: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_Abort, { sessionId }),
     onChunk: (callback: (payload: any) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: any) => callback(payload)

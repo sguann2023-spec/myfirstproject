@@ -67,7 +67,7 @@ export const createMessage = async (req: Request, res: Response): Promise<void> 
     )
     const reader = stream.getReader()
 
-    // Track stream lifecycle so we keep the SSE connection open until persistence finishes
+    // Track reply lifecycle only; history writes never keep the SSE connection open.
     let responseEnded = false
     let streamFinished = false
 

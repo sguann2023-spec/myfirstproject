@@ -79,12 +79,6 @@ export class PromptBuilder {
     ].filter(Boolean)
 
     const rendered = sections.join('\n\n')
-    logger.info('Built Claw-style system prompt', {
-      workspacePath,
-      promptLength: rendered.length,
-      instructionFileCount: instructionFiles.length,
-      toolGuidanceOptions: toolGuidance ?? {}
-    })
     return rendered
   }
 
