@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import LocalFilePreviewList from './index.js';
+import MaterialPlusIcon from '../../../../../public/material-plus.svg';
+import MaterialPlusErrorIcon from '../../../../../public/material-plus-error.svg';
 import TextFilePreview from '../../ChatShell/TextFilePreview';
 
 const files = [
@@ -75,6 +77,21 @@ describe('toolbar attachment sidebar previews', () => {
     expect(openAttachmentPreview.mock.calls[2][0]).toEqual({ ...first, src: 'blob:replacement' });
   });
 
+  it('switches template add icons when material counts are insufficient', async () => {
+    const placeholder = { key: 'clips', kind: 'video', label: '添加视频' };
+    const onAddFile = vi.fn();
+    const group = { key: 'clips', label: '视频', files: [], placeholder };
+    await render({ files: [], fileGroups: [group], onAddFile });
+    const button = () => container.querySelector('.chat-panel__local-file-preview-placeholder');
+    expect(button().getAttribute('aria-invalid')).toBe('false');
+    expect(button().querySelector('img').getAttribute('src')).toBe(MaterialPlusIcon);
+    await render({ files: [], fileGroups: [{ ...group, invalid: true }], onAddFile });
+    expect(button().getAttribute('aria-invalid')).toBe('true');
+    expect(button().querySelector('img').getAttribute('src')).toBe(MaterialPlusErrorIcon);
+    await click(button());
+    expect(onAddFile).toHaveBeenCalledExactlyOnceWith(placeholder);
+  });
+
   it('renders skill example groups with labels, count hints and fill-in slots', async () => {
     const onAddFile = vi.fn();
     const groupFiles = [
@@ -107,13 +124,15 @@ describe('toolbar attachment sidebar previews', () => {
     });
 
     const groups = container.querySelectorAll('.chat-panel__local-file-preview-group');
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(1);
     expect(groups[0].querySelector('.chat-panel__local-file-preview-group-label').textContent).toBe('成品特写');
     expect(groups[0].querySelector('.chat-panel__local-file-preview-group-hint').textContent).toBe('1-4个');
     expect(groups[0].querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(2);
-    expect(groups[1].querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(0);
-
-    await click(groups[1].querySelector('.chat-panel__local-file-preview-placeholder'));
+    const tabs = container.querySelectorAll('[role=tab]');
+    expect(tabs).toHaveLength(2);
+    await click(tabs[1]);
+    expect(container.querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(0);
+    await click(container.querySelector('.chat-panel__local-file-preview-placeholder'));
     expect(onAddFile).toHaveBeenCalledExactlyOnceWith({ key: 'skill-example-group:ingredients', label: '添加原料展示' });
   });
 
@@ -127,7 +146,8 @@ describe('toolbar attachment sidebar previews', () => {
     expect(container.querySelector('img.chat-panel__local-file-preview-thumb-image').getAttribute('src')).toBe(image.url);
     expect(container.querySelector('video')).toBeNull();
     await open(image.name);
-    expect(openAttachmentPreview).toHaveBeenCalledWith(expect.objectContaining({ kind: 'image', src: image.url }));
+    expect(openAttachmentPreview).not.toHaveBeenCalled();
+    expect(document.querySelector('.ant-modal img').getAttribute('src')).toBe(image.url);
     await click(container.querySelector(`[aria-label="移除 ${image.name}"]`));
     expect(onRemove).toHaveBeenCalledWith(image);
     await render({ files: [], fileGroups: [{ ...group, files: [] }], onAddFile });
@@ -203,7 +223,7 @@ describe('toolbar attachment sidebar previews', () => {
     expect(source('../../ChatShell/ChatShell.js')).toContain('openAttachmentPreview: openInlinePreviewPane');
     expect(source('../Composer.js')).toContain('openAttachmentPreview={openAttachmentPreview}');
     const list = source('./index.js');
-    expect(list).not.toMatch(/\bModal\b|\bselection\b|TextFilePreview/);
+    expect(list).not.toMatch(/\bselection\b|TextFilePreview/);
     expect(source('./index.css')).not.toContain('attachment-preview-modal');
   });
 });

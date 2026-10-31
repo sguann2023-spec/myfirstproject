@@ -2429,6 +2429,8 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
       ? { videoUnderstandRequest: { ...sourceMessage.videoUnderstandRequest } } : {}),
     ...(role === 'user' && sourceMessage?.subtitleRecognitionRequest
       ? { subtitleRecognitionRequest: { ...sourceMessage.subtitleRecognitionRequest } } : {}),
+    ...(role === 'user' && sourceMessage?.skillTemplateSource
+      ? { skillTemplateSource: { ...sourceMessage.skillTemplateSource } } : {}),
     ...(role === 'user' && sourceMessage?.subtitleStoryboardRequest
       ? { subtitleStoryboardRequest: { ...sourceMessage.subtitleStoryboardRequest } } : {}),
     createdAt,
@@ -5758,6 +5760,7 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(options?.skillTemplateSource ? { skillTemplateSource: { ...options.skillTemplateSource } } : {}),
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
         ...(videoUnderstandRequest ? { videoUnderstandRequest: { ...videoUnderstandRequest, requestId } } : {}),
         ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
@@ -5824,6 +5827,7 @@ const HomePage = () => {
         role: 'user',
         content: text,
         imageAttachments: imageAttachmentPreviews,
+        ...(options?.skillTemplateSource ? { skillTemplateSource: { ...options.skillTemplateSource } } : {}),
         ...(reversePromptRequest ? { reversePromptRequest: { ...reversePromptRequest, requestId } } : {}),
         ...(videoUnderstandRequest ? { videoUnderstandRequest: { ...videoUnderstandRequest, requestId } } : {}),
         ...(subtitleRecognitionRequest ? { subtitleRecognitionRequest: { ...subtitleRecognitionRequest, requestId } } : {}),
@@ -6794,6 +6798,7 @@ const HomePage = () => {
         requestId,
         model: chatModel,
         images,
+        ...(options?.skillTemplateSource ? { skillTemplateSource: options.skillTemplateSource } : {}),
         ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {})
       });
@@ -7043,6 +7048,7 @@ const HomePage = () => {
         createdAt: Number(prevUser.createdAt) || undefined,
         requestId,
         model: chatModel,
+        ...(prevUser.skillTemplateSource ? { skillTemplateSource: prevUser.skillTemplateSource } : {}),
         ...(prevUser.subtitleStoryboardRequest
           ? { subtitleStoryboardRequest: { ...prevUser.subtitleStoryboardRequest, requestId } } : {})
       });

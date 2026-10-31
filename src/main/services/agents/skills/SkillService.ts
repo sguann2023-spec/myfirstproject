@@ -33,6 +33,7 @@ import {
 } from './hiddenBuiltinSkills'
 import { getGlobalSkillsRoot } from './paths'
 import { SkillInstaller } from './SkillInstaller'
+import { listQuickSkillSources } from '../../../utils/quickSkillStorage'
 
 const logger = loggerService.withContext('SkillService')
 
@@ -224,6 +225,7 @@ export class SkillService extends BaseService {
     description?: string
     filename: string
     skillMdPath: string
+    version?: string
     source: 'global'
   }>> {
     const results: Array<{
@@ -231,6 +233,7 @@ export class SkillService extends BaseService {
       description?: string
       filename: string
       skillMdPath: string
+      version?: string
       source: 'global'
     }> = []
 
@@ -251,6 +254,13 @@ export class SkillService extends BaseService {
       }
     }
 
+    for (const source of await listQuickSkillSources()) {
+      try {
+        const metadata = await parseSkillMetadata(source.directory, source.folderName, 'skills')
+        results.push({ name: metadata.name, description: metadata.description, filename: source.folderName,
+          skillMdPath: path.join(source.directory, 'SKILL.md'), version: source.entry.version, source: 'global' })
+      } catch { /* Ignore incomplete bundled entries. */ }
+    }
     return results
   }
 

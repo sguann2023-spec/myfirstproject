@@ -724,40 +724,17 @@ const ChatShell = ({
     }
   }, [isEditingTitle]);
 
-  const resolveSkillEntryPath = React.useCallback(async (skill, { searchPattern, targetSuffix }) => {
-    const rootPath = normalizePath(skill?.__skillRoot || '').trim();
-    if (!rootPath || !window?.api?.file?.listDirectory) return '';
-
+  const resolveSkillPreviewPath = React.useCallback(async (skill) => {
+    const root = String(skill?.__skillRoot || '').trim();
+    if (!root) return '';
     try {
-      const entries = await window.api.file.listDirectory(rootPath, {
-        recursive: true,
-        maxDepth: 3,
-        includeHidden: false,
-        includeFiles: true,
-        includeDirectories: false,
-        maxEntries: 50,
-        searchPattern
-      });
-
-      const targetPath = (Array.isArray(entries) ? entries : [])
-        .map((entryPath) => resolveListedEntryPath(rootPath, entryPath))
-        .find((entryPath) => normalizePath(entryPath).endsWith(targetSuffix));
-
-      return normalizePath(targetPath || '');
-    } catch (_error) {
-      return '';
-    }
+      const raw = await window.api.fs.readText(`${root}/example.json`);
+      const example = JSON.parse(raw);
+      const url = String(example?.display_info?.web_share || '').trim();
+      return /^https?:\/\//i.test(url) ? url : '';
+    } catch { return ''; }
   }, []);
-
-  const resolveSkillPreviewPath = React.useCallback(
-    async (skill) => resolveSkillEntryPath(skill, { searchPattern: 'index.html', targetSuffix: '/website/index.html' }),
-    [resolveSkillEntryPath]
-  );
-
-  const resolveSkillExamplePath = React.useCallback(
-    async (skill) => resolveSkillEntryPath(skill, { searchPattern: 'index.html', targetSuffix: '/website/index.html' }),
-    [resolveSkillEntryPath]
-  );
+  const resolveSkillExamplePath = resolveSkillPreviewPath;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1416,7 +1393,7 @@ const ChatShell = ({
   const openSkillWebPreview = React.useCallback((skill) => {
     const skillKey = getSkillKey(skill);
     const sourcePath = skillPreviewPaths[skillKey];
-    const url = createFilePreviewUrl(sourcePath);
+    const url = /^https?:\/\//i.test(sourcePath || '') ? sourcePath : '';
     if (typeof onOpenWebPreview !== 'function' || !skillKey || !sourcePath || !url) return;
 
     const previewKeySuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1494,7 +1471,7 @@ const ChatShell = ({
   const runSkillExample = React.useCallback(async (skill) => {
     const skillKey = getSkillKey(skill);
     const examplePath = skillExamplePaths[skillKey];
-    const url = createFilePreviewUrl(examplePath);
+    const url = /^https?:\/\//i.test(examplePath || '') ? examplePath : '';
 
     if (typeof onOpenWebPreview !== 'function' || !skillKey || !examplePath || !url) {
       return;

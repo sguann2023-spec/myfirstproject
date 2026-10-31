@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0.0",
+  "folder_name": "tuangou-one-image-draft",
+  "skill_name": "一张图生成餐厅引流团购视频",
+  "example_id": "1986chuanchuan_tuangou_9_1s",
+  "title": "10s餐厅引流团购视频",
+  "display_info": {
+    "title": "10s餐厅引流团购视频",
+    "content":"1986串串59代100，每次可用两张！ 每个人可以抢10张！庆祝将军路新店开业，回到1986串串后湖、复兴村、东西湖三店都有这个活动！#火锅代金券优惠 #平价串串火锅 #武汉美食 #抖音优惠团购 #后湖美食",
+    "author": "买单王小美",
+    "followers_count": "15万+",
+    "likes_count": "1千+",
+    "comment_count": "52",
+    "share_count": "419",
+    "web_share": "https://www.douyin.com/video/7694525773701881250",
+    "jump_url": "https://www.douyin.com/video/7694525773701881250",
+    "cover_url": "https://player.install-ai-guider.top/example/skill_market/tuangou-one-image-draft/example/cover_26d77c8f502445678ecfd41fd3e20982.jpg",
+    "estimated_usage": 600
+  },
+  "jump_url": "https://www.douyin.com/video/7694525773701881250",
+  "web_share": "https://www.douyin.com/video/7694525773701881250",
+  "parameters": {
+    "model": {
+      "type": "string",
+      "label": "执行模型",
+      "required": false,
+      "default": "qwen-3.8-flash",
+      "description": "本次示例填写的对话执行模型标识，不是生成模型。生成侧固定：首帧 seedream-4.5 / 分镜 minimax-h3 / 音频 seed-audio-1.0。"
+    },
+    "prompt": {
+      "type": "string",
+      "label": "示例提示词",
+      "required": true,
+      "default": "用一张图生成餐厅引流团购视频。图是 <你的门店/菜品图路径>。直接使用以下示例文案：店名「回到1986串串后湖店」；钩子句「伙计 住后湖的就是有钱呐」；引导句「你像这样点」；由头花字「他们新店开业」；价格爆点「59就是100」；加码点「而且三店同庆」；规则小字「除酒水饮料、锅底、味碟外全场通用；限购十张，单次可用两张」；收尾句「这还不够意思？」；CTA「戳下方 抢59代100」。不要再让用户单独填写文案分组。画面全部 AI 生成且画面内不得出现任何文字，文字层用商用字体（禁黑体/思源），全部带描边和阴影，价格爆点最大字号。结尾 CTA 必须放在真实背景上云渲染，比较至少两个合理缩放档位后选择可读、不遮主体、不出框的效果，不使用固定缩放；配口播+BGM+环境声+whoosh/ding/pop 音效，文字时间以口播 ASR 字级时间戳为准。画面结构固定模仿本技能的1986串串团购片，不接受其他参考视频；切点根据ASR和价格爆点自动计算，工程名根据店名自动生成。最终输出一个可继续编辑的剪映草稿，不要导出成片。",
+      "description": "用户点示例后填进输入框的请求，用于触发本技能；不是内部执行说明。"
+    },
+    "images": {
+      "type": "image_groups",
+      "label": "菜品主图",
+      "required": true,
+      "min_count": 1,
+      "max_count": 1,
+      "count_unit": "files",
+      "description": "本技能唯一必需的视觉输入。只接收 1 张主图（hero），用于锁定风格并生成视频；缺图必须向用户要，不能凭空生成店景。",
+      "groups": [
+        {
+          "id": "hero",
+          "label": "主参考图",
+          "type": "array",
+          "item_type": "image",
+          "required": true,
+          "min_count": 1,
+          "max_count": 1,
+          "description": "唯一参考图：门店环境或满桌菜品；决定首帧色调、机位与菜品密度。实际使用时替换本示例的占位图。"
+        }
+      ]
+    }
+  },
+  "inputs": {
+    "model": "qwen3.8-flash",
+    "prompt": "用一张图生成餐厅引流团购视频。图是 <你的门店/菜品图路径>。使用以下示例文案：店名「回到1986串串后湖店」；钩子句「伙计 住后湖的就是有钱呐」；引导句「你像这样点」；由头花字「他们新店开业」；价格爆点「59就是100」；加码点「而且三店同庆」；规则小字「除酒水饮料、锅底、味碟外全场通用；限购十张，单次可用两张」；收尾句「这还不够意思？」；CTA「戳下方 抢59代100」。画面全部 AI 生成且画面内不得出现任何文字，文字层可以用剪映里的多种字体，全部带描边和阴影，价格爆点用文字模版。过程中多预渲染看看效果，比较至少两个合理缩放档位后选择可读、不遮主体、不出框的效果，不使用固定缩放；配口播+BGM+环境声+whoosh/ding/pop 音效，文字时间以口播 ASR 字级时间戳为准。画面结构固定模仿本技能的1986串串团购片，不接受其他参考视频；切点根据ASR和价格爆点自动计算，工程名根据店名自动生成。最终输出一个可继续编辑的剪映草稿，不要导出成片。",
+    "images": {
+      "hero": [
+        {
+          "id": "hero_store_photo",
+          "label": "菜品主图",
+          "role": "input_image",
+          "filename": "01_input_hero.jpg",
+          "url": "https://player.install-ai-guider.top/example/skill_market/tuangou-one-image-draft/example/example.jpg",
+          "media_kind": "image",
+          "bytes": 1827138,
+          "md5_8": "e9608fcc",
+          "duration_seconds": 0.04,
+          "width": 1600,
+          "height": 2848,
+          "description": "本技能唯一视觉输入。此示例用 seedream-4.5 生成的串串店满桌图占位；实际使用时换成门店真实照片，它会被放进 image__generate_or_edit_image 的 referenceImages 锁风格与色调。",
+          "continuity_group": "scene_1986_chuanchuan"
+        }
+      ]
+    }
+  },
+  "execution_modes": {
+    "full_generation": {
+      "使用场景": "用户提供唯一一张门店/菜品主图",
+      "步骤": "按 SKILL.md 固化的1986串串团购片结构完整生成画面、音频、ASR时间轴、云渲染CTA、自动命名并导出剪映草稿",
+      "cost_points": "约 528（首帧90 + 分镜300 + 音频138）+ 云渲染 8~40"
+    }
+  },
+  "validation_rules": [
+    "用户输入只允许 model、prompt 和 1 张 hero 主参考图；不接收 reference_video、fixed_assets、cut_point、template_cta_scale 或 draft_name。",
+    "本技能只生成固化的1986串串团购片结构，不逆向或模仿新的参考视频风格。",
+    "每次根据主图重新生成两段画面和全部音频；画面内不得生成文字。",
+    "文案从完整 prompt 提取；规则小字 ≤2 行，价格爆点 ≤8 字。",
+    "口播生成后必须跑 ASR 字级时间戳；切点自动落在价格爆点进场前约0.04秒，禁止让用户填写或按字数估算。",
+    "工程名根据店名自动生成；无法提取店名时使用餐厅引流团购视频_日期时间。",
+    "CTA 必须在真实背景上云渲染比较至少两个缩放档位，选择可读、不遮主体、不出框的结果；不得固定为35%。",
+    "所有入草稿媒体必须先上传为 http(s) 云端 URL；本地路径会写坏素材记录。",
+    "所有手调文字层带阴影；模版层不额外加阴影；字体不得命中禁用字体。",
+    "音频电平只能烘进文件；两段 AI 分镜必须 -an 剥掉自带音轨后再上传。",
+    "交付前必须跑 scripts/verify_draft.py <本地工程目录> 得到 PASS；FAIL 不算交付完成。"
+  ],
+    "web_share": "https://www.douyin.com/video/7694525773701881250",
+    "jump_url": "https://www.douyin.com/video/7694525773701881250",
+    "cover_url": "https://player.install-ai-guider.top/example/skill_market/tuangou-one-image-draft/example/cover_26d77c8f502445678ecfd41fd3e20982.jpg"
+}

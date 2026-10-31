@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getSkillExampleUploadAccept,
+  buildSkillExamplePrompt,
+  getSkillExampleValidationError,
+  resolveSkillExampleModel,
   SKILL_EXAMPLE_APPLY_EVENT,
   SKILL_EXAMPLE_FILENAME,
   buildSkillExampleApplyDetail,
@@ -425,8 +429,8 @@ describe('Composer example attachment construction', () => {
 describe('Composer typed group upload handling', () => {
   const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
   const branch = source.slice(source.indexOf('    if (skillExamplePendingGroup) {'), source.indexOf('    const uploadableFiles ='));
-  const upload = new Function('skillExamplePendingGroup', 'resolvedAcceptedFiles', 'uploadedFileMeta', 'message',
-    'pendingTemplateSlotAutoReferenceRef', 'getResolvedUploadFileType', 'createLocalAttachmentEntry', 'setUploadFileList', 'setUploadedFileMeta',
+  const upload = new Function('skillExamplePendingGroup', 'normalizedFiles', 'uploadedFileMeta', 'message',
+    'pendingTemplateSlotAutoReferenceRef', 'getResolvedUploadFileType', 'createLocalAttachmentEntry', 'setUploadFileList', 'setUploadedFileMeta', 'skillExampleGenerationRef', 'revokeLocalObjectUrl', 'skillExampleUploadReservationsRef', 'setSkillExampleUploadsPending',
     `return (async () => { ${branch} })();`);
   const run = async (kind, files, existing = [], maxCount = 2) => {
     const message = { error: vi.fn() };
@@ -434,7 +438,7 @@ describe('Composer typed group upload handling', () => {
     let meta = [];
     await upload({ kind, slotId: 'target', label: '主图', maxCount }, files, existing, message, { current: 'target' },
       (file) => file.type, async (file) => ({ uploadItem: { uid: file.name }, fileMeta: { name: file.name, fileType: file.type } }),
-      (update) => { uploaded = update([]); }, (update) => { meta = update([]); });
+      (update) => { uploaded = update([]); }, (update) => { meta = update([]); }, { current: 1 }, vi.fn(), { current: new Map() }, vi.fn());
     return { message, uploaded, meta };
   };
   it('accepts images only and attaches them to their group', async () => {
@@ -450,13 +454,68 @@ describe('Composer typed group upload handling', () => {
     expect(video.meta).toHaveLength(1);
     expect(video.meta[0].fileType).toBe('video/mp4');
   });
+  it('limits audio pickers to audio and rejects video/image uploads to an audio group', async () => {
+    expect(getSkillExampleUploadAccept('audio')).toBe('audio/*');
+    const wrong = await run('audio', [{ name: 'v.mp4', type: 'video/mp4' }, { name: 'a.png', type: 'image/png' }]);
+    expect(wrong.meta).toEqual([]);
+    expect(wrong.message.error).toHaveBeenCalledWith('「主图」仅支持音频文件');
+    const audio = await run('audio', [{ name: 'music.mp3', type: 'audio/mpeg' }]);
+    expect(audio.meta).toEqual([expect.objectContaining({ fileType: 'audio/mpeg', slotId: 'target' })]);
+  });
   it('enforces max_count against existing group attachments', async () => {
     const files = [{ name: 'a.png', type: 'image/png' }, { name: 'b.png', type: 'image/png' }];
     const result = await run('image', files, [{ slotId: 'target' }]);
     expect(result.meta).toHaveLength(1);
-    expect(result.message.error).toHaveBeenCalledWith('「主图」最多 2 个，已保留前 1 个');
+    expect(result.message.error).toHaveBeenCalledWith('主图最多添加2个文件，已保留前1个');
     const full = await run('image', files, [{ slotId: 'target' }, { slotId: 'target' }]);
     expect(full.meta).toEqual([]);
-    expect(full.message.error).toHaveBeenCalledWith('「主图」最多 2 个，请先移除后再添加');
+    expect(full.message.error).toHaveBeenCalledWith('主图最多添加2个文件');
+  });
+});
+
+
+describe('template execution regressions', () => {
+  it('loads the real one-image template without requiring videos', () => {
+    const raw = readFileSync(`${process.cwd()}/src/components/Chat/Composer/__fixtures__/tuangou-example.json`, 'utf8');
+    const example = parseSkillExample(raw);
+    expect(example.skillName).toBe('一张图生成餐厅引流团购视频');
+    expect(example.groups).toEqual([expect.objectContaining({ kind: 'image', id: 'hero', required: true, minCount: 1, maxCount: 1 })]);
+    expect(example.images).toHaveLength(1);
+    expect(example.displayInfo.estimated_usage).toBe(600);
+    const prompt = buildSkillExamplePrompt(example.prompt, example.skillName);
+    expect(prompt).toMatch(/^使用@一张图生成餐厅引流团购视频 技能，/);
+    expect(prompt).not.toContain('<你的门店/菜品图路径>');
+    expect(buildSkillExamplePrompt(prompt, example.skillName)).toBe(prompt);
+  });
+  it('keeps audio groups distinct from images and videos with identical ids', () => {
+    const example = parseSkillExample({ parameters: { audios: { groups: [
+      { id: 'hero', label: '音乐', required: true, min_count: 1, max_count: 1 }
+    ] } }, inputs: { prompt: '请剪辑', audios: { hero: [{ filename: 'music.mp3', uri: 'https://example.com/music.mp3' }] } } });
+    expect(example.groups[0].kind).toBe('audio');
+    expect(buildSkillExampleApplyDetail(example).audios[0].url).toBe('https://example.com/music.mp3');
+    expect(buildSkillExampleGroupSlotId('hero', 'audio')).not.toBe(buildSkillExampleGroupSlotId('hero', 'image'));
+  });
+  it('blocks missing required groups, partial optional groups, excess files and loading', () => {
+    const group = { id: 'hero', kind: 'image', label: '主图', required: true, minCount: 1, maxCount: 1 };
+    const file = { slotId: buildSkillExampleGroupSlotId('hero', 'image') };
+    expect(getSkillExampleValidationError([group], [])).toBe('主图最少需要1个文件');
+    expect(getSkillExampleValidationError([group], [file])).toBe('');
+    expect(getSkillExampleValidationError([group], [file, file])).toBe('主图最多添加1个文件');
+    expect(getSkillExampleValidationError([group], [file], true)).toContain('加载中');
+    const optional = { ...group, required: false, minCount: 2, maxCount: 3 };
+    expect(getSkillExampleValidationError([optional], [])).toBe('');
+    expect(getSkillExampleValidationError([optional], [file])).toContain('最少需要2个');
+  });
+  it('matches model aliases, then latest family, then the default', () => {
+    const options = ['qwen3.8-flash', 'gpt-5.5-sol', 'gpt-5.6-sol'].map((value) => ({ value }));
+    expect(resolveSkillExampleModel('qwen-3.8-flash', options, 'qwen3.8-flash')).toBe('qwen3.8-flash');
+    expect(resolveSkillExampleModel('gpt-4-sol', options, 'qwen3.8-flash')).toBe('gpt-5.6-sol');
+    expect(resolveSkillExampleModel('retired-model', options, 'qwen3.8-flash')).toBe('qwen3.8-flash');
+  });
+  it('rejects a different cached version without reading an installed skill copy', async () => {
+    const readSkillFile = vi.fn();
+    window.api = { fs: { readText: vi.fn().mockResolvedValue('1.0.0') }, skill: { readSkillFile } };
+    await expect(loadSkillExample({ title: '模版', directoryPath: '/cache/hero/2.0.0', storageRelativePath: 'hero/2.0.0', version: '2.0.0' })).rejects.toThrow('版本不一致');
+    expect(readSkillFile).not.toHaveBeenCalled();
   });
 });

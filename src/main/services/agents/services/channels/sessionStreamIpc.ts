@@ -2776,6 +2776,11 @@ export function registerSessionStreamIpc(): void {
               typeof (item as { media_type?: unknown }).media_type === 'string'
           )
         : undefined
+      const skillTemplateSource = payload?.skillTemplateSource
+        && typeof payload.skillTemplateSource.folderName === 'string'
+        && typeof payload.skillTemplateSource.version === 'string'
+        ? { folderName: payload.skillTemplateSource.folderName, version: payload.skillTemplateSource.version } : undefined
+      if (payload?.skillTemplateSource && !skillTemplateSource) return { ok: false, error: '模版来源信息无效' }
       const draftInspectRequest =
         payload?.draftInspectRequest && typeof payload.draftInspectRequest === 'object'
           ? payload.draftInspectRequest as Record<string, unknown>
@@ -2839,7 +2844,8 @@ export function registerSessionStreamIpc(): void {
         try {
           const startedStream = await createSessionMessageWithTimeout(
             sessionMessageService.createSessionMessage(
-              session,
+              skillTemplateSource ? { ...session, configuration: { ...session.configuration,
+                quick_skill_source: skillTemplateSource } } : session,
               {
                 content,
                 model: effectiveModel || undefined,
@@ -2853,6 +2859,7 @@ export function registerSessionStreamIpc(): void {
                 displayContent: content,
                 images,
                 userMessageExtras: {
+                  ...(skillTemplateSource ? { skillTemplateSource } : {}),
                   ...(draftInspectRequest ? { draftInspectRequest } : {}),
                   ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest } : {})
                 },

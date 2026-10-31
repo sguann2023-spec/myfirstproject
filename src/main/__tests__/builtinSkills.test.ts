@@ -25,9 +25,12 @@ vi.mock('node:fs/promises', () => ({
     cp: vi.fn(),
     readFile: vi.fn(),
     writeFile: vi.fn(),
-    rm: vi.fn()
+    rm: vi.fn(),
+    rename: vi.fn()
   }
 }))
+
+vi.mock('electron-store', () => ({ default: class { get(key: string) { return key === 'auth.vectcut_api_key' ? 'test-key' : undefined } } }))
 
 vi.mock('electron', () => ({
   app: {
@@ -93,7 +96,7 @@ const globalSkillsRoot = '/userData/Data/GlobalSkills'
 const localManifestPath = path.join(resourceSkillsPath, 'manifest.json')
 const syncStatePath = path.join(globalSkillsRoot, '.builtin-sync-state.json')
 const quickManifestCachePath = path.join('/userData/Data/QuickSkills', 'manifest.json')
-const quickSkillStoragePath = path.join('/userData/Data/QuickSkills', 'skills', 'trendykoubo')
+const quickSkillStoragePath = path.join('/userData/Data/QuickSkills', 'skills', 'trendykoubo', '1.0.0')
 const localManifest = {
   updatedAt: '2026-05-13T00:00:00Z',
   skills: {
@@ -406,7 +409,7 @@ describe('installBuiltinSkills', () => {
       } as any)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({
+        json: async () => ({ code: 0, data: {
           updatedAt: '2026-08-28T10:00:00Z',
           skills: {
             '网感口播': {
@@ -416,7 +419,7 @@ describe('installBuiltinSkills', () => {
               downloadUrl: 'https://player.install-ai-guider.top/skills/quick/trendy-koubo/1_0_0/trendy-koubo.zip'
             }
           }
-        })
+        } })
       } as any)
       .mockResolvedValueOnce({
         ok: true,
@@ -426,14 +429,12 @@ describe('installBuiltinSkills', () => {
     const { installBuiltinSkills } = await import('../utils/builtinSkills')
     await installBuiltinSkills({ waitForRemoteSync: true })
 
-    expect(fs.cp).toHaveBeenCalledWith(
-      expect.stringContaining(`${path.sep}trendykoubo`),
-      quickSkillStoragePath,
-      { recursive: true }
+    expect(fs.rename).toHaveBeenCalledWith(
+      expect.stringContaining(`${path.sep}trendykoubo`), quickSkillStoragePath
     )
-    expect(fs.writeFile).toHaveBeenCalledWith(path.join(quickSkillStoragePath, '.version'), '1.0.0', 'utf-8')
+    expect(fs.writeFile).toHaveBeenCalledWith(expect.stringContaining(`${path.sep}trendykoubo${path.sep}.version`), '1.0.0', 'utf-8')
     expect(fs.writeFile).toHaveBeenCalledWith(
-      quickManifestCachePath,
+      path.join('/userData/Data/QuickSkills', 'pending-manifest.json.tmp'),
       expect.stringContaining('"网感口播"'),
       'utf-8'
     )

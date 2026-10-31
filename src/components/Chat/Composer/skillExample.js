@@ -135,6 +135,7 @@ export const parseSkillExample = (raw) => {
   const videos = collectExampleMedia(inputs, collectMediaGroups(parameters, 'videos'), 'videos');
 
   const images = collectExampleMedia(inputs, collectMediaGroups(parameters, 'images'), 'images');
+  const audios = collectExampleMedia(inputs, collectMediaGroups(parameters, 'audios'), 'audios');
 
   if (!prompt) return null;
 
@@ -146,8 +147,11 @@ export const parseSkillExample = (raw) => {
     model,
     groups: [
       ...collectExampleGroups(parameters, inputs?.videos, 'videos').map((group) => ({ ...group, kind: 'video' })),
-      ...collectExampleGroups(parameters, inputs?.images, 'images').map((group) => ({ ...group, kind: 'image' }))
+      ...collectExampleGroups(parameters, inputs?.images, 'images').map((group) => ({ ...group, kind: 'image' })),
+      ...collectExampleGroups(parameters, inputs?.audios, 'audios').map((group) => ({ ...group, kind: 'audio' }))
     ],
+    displayInfo,
+    audios,
     images,
     videos
   };
@@ -156,6 +160,23 @@ export const parseSkillExample = (raw) => {
 // Reads example.json for an installed skill. Tries folder name, registry id
 // and display name so both local and marketplace-installed skills resolve.
 export const loadSkillExample = async (skill) => {
+  const directoryPath = String(skill?.directoryPath || skill?.__skillRoot || '').trim();
+  if (directoryPath) {
+    try {
+      if (skill?.directoryPath && skill?.storageRelativePath && skill?.version) {
+        const installedVersion = await window.api.fs.readText(`${directoryPath}/.version`);
+        if (String(installedVersion).trim() !== skill.version) throw new Error('模版版本不一致，请重启后重试');
+      }
+      const raw = await window.api.fs.readText(`${directoryPath}/${SKILL_EXAMPLE_FILENAME}`);
+      const example = parseSkillExample(raw);
+      if (example) return example;
+      if (skill?.title) throw new Error('模版参数无效，请更新后重试');
+    } catch (error) {
+      if (skill?.directoryPath && skill?.title) throw new Error(error?.message || '读取模版失败');
+    }
+    // An explicit source must never fall back to an installed copy of another version.
+    if (skill?.directoryPath) return null;
+  }
   const readSkillFile = window.api?.skill?.readSkillFile;
   if (typeof readSkillFile !== 'function') return null;
 
@@ -182,6 +203,7 @@ export const buildSkillExampleApplyDetail = (example, skillName = '') => ({
   skillName: String(example?.skillName || skillName || '').trim(),
   prompt: String(example?.prompt || '').trim(),
   model: String(example?.model || '').trim(),
+  audios: Array.isArray(example?.audios) ? example.audios : [],
   images: Array.isArray(example?.images) ? example.images : [],
   videos: Array.isArray(example?.videos) ? example.videos : [],
   groups: Array.isArray(example?.groups) ? example.groups : []
@@ -211,3 +233,38 @@ export const dispatchSkillExampleApply = (detail) => {
 // Namespace both media kinds so identical or prefixed group ids never mix.
 export const buildSkillExampleGroupSlotId = (groupId, kind = 'video') =>
   `skill-example-group:${kind}:${String(groupId || '').trim()}`;
+
+export const getSkillExampleUploadAccept = (kind) => (
+  ['image', 'video', 'audio'].includes(kind) ? `${kind}/*` : undefined
+);
+
+// Keep the exact source prompt unless a skill mention is missing (legacy examples).
+export const buildSkillExamplePrompt = (prompt, skillName) => {
+  const text = String(prompt || '').trim().replace(/<你的门店\/菜品图路径>/g, '所附主参考图');
+  const name = String(skillName || '').trim();
+  return !name || text.includes(`@${name}`) ? text : `使用@${name} 技能，${text}`;
+};
+
+export const getSkillExampleValidationError = (groups, files, loading = false) => {
+  if (loading) return '示例素材加载中，请稍候';
+  for (const group of groups || []) {
+    const slotId = group.slotId || buildSkillExampleGroupSlotId(group.id, group.kind);
+    const count = (files || []).filter((file) => file.slotId === slotId).length;
+    const minimum = group.required ? Math.max(1, group.minCount || 0) : group.minCount || 0;
+    if ((group.required || count > 0) && count < minimum) return `${group.label}最少需要${minimum}个文件`;
+    if (group.maxCount && count > group.maxCount) return `${group.label}最多添加${group.maxCount}个文件`;
+  }
+  return '';
+};
+
+export const resolveSkillExampleModel = (requested, options, fallback) => {
+  const available = (options || []).filter((item) => item.value && !item.disabled);
+  const normalized = (value) => String(value || '').toLowerCase().replace(/[-_.\s]/g, '');
+  const exact = available.find((item) => normalized(item.value) === normalized(requested));
+  if (exact) return exact.value;
+  const family = (value) => String(value || '').toLowerCase().match(/^[a-z]+/)?.[0];
+  const candidates = requested ? available.filter((item) => family(item.value) === family(requested)) : [];
+  candidates.sort((a, b) => String(b.value).localeCompare(String(a.value), undefined, { numeric: true }));
+  return candidates[0]?.value || available.find((item) => item.isDefault || item.is_default)?.value
+    || available.find((item) => item.value === fallback)?.value || available[0]?.value || '';
+};

@@ -128,8 +128,10 @@
 }
 
 .chat-panel__welcome-skill-card {
-  width: 190px;
-  flex: 0 0 190px;
+  box-sizing: border-box;
+  width: 191px;
+  height: 92px;
+  flex: 0 0 191px;
   border: 1px solid #e2e2e2;
   padding: 0;
   margin: 0;
@@ -138,7 +140,25 @@
   overflow: hidden;
   cursor: pointer;
   text-align: left;
+  font-size: 14px;
 }
+
+.chat-panel__welcome-skill-content { box-sizing: border-box; height: 100%; position: relative; }
+.chat-panel__welcome-skill-stats { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 26px; margin-top: 12px; font-size: 12px; line-height: 20px; white-space: nowrap; }
+.chat-panel__welcome-skill-stats > span:last-child { display: flex; align-items: center; gap: 5px; }
+.chat-panel__welcome-skill-actions { display: none; gap: 12px; margin-top: 12px; }
+.chat-panel__welcome-skill-actions button, .chat-panel__welcome-do-same {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: 0; border-radius: 6px; padding: 5px 10px; cursor: pointer;
+  font-family: inherit; font-size: 14px; line-height: 20px;
+}
+.chat-panel__welcome-skill-actions button { box-sizing: border-box; flex-shrink: 0; height: 24px; font-size: 12px; padding: 0; white-space: nowrap; background: #e2e2e2; color: #000; }
+.chat-panel__welcome-skill-actions button:first-child { width: 66px; }
+.chat-panel__welcome-skill-actions button:last-child { width: 78px; }
+.chat-panel__welcome-skill-card:hover .chat-panel__welcome-skill-stats,
+.chat-panel__welcome-skill-card:focus-within .chat-panel__welcome-skill-stats { display: none; }
+.chat-panel__welcome-skill-card:hover .chat-panel__welcome-skill-actions,
+.chat-panel__welcome-skill-card:focus-within .chat-panel__welcome-skill-actions { display: flex; }
 
 .chat-panel__welcome-skill-card:focus-visible {
   outline: 2px solid #111;
@@ -163,7 +183,7 @@
 }
 
 .chat-panel__welcome-skill-content {
-  padding: 12px 12px 12px;
+  padding: 16px;
 }
 
 .chat-panel__welcome-skill-header {
@@ -175,9 +195,12 @@
 
 .chat-panel__welcome-skill-name {
   font-size: 14px;
-  line-height: 1.4;
-  font-weight: 500;
+  line-height: 20px;
+  font-weight: 600;
   color: #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-panel__welcome-skill-add {

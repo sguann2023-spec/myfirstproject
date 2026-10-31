@@ -28,7 +28,7 @@ import type {
   AgentThinkingOptions,
   AgentInvocationIds
 } from '../../interfaces/AgentStreamInterface'
-import { resolveExplicitSkillMention } from '../../skill-mounting/ExplicitSkillMention'
+import { resolveSkillInvocationMention } from '../../skill-mounting/ExplicitSkillMention'
 import { resolveWorkspaceSkillInvocation } from '../../skill-mounting/SkillInvokeService'
 import { skillService } from '../../skills/SkillService'
 import { agentService } from '../AgentService'
@@ -279,10 +279,15 @@ class ClaudeCodeService implements AgentServiceInterface {
         }
       | undefined
 
-    if (prompt.includes('@')) {
+    // Routing metadata is local only: it does not change the user's prompt or media.
+    const quickSource = (session.configuration as Record<string, unknown> | undefined)?.quick_skill_source as
+      { folderName?: string; version?: string } | undefined
+    if (prompt.includes('@') || quickSource) {
       try {
-        const enabledSkills = await skillService.listLocal(cwd)
-        const mention = resolveExplicitSkillMention(prompt, enabledSkills)
+        const [installedSkills, hiddenSkills] = await Promise.all([
+          skillService.listLocal(cwd), skillService.listHiddenBuiltinSkills()
+        ])
+        const mention = resolveSkillInvocationMention(prompt, installedSkills, hiddenSkills, quickSource)
         if (mention) {
           const resolvedSkill = await resolveWorkspaceSkillInvocation({
             workspacePath: cwd,
@@ -319,6 +324,7 @@ class ClaudeCodeService implements AgentServiceInterface {
           })
         }
       } catch (error) {
+        if (quickSource) throw error
         logger.warn('[PiSkill] failed to resolve explicit skill mention', {
           agentId: session.agent_id,
           sessionId: session.id,

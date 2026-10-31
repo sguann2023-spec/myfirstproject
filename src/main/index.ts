@@ -19,6 +19,7 @@ import path from 'node:path'
 import { registerIpc } from './ipc'
 import { schedulerService } from './services/agents/services/SchedulerService'
 import { bootstrapBuiltinAgents } from './services/agents/services/builtin/BuiltinAgentBootstrap'
+import { prepareHomepageSkills } from './utils/builtinSkills'
 import { channelManager } from './services/agents/services/channels'
 import { apiServerService } from './services/ApiServerService'
 import { appMenuService } from './services/AppMenuService'
@@ -253,6 +254,7 @@ if (!app.requestSingleInstanceLock()) {
     // Check for backup restore marker and complete restoration (highest priority, before window creation)
     const { BackupManager } = await import('./services/BackupManager')
     await BackupManager.handleStartupRestore()
+    await prepareHomepageSkills()
 
     const mainWindow = windowService.createMainWindow()
 

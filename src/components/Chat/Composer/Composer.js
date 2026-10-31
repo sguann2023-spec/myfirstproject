@@ -17,6 +17,7 @@ import { getVideoGenerationCapabilities } from '../../../api/chat';
 import { getProjectPricing } from '../../../api/pricing';
 import { trackEvent } from '../../../shared/analytics';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
+import SkillTemplateIcon from '../../../../public/skill-template.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import {
   getDefaultAiWritePresetId,
@@ -39,7 +40,11 @@ import {
   clearPendingSkillExample,
   consumePendingSkillExample,
   formatSkillExampleCountHint,
-  formatSkillExampleDuration
+  formatSkillExampleDuration,
+  getSkillExampleUploadAccept,
+  buildSkillExamplePrompt,
+  getSkillExampleValidationError,
+  resolveSkillExampleModel
 } from './skillExample';
 import VideoToolDetail from './VideoToolDetail/index';
 import VideoDetailTool from '../../VideoDetailTool/index';
@@ -1127,11 +1132,18 @@ const readMediaMetadata = (mediaUrl, tagName = 'video') => new Promise((resolve)
   }
 
   const element = document.createElement(tagName === 'audio' ? 'audio' : 'video');
+  let settled = false;
+  const timeout = setTimeout(() => finish(), 15000);
   const cleanup = () => {
     element.removeAttribute('src');
     element.load?.();
   };
   const finish = (value = {}) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    element.onloadedmetadata = null;
+    element.onerror = null;
     cleanup();
     resolve({
       durationLabel: String(value?.durationLabel || '').trim(),
@@ -1428,7 +1440,8 @@ const isSkillExampleGroupSlotId = (slotId) => String(slotId || '').startsWith('s
 const createSkillExampleAttachmentEntries = async (detail = {}) => {
   const videos = Array.isArray(detail?.videos) ? detail.videos : [];
   const images = Array.isArray(detail?.images) ? detail.images : [];
-  const media = [...videos.map((file) => ({ ...file, kind: 'video' })), ...images.map((file) => ({ ...file, kind: 'image' }))];
+  const audios = Array.isArray(detail?.audios) ? detail.audios : [];
+  const media = [...videos.map((file) => ({ ...file, kind: 'video' })), ...images.map((file) => ({ ...file, kind: 'image' })), ...audios.map((file) => ({ ...file, kind: 'audio' }))];
   const groups = Array.isArray(detail?.groups) ? detail.groups : [];
   const skillName = String(detail?.skillName || '').trim();
   const groupById = new Map(groups.map((group) => [buildSkillExampleGroupSlotId(group?.id, group?.kind), group]));
@@ -1439,11 +1452,10 @@ const createSkillExampleAttachmentEntries = async (detail = {}) => {
     const groupId = String(video?.groupId || group?.id || '').trim();
     const groupLabel = String(video?.groupLabel || group?.label || '').trim() || '分镜';
     const filename = String(video?.filename || '').trim();
-    const extension = filename.includes('.') ? filename.split('.').pop() : video.kind === 'image' ? 'png' : 'mp4';
-    // Keep the source filename so continuity groups stay recognizable while
-    // the group prefix tells the agent which role the clip plays.
+    const extension = filename.includes('.') ? filename.split('.').pop() : video.kind === 'image' ? 'png' : video.kind === 'audio' ? 'mp3' : 'mp4';
+    // Group labels are UI-only: send the original media filename to the agent.
     const resolvedName = filename
-      ? `${groupLabel}-${filename}`
+      ? filename
       : `${groupLabel}-${index + 1}.${extension}`;
 
     return createRemoteAttachmentEntry({
@@ -1453,7 +1465,7 @@ const createSkillExampleAttachmentEntries = async (detail = {}) => {
       fileType: video.kind === 'image'
         ? (guessFileTypeFromName(filename || getRemoteMediaUrlFileName(url)).startsWith('image/')
           ? guessFileTypeFromName(filename || getRemoteMediaUrlFileName(url)) : 'image/png')
-        : 'video/mp4',
+        : video.kind === 'audio' ? 'audio/mpeg' : 'video/mp4',
       sourceType: 'skill_example',
       sourceLabel: skillName
     }).then((entry) => (
@@ -2238,6 +2250,17 @@ const Composer = ({
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [skillExampleGroups, setSkillExampleGroups] = React.useState([]);
+  const [skillExample, setSkillExample] = React.useState(null);
+  const [skillExampleLoading, setSkillExampleLoading] = React.useState(false);
+  const [skillExampleError, setSkillExampleError] = React.useState('');
+  const [activeSkillExampleSlot, setActiveSkillExampleSlot] = React.useState('');
+  const skillExampleSnapshotRef = React.useRef(null);
+  const skillExampleGenerationRef = React.useRef(0);
+  const skillExampleUploadReservationsRef = React.useRef(new Map());
+  const [skillExampleUploadsPending, setSkillExampleUploadsPending] = React.useState(0);
+  const applySkillExampleRef = React.useRef(null);
+  const skillExampleDetailRef = React.useRef(null);
+
   const [activeTool, setActiveTool] = React.useState(null);
   const [selectedAiWritePresetId, setSelectedAiWritePresetId] = React.useState(() => getDefaultAiWritePresetId());
   const [selectedDigitalHumanMode, setSelectedDigitalHumanMode] = React.useState(() => readPersistedDigitalHumanMode());
@@ -2423,10 +2446,11 @@ const Composer = ({
 
   requestUploadPickerRef.current = (slotId = '') => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
-    const exampleGroup = !activeTool && skillExampleGroups.find((group) => group.slotId === slotId);
+    const exampleGroup = !activeTool && skillExampleGroups.find((group) => group.slotId === (slotId || activeSkillExampleSlot));
+    if (exampleGroup) pendingTemplateSlotAutoReferenceRef.current = exampleGroup.slotId;
     if (exampleGroup && musicPlaceholderUploadInputRef.current) {
       const inputEl = musicPlaceholderUploadInputRef.current;
-      inputEl.setAttribute('accept', exampleGroup.kind === 'image' ? 'image/*' : 'video/*');
+      inputEl.setAttribute('accept', getSkillExampleUploadAccept(exampleGroup.kind));
       inputEl.value = '';
       inputEl.click();
       return;
@@ -2638,8 +2662,7 @@ const Composer = ({
   }, []);
 
   const mentionHighlightRegex = React.useMemo(() => {
-    const escapedNames = skills
-      .map((skill) => getSkillMentionLabel(skill))
+    const escapedNames = [...skills.map((skill) => getSkillMentionLabel(skill)), skillExample?.skillName]
       .filter(Boolean)
       .sort((left, right) => right.length - left.length)
       .map((name) => escapeRegExp(name));
@@ -2647,7 +2670,7 @@ const Composer = ({
     if (escapedNames.length === 0) return null;
 
     return new RegExp(`@(?:${escapedNames.join('|')})(?=$|${MENTION_TOKEN_BOUNDARY})`, 'gi');
-  }, [skills]);
+  }, [skills, skillExample?.skillName]);
 
   const updateMentionPanelPosition = React.useCallback((editorInstance) => {
     const nextPosition = getMentionPanelPosition(
@@ -2952,7 +2975,7 @@ const Composer = ({
   );
 
   React.useEffect(() => () => {
-    latestUploadedFileMetaRef.current.forEach((item) => {
+    [...latestUploadedFileMetaRef.current, ...(skillExampleSnapshotRef.current?.files || [])].forEach((item) => {
       revokeLocalObjectUrl(item?.localThumbUrl);
     });
   }, []);
@@ -3723,9 +3746,13 @@ const Composer = ({
     };
   }, [activeTool, digitalHumanUploadLimit, draftUploadLimit, imagePanUploadLimit, musicGenerateUploadLimit, selectedDigitalHumanMode, videoModeUploadLimit, voiceConversionUploadLimit]);
   const uploadAccept = React.useMemo(() => {
+    if (!activeTool) {
+      const group = skillExampleGroups.find((item) => item.slotId === activeSkillExampleSlot);
+      if (group) return getSkillExampleUploadAccept(group.kind);
+    }
     if (activeUploadLimit.imageOnly) return 'image/*';
     return activeUploadLimit.accept;
-  }, [activeUploadLimit]);
+  }, [activeUploadLimit, activeTool, skillExampleGroups, activeSkillExampleSlot]);
   const imagePanUploadPlaceholders = React.useMemo(() => {
     if (activeTool !== 'image-pan') return [];
     const uploadedImageCount = uploadedFileMeta.filter((item) => isImageFileType(item?.fileType)).length;
@@ -3848,11 +3875,12 @@ const Composer = ({
         countHint: group.countHint,
         description: group.description,
         count: groupFiles.length,
-        placeholder: canAddMore ? { key: group.slotId, label: `添加${group.label}` } : null,
+        invalid: !skillExampleLoading && Boolean(getSkillExampleValidationError([group], uploadedFileMeta)),
+        placeholder: canAddMore ? { key: group.slotId, kind: group.kind, label: `添加${{ image: '图片', video: '视频', audio: '音频' }[group.kind]}` } : null,
         files: groupFiles
       };
     });
-  }, [skillExampleGroups, uploadedFileMeta]);
+  }, [skillExampleGroups, uploadedFileMeta, skillExampleLoading]);
   const nonSkillExampleFileMeta = React.useMemo(() => (
     skillExampleFileGroups
       ? uploadedFileMeta.filter((item) => String(item?.sourceType || '').trim() !== 'skill_example')
@@ -3994,8 +4022,10 @@ const Composer = ({
     uploadedFileMeta,
     digitalHumanCompletionState
   ]);
-  const canSend = Boolean(toolSendState?.canSend);
-  const sendDisabledReason = !canSend ? String(toolSendState?.disabledReason || '').trim() : '';
+  const skillExampleValidationError = skillExample
+    ? skillExampleError || getSkillExampleValidationError(skillExampleGroups, uploadedFileMeta, skillExampleLoading || skillExampleUploadsPending > 0) : '';
+  const canSend = Boolean(toolSendState?.canSend) && !skillExampleValidationError;
+  const sendDisabledReason = skillExampleValidationError || (!canSend ? String(toolSendState?.disabledReason || '').trim() : '');
   const isDigitalHumanSendBlocked = activeTool === 'digital-human' && !digitalHumanCompletionState.isComplete;
   const isAiWriteSendBlocked = activeTool === 'ai-write' && !aiWriteCompletionState.isComplete;
   const isSendDisabled = !canSend || modelListLoading || isDigitalHumanSendBlocked || isAiWriteSendBlocked;
@@ -4011,9 +4041,77 @@ const Composer = ({
 
   const queueFilesForUpload = React.useCallback(async (files = []) => {
     if (sessionSending) return;
+    if (skillExampleLoading) { message.info('示例素材加载中，请稍候'); return; }
     const normalizedFiles = files.filter((item) => isFileLike(item));
     if (normalizedFiles.length === 0) return;
     const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
+    const exampleSlotId = pendingSlotId || activeSkillExampleSlot;
+    // Skill-example group slots: append matching local media into the
+    // labeled group (fill-in), enforcing the group's max_count.
+    const skillExamplePendingGroup = !activeTool && isSkillExampleGroupSlotId(exampleSlotId)
+      ? skillExampleGroups.find((group) => group.slotId === exampleSlotId)
+      : null;
+    if (skillExamplePendingGroup) {
+      pendingTemplateSlotAutoReferenceRef.current = '';
+      const groupMediaFiles = normalizedFiles.filter(
+        (file) => String(getResolvedUploadFileType(file) || '').startsWith(`${skillExamplePendingGroup.kind}/`)
+      );
+      if (groupMediaFiles.length === 0) {
+        message.error(`「${skillExamplePendingGroup.label}」仅支持${{ image: '图片', video: '视频', audio: '音频' }[skillExamplePendingGroup.kind]}文件`);
+        return;
+      }
+      const groupSlotId = skillExamplePendingGroup.slotId;
+      const currentGroupCount = uploadedFileMeta.filter(
+        (item) => String(item?.slotId || '').trim() === groupSlotId
+      ).length;
+      const maxCount = skillExamplePendingGroup.maxCount;
+      const generation = skillExampleGenerationRef.current;
+      const reservationKey = `${generation}:${groupSlotId}`;
+      const reserved = skillExampleUploadReservationsRef.current.get(reservationKey) || 0;
+      const allowedCount = maxCount ? Math.max(0, maxCount - currentGroupCount - reserved) : groupMediaFiles.length;
+      if (allowedCount === 0) {
+        message.error(`${skillExamplePendingGroup.label}最多添加${maxCount}个文件`);
+        return;
+      }
+      if (groupMediaFiles.length > allowedCount) {
+        message.error(`${skillExamplePendingGroup.label}最多添加${maxCount}个文件，已保留前${allowedCount}个`);
+      }
+      const accepted = groupMediaFiles.slice(0, allowedCount);
+      skillExampleUploadReservationsRef.current.set(reservationKey, reserved + accepted.length);
+      setSkillExampleUploadsPending((count) => count + accepted.length);
+      let groupEntries;
+      try {
+        groupEntries = (await Promise.all(accepted.map((file) => createLocalAttachmentEntry(file)))).filter(Boolean);
+      } catch (error) {
+        message.error(error?.message || '添加素材失败，请重试');
+        return;
+      } finally {
+        skillExampleUploadReservationsRef.current.set(reservationKey,
+          Math.max(0, (skillExampleUploadReservationsRef.current.get(reservationKey) || 0) - accepted.length));
+        if (generation === skillExampleGenerationRef.current) setSkillExampleUploadsPending((count) => Math.max(0, count - accepted.length));
+      }
+      if (generation !== skillExampleGenerationRef.current) {
+        groupEntries.forEach((entry) => revokeLocalObjectUrl(entry.fileMeta?.localThumbUrl));
+        return;
+      }
+      if (groupEntries.length === 0) return;
+
+      setUploadFileList((prev) => [
+        ...prev,
+        ...groupEntries.map((item) => ({ ...item.uploadItem, slotId: groupSlotId }))
+      ]);
+      setUploadedFileMeta((prev) => [
+        ...prev,
+        ...groupEntries.map((item) => ({
+          ...item.fileMeta,
+          slotId: groupSlotId,
+          slotLabel: skillExamplePendingGroup.label,
+          sourceType: 'skill_example'
+        }))
+      ]);
+      return;
+    }
+
     const isPendingVideoFrameSlot = activeTool === 'ai-video' && isVideoFrameSlotId(pendingSlotId);
     const shouldAutoFillDigitalHumanVideo = activeTool === 'digital-human'
       && isDigitalHumanLipsMode(selectedDigitalHumanMode)
@@ -4100,53 +4198,6 @@ const Composer = ({
       message.error(isPendingVideoFrameSlot ? '当前槽位一次只能上传 1 张图片' : '当前槽位一次只能上传 1 个文件');
     }
 
-    // Skill-example group slots: append matching local media into the
-    // labeled group (fill-in), enforcing the group's max_count.
-    const skillExamplePendingGroup = !activeTool && isSkillExampleGroupSlotId(pendingSlotId)
-      ? skillExampleGroups.find((group) => group.slotId === pendingSlotId)
-      : null;
-    if (skillExamplePendingGroup) {
-      pendingTemplateSlotAutoReferenceRef.current = '';
-      const groupMediaFiles = resolvedAcceptedFiles.filter(
-        (file) => String(getResolvedUploadFileType(file) || '').startsWith(skillExamplePendingGroup.kind === 'image' ? 'image/' : 'video/')
-      );
-      if (groupMediaFiles.length === 0) {
-        message.error(`「${skillExamplePendingGroup.label}」仅支持${skillExamplePendingGroup.kind === 'image' ? '图片' : '视频'}文件`);
-        return;
-      }
-      const groupSlotId = skillExamplePendingGroup.slotId;
-      const currentGroupCount = uploadedFileMeta.filter(
-        (item) => String(item?.slotId || '').trim() === groupSlotId
-      ).length;
-      const maxCount = skillExamplePendingGroup.maxCount;
-      const allowedCount = maxCount ? Math.max(0, maxCount - currentGroupCount) : groupMediaFiles.length;
-      if (allowedCount === 0) {
-        message.error(`「${skillExamplePendingGroup.label}」最多 ${maxCount} 个，请先移除后再添加`);
-        return;
-      }
-      if (groupMediaFiles.length > allowedCount) {
-        message.error(`「${skillExamplePendingGroup.label}」最多 ${maxCount} 个，已保留前 ${allowedCount} 个`);
-      }
-      const groupEntries = (await Promise.all(
-        groupMediaFiles.slice(0, allowedCount).map((file) => createLocalAttachmentEntry(file))
-      )).filter(Boolean);
-      if (groupEntries.length === 0) return;
-
-      setUploadFileList((prev) => [
-        ...prev,
-        ...groupEntries.map((item) => ({ ...item.uploadItem, slotId: groupSlotId }))
-      ]);
-      setUploadedFileMeta((prev) => [
-        ...prev,
-        ...groupEntries.map((item) => ({
-          ...item.fileMeta,
-          slotId: groupSlotId,
-          slotLabel: skillExamplePendingGroup.label,
-          sourceType: 'skill_example'
-        }))
-      ]);
-      return;
-    }
 
     const uploadableFiles = isDigitalHumanPendingSlot
       ? resolvedAcceptedFiles.filter((file) => Number(file?.size || file?.originFileObj?.size || 0) <= DIGITAL_HUMAN_VIDEO_MAX_SIZE_BYTES)
@@ -4233,7 +4284,7 @@ const Composer = ({
       syncTemplateFileReferenceNode(editor, activePendingSlotId, nextFileMeta[0]);
       pendingTemplateSlotAutoReferenceRef.current = '';
     }
-  }, [activeTool, activeUploadLimit, editor, selectedDigitalHumanMode, sessionSending, skillExampleGroups, uploadedFileMeta]);
+  }, [activeTool, activeUploadLimit, editor, selectedDigitalHumanMode, sessionSending, skillExampleGroups, uploadedFileMeta, activeSkillExampleSlot, skillExampleLoading]);
 
   const handleBeforeUpload = React.useCallback((file, batchFileList = []) => {
     const normalizedBatch = Array.isArray(batchFileList) && batchFileList.length > 0
@@ -4604,7 +4655,9 @@ const Composer = ({
             ].join('，') + ` 生成视频提示词：${combined}`
         : combined;
     closeMentionPanel();
+    if (skillExample?.fromHomepage) trackEvent('quick_skill_send_click', { title: skillExample.title || skillExample.skillName });
     handleSend && handleSend(nextMessage, {
+      skillTemplateSource: skillExample?.quickSource || null,
       videoUnderstandRequest: activeTool === 'video-understand'
         ? buildVideoUnderstandRequest({ input: text, uploadedFiles: uploadedFileMeta })
         : null,
@@ -5017,74 +5070,121 @@ const Composer = ({
   }, []);
 
   const pendingSkillExampleModelRef = React.useRef('');
-
-  const applySkillExampleModel = React.useCallback((exampleModel) => {
-    const rawModel = String(exampleModel || '').trim();
-    const normalizedModel = rawModel.toLowerCase();
-    if (!rawModel || typeof onModelChange !== 'function') return false;
-    const availableOptions = Array.isArray(modelOptions) ? modelOptions : [];
-    const matchedOption = availableOptions.find((item) => String(item?.value || '').trim() === rawModel)
-      || availableOptions.find((item) => String(item?.value || '').trim().toLowerCase() === normalizedModel);
-    if (!matchedOption) return false;
-    onModelChange(matchedOption.value);
+  const applySkillExampleModel = React.useCallback((requestedModel) => {
+    if (modelListLoading || !modelOptions.length) return false;
+    const resolved = resolveSkillExampleModel(requestedModel, modelOptions, model);
+    if (!resolved) return false;
+    onModelChange?.(resolved);
     return true;
-  }, [modelOptions, onModelChange]);
-
-  // The example model may arrive before the model list finishes loading; retry
-  // the match once the options are available.
+  }, [model, modelListLoading, modelOptions, onModelChange]);
   React.useEffect(() => {
-    const pendingModel = pendingSkillExampleModelRef.current;
-    if (!pendingModel || modelListLoading) return;
-    if (!Array.isArray(modelOptions) || modelOptions.length === 0) return;
-    if (applySkillExampleModel(pendingModel)) {
-      pendingSkillExampleModelRef.current = '';
-    }
-  }, [applySkillExampleModel, modelListLoading, modelOptions]);
+    const pending = pendingSkillExampleModelRef.current;
+    if (pending && applySkillExampleModel(pending)) pendingSkillExampleModelRef.current = '';
+  }, [applySkillExampleModel]);
+
+  const exitSkillExample = React.useCallback(() => {
+    ++skillExampleGenerationRef.current;
+    setSkillExampleUploadsPending(0);
+    skillExampleUploadReservationsRef.current.clear();
+    const saved = skillExampleSnapshotRef.current;
+    skillExampleSnapshotRef.current = null;
+    skillExampleDetailRef.current = null;
+    setSkillExample(null);
+    setSkillExampleGroups([]);
+    setActiveSkillExampleSlot('');
+    setSkillExampleLoading(false);
+    setSkillExampleError('');
+    pendingSkillExampleModelRef.current = '';
+    pendingTemplateSlotAutoReferenceRef.current = '';
+    uploadedFileMeta.filter((item) => item.sourceType === 'skill_example').forEach((item) => revokeLocalObjectUrl(item.localThumbUrl));
+    if (!saved) return;
+    setInput(saved.input);
+    latestInputRef.current = saved.input;
+    setUploadFileList(saved.uploads);
+    setUploadedFileMeta(saved.files);
+    setActiveTool(saved.activeTool);
+    onModelChange?.(saved.model);
+    if (editor && !editor.isDestroyed && saved.document) editor.commands.setContent(saved.document, false);
+  }, [editor, onModelChange, setInput, uploadedFileMeta]);
 
   const applySkillExampleDetail = React.useCallback(async (detail) => {
-    const nextExampleAttachments = await createSkillExampleAttachmentEntries(detail);
-    setSkillExampleGroups((Array.isArray(detail?.groups) ? detail.groups : []).map((group) => ({
-      kind: group?.kind === 'image' ? 'image' : 'video',
-      id: String(group?.id || '').trim(),
-      label: String(group?.label || '').trim() || group?.id || '分镜',
-      required: group?.required === true,
-      minCount: Number.isFinite(Number(group?.minCount)) && Number(group?.minCount) >= 0 ? Number(group.minCount) : 0,
-      maxCount: Number.isFinite(Number(group?.maxCount)) && Number(group?.maxCount) > 0 ? Number(group.maxCount) : null,
-      description: String(group?.description || '').trim(),
-      slotId: buildSkillExampleGroupSlotId(group?.id, group?.kind),
-      countHint: formatSkillExampleCountHint(group)
-    })));
-    setUploadFileList((prev) => prev.filter((item) => !isSkillExampleGroupSlotId(item?.slotId)));
-    setUploadedFileMeta((prev) => {
-      const retainedItems = (Array.isArray(prev) ? prev : []).filter(
-        (item) => String(item?.sourceType || '').trim() !== 'skill_example'
-      );
-      return [...retainedItems, ...nextExampleAttachments];
-    });
-    if (!applySkillExampleModel(detail?.model)) {
-      pendingSkillExampleModelRef.current = String(detail?.model || '').trim();
+    skillExampleDetailRef.current = detail;
+    const generation = ++skillExampleGenerationRef.current;
+    setSkillExampleUploadsPending(0);
+    skillExampleUploadReservationsRef.current.clear();
+    if (!skillExampleSnapshotRef.current) {
+      skillExampleSnapshotRef.current = { input, document: editor?.getJSON(),
+        uploads: uploadFileList, files: uploadedFileMeta, activeTool, model };
+    } else {
+      uploadedFileMeta.filter((item) => item.sourceType === 'skill_example').forEach((item) => revokeLocalObjectUrl(item.localThumbUrl));
     }
-    if (!editor || editor.isDestroyed) return;
-    window.requestAnimationFrame(() => {
-      if (!editor || editor.isDestroyed) return;
+    setActiveTool(null);
+    setSkillExample(detail);
+    setSkillExampleLoading(true);
+    setSkillExampleError('');
+    const groups = (detail.groups || []).map((group) => ({ ...group,
+      kind: ['image', 'audio'].includes(group.kind) ? group.kind : 'video',
+      slotId: buildSkillExampleGroupSlotId(group.id, group.kind), countHint: formatSkillExampleCountHint(group) }));
+    setSkillExampleGroups(groups);
+    setActiveSkillExampleSlot(groups[0]?.slotId || '');
+    pendingTemplateSlotAutoReferenceRef.current = '';
+    setUploadFileList([]);
+    setUploadedFileMeta([]);
+    const prompt = buildSkillExamplePrompt(detail.prompt, detail.skillName);
+    setInput(prompt);
+    latestInputRef.current = prompt;
+    if (editor && !editor.isDestroyed) {
+      editor.commands.setContent(buildEditorDocument(prompt, detail.skillName
+        ? new RegExp(`@${escapeRegExp(detail.skillName)}(?=$|${MENTION_TOKEN_BOUNDARY})`, 'gi') : mentionHighlightRegex), false);
       editor.commands.focus('end');
-    });
-  }, [applySkillExampleModel, editor]);
-
-  React.useEffect(() => {
-    const handleSkillExampleApply = (event) => {
-      clearPendingSkillExample();
-      void applySkillExampleDetail(event?.detail);
-    };
-    window.addEventListener(SKILL_EXAMPLE_APPLY_EVENT, handleSkillExampleApply);
-    const pendingSkillExample = consumePendingSkillExample();
-    if (pendingSkillExample) {
-      void applySkillExampleDetail(pendingSkillExample);
     }
-    return () => {
-      window.removeEventListener(SKILL_EXAMPLE_APPLY_EVENT, handleSkillExampleApply);
+    if (!applySkillExampleModel(detail.model)) pendingSkillExampleModelRef.current = detail.model;
+    try {
+      const entries = await createSkillExampleAttachmentEntries(detail);
+      if (generation !== skillExampleGenerationRef.current) return;
+      setUploadedFileMeta(entries);
+    } catch (error) {
+      if (generation === skillExampleGenerationRef.current) setSkillExampleError('示例素材加载失败，请重试');
+    } finally {
+      if (generation === skillExampleGenerationRef.current) setSkillExampleLoading(false);
+    }
+  }, [activeTool, applySkillExampleModel, editor, input, mentionHighlightRegex, model, setInput, uploadFileList, uploadedFileMeta]);
+  applySkillExampleRef.current = applySkillExampleDetail;
+  React.useEffect(() => {
+    const apply = (event) => {
+      clearPendingSkillExample();
+      void applySkillExampleRef.current?.(event.detail);
     };
-  }, [applySkillExampleDetail]);
+    window.addEventListener(SKILL_EXAMPLE_APPLY_EVENT, apply);
+    const pending = consumePendingSkillExample() || skillExampleDetailRef.current;
+    if (pending) void applySkillExampleRef.current?.(pending);
+    return () => {
+      ++skillExampleGenerationRef.current;
+      window.removeEventListener(SKILL_EXAMPLE_APPLY_EVENT, apply);
+    };
+  }, []);
+
+
+  const skillExampleSessionRef = React.useRef(runtimeSessionId);
+  React.useEffect(() => {
+    const previous = skillExampleSessionRef.current;
+    skillExampleSessionRef.current = runtimeSessionId;
+    if (!previous || previous === runtimeSessionId || !skillExampleSnapshotRef.current) return;
+    ++skillExampleGenerationRef.current;
+    [...uploadedFileMeta, ...skillExampleSnapshotRef.current.files].forEach((file) => revokeLocalObjectUrl(file.localThumbUrl));
+    skillExampleSnapshotRef.current = null;
+    skillExampleDetailRef.current = null;
+    setSkillExample(null);
+    setSkillExampleGroups([]);
+    setUploadedFileMeta([]);
+    setUploadFileList([]);
+    setSkillExampleLoading(false);
+    setSkillExampleUploadsPending(0);
+    setSkillExampleError('');
+    setActiveSkillExampleSlot('');
+    pendingSkillExampleModelRef.current = '';
+    pendingTemplateSlotAutoReferenceRef.current = '';
+  }, [runtimeSessionId]);
 
   const handleToolSelect = React.useCallback((toolId) => {
     const normalizedToolId = String(toolId || '').trim();
@@ -5171,12 +5271,19 @@ const Composer = ({
         />
         <VoiceLib controller={musicVoiceLib} hideTrigger />
         <VoiceLib controller={voiceConversionVoiceLib} hideTrigger />
+        {skillExampleLoading ? <div className="chat-panel__skill-template-loading" role="status">示例素材加载中…</div> : null}
+        {skillExampleError ? <div role="alert">{skillExampleError}<button onClick={() => void applySkillExampleDetail(skillExample)}>重试</button></div> : null}
         <LocalFilePreviewList
           files={nonSkillExampleFileMeta}
           openAttachmentPreview={openAttachmentPreview}
           placeholders={activeUploadPlaceholders}
           slotOrder={activePreviewSlotOrder}
           fileGroups={skillExampleFileGroups}
+          activeGroupKey={activeSkillExampleSlot}
+          onActiveGroupChange={(slotId) => {
+            pendingTemplateSlotAutoReferenceRef.current = '';
+            setActiveSkillExampleSlot(slotId);
+          }}
           onRemove={(file) => removeLocalFile(file?.uid)}
           onAddFile={(placeholder) => requestUploadPickerRef.current(placeholder?.key || '')}
         />
@@ -5218,6 +5325,9 @@ const Composer = ({
                 ].filter(Boolean).join(' ')}
               >
                 <div ref={toolContentScrollRef} className="chat-panel__tool-content-scroll">
+                  {skillExample ? <Tooltip title="点击退出"><button type="button" className="chat-panel__skill-template-exit" onClick={exitSkillExample}><img className="chat-panel__skill-template-icon" src={SkillTemplateIcon} alt="" aria-hidden="true" /><span>使用技能</span><span aria-hidden="true">×</span></button></Tooltip> : null}
+                  {!skillExample ? <>
+
                   {activeTool === 'recognize-subtitle' ? (
                     <RecognizationSubtitleToolDetail
                       disabled={sessionSending}
@@ -5380,6 +5490,7 @@ const Composer = ({
                       onSelect={handleToolSelect}
                     />
                   )}
+                  </> : null}
                 </div>
               </div>
               <div className="chat-panel__tool-content-nav-group" aria-hidden={!toolContentScrollState.isOverflowing}>

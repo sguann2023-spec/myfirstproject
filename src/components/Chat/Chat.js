@@ -58,13 +58,9 @@ const applySkillExampleToInput = async (skill, { input, setInput, inputRef }) =>
 
   const example = await loadSkillExample(skill);
   if (example) {
-    const nextText = `@${mentionLabel}\n${example.prompt}`;
-    setInput(nextText);
-    window.requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextText.length, nextText.length);
-    });
-    const detail = buildSkillExampleApplyDetail(example, mentionLabel);
+    const detail = { ...buildSkillExampleApplyDetail(example, mentionLabel), originalInput: input,
+      title: skill.title || example.title, fromHomepage: Boolean(skill.directoryPath),
+      quickSource: skill.directoryPath ? { folderName: skill.folderName, version: skill.version } : null };
     stashPendingSkillExample(detail);
     dispatchSkillExampleApply(detail);
     return true;
@@ -87,7 +83,7 @@ const formatMessageTime = (value) => {
 };
 
 const normalizeMessages = (session) => (Array.isArray(session?.messages) ? session.messages : []);
-const EMPTY_WELCOME_TEXT = '从剪辑技能开始';
+const EMPTY_WELCOME_TEXT = '今天想要做什么视频？';
 const CREATE_SKILL_PROMPT_TEMPLATE = [
   '请用 skill-creator 帮我创建一个技能。',
   '',
@@ -456,7 +452,7 @@ const Chat = ({
     const mentionLabel = getSkillMentionLabel(skill);
     if (!mentionLabel) return;
 
-    void (async () => {
+    return (async () => {
       if (await applySkillExampleToInput(skill, { input, setInput, inputRef })) return;
 
       insertTextAtInputCursor({
@@ -512,7 +508,7 @@ const Chat = ({
     const mentionLabel = getSkillMentionLabel(skill);
     if (!mentionLabel) return;
 
-    void (async () => {
+    return (async () => {
       if (await applySkillExampleToInput(skill, { input, setInput, inputRef })) return;
 
       insertTextAtInputCursor({
@@ -654,6 +650,7 @@ const Chat = ({
         userAvatar={userAvatar}
         currentWorkspacePath={currentWorkspacePath}
         runtimeSessionId={runtimeSessionId}
+        onOpenWebPreview={onOpenWebPreview}
         onSelectSkill={insertQuickSkillMention}
         onOpenSkillStore={onOpenSkillStore}
         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
