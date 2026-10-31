@@ -24,7 +24,10 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
       claimedRef.current = next.claimed_today;
       setReward(next);
     } catch {
-      if (generation === generationRef.current && request === requestRef.current) setReward(null);
+      if (generation === generationRef.current && request === requestRef.current) {
+        // 后台同步失败不能清空已经确认领取成功的弹窗。
+        setReward((current) => current?.claimed_today ? current : null);
+      }
     }
   }, []);
 
@@ -41,7 +44,11 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
     setClaiming(false);
     if (!enabled) return;
     void refresh();
-    const onChanged = () => { void refresh(); refreshBalance(); };
+    const onChanged = () => {
+      // 本窗口已确认领取成功，不再用额外查询覆盖状态或隐藏弹窗。
+      if (!claimedRef.current) void refresh();
+      refreshBalance();
+    };
     const onFocus = () => { refreshBalance(); };
     window.addEventListener(REWARD_CHANGED, onChanged);
     window.addEventListener('focus', onFocus);
