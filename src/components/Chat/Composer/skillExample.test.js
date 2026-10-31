@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  readOptionalSkillExampleText,
   getSkillExampleUploadAccept,
   buildSkillExamplePrompt,
   getSkillExampleValidationError,
@@ -517,5 +518,19 @@ describe('template execution regressions', () => {
     window.api = { fs: { readText: vi.fn().mockResolvedValue('1.0.0') }, skill: { readSkillFile } };
     await expect(loadSkillExample({ title: '模版', directoryPath: '/cache/hero/2.0.0', storageRelativePath: 'hero/2.0.0', version: '2.0.0' })).rejects.toThrow('版本不一致');
     expect(readSkillFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('optional skill example file checks', () => {
+  it('does not invoke readText when the file is absent', async () => {
+    window.api = { fs: { exists: vi.fn().mockResolvedValue(false), readText: vi.fn() } };
+    expect(await readOptionalSkillExampleText('/skills/plain')).toBeNull();
+    expect(window.api.fs.exists).toHaveBeenCalledWith('/skills/plain/example.json');
+    expect(window.api.fs.readText).not.toHaveBeenCalled();
+  });
+  it('reads template metadata when the file exists', async () => {
+    window.api = { fs: { exists: vi.fn().mockResolvedValue(true), readText: vi.fn().mockResolvedValue('{}') } };
+    expect(await readOptionalSkillExampleText('/skills/template')).toBe('{}');
+    expect(window.api.fs.readText).toHaveBeenCalledWith('/skills/template/example.json');
   });
 });

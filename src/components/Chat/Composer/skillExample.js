@@ -157,6 +157,13 @@ export const parseSkillExample = (raw) => {
   };
 };
 
+// Template metadata is optional for ordinary skills.
+export const readOptionalSkillExampleText = async (directoryPath) => {
+  const filePath = `${directoryPath}/${SKILL_EXAMPLE_FILENAME}`;
+  if (typeof window.api?.fs?.exists === 'function' && !await window.api.fs.exists(filePath)) return null;
+  return window.api.fs.readText(filePath);
+};
+
 // Reads example.json for an installed skill. Tries folder name, registry id
 // and display name so both local and marketplace-installed skills resolve.
 export const loadSkillExample = async (skill) => {
@@ -167,7 +174,7 @@ export const loadSkillExample = async (skill) => {
         const installedVersion = await window.api.fs.readText(`${directoryPath}/.version`);
         if (String(installedVersion).trim() !== skill.version) throw new Error('模版版本不一致，请重启后重试');
       }
-      const raw = await window.api.fs.readText(`${directoryPath}/${SKILL_EXAMPLE_FILENAME}`);
+      const raw = await readOptionalSkillExampleText(directoryPath);
       const example = parseSkillExample(raw);
       if (example) return example;
       if (skill?.title) throw new Error('模版参数无效，请更新后重试');

@@ -4697,6 +4697,23 @@ const Composer = ({
       imageAttachmentPreviews,
       pendingLocalAttachments
     });
+    if (skillExample) {
+      ++skillExampleGenerationRef.current;
+      skillExampleUploadReservationsRef.current.clear();
+      // Sending consumes the template; only explicit exit restores the saved draft.
+      (skillExampleSnapshotRef.current?.files || []).forEach((item) => revokeLocalObjectUrl(item?.localThumbUrl));
+      skillExampleSnapshotRef.current = null;
+      skillExampleDetailRef.current = null;
+      clearPendingSkillExample();
+      setSkillExample(null);
+      setSkillExampleGroups([]);
+      setActiveSkillExampleSlot('');
+      setSkillExampleLoading(false);
+      setSkillExampleUploadsPending(0);
+      setSkillExampleError('');
+      pendingSkillExampleModelRef.current = '';
+      pendingTemplateSlotAutoReferenceRef.current = '';
+    }
     if (activeTool === 'text-add') {
       exitTextAddMode();
     }

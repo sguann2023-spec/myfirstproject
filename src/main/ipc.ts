@@ -1354,6 +1354,14 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   // fs
   ipcMain.handle(IpcChannel.Fs_Read, FileService.readFile.bind(FileService))
   ipcMain.handle(IpcChannel.Fs_ReadText, FileService.readTextFileWithAutoEncoding.bind(FileService))
+  ipcMain.handle(IpcChannel.Fs_Exists, async (_event, filePath: string) => {
+    try {
+      return (await fs.promises.stat(filePath)).isFile()
+    } catch (error) {
+      if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code || '')) return false
+      throw error
+    }
+  })
 
   // export
   ipcMain.handle(IpcChannel.Export_Word, exportService.exportToWord.bind(exportService))

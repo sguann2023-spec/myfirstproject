@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChatTaskContext } from './ChatTaskContext';
+import { readOptionalSkillExampleText } from '../Composer/skillExample';
 import { resolveMarkdownFilePath } from '../../../shared/markdownFileLinks';
 import PartSplitToolDetail from '../../PartSplitToolDetail';
 import { Tooltip, Tour, message } from 'antd';
@@ -728,7 +729,8 @@ const ChatShell = ({
     const root = String(skill?.__skillRoot || '').trim();
     if (!root) return '';
     try {
-      const raw = await window.api.fs.readText(`${root}/example.json`);
+      const raw = await readOptionalSkillExampleText(root);
+      if (!raw) return '';
       const example = JSON.parse(raw);
       const url = String(example?.display_info?.web_share || '').trim();
       return /^https?:\/\//i.test(url) ? url : '';
