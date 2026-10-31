@@ -84,3 +84,14 @@ it('does not revert successful claim when balance refresh fails', async () => {
   await act(async () => state.claim());
   expect(state.reward.claimed_today).toBe(true);
 });
+
+it('does not query or clear the reward on its own success notification', async () => {
+  getDailyCheckinRewardStatus.mockRejectedValue(new Error('Status unavailable'));
+  checkinRechargeDaily.mockResolvedValue(undefined);
+  await act(async () => state.claim());
+  expect(state.reward.claimed_today).toBe(true);
+  expect(getDailyCheckinRewardStatus).toHaveBeenCalledTimes(1);
+  await act(async () => window.dispatchEvent(new Event('vectcut-daily-reward-changed')));
+  expect(state.reward.claimed_today).toBe(true);
+  expect(getDailyCheckinRewardStatus).toHaveBeenCalledTimes(1);
+});

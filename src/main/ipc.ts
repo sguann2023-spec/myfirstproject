@@ -124,6 +124,7 @@ import { compress, decompress } from './utils/zip'
 import { installBuiltinSkills } from './utils/builtinSkills'
 
 const logger = loggerService.withContext('IPC')
+const launchId = `${process.pid}:${Date.now()}`
 const imageGenerateServer = new ImageGenerateServer()
 const videoGenerateServer = new VideoGenerateServer()
 
@@ -643,6 +644,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   }
 
   ipcMain.handle(IpcChannel.App_Info, () => ({
+    launchId,
     version: app.getVersion(),
     isPackaged: app.isPackaged,
     appPath: app.getAppPath(),

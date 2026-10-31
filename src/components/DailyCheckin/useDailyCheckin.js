@@ -15,16 +15,19 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
   const onClaimedRef = useRef(onClaimed);
   onClaimedRef.current = onClaimed;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options) => {
     const generation = generationRef.current;
     const request = ++requestRef.current;
     try {
-      const next = await getDailyCheckinRewardStatus();
+      const next = await getDailyCheckinRewardStatus(options);
       if (generation !== generationRef.current || request !== requestRef.current) return;
       claimedRef.current = next.claimed_today;
       setReward(next);
     } catch {
-      if (generation === generationRef.current && request === requestRef.current) setReward(null);
+      if (generation === generationRef.current && request === requestRef.current) {
+        // 后台同步失败不能清空已经确认领取成功的弹窗。
+        setReward((current) => current?.claimed_today ? current : null);
+      }
     }
   }, []);
 
@@ -41,8 +44,12 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
     setClaiming(false);
     if (!enabled) return;
     void refresh();
-    const onChanged = () => { void refresh(); refreshBalance(); };
-    const onFocus = () => { void refresh(); refreshBalance(); };
+    const onChanged = () => {
+      // 本窗口已确认领取成功，不再用额外查询覆盖状态或隐藏弹窗。
+      if (!claimedRef.current) void refresh();
+      refreshBalance();
+    };
+    const onFocus = () => { refreshBalance(); };
     window.addEventListener(REWARD_CHANGED, onChanged);
     window.addEventListener('focus', onFocus);
     if (typeof BroadcastChannel !== 'undefined') {
@@ -67,7 +74,7 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
     const generation = generationRef.current;
     setClaiming(true);
     try {
-      await checkinRechargeDaily();
+      await checkinRechargeDaily(reward);
       if (generation !== generationRef.current) return;
       ++requestRef.current;
       claimedRef.current = true;
@@ -78,7 +85,7 @@ export default function useDailyCheckin({ enabled = true, sessionKey = '', onCla
       if (generation !== generationRef.current) return;
       // 网络中断时可能实际已到账，先查询后再决定是否可重试。
       setReward(null);
-      await refresh();
+      await refresh({ force: true });
       if (generation !== generationRef.current) return;
       if (claimedRef.current) refreshBalance();
       else message.error(error?.message || '领取失败，请稍后重试');
