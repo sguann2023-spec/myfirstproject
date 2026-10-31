@@ -33,10 +33,10 @@ export default defineConfig({
     build: {
       sourcemap: isDev,
       rollupOptions: {
-        input: resolve('src/main/index.ts'),
+        input: { index: resolve('src/main/index.ts'), databaseWorker: resolve('src/main/services/agents/database/databaseWorker.ts') },
         external: ['electron', 'electron-devtools-installer', ...Object.keys(pkg.dependencies)],
         output: {
-          entryFileNames: 'index.js'
+          entryFileNames: '[name].js'
         },
         onwarn(warning, warn) {
           if (warning.code === 'COMMONJS_VARIABLE_IN_ESM') return

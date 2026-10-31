@@ -128,7 +128,6 @@ export class ModelsService {
 
   async getModels(filter: ModelsFilter): Promise<ApiModelsResponse> {
     try {
-      logger.debug('Getting available models from backend model_list', { filter })
 
       const providerType = String(filter.providerType || '').trim().toLowerCase()
       const offset = filter?.offset || 0
@@ -171,17 +170,6 @@ export class ModelsService {
       } else if (offset > 0) {
         modelData = modelData.slice(offset)
       }
-
-      logger.info('Models retrieved', {
-        returned: modelData.length,
-        discovered: rawModels.length,
-        filter,
-        providerBreakdown: modelData.reduce<Record<string, number>>((acc, item) => {
-          const key = String(item.provider || 'unknown')
-          acc[key] = Number(acc[key] || 0) + 1
-          return acc
-        }, {})
-      })
 
       return {
         object: 'list',

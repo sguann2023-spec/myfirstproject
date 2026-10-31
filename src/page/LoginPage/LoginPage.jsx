@@ -8,6 +8,7 @@ import LogoIcon from '../../../public/logo.png'
 
 import './LoginPage.css';
 import { electronStore } from '../../shared/electronStore'; // 从共享模块导入
+import { ensureLoginServicesReady } from '../../shared/loginServicesReady';
 import { ensureVectcutApiKeyForCurrentSession } from '../../auth/vectcutApiKey';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 const { Title, Text } = Typography;
@@ -405,7 +406,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     };
 
                     try {
-                        await ipcRenderer.invoke('app:initialize-login-services');
+                        await ensureLoginServicesReady(ipcRenderer);
                         await ipcRenderer.invoke('app:register-extended-ipc');
                         refreshImageCapabilitiesInBackground();
                         await ensureReduxStoreReady();
@@ -463,7 +464,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
 
     // 登录：优先尝试用 refresh_token 静默获取有效令牌，失败再打开 Guard
     const handleLogin = async () => {
-        if (isLoginPreInitLoading) {
+        if (isLoginPreInitLoading || loginPreInitError) {
             return;
         }
         try {
@@ -570,8 +571,12 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                     invited_by_code: normalizeInviteCode(CHANNEL_INVITE_CODE)
                 });
 
+                const preInitResult = await loginPreInitPromise;
+                if (!loginPreInitPromise || loginPreInitCachedError || preInitResult?.installing) {
+                    return;
+                }
                 if (onLogin) {
-                    onLogin(id_token);
+                    await onLogin(id_token);
                 }
             } catch (error) {
                 // 错误已在 exchangeToken 中处理
@@ -593,7 +598,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
 
     // 强制打开 Authing 登录页（忽略现有会话）
     const forceOpenGuardLogin = () => {
-        if (isLoginPreInitLoading) {
+        if (isLoginPreInitLoading || loginPreInitError) {
             return;
         }
         electronStore.delete('user');
@@ -653,6 +658,7 @@ const LoginPage = ({ onLogin, onPrepareHomeRuntime, trans, language, toggleLangu
                         <Button
                             id="login-button"
                             className="login-button"
+                            disabled={!!loginPreInitError}
                             onClick={handleLogin} // <-- 绑定 Guard 登录流程
                         >
                             {i18n('login_button')}

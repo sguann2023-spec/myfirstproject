@@ -71,10 +71,10 @@ const normalizeStreamingArgs = (value: string): string => {
  * 工具调用处理器类
  */
 export class ToolCallChunkHandler {
-  private static globalActiveToolCalls = new Map<string, ToolcallsMap>()
-
-  private activeToolCalls = ToolCallChunkHandler.globalActiveToolCalls
+  // Calls and terminal tombstones belong to this stream, not another conversation.
+  private activeToolCalls = new Map<string, ToolcallsMap>()
   private ownedToolCallIds = new Set<string>()
+  private terminalToolCallIds = new Set<string>()
   constructor(
     private onChunk: (chunk: Chunk) => void,
     private mcpTools: MCPTool[]
@@ -118,21 +118,11 @@ export class ToolCallChunkHandler {
   }
 
   /**
-   * 内部静态方法：添加活跃工具调用的核心逻辑
-   */
-  private static addActiveToolCallImpl(toolCallId: string, map: ToolcallsMap): boolean {
-    if (!ToolCallChunkHandler.globalActiveToolCalls.has(toolCallId)) {
-      ToolCallChunkHandler.globalActiveToolCalls.set(toolCallId, map)
-      return true
-    }
-    return false
-  }
-
-  /**
    * 实例方法：添加活跃工具调用
    */
   private addActiveToolCall(toolCallId: string, map: ToolcallsMap): boolean {
-    const added = ToolCallChunkHandler.addActiveToolCallImpl(toolCallId, map)
+    const added = !this.activeToolCalls.has(toolCallId)
+    if (added) this.activeToolCalls.set(toolCallId, map)
     if (added) {
       this.ownedToolCallIds.add(toolCallId)
     }
@@ -140,23 +130,10 @@ export class ToolCallChunkHandler {
   }
 
   private removeActiveToolCall(toolCallId: string): void {
+    this.terminalToolCallIds.add(toolCallId)
     this.clearToolCallWatchdog(toolCallId)
     this.activeToolCalls.delete(toolCallId)
     this.ownedToolCallIds.delete(toolCallId)
-  }
-
-  /**
-   * 获取全局活跃的工具调用
-   */
-  public static getActiveToolCalls() {
-    return ToolCallChunkHandler.globalActiveToolCalls
-  }
-
-  /**
-   * 静态方法：添加活跃工具调用（外部访问）
-   */
-  public static addActiveToolCall(toolCallId: string, map: ToolcallsMap): boolean {
-    return ToolCallChunkHandler.addActiveToolCallImpl(toolCallId, map)
   }
 
   /**
@@ -201,7 +178,7 @@ export class ToolCallChunkHandler {
     }
 
     // 如果已存在，跳过
-    if (this.activeToolCalls.has(toolCallId)) {
+    if (this.terminalToolCallIds.has(toolCallId) || this.activeToolCalls.has(toolCallId)) {
       logger.warn('🔧 [ToolCallChunkHandler] Duplicate tool-input-start ignored', {
         toolCallId,
         toolName
@@ -354,6 +331,8 @@ export class ToolCallChunkHandler {
       return
     }
 
+    if (this.terminalToolCallIds.has(toolCallId)) return
+
     // Check if this tool call was already processed via streaming events
     const existingToolCall = this.activeToolCalls.get(toolCallId)
     if (existingToolCall?.streamingArgs !== undefined) {
@@ -451,10 +430,12 @@ export class ToolCallChunkHandler {
     }
 
     // 查找对应的工具调用信息
-    const toolCallInfo = this.activeToolCalls.get(toolCallId)
-    if (!toolCallInfo) {
-      logger.warn(`🔧 [ToolCallChunkHandler] Tool call info not found for ID: ${toolCallId}`)
-      return
+    if (this.terminalToolCallIds.has(toolCallId)) return
+    const toolCallInfo = this.activeToolCalls.get(toolCallId) ?? {
+      toolCallId,
+      toolName: chunk.toolName,
+      tool: this.determineToolType(chunk.toolName || 'tool', toolCallId),
+      args: input
     }
 
     // 创建工具调用结果的 MCPToolResponse 格式
@@ -514,10 +495,12 @@ export class ToolCallChunkHandler {
     } & TypedToolError<ToolSet>
   ): void {
     const { toolCallId, error, input } = chunk
-    const toolCallInfo = this.activeToolCalls.get(toolCallId)
-    if (!toolCallInfo) {
-      logger.warn(`🔧 [ToolCallChunkHandler] Tool call info not found for ID: ${toolCallId}`)
-      return
+    if (this.terminalToolCallIds.has(toolCallId)) return
+    const toolCallInfo = this.activeToolCalls.get(toolCallId) ?? {
+      toolCallId,
+      toolName: chunk.toolName,
+      tool: this.determineToolType(chunk.toolName || 'tool', toolCallId),
+      args: input
     }
     const normalizedError = normalizeToCallToolResult(error, { isError: true })
     const toolResponse: MCPToolResponse | NormalToolResponse = {
@@ -592,8 +575,6 @@ export class ToolCallChunkHandler {
     }
   }
 }
-
-export const addActiveToolCall = ToolCallChunkHandler.addActiveToolCall.bind(ToolCallChunkHandler)
 
 /**
  * 从工具输出中提取图片（使用 MCP SDK 类型安全验证）

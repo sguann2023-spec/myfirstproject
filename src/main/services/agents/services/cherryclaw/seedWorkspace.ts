@@ -49,7 +49,6 @@ export const SOUL_CONTENT_THRESHOLD = 50
 export async function seedWorkspaceTemplates(workspacePath: string): Promise<void> {
   try {
     await mkdir(workspacePath, { recursive: true })
-    logger.info('Ensured workspace directory exists', { path: workspacePath })
   } catch (error) {
     logger.error('Failed to seed workspace templates', error as Error)
   }

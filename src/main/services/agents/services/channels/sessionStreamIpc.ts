@@ -1,3 +1,4 @@
+import { insertAgentAtFront } from '../../database/repositories/servicePersistence'
 import { modelsService } from '@main/apiServer/services/models'
 import { normalizeDirectPresetAddRequest } from './presetAddRequest'
 import { normalizeDirectAudioAddRequest } from './audioAddRequest'
@@ -2406,21 +2407,11 @@ async function normalizeProviderModelId(model: unknown): Promise<string> {
   const raw = String(model || '').trim()
   if (!raw) return ''
   if (raw.includes(':')) {
-    logger.info('[SessionStreamIpc][ModelNormalize] already normalized', {
-      raw,
-      elapsedMs: Date.now() - startedAt
-    })
     return raw
   }
 
   const cached = providerModelIdCache.get(raw)
   if (cached) {
-    logger.info('[SessionStreamIpc][ModelNormalize] cache hit', {
-      raw,
-      normalized: cached,
-      cacheSize: providerModelIdCache.size,
-      elapsedMs: Date.now() - startedAt
-    })
     return cached
   }
 
@@ -2440,13 +2431,6 @@ async function normalizeProviderModelId(model: unknown): Promise<string> {
     const normalized = String(hit?.id || '').trim()
     if (normalized.includes(':')) {
       providerModelIdCache.set(raw, normalized)
-      logger.info('[SessionStreamIpc][ModelNormalize] normalized', {
-        raw,
-        normalized,
-        rowsCount: rows.length,
-        sample,
-        elapsedMs: Date.now() - startedAt
-      })
       return normalized
     }
     logger.warn('[SessionStreamIpc][ModelNormalize] unable to normalize model', {
@@ -2521,9 +2505,7 @@ async function ensureDefaultAgentExists(modelHint?: string): Promise<boolean> {
 
   try {
     const database = await (agentService as any).getDatabase()
-    await database.transaction(async (tx: any) => {
-      await tx.update(agentsTable).set({ sort_order: sql`${agentsTable.sort_order} + 1` })
-      await tx.insert(agentsTable).values({
+    await insertAgentAtFront(database, {
         id: DEFAULT_RUNTIME_AGENT_ID,
         type: 'claude-code',
         name: 'Default Agent',
@@ -2540,7 +2522,6 @@ async function ensureDefaultAgentExists(modelHint?: string): Promise<boolean> {
         sort_order: 0,
         created_at: now,
         updated_at: now
-      })
     })
   } catch {
     // ignore duplicate/parallel insert races
@@ -2595,10 +2576,7 @@ async function resolveSessionById(sessionId: string, preferredAgentId?: string) 
     const direct = await sessionService.getSession(candidateAgentId, sessionId)
     if (direct) return direct
   }
-  const listed = await sessionService.listSessions(undefined, { limit: 2000 })
-  const matched = listed.sessions.find((item) => item.id === sessionId)
-  if (!matched) return null
-  return await sessionService.getSession(matched.agent_id, sessionId)
+  return sessionService.getSession(undefined, sessionId)
 }
 
 export function registerSessionStreamIpc(): void {
@@ -2802,13 +2780,6 @@ export function registerSessionStreamIpc(): void {
       }
       const normalizedModel = await normalizeProviderModelId(rawModel)
       const effectiveModel = normalizedModel || rawModel
-      logger.info('[SessionStreamIpc] SessionMessageCreate model resolved', {
-        sessionId,
-        rawModel,
-        normalizedModel,
-        effectiveModel,
-        imageCount: images?.length ?? 0
-      })
       if (effectiveModel && effectiveModel !== String(session.model || '').trim()) {
         const updatedSession = await sessionService.updateSession(session.agent_id, sessionId, {
           model: effectiveModel
@@ -2828,6 +2799,7 @@ export function registerSessionStreamIpc(): void {
       let stream: ReadableStream<any> | undefined
       let streamFinished: Promise<void> | undefined
       let completion: Promise<any> | undefined
+      let historyPersisted: Promise<any> | undefined
 
       for (let attemptIndex = 0; attemptIndex <= SESSION_MESSAGE_START_RETRY_LIMIT; attemptIndex += 1) {
         if (isRequestCancelled(requestId)) {
@@ -2872,6 +2844,7 @@ export function registerSessionStreamIpc(): void {
           stream = startedStream.stream
           streamFinished = startedStream.streamFinished
           completion = startedStream.completion
+          historyPersisted = startedStream.historyPersisted
           break
         } catch (error) {
           const errorObj = error instanceof Error ? error : new Error(String(error))
@@ -2927,20 +2900,10 @@ export function registerSessionStreamIpc(): void {
       if (!stream || !streamFinished || !completion) {
         throw new Error('Session message stream did not initialize after retries')
       }
-      logger.info('[SessionStreamIpc][TRACE] createSessionMessage resolved', {
-        sessionId,
-        elapsedMs: Date.now() - streamStartedAt
-      })
       void streamFinished.then(() => {
         if (isRequestCancelled(requestId)) {
           return
         }
-        logger.info('[SessionStreamIpc] Publishing stream-finished event to session stream bus', {
-          sessionId,
-          requestId,
-          hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
-          subscriberCount: sessionStreamBus.subscriberCount(sessionId)
-        })
         sessionStreamBus.publish(sessionId, {
           sessionId,
           agentId: session.agent_id,
@@ -2952,7 +2915,6 @@ export function registerSessionStreamIpc(): void {
       void (async () => {
         try {
           const reader = stream.getReader()
-          let chunkCount = 0
           let firstChunkLogged = false
           const firstChunkWarnTimer = setTimeout(() => {
             if (firstChunkLogged) return
@@ -2970,18 +2932,9 @@ export function registerSessionStreamIpc(): void {
             if (isRequestCancelled(requestId)) {
               break
             }
-            chunkCount += 1
             if (!firstChunkLogged) {
               firstChunkLogged = true
               clearTimeout(firstChunkWarnTimer)
-              logger.info('[SessionStreamIpc][TRACE] first chunk received', {
-                sessionId,
-                requestId,
-                elapsedMs: Date.now() - streamStartedAt,
-                chunkType: (value as any)?.type || '',
-                hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
-                subscriberCount: sessionStreamBus.subscriberCount(sessionId)
-              })
             }
             sessionStreamBus.publish(sessionId, {
               sessionId,
@@ -2996,43 +2949,25 @@ export function registerSessionStreamIpc(): void {
             await completion.catch(() => undefined)
             return
           }
-          logger.info('[SessionStreamIpc][TRACE] reader loop completed', {
-            sessionId,
-            requestId,
-            chunkCount,
-            elapsedMs: Date.now() - streamStartedAt
-          })
-          const completionResult = await completion
-          const persistedAssistantBlocks = Array.isArray(
-            (completionResult?.assistantMessage as any)?.content?.blocks
-          )
-            ? ((completionResult?.assistantMessage as any).content.blocks as unknown[])
-            : []
-          logger.info('[SessionStreamIpc] Headless completion persisted', {
-            sessionId,
-            requestId,
-            userMessageId: completionResult?.userMessage?.id,
-            assistantMessageId: completionResult?.assistantMessage?.id,
-            persistedAssistantBlockCount: persistedAssistantBlocks.length,
-            persistedAssistantBlockTypes: persistedAssistantBlocks.map((block: any) => String(block?.type || 'unknown')),
-            persistedAssistantTextChars: persistedAssistantBlocks.reduce((total: number, block: any) => {
-              return total + (typeof block?.content === 'string' ? block.content.length : 0)
-            }, 0)
-          })
-          logger.info('[SessionStreamIpc] Publishing complete event to session stream bus', {
-            sessionId,
-            requestId,
-            hasSubscribers: sessionStreamBus.hasSubscribers(sessionId),
-            subscriberCount: sessionStreamBus.subscriberCount(sessionId)
-          })
-          // Persist runs in main process for this IPC route, so force renderer
-          // to reload from DB to pick up non-text blocks (e.g. tool blocks).
-          broadcastSessionChanged(session.agent_id, sessionId, true)
+          // Finish the UI after all chunks have been delivered, not after DB writes.
           sessionStreamBus.publish(sessionId, {
             sessionId,
             agentId: session.agent_id,
             requestId,
             type: 'complete'
+          })
+          void historyPersisted?.then((completionResult) => {
+            if (!completionResult?.assistantMessage || isRequestCancelled(requestId)) {
+              return
+            }
+            // Only refresh history when a persisted message was returned.
+            broadcastSessionChanged(session.agent_id, sessionId, true)
+          }).catch((error) => {
+            logger.error('[SessionStreamIpc] Background history persistence failed', {
+              sessionId,
+              requestId,
+              error: error instanceof Error ? error.message : String(error)
+            })
           })
         } catch (error) {
           if (isRequestCancelled(requestId)) {
@@ -4756,8 +4691,8 @@ export function registerSessionStreamIpc(): void {
           }
         : mode === 'seedance'
           ? {
-              name: 'create_seedance_digital_human',
-              fullName: 'mcp__vectcut__digital-human__create_seedance_digital_human',
+              name: 'create_default_image_driven_digital_human',
+              fullName: 'mcp__vectcut__digital-human__create_default_image_driven_digital_human',
               args: {
                 copywriting: normalizedRequest.copywriting,
                 voiceId: normalizedRequest.voice_id,
@@ -5256,11 +5191,6 @@ export function registerSessionStreamIpc(): void {
 export function broadcastSessionChanged(agentId: string, sessionId: string, headless?: boolean): void {
   const mainWindow = windowService.getMainWindow()
   if (mainWindow && !mainWindow.isDestroyed()) {
-    logger.info('[SessionStreamIpc] Broadcasting AgentSession_Changed', {
-      agentId,
-      sessionId,
-      headless: !!headless
-    })
     mainWindow.webContents.send(IpcChannel.AgentSession_Changed, { agentId, sessionId, headless: !!headless })
   } else {
     logger.warn('[SessionStreamIpc] Skipped AgentSession_Changed broadcast: main window unavailable', {

@@ -124,6 +124,7 @@ import { compress, decompress } from './utils/zip'
 import { installBuiltinSkills } from './utils/builtinSkills'
 
 const logger = loggerService.withContext('IPC')
+const launchId = `${process.pid}:${Date.now()}`
 const imageGenerateServer = new ImageGenerateServer()
 const videoGenerateServer = new VideoGenerateServer()
 
@@ -643,6 +644,7 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   }
 
   ipcMain.handle(IpcChannel.App_Info, () => ({
+    launchId,
     version: app.getVersion(),
     isPackaged: app.isPackaged,
     appPath: app.getAppPath(),
@@ -1080,8 +1082,15 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   // Set app data path
   ipcMain.handle(IpcChannel.App_SetAppDataPath, async (_, filePath: string) => {
+    const { DatabaseManager } = await import('./services/agents/database/DatabaseManager')
+    await DatabaseManager.beginStorageMaintenance()
     updateAppDataConfig(filePath)
     app.setPath('userData', filePath)
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(IpcChannel.App_InfoInvalidated)
+      }
+    }
   })
 
   ipcMain.handle(IpcChannel.App_GetDataPathFromArgs, () => {
@@ -1110,6 +1119,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   // Copy user data to new location
   ipcMain.handle(IpcChannel.App_Copy, async (_, oldPath: string, newPath: string, occupiedDirs: string[] = []) => {
     try {
+      const { DatabaseManager } = await import('./services/agents/database/DatabaseManager')
+      await DatabaseManager.beginStorageMaintenance()
       await fs.promises.cp(oldPath, newPath, {
         recursive: true,
         filter: (src) => {

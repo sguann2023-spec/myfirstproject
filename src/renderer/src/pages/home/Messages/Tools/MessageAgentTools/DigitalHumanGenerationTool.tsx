@@ -41,7 +41,7 @@ function getDigitalHumanMode(toolName?: string, output?: Record<string, unknown>
     return 'lip_sync'
   }
 
-  if (normalizedToolName.includes('seedance') || normalizedMode === 'seedance_image_driven') {
+  if (normalizedToolName.includes('default_image_driven') || normalizedToolName.includes('seedance') || normalizedMode === 'seedance' || normalizedMode === 'seedance_image_driven') {
     return 'seedance'
   }
 

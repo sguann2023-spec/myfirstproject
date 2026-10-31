@@ -40,12 +40,6 @@ export function emitLifecycleEvent(
   type: Extract<AgentStreamEvent['type'], 'stream-finished' | 'complete' | 'cancelled'>,
   harness?: ClaudeCodeHarnessAdapter
 ): void {
-  logger.info('[EventAdapter] emit lifecycle', {
-    traceId: harness?.invokeContext.runtime.traceId ?? '',
-    topicId: harness?.invokeContext.projection.topicId ?? '',
-    piSessionId: harness?.invokeContext.projection.piSessionId ?? '',
-    type
-  })
   stream.emit('data', { type })
   recordProjectionEvent(harness, {
     kind: 'lifecycle',

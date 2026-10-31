@@ -10,17 +10,16 @@ import type {
   UpdateAgentResponse
 } from '@types'
 import { AgentBaseSchema } from '@types'
-import { and, asc, count, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, isNull } from 'drizzle-orm'
 
 import { BaseService } from '../BaseService'
 import {
   type AgentRow,
   agentsTable,
-  channelsTable,
   type InsertAgentRow,
-  scheduledTasksTable,
   sessionsTable
 } from '../database/schema'
+import { insertAgentAtFront, persistInheritedSessionSettings, reorderAgentRows, softDeleteBuiltinAgent } from '../database/repositories/servicePersistence'
 import type { AgentModelField } from '../errors'
 import { skillService } from '../skills/SkillService'
 import { CHERRY_CLAW_AGENT_ID, isBuiltinAgentId } from './builtin/BuiltinAgentIds'
@@ -77,11 +76,8 @@ export class AgentService extends BaseService {
     }
 
     const database = await this.getDatabase()
-    // Shift all existing agents' sort_order up by 1 and insert new agent at position 0 atomically
-    await database.transaction(async (tx) => {
-      await tx.update(agentsTable).set({ sort_order: sql`${agentsTable.sort_order} + 1` })
-      await tx.insert(agentsTable).values(insertData)
-    })
+    // Serialize display-order changes with other agent insert/reorder operations.
+    await insertAgentAtFront(database, insertData)
     const result = await database.select().from(agentsTable).where(eq(agentsTable.id, id)).limit(1)
     if (!result[0]) {
       throw new Error('Failed to create agent')
@@ -201,7 +197,6 @@ export class AgentService extends BaseService {
   }): Promise<BuiltinAgentInitResult> {
     const { id, builtinRole, provisionWorkspace } = opts
     try {
-      const database = await this.getDatabase()
       const existing = await this.findAgentRow(id, { includeDeleted: true })
 
       if (existing?.deleted_at) {
@@ -272,10 +267,7 @@ export class AgentService extends BaseService {
         updated_at: now
       }
 
-      await database.transaction(async (tx) => {
-        await tx.update(agentsTable).set({ sort_order: sql`${agentsTable.sort_order} + 1` })
-        await tx.insert(agentsTable).values(insertData)
-      })
+      await insertAgentAtFront(await this.getDatabase(), insertData)
 
       try {
         await skillService.initSkillsForAgent(id, resolvedPaths?.[0])
@@ -302,7 +294,6 @@ export class AgentService extends BaseService {
   async initDefaultCherryClawAgent(): Promise<BuiltinAgentInitResult> {
     const id = AgentService.DEFAULT_AGENT_ID
     try {
-      const database = await this.getDatabase()
       const existing = await this.findAgentRow(id, { includeDeleted: true })
 
       if (existing?.deleted_at) {
@@ -362,10 +353,7 @@ export class AgentService extends BaseService {
         updated_at: now
       }
 
-      await database.transaction(async (tx) => {
-        await tx.update(agentsTable).set({ sort_order: sql`${agentsTable.sort_order} + 1` })
-        await tx.insert(agentsTable).values(insertData)
-      })
+      await insertAgentAtFront(await this.getDatabase(), insertData)
 
       // Seed workspace templates for soul mode
       const workspace = resolvedPaths?.[0]
@@ -495,26 +483,26 @@ export class AgentService extends BaseService {
 
       const now = new Date().toISOString()
 
-      await database.transaction(async (tx) => {
-        for (const session of sessions) {
-          const sessionUpdateData: Partial<Record<string, unknown>> = {}
+      const updates: Array<{ id: string; data: Partial<typeof sessionsTable.$inferInsert> }> = []
+      for (const session of sessions) {
+        const sessionUpdateData: Partial<Record<string, unknown>> = {}
 
-          for (const field of changedFields) {
-            const oldAgentValue = rawOldAgent[field] ?? null
-            const sessionValue = (session as Record<string, unknown>)[field] ?? null
+        for (const field of changedFields) {
+          const oldAgentValue = rawOldAgent[field] ?? null
+          const sessionValue = (session as Record<string, unknown>)[field] ?? null
 
-            // Only sync if session still has the agent's old value (not user-customized)
-            if (oldAgentValue === sessionValue) {
-              sessionUpdateData[field] = serializedUpdates[field] ?? null
-            }
-          }
-
-          if (Object.keys(sessionUpdateData).length > 0) {
-            sessionUpdateData.updated_at = now
-            await tx.update(sessionsTable).set(sessionUpdateData).where(eq(sessionsTable.id, session.id))
+          // Only sync if session still has the agent's old value (not user-customized)
+          if (oldAgentValue === sessionValue) {
+            sessionUpdateData[field] = serializedUpdates[field] ?? null
           }
         }
-      })
+
+        if (Object.keys(sessionUpdateData).length > 0) {
+          sessionUpdateData.updated_at = now
+          updates.push({ id: session.id, data: sessionUpdateData })
+        }
+      }
+      await persistInheritedSessionSettings(database, updates)
 
       logger.info('Synced agent settings to sessions', {
         agentId,
@@ -531,11 +519,7 @@ export class AgentService extends BaseService {
 
   async reorderAgents(orderedIds: string[]): Promise<void> {
     const database = await this.getDatabase()
-    await database.transaction(async (tx) => {
-      for (let i = 0; i < orderedIds.length; i++) {
-        await tx.update(agentsTable).set({ sort_order: i }).where(eq(agentsTable.id, orderedIds[i]))
-      }
-    })
+    await reorderAgentRows(database, orderedIds)
     logger.info('Agents reordered', { count: orderedIds.length })
   }
 
@@ -550,12 +534,7 @@ export class AgentService extends BaseService {
     if (isBuiltinAgentId(id)) {
       const now = new Date().toISOString()
 
-      await database.transaction(async (tx) => {
-        await tx.delete(scheduledTasksTable).where(eq(scheduledTasksTable.agent_id, id))
-        await tx.delete(sessionsTable).where(eq(sessionsTable.agent_id, id))
-        await tx.update(channelsTable).set({ agentId: null }).where(eq(channelsTable.agentId, id))
-        await tx.update(agentsTable).set({ deleted_at: now, updated_at: now }).where(eq(agentsTable.id, id))
-      })
+      await softDeleteBuiltinAgent(database, id, now)
 
       return true
     }

@@ -7,8 +7,9 @@ import type {
   AgentPersistedMessage,
   AgentSessionMessageEntity
 } from '@types'
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 
+import { readMessageProjection } from './messageEventStore'
 import { BaseService } from '../BaseService'
 import { persistedToCanonicalInputs } from './agentHistoryMapper'
 import { agentTranscriptRepository } from './repositories/agentTranscriptRepository'
@@ -156,7 +157,7 @@ class AgentMessageRepository extends BaseService {
 
     const [saved] = await database.insert(sessionMessagesTable).values(insertData).returning()
 
-    return this.deserialize(saved)
+    return this.deserialize(await this.findExistingMessageRow(sessionId, payload.message.role, payload.message.id) ?? saved)
   }
 
   private async dualWriteCanonical(
@@ -249,22 +250,26 @@ class AgentMessageRepository extends BaseService {
   async getSessionHistory(sessionId: string): Promise<AgentPersistedMessage[]> {
     try {
       const database = await this.getDatabase()
-      const rows = await database
-        .select()
-        .from(sessionMessagesTable)
-        .where(eq(sessionMessagesTable.session_id, sessionId))
-        .orderBy(asc(sessionMessagesTable.created_at), asc(sessionMessagesTable.id))
+      const rows = (await readMessageProjection<SessionMessageRow>(database, 'session_messages', sessionId))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
 
       const messages: AgentPersistedMessage[] = []
 
       for (const row of rows) {
         const deserialized = this.deserialize(row)
         if (deserialized?.content) {
-          messages.push(deserialized.content as AgentPersistedMessage)
+          const content = deserialized.content as AgentPersistedMessage
+          messages.push({
+            ...content,
+            message: {
+              ...content.message,
+              createdAt: content.message.createdAt ?? row.created_at,
+              updatedAt: content.message.updatedAt ?? row.updated_at
+            }
+          })
         }
       }
 
-      logger.info(`Loaded ${messages.length} messages for session ${sessionId}`)
       return messages
     } catch (error) {
       logger.error('Failed to load session history', error as Error)

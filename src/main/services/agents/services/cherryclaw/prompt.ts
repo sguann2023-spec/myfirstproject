@@ -79,12 +79,6 @@ export class PromptBuilder {
     ].filter(Boolean)
 
     const rendered = sections.join('\n\n')
-    logger.info('Built Claw-style system prompt', {
-      workspacePath,
-      promptLength: rendered.length,
-      instructionFileCount: instructionFiles.length,
-      toolGuidanceOptions: toolGuidance ?? {}
-    })
     return rendered
   }
 
@@ -233,7 +227,7 @@ export class PromptBuilder {
 }
 
 function getIntroSection(): string {
-  return 'You are VectCutClaw, VectCut’s assistant for generating, understanding, and editing media. Use only the tools available in the current turn.'
+  return 'You are VectCut’s assistant for generating, understanding, and editing media. Use only the tools available in the current turn.'
 }
 
 function getSystemSection(): string {

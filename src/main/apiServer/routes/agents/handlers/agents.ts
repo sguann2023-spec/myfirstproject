@@ -277,7 +277,6 @@ export const listAgents = async (req: Request, res: Response): Promise<Response>
 export const getAgent = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { agentId } = req.params
-    logger.debug('Getting agent', { agentId })
 
     const agent = await agentService.getAgent(agentId)
 
@@ -292,7 +291,6 @@ export const getAgent = async (req: Request, res: Response): Promise<Response> =
       })
     }
 
-    logger.info('Agent retrieved', { agentId })
     return res.json(agent)
   } catch (error: any) {
     logger.error('Error getting agent', { error, agentId: req.params.agentId })

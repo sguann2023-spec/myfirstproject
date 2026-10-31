@@ -9,6 +9,16 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ChatHistoryList from './ChatHistoryList';
 
+const renderCounts = vi.hoisted(() => ({ group: vi.fn(), row: vi.fn() }));
+vi.mock('lucide-react', async (importOriginal) => {
+  const icons = await importOriginal();
+  return {
+    ...icons,
+    Folder: (props) => { renderCounts.group(); return <icons.Folder {...props} />; },
+    X: (props) => { renderCounts.row(); return <icons.X {...props} />; },
+  };
+});
+
 describe('waiting for AskUserQuestion confirmation', () => {
   const request = { requestId: 'q1', toolName: 'AskUserQuestion', toolCallId: 'runtime-1:call', input: {}, createdAt: 1 };
 
@@ -103,6 +113,55 @@ beforeEach(async () => {
   await act(async () => root.render(<ChatHistoryList sessions={[session]} onRenameWorkspace={rename} />));
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); delete window.toast; });
+
+describe('history render isolation', () => {
+  const makeSessions = () => Array.from({ length: 100 }, (_, index) => ({
+    id: `perf-${index}`, title: `Chat ${index}`, createdAt: index + 1,
+    lastUserMessageAt: index + 1, accessible_paths: [`/work/group-${index}`],
+    isPending: false, isFulfilled: false,
+  }));
+  const resetCounts = () => { renderCounts.group.mockClear(); renderCounts.row.mockClear(); };
+
+  it('skips groups and rows for message-only changes while using the latest callbacks', async () => {
+    const sessions = makeSessions();
+    const oldSelect = vi.fn(), newSelect = vi.fn(), newDelete = vi.fn();
+    await act(async () => root.render(<ChatHistoryList sessions={sessions} onSelectSession={oldSelect} />));
+    resetCounts();
+    await act(async () => root.render(<ChatHistoryList
+      sessions={sessions.map(item => ({ ...item, messages: [{ role: 'assistant', content: 'updated' }], updatedAt: 999 }))}
+      onSelectSession={newSelect} onDeleteSession={newDelete} />));
+    expect(renderCounts.group).not.toHaveBeenCalled();
+    expect(renderCounts.row).not.toHaveBeenCalled();
+    await click(container.querySelector('.chat-history-list__item:not(.chat-history-list__group-toggle)'));
+    expect(newSelect).toHaveBeenCalledExactlyOnceWith('perf-99');
+    expect(oldSelect).not.toHaveBeenCalled();
+    await click(container.querySelector('[aria-label="删除会话"]'));
+    expect(newDelete).toHaveBeenCalledExactlyOnceWith('perf-99');
+    expect(newSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders only the changed workspace and row when a session completes', async () => {
+    const sessions = makeSessions();
+    await act(async () => root.render(<ChatHistoryList sessions={sessions.map(item => ({ ...item, isPending: item.id === 'perf-50' }))} />));
+    resetCounts();
+    await act(async () => root.render(<ChatHistoryList sessions={sessions.map(item => ({ ...item, isFulfilled: item.id === 'perf-50' }))} />));
+    expect(renderCounts.group).toHaveBeenCalledTimes(1);
+    expect(renderCounts.row).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-label="对话中"]')).toBeNull();
+    expect(container.querySelectorAll('[aria-label="已完成"]')).toHaveLength(1);
+  });
+
+  it('does not rerender session rows while editing a workspace name', async () => {
+    await act(async () => root.render(<ChatHistoryList sessions={makeSessions()} onRenameWorkspace={rename} />));
+    await open();
+    resetCounts();
+    await change('new workspace');
+    expect(renderCounts.group).toHaveBeenCalledTimes(1);
+    expect(renderCounts.row).not.toHaveBeenCalled();
+    await key('Enter');
+    expect(rename).toHaveBeenCalledWith('/work/group-99', 'new workspace');
+  });
+});
 
 describe('workspace inline rename', () => {
   it('replaces the original title in its row, focuses and selects without a portal', async () => {

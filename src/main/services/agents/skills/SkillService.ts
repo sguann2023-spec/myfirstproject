@@ -23,6 +23,7 @@ import StreamZip from 'node-stream-zip'
 
 import { BaseService } from '../BaseService'
 import { DatabaseManager } from '../database/DatabaseManager'
+import { sqliteErrorDiagnostics } from '../database/sqliteRetry'
 import { agentsTable, skillsTable, type SkillRow } from '../database/schema'
 import {
   getHiddenBuiltinSkillMdPath,
@@ -160,9 +161,7 @@ export class SkillService extends BaseService {
     void workspace
   }
 
-  async seedWorkspaceSkillsFromGlobal(workspace: string): Promise<void> {
-    logger.info('Workspace skill seeding skipped because skills are shared globally', { workspace })
-  }
+  async seedWorkspaceSkillsFromGlobal(_workspace: string): Promise<void> {}
 
   async readFile(skillId: string, filename: string): Promise<string | null> {
     const resolved = await this.resolveExistingSkillStoragePathForName(skillId)
@@ -1100,9 +1099,10 @@ export class SkillService extends BaseService {
           await database.insert(skillsTable).values(values)
         }
       } catch (error) {
-        logger.warn('Failed to initialize skill registry entry', {
+        logger.warn('[DBDiagnostics] Failed to initialize skill registry entry', {
+          operation: 'skills.registry.initialize',
           folderName: entry.name,
-          error: error instanceof Error ? error.message : String(error)
+          error: sqliteErrorDiagnostics(error)
         })
       }
     }

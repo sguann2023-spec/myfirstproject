@@ -38,11 +38,9 @@ export class FileSystemServer {
 
     if (expandedBaseDir && path.isAbsolute(expandedBaseDir)) {
       this.baseDir = normalizePath(path.resolve(expandedBaseDir))
-      logger.info(`Using provided baseDir for filesystem MCP: ${this.baseDir}`)
     } else {
       const userData = app.getPath('userData')
       this.baseDir = path.join(userData, 'Data', 'Workspace')
-      logger.info(`Using default workspace for filesystem MCP baseDir: ${this.baseDir}`)
     }
 
     this.mcpServer = new McpServer(

@@ -108,6 +108,7 @@ const MeasuredMessageGroup = React.memo(
 
 const MessagePane = ({
   messages,
+  chatSessionId,
   sending,
   historyLoading = false,
   hasConnectedExternalAgent = false,
@@ -144,6 +145,7 @@ const MessagePane = ({
   });
   const visibleMessages = messages;
   const hasMessages = visibleMessages.length > 0;
+  const scrollSessionId = chatSessionId ?? runtimeSessionId;
 
   const getScrollElement = React.useCallback(() => virtualListRef.current?.scrollElement?.() || null, []);
 
@@ -156,11 +158,13 @@ const MessagePane = ({
   const scrollToBottom = React.useCallback((force = false, repeatAfterLayout = false) => {
     const element = getScrollElement();
     if (!element) return;
+    // Message and resize updates must not replace the session's second pass.
+    const shouldRepeat = repeatAfterLayout || sessionBottomSyncRef.current;
 
     if (autoScrollFrameRef.current) {
       window.cancelAnimationFrame(autoScrollFrameRef.current);
     }
-    if (repeatAfterLayout && sessionBottomFrameRef.current) {
+    if (shouldRepeat && sessionBottomFrameRef.current) {
       window.cancelAnimationFrame(sessionBottomFrameRef.current);
       sessionBottomFrameRef.current = null;
     }
@@ -177,7 +181,7 @@ const MessagePane = ({
 
     autoScrollFrameRef.current = window.requestAnimationFrame(() => {
       autoScrollFrameRef.current = null;
-      if (!applyScroll() || !repeatAfterLayout) {
+      if (!applyScroll() || !shouldRepeat) {
         sessionBottomSyncRef.current = false;
         return;
       }
@@ -238,7 +242,7 @@ const MessagePane = ({
     virtualListRef.current?.measure?.();
 
     if (hasMessages) scrollToBottom(true, true);
-  }, [hasMessages, runtimeSessionId, scrollToBottom]);
+  }, [hasMessages, scrollSessionId, scrollToBottom]);
 
   React.useEffect(() => {
     const element = getScrollElement();
@@ -476,6 +480,7 @@ export default React.memo(MessagePane, (prevProps, nextProps) => (
   && prevProps.userName === nextProps.userName
   && prevProps.userAvatar === nextProps.userAvatar
   && prevProps.currentWorkspacePath === nextProps.currentWorkspacePath
+  && prevProps.chatSessionId === nextProps.chatSessionId
   && prevProps.runtimeSessionId === nextProps.runtimeSessionId
   && prevProps.onSelectSkill === nextProps.onSelectSkill
 ));

@@ -3,6 +3,120 @@ import { describe, expect, it } from 'vitest'
 import { TextStreamAccumulator } from '../session-stream-accumulator'
 
 describe('TextStreamAccumulator', () => {
+  it('accumulates partial arguments and parses complete JSON without a tool-call', () => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '{"path":"' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: 'a.md' } as any)
+
+    const partialBlock = accumulator.getAssistantBlocks('message-1')[0]
+    expect(partialBlock).toMatchObject({
+      type: 'tool',
+      status: 'processing',
+      partialArguments: '{"path":"a.md',
+      metadata: { rawMcpToolResponse: { partialArguments: '{"path":"a.md' } }
+    })
+    expect(partialBlock.arguments).toBeUndefined()
+    expect(partialBlock.metadata.rawMcpToolResponse.arguments).toBeUndefined()
+
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '"}' } as any)
+    accumulator.add({ type: 'tool-input-end', id: 'tool-1' } as any)
+
+    expect(accumulator.getAssistantBlocks('message-1')).toHaveLength(1)
+    expect(accumulator.getAssistantBlocks('message-1')[0]).toMatchObject({
+      toolName: 'Read',
+      status: 'processing',
+      arguments: { path: 'a.md' },
+      partialArguments: '{"path":"a.md"}',
+      metadata: {
+        rawMcpToolResponse: { arguments: { path: 'a.md' }, partialArguments: '{"path":"a.md"}' }
+      }
+    })
+    expect(partialBlock.partialArguments).toBe('{"path":"a.md')
+  })
+
+  it('isolates interleaved tool deltas and preserves order when a start is missing', () => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'text-delta', text: 'Before tools' } as any)
+    accumulator.add({ type: 'tool-input-delta', toolCallId: 'tool-1', delta: '{"path":' } as any)
+    accumulator.add({ type: 'tool-input-start', id: 'tool-2', toolName: 'Bash' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-2', delta: '{"command":"pwd"}' } as any)
+    accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)
+    accumulator.add({ type: 'tool-input-delta', toolCallId: 'tool-1', id: 'ignored-id', delta: '"a.md"}' } as any)
+
+    const blocks = accumulator.getAssistantBlocks('message-1')
+    expect(blocks.map((block) => block.toolId ?? block.content)).toEqual(['Before tools', 'tool-1', 'tool-2'])
+    expect(blocks[1]).toMatchObject({ toolName: 'Read', arguments: { path: 'a.md' }, partialArguments: '{"path":"a.md"}' })
+    expect(blocks[2]).toMatchObject({ toolName: 'Bash', arguments: { command: 'pwd' }, partialArguments: '{"command":"pwd"}' })
+    expect(accumulator.summarizeState()).toMatchObject({ toolCallCount: 2 })
+  })
+
+  it.each([
+    { input: { path: 'final.md' } },
+    { args: { path: 'final.md' } },
+    { providerMetadata: { raw: { input: { path: 'final.md' } } } }
+  ])('prefers explicit tool-call arguments over streamed arguments: %j', (payload) => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '{"path":"draft.md"}' } as any)
+    accumulator.add({ type: 'tool-call', toolCallId: 'tool-1', ...payload } as any)
+
+    expect(accumulator.getAssistantBlocks('message-1')[0]).toMatchObject({
+      toolName: 'Read',
+      arguments: { path: 'final.md' },
+      partialArguments: '{"path":"draft.md"}',
+      metadata: { rawMcpToolResponse: { arguments: { path: 'final.md' } } }
+    })
+  })
+
+  it.each(['tool-result', 'tool-error'])('retains parsed and partial arguments after %s without final input', (type) => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '{"path":"a.md"}' } as any)
+    accumulator.add({ type: 'tool-call', toolCallId: 'tool-1' } as any)
+    accumulator.add({ type, toolCallId: 'tool-1', toolName: 'Read', output: 'ok', error: 'failed' } as any)
+
+    expect(accumulator.getAssistantBlocks('message-1')[0]).toMatchObject({
+      toolName: 'Read',
+      status: type === 'tool-error' ? 'error' : 'success',
+      arguments: { path: 'a.md' },
+      partialArguments: '{"path":"a.md"}',
+      metadata: {
+        rawMcpToolResponse: {
+          arguments: { path: 'a.md' },
+          partialArguments: '{"path":"a.md"}',
+          status: type === 'tool-error' ? 'error' : 'done'
+        }
+      }
+    })
+  })
+
+  it('keeps invalid JSON as partial arguments without throwing', () => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '{invalid}' } as any)
+
+    const block = accumulator.getAssistantBlocks('message-1')[0]
+    expect(block.partialArguments).toBe('{invalid}')
+    expect(block.arguments).toBeUndefined()
+    expect(block.metadata.rawMcpToolResponse.partialArguments).toBe('{invalid}')
+    expect(block.metadata.rawMcpToolResponse.arguments).toBeUndefined()
+  })
+
+  it('ignores deltas with missing IDs or empty and non-string payloads', () => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'tool-input-delta', delta: '{}' } as any)
+    for (const delta of ['', undefined, null, 123, {}]) {
+      accumulator.add({ type: 'tool-input-delta', id: 'ignored-tool', delta } as any)
+    }
+    expect(accumulator.getAssistantBlocks('message-1')).toEqual([])
+
+    accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '{"path":' } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: 123 } as any)
+    accumulator.add({ type: 'tool-input-delta', id: 'tool-1', delta: '"a.md"}' } as any)
+    expect(accumulator.getAssistantBlocks('message-1')[0].arguments).toEqual({ path: 'a.md' })
+  })
+
   it('persists thinking blocks into assistant blocks', () => {
     const accumulator = new TextStreamAccumulator()
 
@@ -55,6 +169,66 @@ describe('TextStreamAccumulator', () => {
       'main_text:下载完成，现在对比两个文件内容是否一致。',
       'tool:Bash'
     ])
+  })
+
+  it.each(['text', 'tool', 'text-and-tool'])('includes every trailing text delta after %s when cancelled before text-end', (prefix) => {
+    const accumulator = new TextStreamAccumulator()
+    const expectedPrefix: string[] = []
+    if (prefix !== 'tool') {
+      accumulator.add({ type: 'text-start', id: 'text-1' } as any)
+      accumulator.add({ type: 'text-delta', id: 'text-1', text: 'First paragraph. ' } as any)
+      accumulator.add({ type: 'text-end', id: 'text-1' } as any)
+      expectedPrefix.push('First paragraph. ')
+    }
+    if (prefix !== 'text') {
+      accumulator.add({ type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: { path: 'a.md' } } as any)
+      accumulator.add({ type: 'tool-result', toolCallId: 'tool-1', output: 'file contents' } as any)
+      expectedPrefix.push('tool-1')
+    }
+    accumulator.add({ type: 'text-start', id: 'text-2' } as any)
+    let tail = ''
+    for (const delta of ['Second', ' paragraph.', '\n']) {
+      accumulator.add({ type: 'text-delta', id: 'text-2', text: delta } as any)
+      tail += delta
+      const state = accumulator.summarizeState()
+      const blocks = accumulator.getAssistantBlocks('message-1', 'model-1')
+      expect(blocks.map((block) => block.toolId ?? block.content)).toEqual([...expectedPrefix, tail])
+      expect(blocks[blocks.length - 1]).toMatchObject({
+        messageId: 'message-1', type: 'main_text', status: 'success', modelId: 'model-1', content: tail
+      })
+      expect(accumulator.summarizeState()).toEqual(state)
+    }
+
+    // Cancellation can stop the stream without text-end or finish.
+    expect(accumulator.getAssistantBlocks('message-1').map((block) => block.toolId ?? block.content))
+      .toEqual([...expectedPrefix, tail])
+    expect(accumulator.getText()).toBe((expectedPrefix.includes('First paragraph. ') ? 'First paragraph. ' : '') + 'Second paragraph.')
+
+    accumulator.add({ type: 'text-end', id: 'text-2' } as any)
+    expect(accumulator.getAssistantBlocks('message-1').map((block) => block.toolId ?? block.content))
+      .toEqual([...expectedPrefix, tail])
+  })
+
+  it('keeps snapshot reads from flushing text before provider text-end replacement', () => {
+    const accumulator = new TextStreamAccumulator()
+    accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)
+    accumulator.add({ type: 'text-start', id: 'text-1' } as any)
+    accumulator.add({ type: 'text-delta', id: 'text-1', text: 'Draft' } as any)
+    expect(accumulator.getAssistantBlocks('message-1').map((block) => block.toolId ?? block.content))
+      .toEqual(['tool-1', 'Draft'])
+
+    accumulator.add({ type: 'text-end', id: 'text-1', providerMetadata: { text: { value: 'Final' } } } as any)
+    expect(accumulator.getAssistantBlocks('message-1').map((block) => block.toolId ?? block.content))
+      .toEqual(['tool-1', 'Final'])
+    expect(accumulator.getText()).toBe('Final')
+
+    accumulator.add({ type: 'text-start', id: 'text-2' } as any)
+    accumulator.add({ type: 'text-delta', id: 'text-2', text: 'Tail' } as any)
+    expect(accumulator.getAssistantBlocks('message-1').map((block) => block.toolId ?? block.content))
+      .toEqual(['tool-1', 'Final', 'Tail'])
+    accumulator.add({ type: 'tool-input-start', id: 'tool-2', toolName: 'Bash' } as any)
+    expect(accumulator.getAssistantBlocks('message-1').map((block) => block.toolId ?? block.content))
+      .toEqual(['tool-1', 'Final', 'Tail', 'tool-2'])
   })
 
   it('persists failed tool calls as error blocks', () => {

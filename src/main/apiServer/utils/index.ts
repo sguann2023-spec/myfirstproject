@@ -16,9 +16,6 @@ export async function getAvailableProviders(): Promise<Provider[]> {
     // Try to get from cache first (faster)
     const cachedSupportedProviders = CacheService.get<Provider[]>(PROVIDERS_CACHE_KEY)
     if (cachedSupportedProviders && cachedSupportedProviders.length > 0) {
-      logger.debug('Providers resolved from cache', {
-        count: cachedSupportedProviders.length
-      })
       return cachedSupportedProviders
     }
 
@@ -107,7 +104,6 @@ export async function getProviderByModel(model: string): Promise<Provider | unde
       return undefined
     }
 
-    logger.debug('Provider resolved for model', { providerId, model })
     return provider
   } catch (error: any) {
     logger.error('Failed to get provider by model', { error, model })

@@ -4,6 +4,7 @@ import { getResourcePath } from '@main/utils'
 import { type LibSQLDatabase } from 'drizzle-orm/libsql'
 import fs from 'fs'
 import path from 'path'
+import type { WorkerDatabaseClient } from './workerClient'
 
 import type * as schema from './schema'
 import { migrations, type NewMigration } from './schema/migrations.schema'
@@ -27,7 +28,7 @@ export class MigrationService {
   private client: Client
   private migrationDir: string
 
-  constructor(db: LibSQLDatabase<typeof schema>, client: Client) {
+  constructor(db: LibSQLDatabase<typeof schema>, client: Client, private onProgress?: (phase: string, count?: number, total?: number, detail?: string) => void) {
     this.db = db
     this.client = client
     this.migrationDir = path.join(getResourcePath(), 'database', 'drizzle')
@@ -75,8 +76,10 @@ export class MigrationService {
       logger.info(`Found ${pendingMigrations.length} pending migrations`)
 
       // Execute pending migrations
-      for (const migration of pendingMigrations) {
+      for (const [index, migration] of pendingMigrations.entries()) {
+        this.onProgress?.('schema', index, pendingMigrations.length, migration.tag)
         await this.executeMigration(migration)
+        this.onProgress?.('schema', index + 1, pendingMigrations.length, migration.tag)
       }
 
       logger.info('All migrations completed successfully')
@@ -136,6 +139,11 @@ export class MigrationService {
 
       // Read and execute SQL
       const sqlContent = fs.readFileSync(sqlFilePath, 'utf-8')
+      if ('applyMigration' in this.client) {
+        // The broker checks the marker inside its FIFO, including other processes.
+        await (this.client as WorkerDatabaseClient).applyMigration(migration.idx, migration.tag, sqlContent)
+        return
+      }
       await this.client.executeMultiple(sqlContent)
 
       // Record migration as applied (store journal idx as version for tracking)

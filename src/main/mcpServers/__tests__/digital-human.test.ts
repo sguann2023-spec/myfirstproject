@@ -107,14 +107,37 @@ describe('DigitalHumanServer', () => {
       'create_lip_sync_digital_human',
       'create_image_driven_digital_human',
       'create_omni_image_driven_digital_human',
-      'create_seedance_digital_human',
+      'create_default_image_driven_digital_human',
       'start_digital_human_task',
       'get_digital_human_job',
       'get_lip_sync_digital_human_status',
       'get_image_driven_digital_human_status',
       'get_omni_image_driven_digital_human_status',
-      'get_seedance_digital_human_status'
+      'get_default_image_driven_digital_human_status'
     ])
+  })
+
+  it('documents default, legacy Omni, and internal/external audio and cost requirements', async () => {
+    const internal = await listTools(createServer())
+    const tool = (name: string) => internal.tools.find((item: { name: string }) => item.name === name)
+    expect(tool('create_seedance_digital_human')).toBeUndefined()
+    expect(tool('get_seedance_digital_human_status')).toBeUndefined()
+    expect(tool('create_default_image_driven_digital_human').description).toMatch(/ElevenLabs voice ID.*cannot accept arbitrary audio/)
+    expect(tool('create_image_driven_digital_human').description).toContain('Legacy Omni alias')
+    expect(tool('create_omni_image_driven_digital_human').description).toContain('10x')
+    expect(tool('create_omni_image_driven_digital_human').description).toContain('explicit informed user choice')
+    expect(tool('create_lip_sync_digital_human').description).toContain('original person video')
+    const modeDescription = tool('start_digital_human_task').inputSchema.properties.mode.description
+    expect(modeDescription).toContain('seedance is its legacy mode key')
+    expect(modeDescription).toContain('never auto-upgrade')
+  })
+
+  it.each(['get_default_image_driven_digital_human_status', 'get_seedance_digital_human_status'])('routes status via %s without changing persisted mode', async (toolName) => {
+    const server = createServer()
+    const query = vi.spyOn(server as any, 'queryStatus').mockResolvedValue({ task_id: 'default-1', status: 'success' })
+    const result = await callTool(server, toolName, { taskId: 'default-1' })
+    expect(query).toHaveBeenCalledWith('/llm/digital_human/seedance/task_status', 'default-1')
+    expect(JSON.parse(result.content[0].text).mode).toBe('seedance_image_driven')
   })
 
   it('should complete lip-sync polling only when task_status is 1', () => {
@@ -438,7 +461,7 @@ describe('DigitalHumanServer', () => {
     expect(tool.description).toContain('do not call a separate speech generation tool first')
   })
 
-  it('should create and wait for a seedance digital human result', async () => {
+  it.each(['create_default_image_driven_digital_human', 'create_seedance_digital_human'])('should create default image-driven via %s', async (toolName) => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -466,7 +489,7 @@ describe('DigitalHumanServer', () => {
       )
 
     const server = createServer()
-    const result = await callTool(server, 'create_seedance_digital_human', {
+    const result = await callTool(server, toolName, {
       imageUrl: 'https://example.com/avatar.png',
       copywriting: '欢迎来到 vectcut',
       voiceId: 'voice-123'
@@ -634,6 +657,24 @@ describe('DigitalHumanServer', () => {
     it('only lists async tools and rejects hidden legacy tools', async () => {
       const server = new DigitalHumanServer({ external: true })
       expect((await listTools(server)).tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+      const submit = (await listTools(server)).tools.find((tool: any) => tool.name === 'submit')
+      expect(submit.description).toContain('prepared public audio URLs')
+      expect(submit.description).toContain('no automatic TTS')
+      expect(submit.description).toContain('10x default')
+      expect(submit.description).toContain('prepare speech audio with separate TTS first')
+      expect(submit.description).toContain('explicit informed user choice')
+      const properties = submit.inputSchema.properties as any
+      expect(properties.mode.description).toContain('Prefer image_driven')
+      for (const tool of (await listTools(server)).tools) {
+        expect(tool.inputSchema.properties.mode.enum).toEqual(['lip_sync', 'omni', 'image_driven'])
+        expect(JSON.stringify(tool)).not.toContain('seedance')
+      }
+      for (const field of ['audioUrl', 'videoUrl', 'imageUrl']) {
+        expect(properties[field].description).toContain('public HTTP(S) URL only')
+      }
+      expect(properties.prompt.description).toContain('Required for omni')
+      expect(properties.copywriting.description).toContain('image_driven only')
+      expect(properties.voiceId.description).toContain('image_driven only: ElevenLabs')
       expect((await invoke(server, 'start_digital_human_task', {})).isError).toBe(true)
       expect(mockNetFetch).not.toHaveBeenCalled()
     })
@@ -667,13 +708,35 @@ describe('DigitalHumanServer', () => {
     beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks() })
     it.each([
       ['lip_sync', { video_url: 'https://example.com/a.mp4', audio_url: 'https://example.com/a.mp3' }, '/cut_jianying/digital_human/create'],
+      ['omni', { image_url: 'https://example.com/a.png', audio_url: 'https://example.com/a.mp3', prompt: 'scene', output_resolution: 1080 }, '/cut_jianying/digital_human/omni/submit'],
+      ['image_driven', { image_url: 'https://example.com/a.png', copywriting: 'hello', voice_id: 'voice' }, '/llm/digital_human/seedance/submit'],
       ['seedance', { image_url: 'https://example.com/a.png', copywriting: 'hello', voice_id: 'voice' }, '/llm/digital_human/seedance/submit']
-    ])('submits %s directly without synthesis', async (mode, args, endpoint) => {
+    ])('submits %s directly without synthesis and returns a reusable canonical mode', async (mode, args, endpoint) => {
+      const server = new DigitalHumanServer({ external: true })
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'real-task', mode: 'backend-mode' }))
+      const result = await callTool(server, 'submit', { mode, ...args })
+      const parsed = JSON.parse(result.content[0].text)
+      expect(parsed).toMatchObject({ mode: mode === 'seedance' ? 'image_driven' : mode, task_id: 'real-task', success: true })
+      expect(request).toHaveBeenCalledExactlyOnceWith(endpoint, { method: 'POST', body: args })
+      expect(mockUploadLocalFile).not.toHaveBeenCalled()
+      request.mockClear().mockResolvedValue(mockJsonResponse({ status: 'running', mode: 'backend-mode' }))
+      const status = await callTool(server, 'task_status', { mode: parsed.mode, task_id: parsed.task_id })
+      expect(JSON.parse(status.content[0].text).mode).toBe(parsed.mode)
+      expect(request).toHaveBeenCalledExactlyOnceWith(endpoint.replace(/\/(submit|create)$/, '/task_status'), { method: 'GET', query: { task_id: 'real-task' } })
+    })
+    it.each(['image_driven', 'seedance'])('queries default status via %s and overrides backend mode', async (mode) => {
+      const server = new DigitalHumanServer({ external: true })
+      const payload = { mode: 'seedance_image_driven', status: 'succeeded', result: { video_url: 'https://example.com/out.mp4' }, billing: { points: 2 } }
+      const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse(payload))
+      const result = await callTool(server, 'task_status', { mode, task_id: 'real-task' })
+      expect(JSON.parse(result.content[0].text)).toMatchObject({ ...payload, mode: 'image_driven' })
+      expect(request).toHaveBeenCalledExactlyOnceWith('/llm/digital_human/seedance/task_status', { method: 'GET', query: { task_id: 'real-task' } })
+    })
+    it('maps canonical camelCase photo inputs to the unchanged backend payload', async () => {
       const server = new DigitalHumanServer({ external: true })
       const request = vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'real-task' }))
-      const result = await callTool(server, 'submit', { mode, ...args })
-      expect(JSON.parse(result.content[0].text)).toMatchObject({ mode, task_id: 'real-task', success: true })
-      expect(request).toHaveBeenCalledExactlyOnceWith(endpoint, { method: 'POST', body: args })
+      await callTool(server, 'submit', { mode: 'image_driven', imageUrl: 'https://example.com/a.png', copywriting: 'hello', voiceId: 'voice' })
+      expect(request).toHaveBeenCalledExactlyOnceWith('/llm/digital_human/seedance/submit', { method: 'POST', body: { image_url: 'https://example.com/a.png', copywriting: 'hello', voice_id: 'voice' } })
     })
     it.each(['audioUrl', 'audio_url', 'videoUrl', 'video_url', 'imageUrl', 'image_url'])('validates ignored and overwritten alias %s', async (field) => {
       const server = new DigitalHumanServer({ external: true })
@@ -682,7 +745,7 @@ describe('DigitalHumanServer', () => {
       expect(result.isError).toBe(true)
       expect(request).not.toHaveBeenCalled()
     })
-    it.each(['create_lip_sync_digital_human', 'create_image_driven_digital_human', 'create_omni_image_driven_digital_human', 'create_seedance_digital_human', 'get_digital_human_job'])('blocks hidden tool %s', async (name) => {
+    it.each(['create_lip_sync_digital_human', 'create_image_driven_digital_human', 'create_omni_image_driven_digital_human', 'create_seedance_digital_human', 'create_default_image_driven_digital_human', 'get_default_image_driven_digital_human_status', 'get_digital_human_job'])('blocks hidden tool %s', async (name) => {
       const server = new DigitalHumanServer({ external: true })
       expect((await callTool(server, name, {})).isError).toBe(true)
       expect(mockNetFetch).not.toHaveBeenCalled()

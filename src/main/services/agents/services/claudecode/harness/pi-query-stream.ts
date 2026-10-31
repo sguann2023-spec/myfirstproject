@@ -4,6 +4,7 @@ import type { LanguageModelUsage, ProviderMetadata, TextStreamPart } from 'ai'
 import { isInlineToolPayloadTruncated, limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 
 import type { AgentStream } from '../../../interfaces/AgentStreamInterface'
+import { isSqliteBusy, sqliteErrorDiagnostics } from '../../../database/sqliteRetry'
 import { agentTurnRepository } from '../../../database/repositories/agentTurnRepository'
 import { emitCancelled, emitChunk, emitError, emitLifecycleEvent } from './event-adapter'
 import {
@@ -74,6 +75,9 @@ function createPiTerminalTimeoutError(timeoutMs: number): Error {
 }
 
 function isRetriablePiError(error: Error): boolean {
+  // Local persistence contention is retried at the DB operation boundary, never
+  // by replaying a prompt (which could repeat tool side effects).
+  if (isSqliteBusy(error)) return false
   const name = String(error.name || '').trim()
   const message = String(error.message || '').trim()
   const normalized = `${name} ${message}`.toLowerCase()
@@ -202,36 +206,6 @@ function tryExtractFilePath(input: unknown): string | undefined {
   return undefined
 }
 
-function summarizePiContent(value: unknown): {
-  partCount: number
-  textPartCount: number
-  textChars: number
-  types: string[]
-} {
-  const content = Array.isArray(value) ? value : []
-  const types: string[] = []
-  let textPartCount = 0
-  let textChars = 0
-
-  for (const part of content) {
-    if (!part || typeof part !== 'object') continue
-    const record = part as Record<string, unknown>
-    const type = typeof record.type === 'string' ? record.type : 'unknown'
-    types.push(type)
-    if (type === 'text' && typeof record.text === 'string') {
-      textPartCount += 1
-      textChars += record.text.length
-    }
-  }
-
-  return {
-    partCount: content.length,
-    textPartCount,
-    textChars,
-    types
-  }
-}
-
 function extractPiToolCallSnapshots(message: { content?: unknown }): PiToolCallSnapshot[] {
   if (!Array.isArray(message.content)) {
     return []
@@ -349,7 +323,26 @@ export async function processPiHarnessQuery(input: {
     architectureContext
   })
 
+  // Terminal persistence is best-effort and must not delay or change the query outcome.
+  const persistTerminalTurn = async (updates: Partial<AgentTurn>): Promise<void> => {
+    try {
+      await agentTurnRepository.update(currentTurn.id, updates)
+    } catch (storageError) {
+      logger.error('[PiQuery] failed to persist terminal turn in background', {
+        sessionId,
+        traceId: architectureContext.traceId,
+        turnId: currentTurn.id,
+        status: updates.status,
+        ...sqliteErrorDiagnostics(storageError)
+      })
+    }
+  }
+
   const pendingToolCalls = new Map<string, PendingToolCall>()
+  const terminalToolCallIds = new Set<string>()
+  const completedToolChunks = new Map<string, TextStreamPart<any>>()
+  const unreconciledToolResults = new Set<string>()
+  const streamingToolInputs = new Map<string, { toolName: string }>()
   const executingToolCallIds = new Set<string>()
   const blockIds = new Map<string, string>()
   const textBlockContents = new Map<string, string>()
@@ -464,10 +457,22 @@ export async function processPiHarnessQuery(input: {
     source: 'toolcall_end' | 'message_end_snapshot' | 'nested-codemode'
   }): void => {
     const { toolCallId, emittedToolCallId, toolName, toolInput, providerMetadata, source } = input
-    if (pendingToolCalls.has(toolCallId) || pendingToolCalls.has(emittedToolCallId)) {
+    if (terminalToolCallIds.has(toolCallId) || terminalToolCallIds.has(emittedToolCallId)) {
+      // Execution results can precede the assistant snapshot that supplies the UI alias.
+      // Reconcile the retained terminal result to that alias rather than leaving its
+      // streamed input card pending. This is projection only, never tool execution.
+      const completed = completedToolChunks.get(toolCallId)
+      if (completed && !terminalToolCallIds.has(emittedToolCallId)) {
+        emitChunk(stream, { ...completed, toolCallId: emittedToolCallId, toolName, input: toolInput } as TextStreamPart<any>, harness)
+        terminalToolCallIds.add(emittedToolCallId)
+        unreconciledToolResults.delete(toolCallId)
+      }
+      streamingToolInputs.delete(emittedToolCallId)
       return
     }
+    if (pendingToolCalls.has(toolCallId) || pendingToolCalls.has(emittedToolCallId)) return
 
+    streamingToolInputs.delete(emittedToolCallId)
     toolCallCount += 1
     const pendingToolCall: PendingToolCall = {
       emittedId: emittedToolCallId,
@@ -491,15 +496,6 @@ export async function processPiHarnessQuery(input: {
         assistantElapsedMs: Date.now() - currentAssistantStartedAt
       })
     } else {
-      logger.info('[PiQuery] assistant toolcall_end', {
-        sessionId,
-        traceId: architectureContext.traceId,
-        toolCallId,
-        emittedToolCallId,
-        toolName,
-        toolCallCount,
-        assistantElapsedMs: Date.now() - currentAssistantStartedAt
-      })
     }
 
     emitChunk(
@@ -555,8 +551,11 @@ export async function processPiHarnessQuery(input: {
       return
     }
 
+    if (terminalToolCallIds.has(event.toolCallId)) return
     const pending = pendingToolCalls.get(event.toolCallId)
     const emittedToolCallId = pending?.emittedId || event.toolCallId
+    terminalToolCallIds.add(event.toolCallId)
+    terminalToolCallIds.add(emittedToolCallId)
     unregisterMcpProgressCallId(event.toolCallId, emittedToolCallId)
     toolResultCount += 1
 
@@ -602,7 +601,44 @@ export async function processPiHarnessQuery(input: {
     }
   }
 
+  const flushUnreconciledToolResults = (): void => {
+    for (const id of unreconciledToolResults) {
+      const chunk = completedToolChunks.get(id)
+      if (chunk) emitChunk(stream, chunk, harness)
+    }
+    unreconciledToolResults.clear()
+  }
+
   const emitRetryStatusChunk = (attempt: number): void => {
+    flushUnreconciledToolResults()
+    // Called only after prompt/skill settled: this attempt can no longer execute tools.
+    // Deduplicate provider/emitted aliases, and never infer completion from later tools.
+    for (const pending of new Set(pendingToolCalls.values())) {
+      terminalToolCallIds.add(pending.providerToolCallId)
+      terminalToolCallIds.add(pending.emittedId)
+      emitChunk(stream, {
+        type: 'tool-error',
+        toolCallId: pending.emittedId,
+        toolName: pending.toolName,
+        input: pending.input,
+        error: 'Tool call abandoned when the provider attempt ended; retrying.',
+        providerExecuted: false,
+        providerMetadata: providerMetadataBase
+      } as TextStreamPart<any>, harness)
+      unregisterMcpProgressCallId(pending.providerToolCallId, pending.emittedId)
+      architectureContext.pendingFileChanges.delete(pending.providerToolCallId)
+    }
+    for (const [id, input] of streamingToolInputs) {
+      terminalToolCallIds.add(id)
+      emitChunk(stream, {
+        type: 'tool-error', toolCallId: id, toolName: input.toolName,
+        error: 'Tool input abandoned when the provider attempt ended; retrying.',
+        providerExecuted: false, providerMetadata: providerMetadataBase
+      } as TextStreamPart<any>, harness)
+    }
+    streamingToolInputs.clear()
+    pendingToolCalls.clear()
+    executingToolCallIds.clear()
     emitChunk(
       stream,
       ({
@@ -725,6 +761,7 @@ export async function processPiHarnessQuery(input: {
         case 'toolcall_start': {
           const partialToolCall = (assistantEvent.partial?.content?.[assistantEvent.contentIndex] ?? {}) as Record<string, unknown>
           const toolName = String(partialToolCall.name || '')
+          streamingToolInputs.set(blockId, { toolName })
           emitChunk(
             stream,
             {
@@ -793,20 +830,15 @@ export async function processPiHarnessQuery(input: {
           source: 'message_end_snapshot'
         })
       }
-      logger.info('[PiQuery] assistant message_end', {
-        sessionId,
-        traceId: architectureContext.traceId,
-        messageId: currentAssistantMessageId,
-        usage: (event.message as any).usage,
-        stopReason: (event.message as any).stopReason,
-        errorMessage: (event.message as any).errorMessage,
-        textDeltaCount,
-        reasoningDeltaCount,
-        toolCallCount,
-        toolResultCount,
-        streamedAssistantTextChars: streamedAssistantText.length,
-        messageContent: summarizePiContent((event.message as any).content)
-      })
+      if ((event.message as any).stopReason === 'error' || (event.message as any).errorMessage) {
+        logger.warn('[PiQuery] assistant message_end error', {
+          sessionId,
+          traceId: architectureContext.traceId,
+          messageId: currentAssistantMessageId,
+          stopReason: (event.message as any).stopReason,
+          errorMessage: (event.message as any).errorMessage
+        })
+      }
       emitChunk(
         stream,
         {
@@ -827,9 +859,12 @@ export async function processPiHarnessQuery(input: {
     }
 
     if (event.type === 'tool_execution_end') {
+      if (terminalToolCallIds.has(event.toolCallId)) return
       const pending = pendingToolCalls.get(event.toolCallId)
       const toolName = pending?.toolName || event.toolName
       const emittedToolCallId = pending?.emittedId || event.toolCallId
+      terminalToolCallIds.add(event.toolCallId)
+      terminalToolCallIds.add(emittedToolCallId)
       unregisterMcpProgressCallId(event.toolCallId, emittedToolCallId)
       toolResultCount += 1
       const providerMetadata = {
@@ -840,6 +875,23 @@ export async function processPiHarnessQuery(input: {
         }
       }
 
+      completedToolChunks.set(event.toolCallId, {
+        type: event.isError ? 'tool-error' : 'tool-result',
+        toolCallId: emittedToolCallId,
+        toolName,
+        input: pending?.input,
+        ...(event.isError
+          ? { error: limitInlineToolPayload(event.result, { label: `${toolName || 'tool'} 错误输出` }) }
+          : { output: limitInlineToolPayload(buildInlineToolResultPayload(event.result), { label: `${toolName || 'tool'} 回包` }) }),
+        providerExecuted: false,
+        providerMetadata
+      } as TextStreamPart<any>)
+      if (!pending) {
+        // Keep a result until the assistant snapshot supplies its emitted ID. Emitting
+        // the raw provider ID here would create a second card for the same execution.
+        unreconciledToolResults.add(event.toolCallId)
+        return
+      }
       if (event.isError) {
         lastToolCompletedAt = Date.now()
         logger.warn('[PiQuery] tool_execution_end error', {
@@ -875,7 +927,6 @@ export async function processPiHarnessQuery(input: {
         return
       }
 
-      const output = (event.result as { content?: unknown; details?: unknown }).content ?? event.result
       lastToolCompletedAt = Date.now()
       const rawOutput = event.result
       const inlineSource = buildInlineToolResultPayload(event.result)
@@ -885,17 +936,6 @@ export async function processPiHarnessQuery(input: {
         { label: `${toolName || 'tool'} 回包` }
       )
       const truncated = isInlineToolPayloadTruncated(inlinePayload)
-      logger.info('[PiQuery] tool_execution_end success', {
-        sessionId,
-        traceId: architectureContext.traceId,
-        toolCallId: event.toolCallId,
-        emittedToolCallId,
-        toolName,
-        toolResultCount,
-        executionElapsedMs: pending ? lastToolCompletedAt - pending.startedAt : undefined,
-        queryElapsedMs: lastToolCompletedAt - queryStartedAt,
-        outputSummary: summarizePiContent(Array.isArray(output) ? output : [output])
-      })
       const toolResultChunk = {
         type: 'tool-result',
         toolCallId: emittedToolCallId,
@@ -908,16 +948,31 @@ export async function processPiHarnessQuery(input: {
         providerMetadata
       } as TextStreamPart<any>
 
-      await handleToolResultSideEffects({
-        chunk: toolResultChunk,
-        architectureContext: architectureContext as QueryArchitectureContext,
-        currentSegment,
-        currentTurn,
-        pendingToolCalls,
-        getArtifactSourceType,
-        shouldOffloadToolResult,
-        tryExtractFilePath
-      })
+      try {
+        await handleToolResultSideEffects({
+          chunk: toolResultChunk,
+          architectureContext: architectureContext as QueryArchitectureContext,
+          currentSegment,
+          currentTurn,
+          pendingToolCalls,
+          getArtifactSourceType,
+          shouldOffloadToolResult,
+          tryExtractFilePath
+        })
+      } catch (error) {
+        // Ancillary persistence cannot turn a completed tool into a failed prompt
+        // (which could replay a successful Bash invocation).
+        logger.warn('[PiQuery] tool result side effects unavailable', {
+          toolCallId: event.toolCallId, emittedToolCallId, toolName,
+          ...sqliteErrorDiagnostics(error)
+        })
+        if (truncated) {
+          ;(toolResultChunk as any).output = limitInlineToolPayload({
+            warning: 'Full tool output storage unavailable; only this bounded preview is available. The tool completed successfully.',
+            preview: inlineOutput
+          })
+        }
+      }
 
       emitChunk(stream, toolResultChunk, harness)
     }
@@ -947,6 +1002,11 @@ export async function processPiHarnessQuery(input: {
         throw new DOMException('Request was aborted', 'AbortError')
       }
       currentAttempt += 1
+      // Provider IDs may be reused by a new prompt attempt; emitted card IDs remain
+      // message-scoped. The previous attempt has settled before entering here.
+      terminalToolCallIds.clear()
+      completedToolChunks.clear()
+      unreconciledToolResults.clear()
       terminalTimeoutTriggered = false
       idleTimeoutTriggered = false
       executingToolCallIds.clear()
@@ -1082,7 +1142,7 @@ export async function processPiHarnessQuery(input: {
           await waitForPiRetryDelay(PI_NETWORK_RETRY_BASE_DELAY_MS * retryCount, abortSignal)
           continue
         }
-        await agentTurnRepository.update(currentTurn.id, {
+        void persistTerminalTurn({
           assistantText: streamedAssistantText || undefined,
           completedAt: new Date().toISOString(),
           status: 'cancelled',
@@ -1128,24 +1188,8 @@ export async function processPiHarnessQuery(input: {
 
     const finalAssistantText = extractAssistantText(result as any) || streamedAssistantText
     const finalUsage = convertPiUsage((result as any).usage)
-    logger.info('[PiQuery] prompt completed', {
-      sessionId,
-      traceId: architectureContext.traceId,
-      piSessionId: harness.invokeContext.projection.piSessionId,
-      attemptsUsed: currentAttempt,
-      stopReason: (result as any).stopReason,
-      errorMessage: (result as any).errorMessage,
-      resultContent: summarizePiContent((result as any).content),
-      extractedAssistantTextChars: extractAssistantText(result as any).length,
-      streamedAssistantTextChars: streamedAssistantText.length,
-      finalAssistantTextChars: finalAssistantText.length,
-      textDeltaCount,
-      reasoningDeltaCount,
-      toolCallCount,
-      toolResultCount
-    })
 
-    await agentTurnRepository.update(currentTurn.id, {
+    void persistTerminalTurn({
       assistantText: finalAssistantText || undefined,
       completedAt: new Date().toISOString(),
       status: 'completed',
@@ -1174,6 +1218,7 @@ export async function processPiHarnessQuery(input: {
       }
     }
 
+    flushUnreconciledToolResults()
     emitChunk(
       stream,
       {
@@ -1199,13 +1244,14 @@ export async function processPiHarnessQuery(input: {
         errorObj.name === 'AbortError' ||
         errorObj.message.includes('aborted'))
 
-    await agentTurnRepository.update(currentTurn.id, {
+    void persistTerminalTurn({
       assistantText: streamedAssistantText || undefined,
       completedAt: new Date().toISOString(),
       status: isAborted ? 'cancelled' : 'failed',
       cumulativeInputTokens: latestInputTokens
     })
 
+    flushUnreconciledToolResults()
     if (isAborted) {
       cancellationPending = true
       return

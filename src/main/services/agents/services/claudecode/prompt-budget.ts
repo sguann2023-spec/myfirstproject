@@ -3,13 +3,6 @@ import { loggerService } from '@logger'
 const logger = loggerService.withContext('PromptBudgetProbe')
 const previousFingerprintsBySession = new Map<string, RequestFingerprints>()
 
-type Segment = {
-  name: string
-  chars: number
-  approxTokens: number
-  hash: string
-}
-
 type RequestFingerprints = {
   model: string
   system: string
@@ -17,15 +10,6 @@ type RequestFingerprints = {
   mcp: string
   skills: string
   messages: string
-}
-
-type PromptShapeSummary = {
-  chars: number
-  lines: number
-  hasDataUrl: boolean
-  hasBase64Marker: boolean
-  headPreview: string
-  tailPreview: string
 }
 
 export function logPromptBudgetProbe(args: {
@@ -48,25 +32,6 @@ export function logPromptBudgetProbe(args: {
   recentTurnsCount?: number
   referencedArtifactsCount?: number
 }): void {
-  const segments: Segment[] = [
-    segment('userPrompt', args.prompt),
-    segment('systemPrompt', args.systemPrompt),
-    segment('builtinTools', args.builtinTools),
-    segment('autoAllowedTools', args.autoAllowedTools),
-    segment('mcpServers', args.mcpServerNames),
-    segment('activeSkills', args.activeSkills)
-  ]
-
-  if (args.promptLengths) {
-    for (const [name, length] of Object.entries(args.promptLengths)) {
-      segments.push({
-        name: `promptLength:${name}`,
-        chars: length,
-        approxTokens: estimateTokensFromChars(length),
-        hash: hashStable(length)
-      })
-    }
-  }
 
   const fingerprints: RequestFingerprints = {
     model: hashStable(args.model),
@@ -78,43 +43,10 @@ export function logPromptBudgetProbe(args: {
   }
   const previous = previousFingerprintsBySession.get(args.sessionId)
   previousFingerprintsBySession.set(args.sessionId, fingerprints)
-  const promptShape = summarizePromptShape(args.prompt)
 
   const changed = previous
     ? (Object.keys(fingerprints) as Array<keyof RequestFingerprints>).filter((key) => previous[key] !== fingerprints[key])
     : []
-
-  logger.info('[PromptBudget] request surface', {
-    agentId: args.agentId,
-    sessionId: args.sessionId,
-    traceId: args.traceId,
-    segmentId: args.segmentId,
-    parentSegmentId: args.parentSegmentId,
-    model: args.model,
-    systemPromptVersion: args.systemPromptVersion,
-    systemPromptHash: args.systemPromptHash,
-    continuationSummaryChars: args.continuationSummaryChars ?? 0,
-    recentTurnsCount: args.recentTurnsCount ?? 0,
-    referencedArtifactsCount: args.referencedArtifactsCount ?? 0,
-    segments,
-    diagnosticSurfaceApproxTokens: segments.reduce((total, item) => total + item.approxTokens, 0),
-    estimateScope: 'Internal diagnostic surface, not wire input: includes permission metadata and duplicate prompt lengths; excludes tool schemas. Use pi provider payload for request sizes and upstream usage for tokens.',
-    promptShape,
-    fingerprints,
-    fingerprintChanged: previous ? changed : ['first-request'],
-    cacheRisk: classifyCacheRisk(changed)
-  })
-
-  logger.info('[PromptCache] fingerprint', {
-    sessionId: args.sessionId,
-    traceId: args.traceId,
-    segmentId: args.segmentId,
-    modelHash: fingerprints.model,
-    systemHash: fingerprints.system,
-    toolsHash: fingerprints.tools,
-    messagesHash: fingerprints.messages,
-    fingerprintChanged: previous ? changed : ['first-request']
-  })
 
   if (previous && changed.some((item) => item !== 'messages')) {
     logger.warn('[PromptCache] break-detected', {
@@ -128,21 +60,6 @@ export function logPromptBudgetProbe(args: {
   }
 }
 
-function segment(name: string, value: unknown): Segment {
-  const text = stringifyStable(value)
-  const chars = text.length
-  return {
-    name,
-    chars,
-    approxTokens: estimateTokensFromChars(chars),
-    hash: hashText(text)
-  }
-}
-
-function estimateTokensFromChars(chars: number): number {
-  return Math.ceil(chars / 4)
-}
-
 function classifyCacheRisk(changed: string[]): 'unknown' | 'low' | 'expected-break' {
   if (changed.length === 0) return 'low'
   if (changed.length === 1 && changed[0] === 'messages') return 'low'
@@ -151,18 +68,6 @@ function classifyCacheRisk(changed: string[]): 'unknown' | 'low' | 'expected-bre
 
 function hashStable(value: unknown): string {
   return hashText(stringifyStable(value))
-}
-
-function summarizePromptShape(prompt: string): PromptShapeSummary {
-  const text = String(prompt || '')
-  return {
-    chars: text.length,
-    lines: text ? text.split('\n').length : 0,
-    hasDataUrl: /data:image\/[a-zA-Z0-9.+-]+;base64,/.test(text),
-    hasBase64Marker: /base64,/i.test(text),
-    headPreview: text.slice(0, 240),
-    tailPreview: text.slice(Math.max(0, text.length - 240))
-  }
 }
 
 function stringifyStable(value: unknown): string {

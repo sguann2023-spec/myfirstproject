@@ -15,8 +15,6 @@ const isCancelledTurn = (message) => Boolean(message?.aborted)
 const visibleTurnError = (message) => shouldSuppressCancelledTurnError(message?.error, isCancelledTurn(message))
   ? null : message?.error;
 
-const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
-
 const getUserImageAttachmentPreviewUrl = (attachment = {}) => (
   String(
     attachment?.previewUrl
@@ -334,19 +332,6 @@ const MessageContent = ({ message, isLoading = false }) => {
     if (assistantBlocks.length === 0) return;
     appStore.dispatch(upsertManyBlocks(assistantBlocks));
   }, [isAssistant, assistantState]);
-
-  React.useEffect(() => {
-    if (!DEBUG_CHAT_LOADING) return;
-    // logger.info({
-    //   messageId: message?.id || '',
-    //   role,
-    //   isLoading,
-    //   contentLength: String(message?.content || '').length,
-    //   hasBlocks: Array.isArray(message?.blocks) && message.blocks.length > 0,
-    //   renderPath: isAssistant ? 'assistant:new-blocks-full' : 'user:legacy-markdown',
-    //   assistantBlockCount: assistantState.blockIds.length
-    // });
-  }, [message, isLoading, role, isAssistant, assistantState.blockIds.length]);
 
   if (!isAssistant) {
     const imageAttachments = Array.isArray(message?.imageAttachments)

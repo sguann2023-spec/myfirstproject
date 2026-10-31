@@ -15,10 +15,6 @@ export async function discoverClaudeCodePlugins(input: {
   const { cwd, enabled, agentId, sessionId } = input
 
   if (!enabled) {
-    logger.info('[ToolRouter] skipped plugin discovery without workspace access', {
-      agentId,
-      sessionId
-    })
     return undefined
   }
 

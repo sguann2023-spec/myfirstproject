@@ -8,14 +8,16 @@ import type {
   SessionStorage,
   SessionTreeEntry
 } from '@earendil-works/pi-agent-core'
-import { and, asc, eq, gt, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 
 import { piInvocationEntriesTable, piSessionEntriesTable, piSessionsTable } from '../schema'
 import type * as schema from '../schema'
-import { withDbWriteLock } from '../dbWriteQueue'
+import { OrderedTaskQueue } from '../orderedTaskQueue'
+import { resolveMessageProjectionTables } from '../messageEventStore'
 import { AgentTranscriptRepository } from './agentTranscriptRepository'
 import type { AgentMessagePart, AgentMessageWithParts } from './agentTranscript.types'
+import { captureOverlayBoundary, isPiOverlay, readOverlayPrefix, type OverlayContextBoundary } from './piOverlayContext'
 
 export interface DurablePiSessionMetadata extends SessionMetadata {
   topicId: string
@@ -23,14 +25,31 @@ export interface DurablePiSessionMetadata extends SessionMetadata {
 }
 
 type AgentDatabase = LibSQLDatabase<typeof schema>
-type AgentTransaction = Parameters<Parameters<AgentDatabase['transaction']>[0]>[0]
-type DatabaseExecutor = AgentDatabase | AgentTransaction
+type DatabaseExecutor = AgentDatabase
 
-type InvocationEntryKind = 'user_message'
+export const PI_HISTORY_LIMITS = {
+  entryBytes: 4 * 1024 * 1024,
+  batchBytes: 4 * 1024 * 1024,
+  totalBytes: 16 * 1024 * 1024,
+  entries: 100000,
+  metadataBatch: 512
+} as const
+// Per-topic admitted tasks (including in-flight/recovery) and UTF-8 payload
+// bytes. This bounds recording backlog, not the live PI tree or JS heap.
+export const PI_PERSISTENCE_LIMITS = {
+  tasks: 1024,
+  bytes: 8 * 1024 * 1024
+} as const
+interface EntryMetadata { id: string; bytes: number }
+
+function historyLimitError(): Error {
+  const error = new Error('PI history exceeds safe reading limits; compact the conversation or start a new session.')
+  error.name = 'PiHistoryLimitError'
+  return error
+}
+
 type PiAgentMessage = Extract<SessionTreeEntry, { type: 'message' }>['message']
 
-const topicQueues = new Map<string, Promise<void>>()
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // pi-agent-core is ESM-only while the main process bundle is CJS, so the class
 // must not be imported statically. Load the real SessionError lazily via native
@@ -62,26 +81,6 @@ async function sessionError(code: SessionErrorCode, message: string, cause?: Err
     }
   }
   return new sessionErrorConstructor(code, message, cause)
-}
-
-function serializeForTopic<T>(topicId: string, operation: () => Promise<T>): Promise<T> {
-  const run = async (): Promise<T> =>
-    // Global DB write lock keeps PI entry transactions from interleaving
-    // statements with canonical transcript transactions on the single libsql
-    // connection (SQLITE_BUSY / "statements in progress"). FIFO order also
-    // preserves per-topic sequencing.
-    withDbWriteLock(operation)
-  const previous = topicQueues.get(topicId) ?? Promise.resolve()
-  const result = previous.then(run, run)
-  const settled = result.then(
-    () => undefined,
-    () => undefined
-  )
-  topicQueues.set(topicId, settled)
-  void settled.finally(() => {
-    if (topicQueues.get(topicId) === settled) topicQueues.delete(topicId)
-  })
-  return result
 }
 
 function nextEntryId(): string {
@@ -239,13 +238,63 @@ function usageForEntry(entry: SessionTreeEntry) {
   return undefined
 }
 
+function overlayInterruptedResult(entry: SessionTreeEntry, contentIndex: number): SessionTreeEntry | undefined {
+  if (entry.type !== 'message' || entry.message.role !== 'assistant' || ['aborted', 'error'].includes(entry.message.stopReason)) return undefined
+  const content = entry.message.content[contentIndex]
+  if (content?.type !== 'toolCall') return undefined
+  return {
+    type: 'message', id: `overlay_interrupted:${entry.id}:${contentIndex}`, parentId: entry.id, timestamp: entry.timestamp,
+    message: { role: 'toolResult', toolCallId: content.id, toolName: content.name,
+      content: [{ type: 'text', text: 'Tool execution was interrupted before completion.' }],
+      isError: true, timestamp: entry.message.timestamp, details: { code: 'interrupted', synthetic: true } }
+  }
+}
+
+interface PiMemoryState {
+  metadata: DurablePiSessionMetadata
+  entries: SessionTreeEntry[]
+  byId: Map<string, SessionTreeEntry>
+  leafId: string | null
+  claims: Map<string, string>
+  hiddenIds: Set<string>
+  overlay: boolean
+  nextSequence: number
+  writes: OrderedTaskQueue
+  persistenceFailed: boolean
+  pendingWrites: number
+  pendingWriteBytes: number
+}
+
+interface DatabaseSessions {
+  topics: Map<string, Promise<PiMemoryState>>
+  owners: Map<string, string>
+  initialization: OrderedTaskQueue
+}
+
+const databaseSessions = new WeakMap<AgentDatabase, DatabaseSessions>()
+
+function sessionsFor(db: AgentDatabase): DatabaseSessions {
+  let sessions = databaseSessions.get(db)
+  if (!sessions) {
+    sessions = { topics: new Map(), owners: new Map(), initialization: new OrderedTaskQueue() }
+    databaseSessions.set(db, sessions)
+  }
+  return sessions
+}
+
+/** Database recovery happens once per database/topic. PI only sees memory thereafter. */
 export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMetadata> {
   private invocationId?: string
+  private state!: PiMemoryState
+  private recoveryWrites: Array<{ operation: () => Promise<void>; bytes: number }> | undefined = []
 
-  private constructor(
-    private readonly topicId: string,
-    private readonly injectedDatabase?: AgentDatabase
-  ) {}
+  private constructor(private readonly topicId: string, private readonly db: AgentDatabase) {}
+
+  private static async database(injected?: AgentDatabase): Promise<AgentDatabase> {
+    if (injected) return injected
+    const { DatabaseManager } = await import('../DatabaseManager')
+    return (await DatabaseManager.getInstance()).getDatabase()
+  }
 
   static async openOrCreate(input: {
     topicId: string
@@ -254,11 +303,28 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     metadata?: Record<string, unknown>
     database?: AgentDatabase
   }): Promise<SqlitePiSessionStorage> {
-    const storage = new SqlitePiSessionStorage(input.topicId, input.database)
+    const db = await this.database(input.database)
+    const sessions = sessionsFor(db)
+    const storage = new SqlitePiSessionStorage(input.topicId, db)
     storage.setInvocationId(input.invocationId)
-    await storage.ensureSession(input.requestedSessionId ?? input.topicId, input.metadata)
-    await storage.hydrateFromCanonicalTranscript(input.invocationId)
-    await storage.closeInterruptedToolCalls()
+    let opening = sessions.topics.get(input.topicId)
+    if (!opening) {
+      opening = sessions.initialization.run(async () => {
+        await storage.restore(input.requestedSessionId ?? input.topicId, input.metadata)
+        sessions.owners.set(storage.state.metadata.id, input.topicId)
+        const writes = storage.recoveryWrites!
+        storage.recoveryWrites = undefined
+        for (const write of writes) storage.scheduleWrite(write.operation, write.bytes)
+        return storage.state
+      })
+      sessions.topics.set(input.topicId, opening)
+      void opening.catch(() => {
+        if (sessions.topics.get(input.topicId) === opening) sessions.topics.delete(input.topicId)
+      })
+    }
+    storage.state = await opening
+    storage.recoveryWrites = undefined
+    // Once a topic exists, its identity wins over any requested replacement ID.
     return storage
   }
 
@@ -267,482 +333,485 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     excludeMessageIds?: string[]
     database?: AgentDatabase
   }): Promise<boolean> {
-    const storage = new SqlitePiSessionStorage(input.topicId, input.database)
-    const db = await storage.database()
-    const [entry] = await db
-      .select({ id: piSessionEntriesTable.entry_id })
-      .from(piSessionEntriesTable)
-      .where(and(eq(piSessionEntriesTable.topic_id, input.topicId), eq(piSessionEntriesTable.entry_type, 'message')))
-      .limit(1)
+    const db = await this.database(input.database)
+    const opening = sessionsFor(db).topics.get(input.topicId)
+    if (opening) {
+      const state = await opening
+      const excluded = new Set(input.excludeMessageIds ?? [])
+      const excludedEntries = new Set([...state.claims].filter(([id]) => excluded.has(id)).map(([, id]) => id))
+      for (const id of excluded) excludedEntries.add(stableEntryId('canonical', input.topicId, id, 0))
+      return state.entries.some(entry => entry.type === 'message' && !state.hiddenIds.has(entry.id) &&
+        !(entry as any).__providerHidden && !excludedEntries.has(entry.id))
+    }
+    const [entry] = await db.select({ id: piSessionEntriesTable.entry_id }).from(piSessionEntriesTable)
+      .where(and(eq(piSessionEntriesTable.topic_id, input.topicId), eq(piSessionEntriesTable.entry_type, 'message'))).limit(1)
     if (entry) return true
     const excluded = new Set(input.excludeMessageIds ?? [])
-    const transcript = await new AgentTranscriptRepository(db).listMessages(input.topicId)
-    return transcript.some((message) => !excluded.has(message.id))
+    if (await isPiOverlay(db)) {
+      const boundary = await captureOverlayBoundary(db, input.topicId)
+      const prefix = await readOverlayPrefix(db, input.topicId, boundary, messageId => messageId)
+      return prefix.some(item => !excluded.has(item.id) && !(item as any).__providerHidden)
+    }
+    return (await new AgentTranscriptRepository(db).listMessages(input.topicId)).some(message => !excluded.has(message.id))
   }
 
   setInvocationId(invocationId: string | undefined): void {
     this.invocationId = invocationId?.trim() || undefined
   }
 
-  private async database(): Promise<AgentDatabase> {
-    if (this.injectedDatabase) return this.injectedDatabase
-    const { DatabaseManager } = await import('../DatabaseManager')
-    return (await DatabaseManager.getInstance()).getDatabase()
+  private stopPersistence(reason: unknown): void {
+    const state = this.state
+    if (state.persistenceFailed) return
+    state.persistenceFailed = true
+    if (this.recoveryWrites) {
+      this.recoveryWrites.length = 0
+      state.pendingWrites = 0
+      state.pendingWriteBytes = 0
+    }
+    console.error('[PiSessionStorage] background persistence stopped', { topicId: this.topicId, error: reason })
   }
 
-  private async ensureSession(requestedSessionId: string, metadata?: Record<string, unknown>): Promise<void> {
-    await serializeForTopic(this.topicId, async () => {
-      const db = await this.database()
-      const now = new Date().toISOString()
-      const [collision] = await db
-        .select({ topicId: piSessionsTable.topic_id })
-        .from(piSessionsTable)
-        .where(eq(piSessionsTable.pi_session_id, requestedSessionId))
-        .limit(1)
-      if (collision && collision.topicId !== this.topicId) {
-        throw await sessionError(
-          'invalid_session',
-          `PI session id ${requestedSessionId} already belongs to topic ${collision.topicId}`
-        )
-      }
+  private enqueue(payload: unknown, operation: () => Promise<void>): void {
+    const state = this.state
+    // Admission happens before extending the Promise chain, including recovery.
+    if (state.persistenceFailed) return
+    let bytes: number
+    try {
+      bytes = Buffer.byteLength(JSON.stringify(payload), 'utf8')
+    } catch (error) {
+      this.stopPersistence(error)
+      return
+    }
+    if (state.pendingWrites >= PI_PERSISTENCE_LIMITS.tasks ||
+      bytes > PI_PERSISTENCE_LIMITS.bytes - state.pendingWriteBytes) {
+      this.stopPersistence(new Error('PI background persistence queue limit exceeded'))
+      return
+    }
+    state.pendingWrites++
+    state.pendingWriteBytes += bytes
+    if (this.recoveryWrites) {
+      this.recoveryWrites.push({ operation, bytes })
+      return
+    }
+    this.scheduleWrite(operation, bytes)
+  }
+
+  private scheduleWrite(operation: () => Promise<void>, bytes: number): void {
+    const state = this.state
+    void state.writes.run(async () => {
       try {
-        await db
-          .insert(piSessionsTable)
-          .values({
-            topic_id: this.topicId,
-            pi_session_id: requestedSessionId,
-            created_at: now,
-            active_leaf_id: null,
-            metadata_json: metadata,
-            updated_at: now
-          })
-          .onConflictDoNothing({ target: piSessionsTable.topic_id })
+        if (state.persistenceFailed) return
+        await operation()
       } catch (error) {
-        const [owner] = await db
-          .select({ topicId: piSessionsTable.topic_id })
-          .from(piSessionsTable)
-          .where(eq(piSessionsTable.pi_session_id, requestedSessionId))
-          .limit(1)
-        if (owner && owner.topicId !== this.topicId) {
-          throw await sessionError(
-            'invalid_session',
-            `PI session id ${requestedSessionId} already belongs to topic ${owner.topicId}`,
-            error as Error
-          )
-        }
-        throw error
-      }
-      const [session] = await db
-        .select({ topicId: piSessionsTable.topic_id, piSessionId: piSessionsTable.pi_session_id })
-        .from(piSessionsTable)
-        .where(eq(piSessionsTable.topic_id, this.topicId))
-        .limit(1)
-      if (!session) {
-        const [collision] = await db
-          .select({ topicId: piSessionsTable.topic_id })
-          .from(piSessionsTable)
-          .where(eq(piSessionsTable.pi_session_id, requestedSessionId))
-          .limit(1)
-        throw await sessionError(
-          'invalid_session',
-          collision
-            ? `PI session id ${requestedSessionId} already belongs to topic ${collision.topicId}`
-            : `Failed to create PI session for topic ${this.topicId}`
-        )
+        // Never retry a partially persisted tree or let SQL failure affect PI.
+        this.stopPersistence(error)
+      } finally {
+        state.pendingWrites--
+        state.pendingWriteBytes -= bytes
       }
     })
   }
 
-  private async hydrateFromCanonicalTranscript(excludeMessageId?: string): Promise<void> {
-    await serializeForTopic(this.topicId, async () => {
-      const db = await this.database()
-      const [countRow] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(piSessionEntriesTable)
-        .where(eq(piSessionEntriesTable.topic_id, this.topicId))
-      if (Number(countRow?.count ?? 0) > 0) return
-
-      const transcript = (await new AgentTranscriptRepository(db).listTranscript(this.topicId)).filter(
-        (item) => !excludeMessageId ||
-          (item.message.id !== excludeMessageId && item.message.parentMessageId !== excludeMessageId)
-      )
-      if (transcript.length === 0) return
-
-      await db.transaction(async (tx) => {
-        let leafId: string | null = null
-        for (const item of transcript) {
-          const projected = canonicalMessageToPi(item)
-          for (let index = 0; index < projected.length; index += 1) {
-            const entry: SessionTreeEntry = {
-              type: 'message',
-              id: stableEntryId('canonical', this.topicId, item.message.id, index),
-              parentId: leafId,
-              timestamp: item.message.createdAt,
-              message: projected[index]
-            }
-            await this.insertEntry(tx, entry, entry.id)
-            leafId = entry.id
-          }
+  private async restore(requestedSessionId: string, metadata?: Record<string, unknown>): Promise<void> {
+    const db = this.db
+    const [row] = await db.select().from(piSessionsTable).where(eq(piSessionsTable.topic_id, this.topicId)).limit(1)
+    const sessionId = row?.pi_session_id ?? requestedSessionId
+    if (!row) {
+      const owner = sessionsFor(db).owners.get(sessionId)
+      const [collision] = await db.select({ topicId: piSessionsTable.topic_id }).from(piSessionsTable)
+        .where(eq(piSessionsTable.pi_session_id, sessionId)).limit(1)
+      if ((owner && owner !== this.topicId) || (collision && collision.topicId !== this.topicId)) {
+        throw await sessionError('invalid_session', `PI session id ${sessionId} already belongs to topic ${owner ?? collision!.topicId}`)
+      }
+    }
+    const stored = await this.getStoredEntries()
+    const claims = await db.select().from(piInvocationEntriesTable).where(eq(piInvocationEntriesTable.topic_id, this.topicId))
+    const overlay = await isPiOverlay(db)
+    const persistedMetadata = structuredClone(row?.metadata_json ?? metadata ?? {})
+    this.state = {
+      metadata: { id: sessionId, topicId: this.topicId, createdAt: row?.created_at ?? new Date().toISOString(),
+        metadata: Object.fromEntries(Object.entries(persistedMetadata).filter(([key]) => !['__canonicalHydration', '__overlayContext'].includes(key))) },
+      entries: [], byId: new Map(), leafId: row?.active_leaf_id ?? null,
+      claims: new Map(claims.filter(claim => claim.entry_kind === 'user_message').map(claim => [claim.invocation_id, claim.entry_id])),
+      hiddenIds: await this.getProviderHiddenCanonicalEntryIds(db), overlay,
+      nextSequence: 0, writes: new OrderedTaskQueue(), persistenceFailed: false,
+      pendingWrites: 0, pendingWriteBytes: 0
+    }
+    if (!row) {
+      const values = { topic_id: this.topicId, pi_session_id: sessionId, created_at: this.state.metadata.createdAt,
+        active_leaf_id: null, metadata_json: structuredClone(persistedMetadata), updated_at: this.state.metadata.createdAt }
+      this.enqueue(values, async () => { await db.insert(piSessionsTable).values(values) })
+    }
+    if (overlay) {
+      let boundary = persistedMetadata.__overlayContext as OverlayContextBoundary | undefined
+      if (boundary || !stored.length) {
+        boundary ??= await captureOverlayBoundary(db, this.topicId, this.invocationId)
+        const prefix = await readOverlayPrefix(db, this.topicId, boundary,
+          (messageId, index) => stableEntryId('canonical', this.topicId, messageId, index))
+        const treeDigest = createHash('sha256').update(JSON.stringify(prefix.map(entry => [entry.id, entry.parentId]))).digest('hex')
+        if (boundary.treeDigest && boundary.treeDigest !== treeDigest) {
+          throw await sessionError('invalid_session', 'PI overlay source context changed or is unavailable; cannot restore its parent tree without migration')
         }
-      })
+        for (const entry of prefix) this.restoreEntry(entry)
+        if (!persistedMetadata.__overlayContext) {
+          persistedMetadata.__overlayContext = { ...boundary, treeDigest }
+          this.state.leafId = prefix[prefix.length - 1]?.id ?? null
+          this.saveRecoveryMetadata(persistedMetadata)
+        }
+      }
+    }
+    for (const entry of stored) this.restoreEntry(entry)
+    for (const [invocationId, entryId] of this.state.claims) {
+      if (!this.state.byId.has(entryId)) this.state.claims.delete(invocationId)
+    }
+    const [sequence] = await db.select({ next: sql<number>`coalesce(max(${piSessionEntriesTable.sequence}), -1) + 1` })
+      .from(piSessionEntriesTable).where(eq(piSessionEntriesTable.topic_id, this.topicId))
+    this.state.nextSequence = Number(sequence?.next ?? 0)
+    if (!overlay) {
+      const marker = persistedMetadata.__canonicalHydration as { complete?: boolean; excludeMessageId?: string } | undefined
+      if (!marker?.complete && (!stored.length || marker)) {
+        const excluded = marker ? marker.excludeMessageId : this.invocationId
+        const transcript = (await new AgentTranscriptRepository(db).listTranscript(this.topicId)).filter(item =>
+          !excluded || (item.message.id !== excluded && item.message.parentMessageId !== excluded))
+        if (transcript.length) {
+          persistedMetadata.__canonicalHydration = { complete: false, excludeMessageId: excluded }
+          this.saveRecoveryMetadata(persistedMetadata)
+          let parentId: string | null = null
+          const messageLeaves = new Map<string, string | null>()
+          for (const item of transcript) {
+            if (item.message.parentMessageId) {
+              if (!messageLeaves.has(item.message.parentMessageId)) {
+                throw await sessionError('invalid_session', `Canonical parent ${item.message.parentMessageId} is unavailable`)
+              }
+              parentId = messageLeaves.get(item.message.parentMessageId) ?? null
+            }
+            const messages = canonicalMessageToPi(item)
+            for (const [index, message] of messages.entries()) {
+              const entry: SessionTreeEntry = { type: 'message', id: stableEntryId('canonical', this.topicId, item.message.id, index),
+                parentId, timestamp: item.message.createdAt, message }
+              if (!this.state.byId.has(entry.id)) this.commitEntry(entry)
+              parentId = entry.id
+            }
+            messageLeaves.set(item.message.id, parentId)
+          }
+          this.state.leafId = parentId
+          persistedMetadata.__canonicalHydration = { complete: true, excludeMessageId: excluded }
+          this.saveRecoveryMetadata(persistedMetadata)
+        }
+      }
+    }
+    const sizes: EntryMetadata[] = []
+    let bytes = 0
+    for (const entry of this.state.entries) {
+      const size = { id: entry.id, bytes: Buffer.byteLength(JSON.stringify(entry)) }
+      bytes = this.checkHistoryMetadata(sizes, size, bytes)
+      sizes.push(size)
+    }
+    // Validate the active tree during recovery, not on every database read.
+    if (this.state.leafId !== null) await this.getPathToRootOrCompaction(this.state.leafId)
+    if (!overlay) await this.closeInterruptedToolCalls()
+  }
+
+  private saveRecoveryMetadata(metadata: Record<string, unknown>): void {
+    const snapshot = structuredClone(metadata)
+    const leafId = this.state.leafId
+    this.enqueue({ topicId: this.topicId, metadata: snapshot, leafId }, async () => {
+      await this.db.update(piSessionsTable).set({ metadata_json: snapshot, active_leaf_id: leafId })
+        .where(eq(piSessionsTable.topic_id, this.topicId))
+    })
+  }
+
+  private restoreEntry(entry: SessionTreeEntry): void {
+    const invocationId = (entry as SessionTreeEntry & { __piInvocationId?: string }).__piInvocationId
+    if (invocationId && entry.type === 'message' && entry.message.role === 'user') {
+      this.state.claims.set(invocationId, entry.id)
+      delete (entry as SessionTreeEntry & { __piInvocationId?: string }).__piInvocationId
+    }
+    if (this.state.byId.has(entry.id)) return
+    this.state.entries.push(entry)
+    this.state.byId.set(entry.id, entry)
+  }
+
+  private commitEntry(entry: SessionTreeEntry, invocationId?: string): void {
+    const state = this.state
+    this.restoreEntry(entry)
+    state.leafId = leafAfterEntry(entry)
+    if (invocationId) state.claims.set(invocationId, entry.id)
+    const sequence = state.nextSequence++
+    const leafId = state.leafId
+    this.enqueue({ topicId: this.topicId, entry, invocationId, sequence, leafId }, async () => {
+      await this.db.insert(piSessionEntriesTable).values({ topic_id: this.topicId, sequence,
+        entry_id: entry.id, parent_entry_id: entry.parentId, entry_type: entry.type,
+        entry_json: { ...entry, ...(invocationId ? { __piInvocationId: invocationId } : {}) }, created_at: entry.timestamp })
+      await this.db.update(piSessionsTable).set({ active_leaf_id: leafId, updated_at: new Date().toISOString() })
+        .where(eq(piSessionsTable.topic_id, this.topicId))
+      if (invocationId) await this.db.insert(piInvocationEntriesTable).values({ topic_id: this.topicId,
+        invocation_id: invocationId, entry_kind: 'user_message', entry_id: entry.id, created_at: entry.timestamp })
     })
   }
 
   private async closeInterruptedToolCalls(): Promise<void> {
-    await serializeForTopic(this.topicId, async () => {
-      const db = await this.database()
-      await db.transaction(async (tx) => {
-        const leafId = await this.getLeafIdWith(tx)
-        if (!leafId) return
-        const path = await this.getPathToRootOrCompactionWith(tx, leafId)
-        const resolved = new Set<string>()
-        const pending: Array<{ id: string; name: string }> = []
-        for (const entry of path) {
-          if (entry.type !== 'message') continue
-          const message: any = entry.message
-          if (message.role === 'toolResult') resolved.add(String(message.toolCallId))
-          // PI drops failed/aborted assistants during provider transformation.
-          // Closing their partial calls would create standalone tool results.
-          if (message.role === 'assistant' && message.stopReason !== 'aborted' && message.stopReason !== 'error') {
-            for (const content of Array.isArray(message.content) ? message.content : []) {
-              if (content?.type === 'toolCall') pending.push({ id: String(content.id), name: String(content.name || 'tool') })
-            }
-          }
-        }
-        let currentLeaf = leafId
-        for (const call of pending) {
-          if (resolved.has(call.id)) continue
-          const entry: SessionTreeEntry = {
-            type: 'message',
-            id: stableEntryId('interrupted_tool', this.topicId, call.id),
-            parentId: currentLeaf,
-            timestamp: new Date().toISOString(),
-            message: {
-              role: 'toolResult',
-              toolCallId: call.id,
-              toolName: call.name,
-              content: [{ type: 'text', text: 'Tool execution was interrupted before completion.' }],
-              details: { code: 'interrupted', synthetic: true },
-              isError: true,
-              timestamp: Date.now()
-            } as PiAgentMessage
-          }
-          if (await this.getEntryWith(tx, entry.id)) continue
-          await this.insertEntry(tx, entry, entry.id)
-          currentLeaf = entry.id
-        }
-      })
-    })
+    const path = await this.getPathToRootOrCompaction(this.state.leafId)
+    const resolved = new Set(path.flatMap(entry => entry.type === 'message' && entry.message.role === 'toolResult' ? [entry.message.toolCallId] : []))
+    for (const entry of path) {
+      if (entry.type !== 'message' || entry.message.role !== 'assistant' || ['aborted', 'error'].includes(entry.message.stopReason)) continue
+      for (const [index, content] of entry.message.content.entries()) {
+        if (content.type !== 'toolCall' || resolved.has(content.id)) continue
+        resolved.add(content.id)
+        const result = overlayInterruptedResult(entry, index)!
+        const id = stableEntryId('interrupted_tool', this.topicId, entry.id, index, this.state.leafId)
+        if (this.state.byId.has(id)) await this.setLeafId(id)
+        else this.commitEntry({ ...result, id, parentId: this.state.leafId })
+      }
+    }
+  }
+
+  async getMetadata(): Promise<DurablePiSessionMetadata> {
+    return structuredClone(this.state.metadata)
+  }
+
+  async getLeafId(): Promise<string | null> {
+    return this.state.leafId
+  }
+
+  async setLeafId(leafId: string | null): Promise<void> {
+    if (leafId !== null && !this.lookupEntry(leafId)) throw await sessionError('not_found', `Entry ${leafId} not found`)
+    // Allocate synchronously so a concurrent move cannot capture a stale leaf.
+    this.commitEntry({ type: 'leaf', id: this.allocateEntryId(), parentId: this.state.leafId,
+      timestamp: new Date().toISOString(), targetId: leafId })
+  }
+
+  private allocateEntryId(): string {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const id = nextEntryId()
+      if (!this.lookupEntry(id)) return id
+    }
+    return randomUUID()
+  }
+
+  async createEntryId(): Promise<string> {
+    return this.allocateEntryId()
+  }
+
+  async appendEntry(entry: SessionTreeEntry): Promise<void> {
+    const snapshot = structuredClone(entry)
+    if (this.state.byId.has(snapshot.id)) {
+      if (JSON.stringify(this.state.byId.get(snapshot.id)) !== JSON.stringify(snapshot)) {
+        throw await sessionError('invalid_entry', `Entry ${snapshot.id} already exists with different content`)
+      }
+      return
+    }
+    const invocationId = snapshot.type === 'message' && snapshot.message.role === 'user' ? this.invocationId : undefined
+    if (invocationId && this.state.claims.has(invocationId)) return
+    if (snapshot.parentId !== null && !this.lookupEntry(snapshot.parentId)) {
+      throw await sessionError('invalid_entry', `Parent entry ${snapshot.parentId} not found`)
+    }
+    if (snapshot.type === 'leaf' && snapshot.targetId !== null && !this.lookupEntry(snapshot.targetId)) {
+      throw await sessionError('invalid_entry', `Entry ${snapshot.targetId} not found`)
+    }
+    if (snapshot.id === snapshot.parentId) throw await sessionError('invalid_entry', `Cycle at entry ${snapshot.id}`)
+    // Explicit parents are intentional branches; never rewrite them to the active leaf.
+    this.commitEntry(snapshot, invocationId)
+  }
+
+  private lookupEntry(id: string): SessionTreeEntry | undefined {
+    if (Buffer.byteLength(id) > 1024) throw historyLimitError()
+    const entry = this.state.byId.get(id)
+    if (entry) return entry
+    const closure = this.state.overlay && /^overlay_interrupted:(.+):(\d+)$/.exec(id)
+    if (!closure) return undefined
+    const assistant = this.state.byId.get(closure[1])
+    return assistant ? overlayInterruptedResult(assistant, Number(closure[2])) : undefined
+  }
+
+  async getEntry(id: string): Promise<SessionTreeEntry | undefined> {
+    const entry = this.lookupEntry(id)
+    return entry ? structuredClone(entry) : undefined
+  }
+
+  private visible(entries: SessionTreeEntry[], closeInterrupted = false): SessionTreeEntry[] {
+    const visible = entries.filter(entry => !this.state.hiddenIds.has(entry.id) && !(entry as any).__providerHidden)
+    const discarded = new Set<string>()
+    const replayable = new Set<string>()
+    for (const entry of visible) {
+      if (entry.type !== 'message' || entry.message.role !== 'assistant') continue
+      const calls = ['aborted', 'error'].includes(entry.message.stopReason) ? discarded : replayable
+      for (const content of entry.message.content) if (content.type === 'toolCall') calls.add(content.id)
+    }
+    const filtered = visible.filter(entry => entry.type !== 'message' || entry.message.role !== 'toolResult' ||
+      !discarded.has(entry.message.toolCallId) || replayable.has(entry.message.toolCallId))
+    if (!this.state.overlay || !closeInterrupted) return filtered
+    const resolved = new Set(filtered.flatMap(entry => entry.type === 'message' && entry.message.role === 'toolResult' ? [entry.message.toolCallId] : []))
+    const result: SessionTreeEntry[] = []
+    for (const entry of filtered) {
+      result.push(entry)
+      if (entry.type !== 'message' || entry.message.role !== 'assistant' || ['aborted', 'error'].includes(entry.message.stopReason)) continue
+      for (const [index, content] of entry.message.content.entries()) {
+        if (content.type !== 'toolCall' || resolved.has(content.id)) continue
+        resolved.add(content.id)
+        result.push(overlayInterruptedResult(entry, index)!)
+      }
+    }
+    return result
+  }
+
+  async findEntries<TType extends SessionTreeEntry['type']>(type: TType): Promise<Array<Extract<SessionTreeEntry, { type: TType }>>> {
+    return (await this.getEntries()).filter(entry => entry.type === type) as Array<Extract<SessionTreeEntry, { type: TType }>>
+  }
+
+  async getLabel(id: string): Promise<string | undefined> {
+    const labels = this.state.entries.filter(entry => entry.type === 'label' && entry.targetId === id)
+    const last = labels[labels.length - 1] as Extract<SessionTreeEntry, { type: 'label' }> | undefined
+    return last?.label?.trim() || undefined
+  }
+
+  async getSessionName(): Promise<string | undefined> {
+    const entries = await this.findEntries('session_info')
+    return entries[entries.length - 1]?.name?.trim() || undefined
+  }
+
+  async getSessionStats(): Promise<SessionStats> {
+    const stats = { messageCount: 0, cachedTokens: 0, uncachedTokens: 0, totalTokens: 0, costTotal: 0 }
+    for (const entry of await this.getEntries()) {
+      if (entry.type === 'message') stats.messageCount++
+      const usage = usageForEntry(entry)
+      if (!usage) continue
+      stats.cachedTokens += Number(usage.cacheRead ?? 0)
+      stats.uncachedTokens += Number(usage.input ?? 0) + Number(usage.cacheWrite ?? 0)
+      stats.totalTokens += Number(usage.input ?? 0) + Number(usage.output ?? 0) + Number(usage.cacheRead ?? 0) + Number(usage.cacheWrite ?? 0)
+      stats.costTotal += Number(usage.cost?.total ?? 0)
+    }
+    return stats
+  }
+
+  async getPathToRootOrCompaction(leafId: string | null): Promise<SessionTreeEntry[]> {
+    const path: SessionTreeEntry[] = []
+    const metadata: EntryMetadata[] = []
+    const visited = new Set<string>()
+    let next = leafId
+    let stopAt: string | null = null
+    let bytes = 0
+    while (next !== null) {
+      if (visited.has(next)) throw await sessionError('invalid_session', `Cycle at entry ${next}`)
+      visited.add(next)
+      const entry = this.lookupEntry(next)
+      if (!entry) throw await sessionError(path.length ? 'invalid_session' : 'not_found', `Entry ${next} not found`)
+      const item = { id: entry.id, bytes: Buffer.byteLength(JSON.stringify(entry)) }
+      bytes = this.checkHistoryMetadata(metadata, item, bytes)
+      metadata.push(item)
+      path.push(entry)
+      if (entry.id === stopAt || (entry.type === 'compaction' && Array.isArray(entry.retainedTail))) break
+      if (entry.type === 'compaction') stopAt = entry.firstKeptEntryId ?? null
+      next = entry.parentId
+    }
+    return structuredClone(this.visible(path.reverse(), true))
+  }
+
+  async getEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
+    const after = options?.afterEntrySeq ?? 0
+    const limit = options?.limit ?? this.state.entries.length
+    if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 0) throw historyLimitError()
+    return structuredClone(this.visible(this.state.entries.slice(after, after + limit)))
   }
 
   private async getProviderHiddenCanonicalEntryIds(db: DatabaseExecutor): Promise<Set<string>> {
-    const hidden = (await new AgentTranscriptRepository(db as AgentDatabase).listTranscript(this.topicId)).filter(
-      ({ message }) => message.semantics?.providerVisibility === 'hidden'
-    )
+    const tables = await resolveMessageProjectionTables(db, this.topicId)
+    const hidden = await db.all<{ id: string; role: string; tools: number }>(sql`
+      SELECT substr(m.id, 1, 1025) AS id, m.role, count(p.id) AS tools
+      FROM ${sql.identifier(tables.agent_messages)} m LEFT JOIN ${sql.identifier(tables.agent_message_parts)} p
+        ON p.session_id = m.session_id AND p.message_id = m.id AND p.type = 'tool'
+      WHERE m.session_id = ${this.topicId}
+        AND json_extract(m.semantics_json, '$.providerVisibility') = 'hidden'
+      GROUP BY m.id, m.role LIMIT ${PI_HISTORY_LIMITS.entries + 1}
+    `)
+    if (hidden.length > PI_HISTORY_LIMITS.entries) throw historyLimitError()
     const ids = new Set<string>()
     for (const item of hidden) {
-      const projected = canonicalMessageToPi(item, true)
-      for (let index = 0; index < projected.length; index += 1) {
-        ids.add(stableEntryId('canonical', this.topicId, item.message.id, index))
+      if (Buffer.byteLength(item.id) > 1024) throw historyLimitError()
+      // Tool parts give an upper bound on projected results. Extra IDs cannot
+      // match another message, and this never loads hidden images/tool bodies.
+      const count = item.role === 'user' ? 1 : item.role === 'assistant' ? 1 + Number(item.tools) : item.role === 'tool' ? Number(item.tools) : 0
+      if (ids.size + count > PI_HISTORY_LIMITS.entries) throw historyLimitError()
+      for (let index = 0; index < count; index += 1) {
+        ids.add(stableEntryId('canonical', this.topicId, item.id, index))
       }
     }
     return ids
   }
 
-  private async filterProviderHiddenCanonicalEntries(
-    db: DatabaseExecutor,
-    entries: SessionTreeEntry[]
-  ): Promise<SessionTreeEntry[]> {
-    const hiddenIds = await this.getProviderHiddenCanonicalEntryIds(db)
-    const visibleEntries = hiddenIds.size === 0 ? entries : entries.filter((entry) => !hiddenIds.has(entry.id))
-    // Older versions may already have persisted results for partial calls.
-    // Preserve the durable records, but never replay results whose assistant
-    // PI's provider transform will discard.
-    const discardedCalls = new Set<string>()
-    const replayableCalls = new Set<string>()
-    for (const entry of visibleEntries) {
-      if (entry.type !== 'message' || entry.message.role !== 'assistant') continue
-      const message = entry.message
-      const calls = message.stopReason === 'aborted' || message.stopReason === 'error' ? discardedCalls : replayableCalls
-      for (const content of message.content) {
-        if (content.type === 'toolCall') calls.add(content.id)
+  private checkHistoryMetadata(previous: EntryMetadata[], row: EntryMetadata, total: number): number {
+    const bytes = Number(row.bytes)
+    if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > PI_HISTORY_LIMITS.entryBytes ||
+      previous.length >= PI_HISTORY_LIMITS.entries || total + bytes > PI_HISTORY_LIMITS.totalBytes) throw historyLimitError()
+    return total + bytes
+  }
+
+  private async readBoundedEntries(db: DatabaseExecutor, metadata: EntryMetadata[]): Promise<SessionTreeEntry[]> {
+    const entries: SessionTreeEntry[] = []
+    let total = 0
+    for (let offset = 0; offset < metadata.length;) {
+      const batch: EntryMetadata[] = []
+      let bytes = 0
+      while (offset < metadata.length && batch.length < PI_HISTORY_LIMITS.metadataBatch && bytes + metadata[offset].bytes <= PI_HISTORY_LIMITS.batchBytes) {
+        const item = metadata[offset++]
+        batch.push(item)
+        bytes += item.bytes
       }
-    }
-    return visibleEntries.filter((entry) => {
-      if (entry.type !== 'message' || entry.message.role !== 'toolResult') return true
-      const id = entry.message.toolCallId
-      return !discardedCalls.has(id) || replayableCalls.has(id)
-    })
-  }
-
-  async getMetadata(): Promise<DurablePiSessionMetadata> {
-    const db = await this.database()
-    const [row] = await db.select().from(piSessionsTable).where(eq(piSessionsTable.topic_id, this.topicId)).limit(1)
-    if (!row) throw await sessionError('not_found', `PI session for topic ${this.topicId} was not found`)
-    return {
-      id: row.pi_session_id,
-      createdAt: row.created_at,
-      topicId: row.topic_id,
-      metadata: row.metadata_json ?? undefined
-    }
-  }
-
-  async getLeafId(): Promise<string | null> {
-    const db = await this.database()
-    const [row] = await db
-      .select({ leafId: piSessionsTable.active_leaf_id })
-      .from(piSessionsTable)
-      .where(eq(piSessionsTable.topic_id, this.topicId))
-      .limit(1)
-    if (!row) throw await sessionError('not_found', `PI session for topic ${this.topicId} was not found`)
-    if (row.leafId && !(await this.getEntry(row.leafId))) {
-      throw await sessionError('invalid_session', `Entry ${row.leafId} not found`)
-    }
-    return row.leafId
-  }
-
-  async setLeafId(leafId: string | null): Promise<void> {
-    await serializeForTopic(this.topicId, async () => {
-      const db = await this.database()
-      await db.transaction(async (tx) => {
-        if (leafId !== null && !(await this.getEntryWith(tx, leafId))) {
-          throw await sessionError('not_found', `Entry ${leafId} not found`)
-        }
-        const currentLeafId = await this.getLeafIdWith(tx)
-        const entry: SessionTreeEntry = {
-          type: 'leaf',
-          id: await this.createEntryIdWith(tx),
-          parentId: currentLeafId,
-          timestamp: new Date().toISOString(),
-          targetId: leafId
-        }
-        await this.insertEntry(tx, entry, leafId)
-      })
-    })
-  }
-
-  async createEntryId(): Promise<string> {
-    const db = await this.database()
-    return this.createEntryIdWith(db)
-  }
-
-  private async createEntryIdWith(db: DatabaseExecutor): Promise<string> {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const id = nextEntryId()
-      if (!(await this.getEntryWith(db, id))) return id
-    }
-    return randomUUID()
-  }
-
-  async appendEntry(entry: SessionTreeEntry): Promise<void> {
-    await serializeForTopic(this.topicId, async () => {
-      const db = await this.database()
-      await db.transaction(async (tx) => {
-        const currentLeafId = await this.getLeafIdWith(tx)
-        if (entry.parentId !== null && !(await this.getEntryWith(tx, entry.parentId))) {
-          throw await sessionError('invalid_entry', `Parent entry ${entry.parentId} not found`)
-        }
-        const orderedEntry = entry.parentId === currentLeafId ? entry : { ...entry, parentId: currentLeafId }
-
-        if (orderedEntry.type === 'message' && orderedEntry.message.role === 'user' && this.invocationId) {
-          const [claim] = await tx
-            .select({ entryId: piInvocationEntriesTable.entry_id })
-            .from(piInvocationEntriesTable)
-            .where(
-              and(
-                eq(piInvocationEntriesTable.topic_id, this.topicId),
-                eq(piInvocationEntriesTable.invocation_id, this.invocationId),
-                eq(piInvocationEntriesTable.entry_kind, 'user_message')
-              )
-            )
-            .limit(1)
-          if (claim) return
-          await this.insertEntry(tx, orderedEntry, leafAfterEntry(orderedEntry))
-          await this.claimInvocationEntry(tx, this.invocationId, 'user_message', orderedEntry.id, orderedEntry.timestamp)
-          return
-        }
-
-        await this.insertEntry(tx, orderedEntry, leafAfterEntry(orderedEntry))
-      })
-    })
-  }
-
-  private async claimInvocationEntry(
-    tx: AgentTransaction,
-    invocationId: string,
-    kind: InvocationEntryKind,
-    entryId: string,
-    createdAt: string
-  ): Promise<void> {
-    await tx.insert(piInvocationEntriesTable).values({
-      topic_id: this.topicId,
-      invocation_id: invocationId,
-      entry_kind: kind,
-      entry_id: entryId,
-      created_at: createdAt
-    })
-  }
-
-  private async insertEntry(tx: AgentTransaction, entry: SessionTreeEntry, leafId: string | null): Promise<void> {
-    let lastError: unknown
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const [sequenceRow] = await tx
-        .select({ nextSequence: sql<number>`coalesce(max(${piSessionEntriesTable.sequence}), -1) + 1` })
-        .from(piSessionEntriesTable)
-        .where(eq(piSessionEntriesTable.topic_id, this.topicId))
-
-      try {
-        await tx.insert(piSessionEntriesTable).values({
-          topic_id: this.topicId,
-          sequence: Number(sequenceRow?.nextSequence ?? 0),
-          entry_id: entry.id,
-          parent_entry_id: entry.parentId,
-          entry_type: entry.type,
-          entry_json: entry as unknown as Record<string, unknown>,
-          created_at: entry.timestamp
-        })
-        lastError = undefined
-        break
-      } catch (error) {
-        lastError = error
-        const message = error instanceof Error ? error.message : String(error)
-        if (!/SQLITE_BUSY|database is locked|unique constraint failed: pi_session_entries\.topic_id, pi_session_entries\.sequence/i.test(message) || attempt === 4) {
-          throw await sessionError('storage', `Failed to append PI session entry ${entry.id}`, error as Error)
-        }
-        await wait(5 * (attempt + 1))
-      }
-    }
-    if (lastError) {
-      throw await sessionError('storage', `Failed to append PI session entry ${entry.id}`, lastError as Error)
-    }
-
-    await tx
-      .update(piSessionsTable)
-      .set({ active_leaf_id: leafId, updated_at: new Date().toISOString() })
-      .where(eq(piSessionsTable.topic_id, this.topicId))
-  }
-
-  async getEntry(id: string): Promise<SessionTreeEntry | undefined> {
-    return this.getEntryWith(await this.database(), id)
-  }
-
-  private async getEntryWith(db: DatabaseExecutor, id: string): Promise<SessionTreeEntry | undefined> {
-    const [row] = await db
-      .select({ entry: piSessionEntriesTable.entry_json })
-      .from(piSessionEntriesTable)
-      .where(and(eq(piSessionEntriesTable.topic_id, this.topicId), eq(piSessionEntriesTable.entry_id, id)))
-      .limit(1)
-    return row?.entry as unknown as SessionTreeEntry | undefined
-  }
-
-  async findEntries<TType extends SessionTreeEntry['type']>(
-    type: TType
-  ): Promise<Array<Extract<SessionTreeEntry, { type: TType }>>> {
-    const db = await this.database()
-    const rows = await db
-      .select({ entry: piSessionEntriesTable.entry_json })
-      .from(piSessionEntriesTable)
-      .where(and(eq(piSessionEntriesTable.topic_id, this.topicId), eq(piSessionEntriesTable.entry_type, type)))
-      .orderBy(asc(piSessionEntriesTable.sequence))
-    return rows.map((row) => row.entry as unknown as Extract<SessionTreeEntry, { type: TType }>)
-  }
-
-  async getLabel(id: string): Promise<string | undefined> {
-    const labels = await this.findEntries('label')
-    let label: string | undefined
-    for (const entry of labels) {
-      if (entry.targetId !== id) continue
-      label = entry.label?.trim() || undefined
-    }
-    return label
-  }
-
-  async getSessionName(): Promise<string | undefined> {
-    const entries = await this.findEntries('session_info')
-    const last = entries[entries.length - 1]
-    return last?.name?.trim() || undefined
-  }
-
-  async getSessionStats(): Promise<SessionStats> {
-    const entries = await this.getEntries()
-    let messageCount = 0
-    let cachedTokens = 0
-    let uncachedTokens = 0
-    let totalTokens = 0
-    let costTotal = 0
-    for (const entry of entries) {
-      if (entry.type === 'message') messageCount += 1
-      const usage = usageForEntry(entry)
-      if (!usage) continue
-      cachedTokens += Number(usage.cacheRead ?? 0)
-      uncachedTokens += Number(usage.input ?? 0) + Number(usage.cacheWrite ?? 0)
-      totalTokens +=
-        Number(usage.input ?? 0) +
-        Number(usage.output ?? 0) +
-        Number(usage.cacheRead ?? 0) +
-        Number(usage.cacheWrite ?? 0)
-      costTotal += Number(usage.cost?.total ?? 0)
-    }
-    return { messageCount, cachedTokens, uncachedTokens, totalTokens, costTotal }
-  }
-
-  async getPathToRootOrCompaction(leafId: string | null): Promise<SessionTreeEntry[]> {
-    return this.getPathToRootOrCompactionWith(await this.database(), leafId)
-  }
-
-  private async getPathToRootOrCompactionWith(
-    db: DatabaseExecutor,
-    leafId: string | null
-  ): Promise<SessionTreeEntry[]> {
-    if (leafId === null) return []
-    const path: SessionTreeEntry[] = []
-    let stopAtEntryId: string | null = null
-    let current = await this.getEntryWith(db, leafId)
-    if (!current) throw await sessionError('not_found', `Entry ${leafId} not found`)
-    while (current) {
-      path.unshift(current)
-      if (stopAtEntryId !== null && current.id === stopAtEntryId) break
-      if (current.type === 'compaction') {
-        if (current.retainedTail) break
-        stopAtEntryId = current.firstKeptEntryId ?? null
-      }
-      if (!current.parentId) break
-      const parent = await this.getEntryWith(db, current.parentId)
-      if (!parent) throw await sessionError('invalid_session', `Entry ${current.parentId} not found`)
-      current = parent
-    }
-    return this.filterProviderHiddenCanonicalEntries(db, path)
-  }
-
-  async getEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
-    const db = await this.database()
-    const afterSequence = options?.afterEntrySeq ?? 0
-    let query = db
-      .select({ entry: piSessionEntriesTable.entry_json })
-      .from(piSessionEntriesTable)
-      .where(
-        and(
-          eq(piSessionEntriesTable.topic_id, this.topicId),
-          gt(piSessionEntriesTable.sequence, afterSequence - 1)
+      if (!batch.length) throw historyLimitError()
+      const ids = sql.join(batch.map(item => sql`${item.id}`), sql`, `)
+      // Recheck actual byte counts in SQL before returning any body, in case a
+      // record changed between metadata and body reads. Oversize bodies are NULL.
+      const rows = await db.all<{ id: string; bytes: number; entry: string | null }>(sql`
+        WITH sizes AS (
+          SELECT entry_id AS id, octet_length(entry_json) AS bytes FROM pi_session_entries
+          WHERE topic_id = ${this.topicId} AND entry_id IN (${ids})
+        ), bounded AS (
+          SELECT id, bytes, sum(bytes) OVER (ORDER BY id ROWS UNBOUNDED PRECEDING) AS running_bytes FROM sizes
         )
-      )
-      .orderBy(asc(piSessionEntriesTable.sequence))
-      .$dynamic()
-    if (options?.limit !== undefined) query = query.limit(options.limit)
-    const rows = await query
-    return this.filterProviderHiddenCanonicalEntries(
-      db,
-      rows.map((row) => row.entry as unknown as SessionTreeEntry)
-    )
+        SELECT bounded.id, bounded.bytes,
+          CASE WHEN bounded.bytes <= ${PI_HISTORY_LIMITS.entryBytes} AND bounded.running_bytes <= ${PI_HISTORY_LIMITS.batchBytes}
+            THEN e.entry_json END AS entry
+        FROM bounded JOIN pi_session_entries e ON e.topic_id = ${this.topicId} AND e.entry_id = bounded.id
+      `)
+      if (rows.length !== batch.length) throw await sessionError('invalid_session', 'History changed during reading')
+      const bodies = new Map<string, { id: string; bytes: number; entry: string | null }>(rows.map(row => [row.id, row]))
+      for (const item of batch) {
+        const row = bodies.get(item.id)!
+        total += Number(row.bytes)
+        if (typeof row.entry !== 'string' || total > PI_HISTORY_LIMITS.totalBytes) throw historyLimitError()
+        const entry = JSON.parse(row.entry) as SessionTreeEntry
+        if (entry.id !== item.id) throw await sessionError('invalid_session', 'History entry identity mismatch')
+        entries.push(entry)
+        bodies.delete(item.id)
+      }
+    }
+    return entries
   }
 
-  private async getLeafIdWith(db: DatabaseExecutor): Promise<string | null> {
-    const [row] = await db
-      .select({ leafId: piSessionsTable.active_leaf_id })
-      .from(piSessionsTable)
-      .where(eq(piSessionsTable.topic_id, this.topicId))
-      .limit(1)
-    if (!row) throw await sessionError('not_found', `PI session for topic ${this.topicId} was not found`)
-    return row.leafId
+  private async getStoredEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
+    const db = this.db
+    const limit = options?.limit ?? PI_HISTORY_LIMITS.entries + 1
+    if (!Number.isSafeInteger(limit) || limit < 0) throw historyLimitError()
+    const metadata: EntryMetadata[] = []
+    let sequence = (options?.afterEntrySeq ?? 0) - 1
+    let total = 0
+    while (metadata.length < limit) {
+      const count = Math.min(PI_HISTORY_LIMITS.metadataBatch, limit - metadata.length)
+      const rows = await db.all<EntryMetadata & { sequence: number }>(sql`
+        SELECT substr(entry_id, 1, 1025) AS id, octet_length(entry_json) AS bytes, sequence
+        FROM pi_session_entries WHERE topic_id = ${this.topicId} AND sequence > ${sequence}
+        ORDER BY sequence LIMIT ${count}
+      `)
+      for (const row of rows) {
+        if (Buffer.byteLength(row.id) > 1024) throw historyLimitError()
+        total = this.checkHistoryMetadata(metadata, row, total)
+        metadata.push({ id: row.id, bytes: Number(row.bytes) })
+        sequence = Number(row.sequence)
+      }
+      if (rows.length < count) break
+    }
+    const entries = await this.readBoundedEntries(db, metadata)
+    return entries
   }
+
 }

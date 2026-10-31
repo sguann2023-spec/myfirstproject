@@ -13,7 +13,6 @@ import { buildErrorSignature } from '../../../../shared/chatError';
 import { buildDigitalHumanRequestAgentPrompt, buildDigitalHumanRequestApiCurl, buildDigitalHumanRequestTextPrompt } from '../../../../shared/digitalHumanRequest';
 import { normalizeTextEffectParams } from '../../../../shared/textEffects';
 import { buildAiVideoRequestCozeClipboardData, buildAudioAddRequestCozeClipboardData, buildDigitalHumanRequestCozeClipboardData, buildDraftModifyRequestCozeClipboardData, buildDraftRequestCozeClipboardData, buildImageAddRequestCozeClipboardData, buildImageGenerateRequestCozeClipboardData, buildPresetAddRequestCozeClipboardData, buildSpeechRequestCozeClipboardData, buildTextAddRequestCozeClipboardData, isDigitalHumanRequestCozeSupported } from './cozeTransforms';
-const DEBUG_CHAT_LOADING = false && process.env.NODE_ENV !== 'production';
 
 const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
   (Array.isArray(attachments) ? attachments : []).map((item) => ({
@@ -856,17 +855,6 @@ const MessageItem = ({
       setDraftDisplayMode('text');
     }
   }, [canShowDraftAgentAction, canShowDraftApiAction, canShowDraftCozeAction, showDraftAgentFormat, showDraftApiFormat, showDraftCozeFormat]);
-
-  React.useEffect(() => {
-    if (!DEBUG_CHAT_LOADING || !isAssistant) return;
-    // logger.info({
-    //   role,
-    //   messageId: message?.id || '',
-    //   isLoading,
-    //   contentLength: String(message?.content || '').length,
-    //   hasError: Boolean(message?.error)
-    // });
-  }, [isAssistant, role, message, isLoading]);
 
   const handleCopy = async (event) => {
     event.stopPropagation();

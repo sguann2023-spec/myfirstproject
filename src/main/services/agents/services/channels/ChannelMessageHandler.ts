@@ -573,7 +573,7 @@ export class ChannelMessageHandler {
     //   stream chunks and events are forwarded to the renderer via the bus.
     // When renderer is NOT watching: persist=true (main persists via persistHeadlessExchange),
     //   stream events are NOT forwarded (no subscriber or subscriber arrived late).
-    const { stream, completion } = await sessionMessageService.createSessionMessage(
+    const { stream, historyPersisted } = await sessionMessageService.createSessionMessage(
       session,
       { content },
       abortController,
@@ -625,19 +625,19 @@ export class ChannelMessageHandler {
         }
       }
 
-      await completion
-
       if (rendererIsWatching) {
-        // Notify renderer that stream is complete and data is persisted
+        // Rendering and channel delivery never wait for history writes.
         sessionStreamBus.publish(session.id, {
           sessionId: session.id,
           agentId: session.agent_id,
           type: 'complete'
         })
       }
-      // headless=true means main process persisted; renderer should force-reload from DB.
-      // headless=false means renderer handled persistence; no reload needed.
-      broadcastSessionChanged(session.agent_id, session.id, !rendererIsWatching)
+      void historyPersisted?.then((result) => {
+        if (result?.assistantMessage) {
+          broadcastSessionChanged(session.agent_id, session.id, !rendererIsWatching)
+        }
+      }).catch((error) => logger.error('Background channel history persistence failed', error as Error))
 
       // Trim trailing separator
       return (completedText + currentBlockText).replace(/\n+$/, '')

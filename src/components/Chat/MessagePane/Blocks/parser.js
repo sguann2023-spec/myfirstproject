@@ -1,12 +1,9 @@
 import { MessageBlockStatus, MessageBlockType } from './types';
 import { buildErrorSignature } from '../../../../shared/chatError';
-import { loggerService } from '@logger';
 const TOOL_FENCE_RE = /```(tool|tools|function)\s*\n([\s\S]*?)```/gi;
 const THINK_TAG_RE = /<(?:think|thinking)(?:\s[^>]*)?>([\s\S]*?)<\/(?:think|thinking)>/gi;
 const THINK_ESCAPED_TAG_RE = /&lt;(?:think|thinking)(?:\s[^&]*?)?&gt;([\s\S]*?)&lt;\/(?:think|thinking)&gt;/gi;
 const THINK_FENCE_RE = /```thinking\s*\n([\s\S]*?)```/gi;
-const DEBUG_CHAT_LOADING = process.env.NODE_ENV !== 'production';
-const logger = loggerService.withContext('ChatBlocks/parser');
 
 const normalizeStructuredBlockStatus = (status) => {
   const value = String(status || '').toLowerCase();
@@ -242,20 +239,6 @@ export const parseMessageBlocks = ({ message, isLoading = false, preferStructure
       type: MessageBlockType.PLACEHOLDER,
       status: MessageBlockStatus.PROCESSING,
       content: '',
-    });
-  }
-
-  if (DEBUG_CHAT_LOADING) {
-    logger.info({
-      messageId,
-      isLoading,
-      rawLength: raw.length,
-      sourceBlocksCount: Array.isArray(message?.blocks) ? message.blocks.length : 0,
-      useStructuredBlocks: preferStructuredBlocks,
-      structuredBlocksCount: structuredBlocks.length,
-      parsedToolCount: toolBlocks.length,
-      parsedThinkingCount: thinkingBlocks.length,
-      parsedTotalCount: blocks.length
     });
   }
 

@@ -10,6 +10,7 @@ import GuiderPage from './page/GuiderPage/GuiderPage.jsx';
 import { getArtistEffectDownloadUrl, searchDraft } from './api/capcut'; // 新增：导入解析 API和按ID搜索草稿
 import { loggerService } from '@logger';
 import { DownloadController } from './shared/DownloadController.js';
+import { ensureLoginServicesReady } from './shared/loginServicesReady';
 const logger = loggerService.withContext('App');
 
 const toLegacyLanguage = (language) => (String(language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
@@ -29,6 +30,9 @@ function App() {
   const [isHomeRuntimeReady, setIsHomeRuntimeReady] = useState(false);
 
   const prepareHomeRuntime = useCallback(async () => {
+    // Also covers protocol downloads and guider completion, which can bypass login.
+    const { ipcRenderer } = window.require('electron');
+    await ensureLoginServicesReady(ipcRenderer);
     if (!homeRuntimeInitPromise) {
       homeRuntimeInitPromise = import('./page/HomePage/HomePageShell.jsx');
     }
@@ -135,11 +139,14 @@ function App() {
     ipcRenderer.on('protocol-data', onProtocolData);
     ipcRenderer.send('protocol-renderer-ready');
 
-    const onGuiderFinished = () => {
-      setCurrentPage('home');
+    const onGuiderFinished = async () => {
       try {
+        await prepareHomeRuntime();
+        setCurrentPage('home');
         ipcRenderer.send('resize-main-window', { width: 960, height: 640 });
-      } catch (_) {}
+      } catch (error) {
+        logger.warn('Home readiness failed after guider completion:', error);
+      }
     };
     ipcRenderer.on('guider-finished', onGuiderFinished);
 

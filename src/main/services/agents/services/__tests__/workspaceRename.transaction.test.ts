@@ -28,7 +28,7 @@ function setup(fail: 'write' | 'commit' | 'recreated' | '' = '') {
     { id: 'two', agent_id: 'b', accessible_paths: [`${source}/sub`], configuration: { selected_workspace_path: `${source}/sub` } }
   ]
   const writes: any[] = []
-  const database = { transaction: async (callback: any) => {
+  const database = { select: () => ({ from: async () => rows }), transaction: async (callback: any) => {
     const result = await callback({ select: () => ({ from: async () => rows }), update: () => ({ set: (value: any) => ({ where: async () => {
       if (fail === 'write') throw new Error('write failure')
       writes.push(value)
