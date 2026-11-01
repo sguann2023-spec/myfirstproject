@@ -30,7 +30,7 @@ const collectMediaGroups = (parameters, kind) => {
   const groupsById = new Map();
   groups.filter(isPlainObject).forEach((group) => {
     const groupId = String(group.id || '').trim();
-    if (groupId) groupsById.set(groupId, group);
+    if (groupId && !groupsById.has(groupId)) groupsById.set(groupId, group);
   });
   return groupsById;
 };
@@ -130,6 +130,17 @@ export const parseSkillExample = (raw) => {
 
   const inputs = isPlainObject(payload.inputs) ? payload.inputs : {};
   const parameters = isPlainObject(payload.parameters) ? payload.parameters : {};
+  // Invalid bounds must not silently become an unlimited upload slot.
+  for (const kind of ['videos', 'images', 'audios']) {
+    for (const group of (Array.isArray(parameters[kind]?.groups) ? parameters[kind].groups : []).filter(isPlainObject)) {
+      const min = group.min_count == null ? 0 : Number(group.min_count);
+      const max = group.max_count == null ? null : Number(group.max_count);
+      const validCount = (raw, value) => ['number', 'string'].includes(typeof raw)
+        && String(raw).trim() !== '' && Number.isSafeInteger(value);
+      if ((group.min_count != null && (!validCount(group.min_count, min) || min < 0))
+        || (max !== null && (!validCount(group.max_count, max) || max <= 0 || max < Math.max(group.required === true ? 1 : 0, min)))) return null;
+    }
+  }
   const prompt = String(inputs.prompt ?? parameters?.prompt?.default ?? '').trim();
   const model = String(inputs.model ?? parameters?.model?.default ?? '').trim();
   const videos = collectExampleMedia(inputs, collectMediaGroups(parameters, 'videos'), 'videos');
@@ -261,6 +272,8 @@ export const buildSkillExamplePrompt = (prompt, skillName) => {
 
 export const getSkillExampleValidationError = (groups, files, loading = false) => {
   if (loading) return '';
+  const failed = (files || []).find((file) => file?.mediaError);
+  if (failed) return `${failed.slotLabel || failed.name || '示例素材'}：${failed.mediaError}，请移除后重新添加`;
   for (const group of groups || []) {
     const slotId = group.slotId || buildSkillExampleGroupSlotId(group.id, group.kind);
     const count = (files || []).filter((file) => file.slotId === slotId).length;
@@ -270,6 +283,42 @@ export const getSkillExampleValidationError = (groups, files, loading = false) =
   }
   return '';
 };
+
+// Use the browser decoder rather than fetch/HEAD: cross-origin media may load
+// correctly without granting CORS access to JavaScript response headers.
+export const probeSkillExampleMedia = (url, kind, timeoutMs = 15000) => new Promise((resolve) => {
+  const fail = (mediaError) => resolve({ mediaError, durationSeconds: 0, durationLabel: '' });
+  try {
+    if (!['http:', 'https:'].includes(new URL(url).protocol)) return fail('素材链接仅支持 HTTP(S)');
+  } catch {
+    return fail('素材链接格式无效');
+  }
+  if (typeof document === 'undefined' || !['image', 'video', 'audio'].includes(kind)) return fail('无法检查素材');
+  const element = document.createElement(kind === 'image' ? 'img' : kind);
+  let settled = false;
+  const finish = (mediaError = '') => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    const durationSeconds = kind === 'image' ? 0 : normalizeDurationSeconds(element.duration);
+    element.onload = null;
+    element.onloadedmetadata = null;
+    element.onerror = null;
+    element.removeAttribute('src');
+    if (kind !== 'image') element.load?.();
+    resolve({ mediaError, durationSeconds: mediaError ? 0 : durationSeconds,
+      durationLabel: !mediaError && durationSeconds ? formatSkillExampleDuration(durationSeconds) : '' });
+  };
+  const timer = setTimeout(() => finish('素材加载超时'), timeoutMs);
+  element.onerror = () => finish('素材无法访问或格式不支持');
+  if (kind === 'image') {
+    element.onload = () => finish(element.naturalWidth > 0 && element.naturalHeight > 0 ? '' : '图片内容无效');
+  } else {
+    element.preload = 'metadata';
+    element.onloadedmetadata = () => finish(normalizeDurationSeconds(element.duration) ? '' : '素材时长无效');
+  }
+  element.src = url;
+});
 
 export const resolveSkillExampleModel = (requested, options, fallback) => {
   const available = (options || []).filter((item) => item.value && !item.disabled);

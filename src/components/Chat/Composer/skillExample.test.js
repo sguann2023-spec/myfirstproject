@@ -18,6 +18,7 @@ import {
   formatSkillExampleEstimatedUsage,
   loadSkillExample,
   parseSkillExample,
+  probeSkillExampleMedia,
   stashPendingSkillExample
 } from './skillExample.js';
 
@@ -76,6 +77,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   delete window.api;
 });
 
@@ -211,7 +213,7 @@ describe('parseSkillExample', () => {
     expect(example).toMatchObject({ prompt: '用这张图生成餐厅视频', videos: [], images: [expect.objectContaining({ url: 'https://example.com/hero.jpg' })] });
   });
 
-  it.each(['images', 'videos'])('normalizes legacy URI and prefers URL for %s', (kind) => {
+  it.each(['images', 'videos', 'audios'])('normalizes legacy URI and prefers URL for %s', (kind) => {
     const example = parseSkillExample({ inputs: { prompt: '使用素材', [kind]: { hero: [
       { uri: 'https://example.com/legacy' },
       { url: ' https://example.com/preferred ', uri: 'https://example.com/ignored' },
@@ -422,7 +424,7 @@ describe('Composer example attachment construction', () => {
     expect(entries[0].durationLabel).toBe('00:03');
     expect(entries[1]).toMatchObject({ sourceType: 'skill_example', url: 'https://example.com/a.webp' });
   });
-  it.each(['images', 'videos'])('accepts legacy URI and prefers URL when constructing %s', async (kind) => {
+  it.each(['images', 'videos', 'audios'])('accepts legacy URI and prefers URL when constructing %s', async (kind) => {
     const entries = await create({ [kind]: [
       { uri: 'https://example.com/legacy.webp' },
       { url: ' https://example.com/preferred.webp ', uri: 'https://example.com/ignored.png' },
@@ -431,7 +433,7 @@ describe('Composer example attachment construction', () => {
     expect(entries.map((entry) => entry.url)).toEqual([
       'https://example.com/legacy.webp', 'https://example.com/preferred.webp', 'https://example.com/fallback.webp'
     ]);
-    expect(entries.map((entry) => entry.fileType)).toEqual(Array(3).fill(kind === 'images' ? 'image/webp' : 'video/mp4'));
+    expect(entries.map((entry) => entry.fileType)).toEqual(Array(3).fill(kind === 'images' ? 'image/webp' : kind === 'audios' ? 'audio/mpeg' : 'video/mp4'));
   });
   it('handles prompt-only examples without creating attachments', async () => {
     expect(await create({ prompt: '只填文本' })).toEqual([]);
@@ -545,5 +547,133 @@ describe('optional skill example file checks', () => {
     window.api = { fs: { exists: vi.fn().mockResolvedValue(true), readText: vi.fn().mockResolvedValue('{}') } };
     expect(await readOptionalSkillExampleText('/skills/template')).toBe('{}');
     expect(window.api.fs.readText).toHaveBeenCalledWith('/skills/template/example.json');
+  });
+});
+
+const realExample = JSON.parse(readFileSync(`${process.cwd()}/resources/quick/skills/tuangou-one-image-draft/example.json`, 'utf8'));
+const boundaryData = realExample.test_data;
+const mediaKinds = [['image', 'images'], ['audio', 'audios'], ['video', 'videos']];
+
+describe('example.json executable boundary data', () => {
+  it('keeps test inputs separate from the production one-image example', () => {
+    const production = parseSkillExample(realExample);
+    expect(production.images).toHaveLength(1);
+    expect(production.audios).toEqual([]);
+    expect(production.videos).toEqual([]);
+    const example = parseSkillExample(boundaryData.example);
+    const files = mediaKinds.flatMap(([kind, key]) => example[key].map((file) => ({
+      ...file, slotId: buildSkillExampleGroupSlotId(file.groupId, kind)
+    })));
+    expect(new Set(example.groups.map((group) => buildSkillExampleGroupSlotId(group.id, group.kind))).size).toBe(3);
+    expect(getSkillExampleValidationError(example.groups, files)).toBe('');
+  });
+
+  describe.each(mediaKinds)('%s bounds and malformed inputs', (kind, key) => {
+    it.each(boundaryData.count_cases)('$id', ({ required, min, max, count, expected }) => {
+      const example = parseSkillExample({ parameters: { [key]: { groups: [
+        { id: 'hero', label: '素材', required, min_count: min, max_count: max }
+      ] } }, inputs: { prompt: '测试', [key]: { hero: Array.from({ length: count }, (_, i) => ({
+        url: `https://media-test.invalid/${i}`
+      })) } } });
+      const files = example[key].map((file) => ({ ...file, slotId: buildSkillExampleGroupSlotId(file.groupId, kind) }));
+      // Same-name files of another kind must not contribute to the count.
+      files.push({ slotId: buildSkillExampleGroupSlotId('hero', kind === 'image' ? 'audio' : 'image') });
+      expect(getSkillExampleValidationError(example.groups, files)).toBe(expected ? `素材${expected}` : '');
+      expect(getSkillExampleValidationError(example.groups, files, true)).toBe('');
+    });
+
+    it.each(boundaryData.invalid_bounds)('rejects invalid bounds %j', (bounds) => {
+      expect(parseSkillExample({ inputs: { prompt: '测试' }, parameters: {
+        [key]: { groups: [{ id: 'hero', ...bounds }] }
+      } })).toBeNull();
+    });
+
+    it('skips malformed files and non-array groups, preserving required constraints', () => {
+      const example = parseSkillExample({ parameters: { [key]: { groups: [
+        { id: 'hero', label: '素材', required: true, min_count: 1, max_count: 2 }
+      ] } }, inputs: { prompt: '测试', [key]: { hero: [null, [], 'url', {}, { url: '' }], wrong: {} } } });
+      expect(example[key]).toEqual([]);
+      expect(getSkillExampleValidationError(example.groups, [])).toBe('素材最少需要1个文件');
+    });
+
+    it('accepts numeric string bounds and uses the first duplicate group definition consistently', () => {
+      const example = parseSkillExample({ parameters: { [key]: { groups: [
+        { id: 'hero', label: '第一个', min_count: '1', max_count: '2' },
+        { id: 'hero', label: '第二个', min_count: 0, max_count: 4 }
+      ] } }, inputs: { prompt: '测试', [key]: { hero: [{ url: 'https://media-test.invalid/hero' }] } } });
+      expect(example.groups).toHaveLength(1);
+      expect(example.groups[0]).toMatchObject({ label: '第一个', minCount: 1, maxCount: 2 });
+      expect(example[key][0].groupLabel).toBe('第一个');
+    });
+  });
+});
+
+describe.each(mediaKinds)('%s remote media readiness', (kind) => {
+  const mockElement = () => {
+    const element = { duration: 3, naturalWidth: 100, naturalHeight: 100, removeAttribute: vi.fn(), load: vi.fn() };
+    vi.spyOn(document, 'createElement').mockReturnValue(element);
+    return element;
+  };
+  const succeed = (element) => (kind === 'image' ? element.onload() : element.onloadedmetadata());
+
+  it.each(boundaryData.network_cases)('$id', async ({ url, event, expected }) => {
+    vi.useFakeTimers();
+    const element = mockElement();
+    const promise = probeSkillExampleMedia(url, kind);
+    if (event === 'success') succeed(element);
+    if (event === 'error') element.onerror();
+    if (event === 'timeout') {
+      await vi.advanceTimersByTimeAsync(14999);
+      expect(element.removeAttribute).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    const result = await promise;
+    expect(result.mediaError).toBe(expected);
+    if (event !== 'none') {
+      expect(element.removeAttribute).toHaveBeenCalledWith('src');
+      expect(element.onerror).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    } else expect(document.createElement).not.toHaveBeenCalled();
+    if (expected) expect(result.durationSeconds).toBe(0);
+    else expect(result.durationSeconds).toBe(kind === 'image' ? 0 : 3);
+  });
+
+  it.each([0, -1, Infinity, NaN])('rejects invalid decoded dimensions/duration %s', async (value) => {
+    const element = mockElement();
+    element.duration = value;
+    element.naturalWidth = 0;
+    const promise = probeSkillExampleMedia('https://media-test.invalid/empty', kind);
+    succeed(element);
+    expect((await promise).mediaError).toBe(kind === 'image' ? '图片内容无效' : '素材时长无效');
+  });
+
+  it('retains a failed production attachment, blocks sending and recovers after removal/replacement', async () => {
+    const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
+    const helper = source.slice(source.indexOf('const createRemoteAttachmentEntry ='), source.indexOf('const createVideoTemplateAttachmentEntries ='));
+    const create = new Function('getRemoteMediaUrlFileName', 'guessFileTypeFromName', 'getFileKindFromType',
+      'readMediaMetadata', 'probeSkillExampleMedia', `${helper}; return createRemoteAttachmentEntry;`)(
+      () => 'hero', () => `${kind}/test`, () => kind, vi.fn(), probeSkillExampleMedia);
+    const element = mockElement();
+    const promise = create({ url: 'https://media-test.invalid/missing', fileType: `${kind}/test`, sourceType: 'skill_example' });
+    element.onerror();
+    const entry = { ...await promise, slotId: buildSkillExampleGroupSlotId('hero', kind), slotLabel: '素材' };
+    expect(entry.mediaError).toBe('素材无法访问或格式不支持');
+    const group = { id: 'hero', label: '素材', kind, required: false, minCount: 1, maxCount: 1 };
+    expect(getSkillExampleValidationError([group], [entry])).toContain('请移除后重新添加');
+    expect(getSkillExampleValidationError([group], [])).toBe('');
+    expect(getSkillExampleValidationError([{ ...group, required: true }], [])).toContain('最少需要1个');
+    const replacement = { ...entry };
+    delete replacement.mediaError;
+    expect(getSkillExampleValidationError([{ ...group, required: true }], [replacement])).toBe('');
+  });
+});
+
+describe('remote filename decoding', () => {
+  it('does not throw on malformed percent encoding', () => {
+    const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
+    const helper = source.slice(source.indexOf('const getRemoteMediaUrlFileName ='), source.indexOf('const getTemplateMediaTypeByContentItem ='));
+    const getName = new Function('getBaseName', `${helper}; return getRemoteMediaUrlFileName;`)((path) => path.split('/').pop());
+    expect(getName('https://media-test.invalid/bad%ZZ.mp4')).toBe('bad%ZZ.mp4');
+    expect(getName('https://media-test.invalid/%E4%B8%BB%E5%9B%BE.jpg?token=1')).toBe('主图.jpg');
   });
 });

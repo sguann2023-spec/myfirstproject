@@ -47,6 +47,7 @@ import {
   getSkillExampleUploadAccept,
   buildSkillExamplePrompt,
   getSkillExampleValidationError,
+  probeSkillExampleMedia,
   resolveSkillExampleModel
 } from './skillExample';
 import VideoToolDetail from './VideoToolDetail/index';
@@ -1206,7 +1207,12 @@ const getRemoteMediaUrlFileName = (value = '') => {
     const parsedUrl = new URL(normalizedValue);
     return decodeURIComponent(getBaseName(parsedUrl.pathname || ''));
   } catch (_error) {
-    return decodeURIComponent(getBaseName(normalizedValue.split('?')[0] || ''));
+    const basename = getBaseName(normalizedValue.split('?')[0] || '');
+    try {
+      return decodeURIComponent(basename);
+    } catch {
+      return basename;
+    }
   }
 };
 const getTemplateMediaTypeByContentItem = (item = {}) => {
@@ -1229,7 +1235,9 @@ const createRemoteAttachmentEntry = async ({ uid, name, url, fileType, sourceTyp
   const resolvedName = String(name || '').trim() || getRemoteMediaUrlFileName(normalizedUrl) || '附件';
   const resolvedFileType = String(fileType || '').trim() || guessFileTypeFromName(resolvedName);
   const kind = getFileKindFromType(resolvedFileType);
-  const mediaMetadata = kind === 'video'
+  const mediaMetadata = sourceType === 'skill_example'
+    ? await probeSkillExampleMedia(normalizedUrl, kind)
+    : kind === 'video'
     ? await readMediaMetadata(normalizedUrl, 'video')
     : kind === 'audio'
       ? await readMediaMetadata(normalizedUrl, 'audio')
@@ -1246,6 +1254,7 @@ const createRemoteAttachmentEntry = async ({ uid, name, url, fileType, sourceTyp
     localPreviewUrl: '',
     durationLabel: mediaMetadata.durationLabel,
     durationSeconds: mediaMetadata.durationSeconds,
+    ...(mediaMetadata.mediaError ? { mediaError: mediaMetadata.mediaError } : {}),
     sourcePath: normalizedUrl,
     sourceType,
     sourceLabel,
