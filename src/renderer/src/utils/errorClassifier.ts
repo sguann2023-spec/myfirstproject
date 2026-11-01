@@ -9,6 +9,7 @@ export interface ErrorClassification {
     | 'quota'
     | 'context_length'
     | 'payload'
+    | 'request'
     | 'network'
     | 'proxy'
     | 'stream'
@@ -30,13 +31,23 @@ export function isInsufficientBalanceError(error?: SerializedError): boolean {
   return /\binsufficient[\s_]+(?:remaining[\s_]+)?(?:balance|points?|credits?)\b|\b(?:balance|points?|credits?)[\s_]+(?:is[\s_]+)?insufficient\b|(?:余额|餘額|积分|積分|剩余点数|剩餘點數|点数|點數)不足/i.test(text)
 }
 
+export function getHttpErrorStatus(error?: SerializedError): number | undefined {
+  const status = error?.statusCode ?? error?.status
+  const numeric = typeof status === 'number' ? status : typeof status === 'string' && /^[45]\d{2}$/.test(status) ? Number(status) : undefined
+  if (numeric !== undefined && Number.isInteger(numeric) && numeric >= 400 && numeric < 600) return numeric
+  // PI may preserve only the SDK message, without structured HTTP status fields.
+  const message = error?.message?.trim() ?? ''
+  const match = message.match(/^([45]\d{2})(?:\s+status code\b|\s*:)/i) ??
+    message.match(/\b(?:http(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*([45]\d{2})\b/i)
+  return match ? Number(match[1]) : undefined
+}
+
 export function classifyError(error?: SerializedError, providerId?: string): ErrorClassification {
   if (!error) {
     return { category: 'unknown', i18nKey: 'error.diagnosis.unknown', navTarget: null }
   }
 
-  const status = (error as Record<string, unknown>).statusCode ?? (error as Record<string, unknown>).status
-  const numStatus = typeof status === 'number' ? status : typeof status === 'string' ? parseInt(status, 10) : undefined
+  const numStatus = getHttpErrorStatus(error)
   const msg = ((error.message as string) || '').toLowerCase()
   const code = String((error as Record<string, unknown>).code ?? '').toLowerCase()
   const name = String(error.name ?? '').toLowerCase()
@@ -223,6 +234,10 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
   // MCP errors
   if (msg.includes('mcp server') || msg.includes('mcp connection') || msg.includes('mcp error')) {
     return { category: 'mcp', i18nKey: 'error.diagnosis.mcp', navTarget: '/settings/mcp/servers' }
+  }
+
+  if (numStatus === 400) {
+    return { category: 'request', i18nKey: 'error.diagnosis.request_rejected', navTarget: null }
   }
 
   // Response parse errors

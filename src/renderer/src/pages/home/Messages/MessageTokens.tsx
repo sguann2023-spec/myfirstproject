@@ -216,7 +216,17 @@ function resolveMessageBlock(state: any, blockRef: unknown): BlockLike | null {
 }
 
 const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
-  const currentMessage = useAppSelector((state: any) => state.messages?.entities?.[message.id] ?? message)
+  const currentMessage = useAppSelector((state: any) => {
+    const stored = state.messages?.entities?.[message.id]
+    if (!stored) return message
+    return {
+      ...message,
+      ...stored,
+      usage: stored.usage ?? message.usage,
+      usageSteps: stored.usageSteps?.length ? stored.usageSteps : message.usageSteps,
+      metrics: stored.metrics ?? message.metrics
+    }
+  }, shallowEqual)
 
   // const { generating } = useRuntime()
   const locateMessage = () => {
@@ -436,6 +446,8 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const displayUsage = getDisplayUsage()
+  const hasReportedUsage = Boolean(displayUsage) || Number(currentMessage?.metrics?.completion_tokens ?? 0) > 0
+  const incompleteUsage = !displayUsage || internalToolUsage.missing || Boolean(currentMessage.error) || currentMessage.status === 'error' || currentMessage.aborted
 
   const getAggregatedUsage = () => {
     const usage = displayUsage
@@ -491,7 +503,11 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   const getPriceString = () => {
     const price = getPrice()
-    if (internalToolUsage.missingBilling && price === 0 && !internalToolUsage.hasKnownBilling) return '未返回'
+    const missingModelBilling = !displayUsage
+    if (missingModelBilling || internalToolUsage.missingBilling) {
+      if (price > 0) return `≥${price.toFixed(2)}`
+      if (missingModelBilling || !internalToolUsage.hasKnownBilling) return t('message.accounting.unavailable')
+    }
     return price.toFixed(2)
   }
 
@@ -517,7 +533,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
             <span>{detail.label}</span>
             <TooltipValue>
               <TooltipPointIcon src={POINT2_ICON_URL} alt="" aria-hidden="true" />
-              <span>{formatPoints(detail.points)}</span>
+              <span>{index === 0 && !displayUsage ? t('message.accounting.unavailable') : formatPoints(detail.points)}</span>
             </TooltipValue>
           </TooltipRow>
         ))}
@@ -527,11 +543,11 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     const tokensInfo = (
       <span className="tokens">
         Tokens:
-        <span>{internalToolUsage.missing && aggregatedUsage.total_tokens === 0
-          ? '未返回'
+        <span>{(!hasReportedUsage || internalToolUsage.missing) && aggregatedUsage.total_tokens === 0
+          ? t('message.accounting.unavailable')
           : formatTokenCount(aggregatedUsage.total_tokens)}</span>
-        <span>↑{formatTokenCount(aggregatedUsage.prompt_tokens)}</span>
-        <span>↓{formatTokenCount(aggregatedUsage.completion_tokens)}</span>
+        <span>↑{displayUsage || internalToolUsage.total_tokens > 0 ? formatTokenCount(aggregatedUsage.prompt_tokens) : t('message.accounting.unavailable')}</span>
+        <span>↓{hasReportedUsage || internalToolUsage.total_tokens > 0 ? formatTokenCount(aggregatedUsage.completion_tokens) : t('message.accounting.unavailable')}</span>
         {cacheReadSummaryText ? <span>{cacheReadSummaryText}</span> : null}
         <EstimatedPriceSpan>
           <span>| 预估消耗:</span>
@@ -541,6 +557,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
           </EstimatedPriceValue>
         </EstimatedPriceSpan>
         {cacheSavingText ? <span>{cacheSavingText}</span> : null}
+        {incompleteUsage ? <span>| {t('message.accounting.incomplete')}</span> : null}
       </span>
     )
 

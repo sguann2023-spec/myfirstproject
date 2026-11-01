@@ -20,7 +20,6 @@ const MessageGroup = ({
   hasConnectedExternalAgent = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
-  onDeleteAssistantMessage,
   actionsDisabled = false,
   formatMessageTime,
   model,
@@ -40,7 +39,6 @@ const MessageGroup = ({
           hasConnectedExternalAgent={hasConnectedExternalAgent}
           onCopyAssistantMessage={onCopyAssistantMessage}
           onRetryAssistantMessage={onRetryAssistantMessage}
-          onDeleteAssistantMessage={onDeleteAssistantMessage}
           actionsDisabled={actionsDisabled}
           formatMessageTime={formatMessageTime}
           model={model}
@@ -112,7 +110,6 @@ export default React.memo(MessageGroup, (prevProps, nextProps) => (
   && prevProps.hasConnectedExternalAgent === nextProps.hasConnectedExternalAgent
   && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
   && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
-  && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage
   && prevProps.actionsDisabled === nextProps.actionsDisabled
   && prevProps.loadingMessageId === nextProps.loadingMessageId
   && prevProps.model === nextProps.model

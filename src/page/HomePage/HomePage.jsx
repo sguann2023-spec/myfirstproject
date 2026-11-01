@@ -37,6 +37,7 @@ import { getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError, shouldSuppressCancelledTurnError } from '../../shared/chatError';
+import { sendChatRetry } from '../../shared/chatRetry';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
 import { normalizeImageAddRequestPayload } from '../../shared/imageAddRequest';
@@ -1731,6 +1732,9 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
     blocks,
     content: buildAssistantDisplayContentFromBlocks(blocks),
     usage: message?.usage ? { ...message.usage } : undefined,
+    usageSteps: Array.isArray(message?.usageSteps) && message.usageSteps.length > 0
+      ? structuredClone(message.usageSteps)
+      : undefined,
     metrics: message?.metrics ? { ...message.metrics } : undefined,
     model: message?.model || undefined
   };
@@ -2538,6 +2542,7 @@ const HomePage = () => {
   const [chatSessions, setChatSessions] = useState(() => [createEmptyChatSession()]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatSending, setChatSending] = useState(false);
+  const chatRetryPendingRef = useRef(new Set());
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
   const [chatSessionInFlightMap, setChatSessionInFlightMap] = useState({});
   const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
@@ -4314,6 +4319,10 @@ const HomePage = () => {
           }, {
             error,
             aborted
+          });
+          // Refresh accounting after queued finish-step events have reached Redux.
+          void streamController?.finished?.then(() => {
+            finalizeChatAssistantMessageLocally({ chatId, assistantMessageId, storeAssistantMessageId }, { error, aborted });
           });
         };
 
@@ -6714,22 +6723,6 @@ const HomePage = () => {
     await navigator.clipboard.writeText(text);
   };
 
-  const handleDeleteAssistantMessage = (message) => {
-    const messageId = message?.id;
-    if (!messageId || !activeChatId) return;
-    setChatSessions((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== activeChatId) return item;
-        return {
-          ...item,
-          updatedAt: Date.now(),
-          messages: item.messages.filter((msg) => msg.id !== messageId),
-        };
-      });
-      return sortChatSessions(updated);
-    });
-  };
-
   const handleOpenChatWebPreview = useCallback((preview) => {
     const normalizedKey = String(preview?.key || '').trim();
     const normalizedUrl = String(preview?.url || '').trim();
@@ -6756,139 +6749,15 @@ const HomePage = () => {
 
   const handleRetryAssistantMessage = async (message) => {
     if (!activeChatId || !canUseAgentRuntime || isChatSessionSending(activeChatId)) return;
-    const messageId = message?.id;
-    if (!messageId) return;
-    const session = chatSessions.find((item) => item.id === activeChatId);
-    if (!session || !Array.isArray(session.messages)) return;
-    const targetIndex = session.messages.findIndex((item) => item.id === messageId && item.role === 'assistant');
-    if (targetIndex < 0) return;
-    const prevUser = [...session.messages.slice(0, targetIndex)].reverse().find((item) => item.role === 'user');
-    if (!prevUser?.content) return;
-
-    setChatSessions((prev) => {
-      const updated = prev.map((item) => {
-        if (item.id !== activeChatId) return item;
-        return {
-          ...item,
-          updatedAt: Date.now(),
-          messages: item.messages.map((msg) => (
-            msg.id === messageId
-              ? {
-                ...msg,
-                content: '',
-                blocks: [],
-                error: null,
-                updatedAt: Date.now(),
-                model: chatModelMeta,
-                modelId: chatModel
-              }
-              : msg
-          )),
-        };
-      });
-      return sortChatSessions(updated);
-    });
-
-    setChatSessionSending(activeChatId, true, 'retry-start');
-    setChatSessionInFlight(activeChatId, true, 'retry-start');
-    setChatSessionFulfilled(activeChatId, false, 'retry-start');
-    setChatSending(true);
-    const requestId = createRequestId();
+    const chatId = activeChatId;
+    if (chatRetryPendingRef.current.has(chatId)) return;
+    const session = chatSessionsRef.current.find((item) => item.id === chatId);
+    if (!session) return;
+    chatRetryPendingRef.current.add(chatId);
     try {
-      const agentSessionId = await ensureAgentSessionForChat(activeChatId);
-      if (prevUser.reversePromptRequest || prevUser.subtitleRecognitionRequest || prevUser.videoUnderstandRequest) {
-        await executeReversePromptRequest({
-          chatId: activeChatId, agentSessionId, requestId, userMessage: prevUser,
-          assistantMessageId: messageId, request: prevUser.videoUnderstandRequest || prevUser.subtitleRecognitionRequest || prevUser.reversePromptRequest,
-          isSubtitle: Boolean(prevUser.subtitleRecognitionRequest),
-          isVideo: Boolean(prevUser.videoUnderstandRequest),
-        });
-        return;
-      }
-      syncLegacyUserMessageToRendererStore({
-        topicId: `home-chat-${activeChatId}`,
-        assistantId: DEFAULT_RUNTIME_AGENT_ID,
-        userMessage: prevUser,
-        images: Array.isArray(prevUser.imageAttachments)
-          ? prevUser.imageAttachments
-              .filter((item) => typeof item?.data === 'string' && typeof item?.media_type === 'string')
-              .map((item) => ({ data: item.data, media_type: item.media_type }))
-          : [],
-      });
-      const streamController = setupChannelStream(
-        appStore.dispatch,
-        appStore.getState,
-        `home-chat-${activeChatId}`,
-        DEFAULT_RUNTIME_AGENT_ID,
-        chatModel,
-        prevUser.id
-      );
-      setChatSessions((prev) => {
-        const updated = prev.map((item) => {
-          if (item.id !== activeChatId) return item;
-          return {
-            ...item,
-            updatedAt: Date.now(),
-            messages: item.messages.map((msg) => (
-              msg.id === messageId
-                ? {
-                  ...msg,
-                  storeAssistantMessageId: streamController.assistantMessageId,
-                  model: msg.model || chatModelMeta,
-                  modelId: msg.modelId || chatModel,
-                  updatedAt: Date.now()
-                }
-                : msg
-            ))
-          };
-        });
-        return sortChatSessions(updated);
-      });
-      chatPendingByRequestIdRef.current.set(requestId, {
-        chatId: activeChatId,
-        agentSessionId,
-        assistantMessageId: messageId,
-        storeAssistantMessageId: streamController.assistantMessageId,
-        streamController
-      });
-      const result = await window.electronAPI.cherryChatStream.createMessage({
-        sessionId: agentSessionId,
-        content: String(prevUser.content || ''),
-        createdAt: Number(prevUser.createdAt) || undefined,
-        requestId,
-        model: chatModel,
-        ...(prevUser.skillTemplateSource ? { skillTemplateSource: prevUser.skillTemplateSource } : {}),
-        ...(prevUser.subtitleStoryboardRequest
-          ? { subtitleStoryboardRequest: { ...prevUser.subtitleStoryboardRequest, requestId } } : {})
-      });
-      if (!result?.ok) throw new Error(result?.error || 'agent retry failed');
-    } catch (error) {
-      chatPendingByRequestIdRef.current.delete(requestId);
-      const normalizedError = normalizeChatError(error);
-      setChatSessions((prev) => {
-        const updated = prev.map((item) => {
-          if (item.id !== activeChatId) return item;
-          return {
-            ...item,
-            updatedAt: Date.now(),
-            messages: item.messages.map((msg) => (
-              msg.id === messageId
-                ? {
-                  ...msg,
-                  error: normalizedError,
-                  updatedAt: Date.now(),
-                  model: msg.model || chatModelMeta,
-                  modelId: msg.modelId || chatModel
-                }
-                : msg
-            )),
-          };
-        });
-        return sortChatSessions(updated);
-      });
-      setChatSessionSending(activeChatId, false, 'retry-catch');
-      setChatSessionInFlight(activeChatId, false, 'retry-catch');
-      setChatSending(false);
+      await sendChatRetry(session.messages, message?.id, handleSendChatMessage);
+    } finally {
+      chatRetryPendingRef.current.delete(chatId);
     }
   };
 
@@ -7144,7 +7013,6 @@ const HomePage = () => {
                 onStopSending={handleStopChatMessage}
                 onCopyAssistantMessage={handleCopyAssistantMessage}
                 onRetryAssistantMessage={handleRetryAssistantMessage}
-                onDeleteAssistantMessage={handleDeleteAssistantMessage}
                 sending={activeChatMessagePaneSending || (!activeChatId && chatSending)}
                 historyLoading={activeChatHistoryLoading}
                 sessionSending={activeChatSending}

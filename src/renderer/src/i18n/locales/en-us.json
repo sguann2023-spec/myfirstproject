@@ -1847,13 +1847,15 @@
       "model": "Model not found or you don't have access",
       "model_conflict": "Diagnosis model is the same as the failing model",
       "network": "Cannot connect to server, check network or proxy settings",
-      "network_failure": "Network connection failed. Please check your network and retry.",
+      "network_failure": "Cannot connect to the model service. Please check your network or proxy settings and retry.",
+      "request_rejected": "The model service could not process this request. Please retry or switch models.",
+      "no_error_details": "The server provided no details, so the cause is unknown. If retrying does not help, contact support with the error code.",
       "unknown_failure": "The request could not be completed. Please retry or switch models.",
       "error_reason": "Error reason: ",
       "missing_reason": "No specific error reason was received. Please try again later or start a new task.",
       "timeout": "The model response timed out. Please try again later or switch models.",
       "empty_response": "The model returned no usable content. Please retry or switch models.",
-      "recovery_reply": "Sorry, an unknown error prevented a response. Please try again later, start a new task, or switch models.",
+      "recovery_reply": "The request could not be completed. Follow the guidance below to retry, or try switching models.",
       "retry_failed": "Retry failed. Please try again later.",
       "ocr": "OCR engine not initialized, check OCR settings",
       "parse": "AI returned an invalid response, please retry or switch model",
@@ -2319,6 +2321,10 @@
     "users": "users"
   },
   "message": {
+    "accounting": {
+      "unavailable": "Not reported",
+      "incomplete": "Usage may be incomplete"
+    },
     "agents": {
       "import": {
         "error": "Import failed"

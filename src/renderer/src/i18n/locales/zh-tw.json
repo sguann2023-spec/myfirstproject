@@ -1847,13 +1847,15 @@
       "model": "模型不存在或你沒有存取權限",
       "model_conflict": "診斷模型與出錯模型相同，無法進行診斷",
       "network": "無法連線到伺服器，請檢查網路或代理設定",
-      "network_failure": "網路連線失敗，請檢查網路後重試",
+      "network_failure": "無法連線到模型服務，請檢查網路或代理設定後重試",
+      "request_rejected": "模型服務未能處理本次請求，請重試或切換模型",
+      "no_error_details": "伺服器未提供具體原因，暫時無法確認問題所在。若重試後仍失敗，請聯絡技術支援並提供錯誤碼。",
       "unknown_failure": "本次請求未能完成，請重試或切換模型",
       "error_reason": "錯誤原因：",
       "missing_reason": "未收到具體錯誤原因，請稍後重試或建立新任務。",
       "timeout": "等待模型回應逾時，請稍後重試或切換模型",
       "empty_response": "模型未回傳有效內容，請重試或切換模型",
-      "recovery_reply": "抱歉，發生未知錯誤暫無回應。您可以稍後重試，或嘗試建立新任務、切換模型。",
+      "recovery_reply": "本次請求未能完成。您可以依照下方提示重試，或嘗試切換模型。",
       "retry_failed": "重試失敗，請稍後再試",
       "ocr": "OCR 識別引擎未初始化，請檢查 OCR 設定",
       "parse": "AI 回傳了無效的回應，請重試或切換模型",
@@ -2319,6 +2321,10 @@
     "users": "使用者"
   },
   "message": {
+    "accounting": {
+      "unavailable": "未回傳",
+      "incomplete": "用量可能不完整"
+    },
     "agents": {
       "import": {
         "error": "匯入失敗"

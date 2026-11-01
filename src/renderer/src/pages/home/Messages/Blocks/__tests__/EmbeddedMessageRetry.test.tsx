@@ -72,7 +72,6 @@ async function render(props: Record<string, unknown> = {}) {
         role="assistant"
         onRetryAssistantMessage={mocks.retry}
         onCopyAssistantMessage={undefined}
-        onDeleteAssistantMessage={undefined}
         formatMessageTime={undefined}
         model={undefined}
         modelOptions={undefined}
@@ -114,6 +113,10 @@ describe('Embedded chat error retry', () => {
     expect(mocks.restartTrace).not.toHaveBeenCalled()
 
     const toolbarButtons = container.querySelectorAll('.chat-panel__message-action-btn')
+    expect(toolbarButtons).toHaveLength(2)
+    expect(toolbarButtons[0].querySelector('.lucide-copy')).not.toBeNull()
+    expect(toolbarButtons[1].querySelector('.lucide-refresh-cw')).not.toBeNull()
+    expect(container.querySelector('.lucide-trash-2')).toBeNull()
     await act(async () => (toolbarButtons[1] as HTMLButtonElement).click())
     expect(mocks.retry).toHaveBeenNthCalledWith(2, hostMessage)
   })

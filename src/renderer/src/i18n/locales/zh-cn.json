@@ -1847,13 +1847,15 @@
       "model": "模型不存在或你没有访问权限",
       "model_conflict": "诊断模型与出错模型相同，无法进行诊断",
       "network": "无法连接到服务器，请检查网络或代理设置",
-      "network_failure": "网络连接失败，请检查网络后重试",
+      "network_failure": "无法连接到模型服务，请检查网络或代理设置后重试",
+      "request_rejected": "模型服务未能处理本次请求，请重试或切换模型",
+      "no_error_details": "服务端未提供具体原因，暂时无法确认问题所在。若重试后仍失败，请联系技术支持并提供错误码。",
       "unknown_failure": "本次请求未能完成，请重试或切换模型",
       "error_reason": "错误原因：",
       "missing_reason": "未收到具体错误原因，请稍后重试或新建任务。",
       "timeout": "等待模型响应超时，请稍后重试或切换模型",
       "empty_response": "模型未返回有效内容，请重试或切换模型",
-      "recovery_reply": "抱歉，发生未知错误暂无响应。您可以稍后重试，或尝试新建任务、切换模型。",
+      "recovery_reply": "本次请求未能完成。您可以根据下方提示重试，或尝试切换模型。",
       "retry_failed": "重试失败，请稍后再试",
       "ocr": "OCR 识别引擎未初始化，请检查 OCR 设置",
       "parse": "AI 返回的格式异常，请重试或更换模型",
@@ -2319,6 +2321,10 @@
     "users": "用户"
   },
   "message": {
+    "accounting": {
+      "unavailable": "未返回",
+      "incomplete": "用量可能不完整"
+    },
     "agents": {
       "import": {
         "error": "导入失败"

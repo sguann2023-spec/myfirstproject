@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Check, Code, Copy, RefreshCw, Trash2, Type } from 'lucide-react';
+import { Bot, Check, Code, Copy, RefreshCw, Type } from 'lucide-react';
 import { Tooltip, message as antMessage } from 'antd';
 import { Provider, useSelector } from 'react-redux';
 import CozeIcon from '../../../../../public/coze.svg';
@@ -664,7 +664,6 @@ const MessageItem = ({
   hasConnectedExternalAgent = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
-  onDeleteAssistantMessage,
   actionsDisabled = false,
   formatMessageTime,
   model,
@@ -929,18 +928,6 @@ const MessageItem = ({
                 <RefreshCw size={15} className="chat-panel__message-action-icon" />
               </button>
             </Tooltip>
-            <Tooltip title="删除" mouseEnterDelay={1} styles={{ body: { fontSize: 12 } }}>
-              <button
-                type="button"
-                className="chat-panel__message-action-btn"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDeleteAssistantMessage && onDeleteAssistantMessage(message);
-                }}
-                disabled={actionsDisabled}>
-                <Trash2 size={15} className="chat-panel__message-action-icon" />
-              </button>
-            </Tooltip>
             <div className="chat-panel__message-tokens">
               {canUseLiveAssistantTokens ? (
                 <Provider store={appStore}>
@@ -1068,7 +1055,6 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     prevProps.role === nextProps.role
     && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
     && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
-    && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage
     && prevProps.hasConnectedExternalAgent === nextProps.hasConnectedExternalAgent
     && prevProps.actionsDisabled === nextProps.actionsDisabled
     && prevProps.isLoading === nextProps.isLoading

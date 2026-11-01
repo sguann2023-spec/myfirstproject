@@ -25,6 +25,7 @@ import { DbService } from '@renderer/services/db/DbService'
 import FileManager from '@renderer/services/FileManager'
 import { BlockManager } from '@renderer/services/messageStreaming/BlockManager'
 import { createCallbacks } from '@renderer/services/messageStreaming/callbacks'
+import { createChannelEventStream } from '@renderer/services/messageStreaming/channelStream'
 import { endSpan } from '@renderer/services/SpanManagerService'
 import { createStreamProcessor, type StreamProcessorCallbacks } from '@renderer/services/StreamProcessingService'
 import store from '@renderer/store'
@@ -2399,6 +2400,7 @@ export const updateBlocks = async (blocks: MessageBlock[]): Promise<void> => {
 // ---------------------------------------------------------------------------
 
 export type ChannelStreamController = {
+  finished: Promise<void>
   pushChunk: (chunk: TextStreamPart<Record<string, any>>) => void
   complete: () => void
   error: (err: Error) => void
@@ -2491,12 +2493,7 @@ export const setupChannelStream = (
     logger.error('Failed to persist initial channel assistant message', err as Error)
   })
 
-  let streamController: ReadableStreamDefaultController<TextStreamPart<Record<string, any>>> | null = null
-  const stream = new ReadableStream<TextStreamPart<Record<string, any>>>({
-    start(controller) {
-      streamController = controller
-    }
-  })
+  const channel = createChannelEventStream()
 
   const assistant: Assistant = { id: agentId, name: '', prompt: '', topics: [], type: 'claude-code', model }
 
@@ -2526,9 +2523,9 @@ export const setupChannelStream = (
   streamProcessorCallbacks({ type: ChunkType.LLM_RESPONSE_CREATED })
 
   const adapter = new AiSdkToChunkAdapter(streamProcessorCallbacks, [], false, false)
-  adapter
+  const finished = adapter
     .processStream({
-      fullStream: stream,
+      fullStream: channel.stream,
       text: Promise.resolve('')
     })
     .catch((err) => {
@@ -2540,14 +2537,9 @@ export const setupChannelStream = (
 
   return {
     assistantMessageId: assistantMessage.id,
-    pushChunk(chunk: TextStreamPart<Record<string, any>>) {
-      streamController?.enqueue(chunk)
-    },
-    complete() {
-      streamController?.close()
-    },
-    error(err: Error) {
-      streamController?.error(err)
-    }
+    finished,
+    pushChunk: channel.pushChunk,
+    complete: channel.complete,
+    error: channel.error
   }
 }

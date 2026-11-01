@@ -264,7 +264,7 @@ export class TextStreamAccumulator {
             totalTokens?: number | null
           }
         }
-        this.commitUsageFromSdk(finishStepPart.usage)
+        this.commitUsageFromSdk(finishStepPart.usage, true)
         break
       }
       case 'finish': {
@@ -378,14 +378,14 @@ export class TextStreamAccumulator {
       cacheReadTokens?: number | null
       cacheWriteTokens?: number | null
     }
-  }): void {
+  }, distinctStep = false): void {
     const normalizedUsage = this.normalizeUsageFromSdk(usage) ?? this.pendingUsage
     if (!normalizedUsage) {
       return
     }
 
     const lastCommittedUsage = this.committedUsageSteps[this.committedUsageSteps.length - 1]
-    if (lastCommittedUsage && JSON.stringify(lastCommittedUsage) === JSON.stringify(normalizedUsage)) {
+    if (!distinctStep && lastCommittedUsage && JSON.stringify(lastCommittedUsage) === JSON.stringify(normalizedUsage)) {
       this.pendingUsage = undefined
       return
     }

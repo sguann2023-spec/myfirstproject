@@ -245,6 +245,22 @@ it('keeps stop visible when a late stream-close error replaces the live snapshot
   expect(container.textContent).toBe('已停止生成');
 });
 
+it('HomePage snapshots retain completed-step accounting when the turn fails', () => {
+  const source = readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
+  const start = source.indexOf('const getAssistantSnapshotFromStore =');
+  const end = source.indexOf('const finalizeStructuredBlocks', start);
+  const saved = {
+    blocks: [],
+    usageSteps: [{ prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500,
+      prompt_tokens_details: { cached_tokens: 200 } }]
+  };
+  const snapshot = Function('appStore', 'buildAssistantDisplayContentFromBlocks',
+    `${source.slice(start, end)}; return getAssistantSnapshotFromStore('reply');`)(
+    { getState: () => ({ messages: { entities: { reply: saved } } }) }, () => '');
+  expect(snapshot.usageSteps).toEqual(saved.usageSteps);
+  expect(snapshot.usageSteps[0].prompt_tokens_details).not.toBe(saved.usageSteps[0].prompt_tokens_details);
+});
+
 it('HomePage finalization preserves cancellation across the stop/error race', () => {
   // Exercise the real callback without mounting HomePage's unrelated editor/runtime.
   const source = readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
@@ -252,17 +268,19 @@ it('HomePage finalization preserves cancellation across the stop/error race', ()
   const end = source.indexOf('\n    });', start);
   const update = source.slice(start, end + '\n    });'.length);
   let message = { role: 'assistant', aborted: true, content: '', blocks: [] };
+  const snapshot = { usageSteps: [{ prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 }] };
   const finalize = (error, aborted = false) => {
     Function('updateChatAssistantMessage', 'chatId', 'assistantMessageId', 'snapshot', 'error', 'aborted',
       'hasInterruptedAssistantState', 'shouldSuppressCancelledTurnError', 'finalizeStructuredBlocks',
       'buildAssistantDisplayContentFromBlocks', 'normalizeMessageModelMeta', 'resolveMessageModelId',
       'chatModelOptionsRef', 'chatModelMetaRef', 'chatModelMeta', 'chatModel', update)(
-      (_chat, _id, change) => { message = change(message); }, 'chat', 'reply', null, error, aborted,
+      (_chat, _id, change) => { message = change(message); }, 'chat', 'reply', snapshot, error, aborted,
       (value) => value.aborted, shouldSuppressCancelledTurnError, (blocks) => blocks,
       () => '', () => null, () => '', { current: [] }, { current: null }, null, 'model');
   };
   finalize({ message: 'agent request failed', category: 'unknown' });
   expect(message).toMatchObject({ aborted: true, error: null });
+  expect(message.usageSteps).toEqual(snapshot.usageSteps);
   finalize({ message: 'Invalid API key', status: 401 });
   expect(message).toMatchObject({ aborted: true, error: { status: 401 } });
   finalize(null, true);

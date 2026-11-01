@@ -39,6 +39,8 @@ vi.mock('@renderer/services/EventService', () => ({
 
 vi.mock('i18next', () => ({
   t: (key: string) => {
+    if (key === 'message.accounting.unavailable') return '未返回'
+    if (key === 'message.accounting.incomplete') return '用量可能不完整'
     if (key === 'settings.messages.estimated_price') {
       return '预估花费'
     }
@@ -47,6 +49,59 @@ vi.mock('i18next', () => ({
 }))
 
 describe('MessageTokens', () => {
+  it('keeps completed step tokens and tool charges visible after a later request fails', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'failed-turn', role: 'assistant', status: 'error',
+      blocks: [{ id: 'read', type: 'tool', toolName: 'read', metadata: {
+        rawMcpToolResponse: { responseRaw: { billing: { consume: 20 } } }
+      } }],
+      model: { pricing: {
+        precise_uncached_input_resource_points_per_unit: 1000,
+        precise_output_resource_points_per_unit: 2000
+      } },
+      usageSteps: [
+        { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+        { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 }
+      ]
+    } as any} />)
+    expect(html).toContain('3.00K')
+    expect(html).toContain('↑2.00K')
+    expect(html).toContain('↓1.00K')
+    expect(html).toContain('24.00')
+    expect(html).toContain('用量可能不完整')
+  })
+
+  it('does not equate missing model usage with zero consumption when a tool charged 20 points', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'missing-usage', role: 'assistant', status: 'error',
+      blocks: [{ id: 'read', type: 'tool', toolName: 'read', metadata: {
+        rawMcpToolResponse: { responseRaw: { billing: { consume: 20 } } }
+      } }]
+    } as any} />)
+    expect(html).toContain('未返回')
+    expect(html).toContain('≥20.00')
+    expect(html).not.toContain('↑0')
+    expect(html).not.toContain('↓0')
+  })
+
+  it('preserves explicit zero usage and fallback steps when the live store has not received accounting', () => {
+    mockState.messages.entities = { 'zero-usage': { id: 'zero-usage', role: 'assistant', blocks: [] } }
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'zero-usage', role: 'assistant', status: 'success', blocks: [],
+      usageSteps: [{ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }]
+    } as any} />)
+    expect(html).toContain('↑0')
+    expect(html).toContain('↓0')
+    expect(html).toContain('0.00')
+    expect(html).not.toContain('未返回')
+    mockState.messages.entities = {}
+  })
+
   it.each([
     { result_summary: { segment_count: 10 } },
     JSON.stringify({ result_summary: { segment_count: 10 } }),
@@ -788,7 +843,9 @@ describe('MessageTokens', () => {
       }]
     } as any} />)
     expect(html).toContain('>150</span>')
-    expect(html).toContain('>1.80</span>')
+    expect(html).toContain('>≥1.80</span>')
+    expect(html).toContain('↑100')
+    expect(html).toContain('↓50')
     expect(html).not.toContain('151.80')
   })
 
@@ -814,11 +871,11 @@ describe('MessageTokens', () => {
         metadata: { rawMcpToolResponse: { response: { billing: { complete: false } } } }
       }]
     } as any} />)
-    expect(html.match(/未返回/g)).toHaveLength(2)
+    expect(html.match(/未返回/g)).toHaveLength(4)
     expect(html).not.toContain('>0.00</span>')
   })
 
-  it('部分阶段未返回计费时数字后不追加已知', () => {
+  it('部分阶段未返回计费时显示已返回消耗的下界', () => {
     mockState.messageBlocks.entities = {}
     const html = renderToStaticMarkup(<MessageTokens message={{
       id: 'reverse-prompt-partial-billing', role: 'assistant',
@@ -830,7 +887,7 @@ describe('MessageTokens', () => {
         } } }
       }]
     } as any} />)
-    expect(html).toContain('>19.71</span>')
+    expect(html).toContain('>≥19.71</span>')
     expect(html).not.toContain('（已知）')
   })
 })
