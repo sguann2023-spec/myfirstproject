@@ -116,7 +116,7 @@ describe('ErrorRecoveryBlock', () => {
 
   it('shows the requested banner and plain response without the raw error', async () => {
     await render()
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('网络连接失败，请检查网络后重试')
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(zhCN.error.diagnosis.network_failure)
     expect(container.textContent).toContain('3002  |  Trace ID: trace-123')
     expect(container.querySelector('p')?.textContent).toBe(zhCN.error.diagnosis.recovery_reply)
     expect(container.textContent).not.toContain('Connection error.')
@@ -219,6 +219,17 @@ describe('ErrorRecoveryBlock', () => {
       { ...message, traceId: undefined })
     expect(container.textContent).not.toContain('3002')
     expect(container.textContent).not.toContain('Trace ID')
+  })
+
+  it.each(['zh-CN', 'en-US', 'zh-TW'])('explains HTTP 400 with no body in %s without claiming a network failure', async language => {
+    await i18n.changeLanguage(language)
+    await render({ ...block, error: { name: 'Error', message: '400 status code (no body)', stack: null } })
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(i18n.t('error.diagnosis.request_rejected'))
+    expect(container.querySelector('.error-recovery__reason')?.textContent).toBe(i18n.t('error.diagnosis.no_error_details'))
+    expect(container.textContent).toContain('HTTP 400')
+    expect(container.textContent).not.toContain('status code (no body)')
+    expect(container.textContent).not.toContain(i18n.t('error.diagnosis.network_failure'))
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
   })
 
   it('does not describe unknown errors as network failures', async () => {

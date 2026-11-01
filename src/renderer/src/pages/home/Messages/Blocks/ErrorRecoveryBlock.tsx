@@ -5,7 +5,7 @@ import { messageBlocksSelectors } from '@renderer/store/messageBlock'
 import { regenerateAssistantResponseThunk } from '@renderer/store/thunk/messageThunk'
 import type { ErrorMessageBlock, Message } from '@renderer/types/newMessage'
 import { MessageBlockType } from '@renderer/types/newMessage'
-import { isInsufficientBalanceError, type ErrorClassification } from '@renderer/utils/errorClassifier'
+import { getHttpErrorStatus, isInsufficientBalanceError, type ErrorClassification } from '@renderer/utils/errorClassifier'
 import { openCreditsPayment } from '../../../../../../shared/openCreditsPayment'
 import { CircleAlert, LoaderCircle, X } from 'lucide-react'
 import React, { useContext, useEffect, useRef, useState } from 'react'
@@ -65,6 +65,8 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
   const needsExplanation = !isAborted && !needsCredits && classification.i18nKey === 'error.diagnosis.unknown'
   const requiresRelogin = classification.category === 'auth_session'
   const errorMessage = block.error?.message?.trim() || ''
+  const httpStatus = getHttpErrorStatus(block.error)
+  const hasNoErrorDetails = httpStatus !== undefined && /\(no body\)/i.test(errorMessage)
   const summaryKey = JSON.stringify([block.error?.name, errorMessage, i18n.language])
   const aiSummary = needsExplanation && summary.key === summaryKey ? summary.text : ''
   const titleKey = needsExplanation
@@ -89,7 +91,7 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
     }
   }, [needsExplanation, errorMessage, summaryKey, block.error, i18n.language])
 
-  const errorCode = block.error?.code ?? block.error?.statusCode ?? block.error?.status
+  const errorCode = block.error?.code ?? (httpStatus ? `HTTP ${httpStatus}` : undefined) ?? block.error?.statusCode ?? block.error?.status
   const traceId = block.error?.traceId ?? block.error?.trace_id ?? message.traceId
   const details = [
     typeof errorCode === 'string' || typeof errorCode === 'number' ? String(errorCode) : '',
@@ -151,9 +153,11 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
               <div className="error-recovery__title">
                 {aiSummary || t(titleKey)}
               </div>
-              {needsExplanation && (
+              {(needsExplanation || hasNoErrorDetails) && (
                 <div className="error-recovery__reason">
-                  {errorMessage
+                  {hasNoErrorDetails
+                    ? t('error.diagnosis.no_error_details')
+                    : errorMessage
                     ? <>{t('error.diagnosis.error_reason')}{errorMessage}</>
                     : t('error.diagnosis.missing_reason')}
                 </div>

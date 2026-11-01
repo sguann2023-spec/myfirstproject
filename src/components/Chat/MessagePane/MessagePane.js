@@ -31,7 +31,6 @@ const MeasuredMessageGroup = React.memo(
     hasConnectedExternalAgent,
     onCopyAssistantMessage,
     onRetryAssistantMessage,
-    onDeleteAssistantMessage,
     sending,
     formatMessageTime,
     model,
@@ -91,7 +90,6 @@ const MeasuredMessageGroup = React.memo(
           hasConnectedExternalAgent={hasConnectedExternalAgent}
           onCopyAssistantMessage={onCopyAssistantMessage}
           onRetryAssistantMessage={onRetryAssistantMessage}
-          onDeleteAssistantMessage={onDeleteAssistantMessage}
           actionsDisabled={sending}
           formatMessageTime={formatMessageTime}
           model={model}
@@ -114,7 +112,6 @@ const MessagePane = ({
   hasConnectedExternalAgent = false,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
-  onDeleteAssistantMessage,
   messageEndRef,
   onQuickPrompt,
   quickPrompts,
@@ -390,7 +387,6 @@ const MessagePane = ({
               hasConnectedExternalAgent={hasConnectedExternalAgent}
               onCopyAssistantMessage={onCopyAssistantMessage}
               onRetryAssistantMessage={onRetryAssistantMessage}
-              onDeleteAssistantMessage={onDeleteAssistantMessage}
               sending={sending}
               formatMessageTime={formatMessageTime}
               model={model}
@@ -466,7 +462,6 @@ export default React.memo(MessagePane, (prevProps, nextProps) => (
   && prevProps.hasConnectedExternalAgent === nextProps.hasConnectedExternalAgent
   && prevProps.onCopyAssistantMessage === nextProps.onCopyAssistantMessage
   && prevProps.onRetryAssistantMessage === nextProps.onRetryAssistantMessage
-  && prevProps.onDeleteAssistantMessage === nextProps.onDeleteAssistantMessage
   && prevProps.messageEndRef === nextProps.messageEndRef
   && prevProps.onQuickPrompt === nextProps.onQuickPrompt
   && prevProps.quickPrompts === nextProps.quickPrompts

@@ -1,7 +1,7 @@
 import type { SerializedError } from '@renderer/types/error'
 import { describe, expect, it } from 'vitest'
 
-import { classifyError, isInsufficientBalanceError } from '../errorClassifier'
+import { classifyError, getHttpErrorStatus, isInsufficientBalanceError } from '../errorClassifier'
 
 function makeError(overrides: Partial<SerializedError> = {}): SerializedError {
   return { name: 'Error', message: 'test error', stack: null, ...overrides }
@@ -17,6 +17,20 @@ describe('classifyError', () => {
   it('returns unknown for empty error', () => {
     const result = classifyError(makeError({ message: '' }))
     expect(result.category).toBe('unknown')
+  })
+
+  it.each(['400 status code (no body)', 'HTTP 400 Bad Request', '400: Bad Request'])('recognizes SDK HTTP errors without structured status: %s', message => {
+    const error = makeError({ message })
+    expect(getHttpErrorStatus(error)).toBe(400)
+    expect(classifyError(error).i18nKey).toBe('error.diagnosis.request_rejected')
+    expect(classifyError(error).category).not.toBe('network')
+  })
+
+  it('uses structured HTTP status before message text and ignores unrelated numbers', () => {
+    expect(getHttpErrorStatus(makeError({ statusCode: 503, message: '400 status code (no body)' }))).toBe(503)
+    expect(getHttpErrorStatus(makeError({ message: 'Read 400 lines' }))).toBeUndefined()
+    expect(getHttpErrorStatus(undefined)).toBeUndefined()
+    expect(classifyError(makeError({ message: '503 status code (no body)' })).category).toBe('server')
   })
 
   // Auth

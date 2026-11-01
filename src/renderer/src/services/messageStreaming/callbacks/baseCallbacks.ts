@@ -38,10 +38,7 @@ const mergeUsageSteps = (currentSteps: Response['usageSteps'], incomingSteps: Re
   const nextSteps = [...(currentSteps || [])]
   for (const step of incomingSteps || []) {
     if (!step) continue
-    const lastStep = nextSteps[nextSteps.length - 1]
-    if (lastStep && JSON.stringify(lastStep) === JSON.stringify(step)) {
-      continue
-    }
+    // Separate finish-step events can legitimately report identical usage.
     nextSteps.push(step)
   }
   return nextSteps

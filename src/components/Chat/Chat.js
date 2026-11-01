@@ -357,7 +357,6 @@ const Chat = ({
   onStopSending,
   onCopyAssistantMessage,
   onRetryAssistantMessage,
-  onDeleteAssistantMessage,
   sending = false,
   historyLoading = false,
   sessionSending = false,
@@ -636,7 +635,6 @@ const Chat = ({
         hasConnectedExternalAgent={hasConnectedExternalAgent}
         onCopyAssistantMessage={onCopyAssistantMessage}
         onRetryAssistantMessage={onRetryAssistantMessage}
-        onDeleteAssistantMessage={onDeleteAssistantMessage}
         messageEndRef={messageEndRef}
         onQuickPrompt={(prompt) => {
           if (prompt && typeof prompt === 'object' && prompt.action) {
