@@ -6,6 +6,7 @@ import { promises as fs } from 'fs'
 
 import { configManager } from './ConfigManager'
 import { isSafeExternalUrl } from './security'
+import { attachWebviewNavigationGuards, isAllowedWebviewUrl } from './webviewNavigation'
 
 const logger = loggerService.withContext('WebviewService')
 const MOBILE_CHROME_USER_AGENT =
@@ -48,6 +49,9 @@ export function setOpenLinkExternal(webviewId: number, isExternal: boolean) {
   if (!webview) return
 
   webview.setWindowOpenHandler(({ url }) => {
+    if (!isAllowedWebviewUrl(url)) {
+      return { action: 'deny' }
+    }
     if (isExternal) {
       if (isSafeExternalUrl(url)) {
         void shell.openExternal(url)
@@ -129,13 +133,18 @@ const attachKeyboardHandler = (contents: Electron.WebContents) => {
 }
 
 export function initWebviewHotkeys() {
-  webContents.getAllWebContents().forEach((contents) => {
-    if (contents.isDestroyed()) return
+  const initializeWebview = (contents: Electron.WebContents) => {
+    if (contents.isDestroyed() || contents.getType() !== 'webview') return
+    attachWebviewNavigationGuards(contents)
     attachKeyboardHandler(contents)
+  }
+
+  webContents.getAllWebContents().forEach((contents) => {
+    initializeWebview(contents)
   })
 
   app.on('web-contents-created', (_, contents) => {
-    attachKeyboardHandler(contents)
+    initializeWebview(contents)
   })
 }
 
