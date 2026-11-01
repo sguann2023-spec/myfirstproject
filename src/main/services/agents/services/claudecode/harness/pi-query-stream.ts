@@ -81,6 +81,8 @@ function isRetriablePiError(error: Error): boolean {
   const name = String(error.name || '').trim()
   const message = String(error.message || '').trim()
   const normalized = `${name} ${message}`.toLowerCase()
+  // A bare 400 has no actionable cause; keep it within the normal retry budget.
+  const isUnexplainedBadRequest = /^(?:http\s+)?400(?:\s+(?:status code|bad request))?(?:\s*\(no body\))?$/i.test(message)
 
   // 非可重试错误：以下三类严格不重试（重试不会改变结果，反而浪费资源）：
   //   1) 鉴权 / 权限类：401 Unauthorized、403 Forbidden、invalid api key、authentication failed 等
@@ -91,7 +93,7 @@ function isRetriablePiError(error: Error): boolean {
   const nonRetriableStatusCodePattern = /\b(400|401|403|404|422)\b/
   const isNonRetriable =
     name === 'AbortError'
-    || nonRetriableStatusCodePattern.test(message)
+    || (nonRetriableStatusCodePattern.test(message) && !isUnexplainedBadRequest)
     || normalized.includes('unauthorized')
     || normalized.includes('forbidden')
     || normalized.includes('invalid api key')

@@ -26,9 +26,10 @@ import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
 import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search'
 import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
-import { preserveMcpResult } from './mcp-result-storage'
+import { preserveMcpResult, projectMcpArtifactForContext } from './mcp-result-storage'
 import { ImageInspectionState } from './image-inspection-state'
 import { normalizeImageGenerationArguments } from './image-generation-action'
+import { createReadImageContextProjector } from './read-image-context'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -641,6 +642,9 @@ function buildBuiltinTools(input: {
     agentNode: packageBridge.agentNode,
     cwd
   })
+  readTool.description =
+    'Use Read for text files. For image files or visual inspection, you MUST use ReadImageAsContent first instead of Read, including local image paths. '
+    + readTool.description
   const writeTool = wrapPiNativeFileTool({
     nativeTool: packageBridge.agentCore.createWriteTool(),
     name: 'Write',
@@ -1333,90 +1337,30 @@ function normalizeProviderPayload(input: {
   record.tool_choice = 'auto'
 }
 
-export function wrapPiApiModuleWithLogging(input: {
+export function wrapPiApiModuleWithPayloadNormalization(input: {
   apiModule: PiApiModule
   invokeContext: ClaudeCodeInvokeContext
   providerApiType: 'anthropic-messages' | 'openai-completions'
 }): PiApiModule {
   const { apiModule, invokeContext, providerApiType } = input
-  let requestSequence = 0
-
+  const normalizeOptions = (options: unknown) => {
+    const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
+    return {
+      ...typedOptions,
+      onPayload: async (payload: unknown, payloadModel: unknown) => {
+        const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
+        const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
+        normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
+        return replacement
+      }
+    }
+  }
   return {
     stream(model: unknown, context: unknown, options: unknown) {
-      const requestIndex = ++requestSequence
-      const requestStartedAt = Date.now()
-      const typedModel = (model ?? {}) as Record<string, unknown>
-      const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
-      const requestOptions = {
-        ...typedOptions,
-        onPayload: async (payload: unknown, payloadModel: unknown) => {
-          const originalOnPayload = typeof typedOptions.onPayload === "function" ? typedOptions.onPayload : undefined
-          const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
-          normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
-          return replacement
-        },
-        onResponse: async (response: unknown, responseModel: unknown) => {
-          const providerResponse = (response ?? {}) as Record<string, unknown>
-          if (Number(providerResponse.status) >= 400) {
-            logger.warn('[AgentCore] pi provider response error', {
-              traceId: invokeContext.runtime.traceId,
-              topicId: invokeContext.projection.topicId,
-              piSessionId: invokeContext.projection.piSessionId,
-              providerApiType,
-              method: 'stream',
-              requestIndex,
-              responseHeadersElapsedMs: Date.now() - requestStartedAt,
-              modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
-              baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-              status: providerResponse.status
-            })
-          }
-          const originalOnResponse = typeof typedOptions.onResponse === "function" ? typedOptions.onResponse : undefined
-          if (originalOnResponse) {
-            await originalOnResponse(response as any, responseModel as any)
-          }
-        }
-      }
-
-      return (apiModule.stream as any)(model, context, requestOptions)
+      return (apiModule.stream as any)(model, context, normalizeOptions(options))
     },
     streamSimple(model: unknown, context: unknown, options: unknown) {
-      const requestIndex = ++requestSequence
-      const requestStartedAt = Date.now()
-      const typedModel = (model ?? {}) as Record<string, unknown>
-      const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
-      const requestOptions = {
-        ...typedOptions,
-        onPayload: async (payload: unknown, payloadModel: unknown) => {
-          const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
-          const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
-          normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
-          return replacement
-        },
-        onResponse: async (response: unknown, responseModel: unknown) => {
-          const providerResponse = (response ?? {}) as Record<string, unknown>
-          if (Number(providerResponse.status) >= 400) {
-            logger.warn('[AgentCore] pi provider response error', {
-              traceId: invokeContext.runtime.traceId,
-              topicId: invokeContext.projection.topicId,
-              piSessionId: invokeContext.projection.piSessionId,
-              providerApiType,
-              method: 'streamSimple',
-              requestIndex,
-              responseHeadersElapsedMs: Date.now() - requestStartedAt,
-              modelId: String((responseModel as Record<string, unknown> | undefined)?.id || typedModel.id || ''),
-              baseUrl: String((responseModel as Record<string, unknown> | undefined)?.baseUrl || typedModel.baseUrl || ''),
-              status: providerResponse.status
-            })
-          }
-          const originalOnResponse = typeof typedOptions.onResponse === 'function' ? typedOptions.onResponse : undefined
-          if (originalOnResponse) {
-            await originalOnResponse(response as any, responseModel as any)
-          }
-        }
-      }
-
-      return (apiModule.streamSimple as any)(model, context, requestOptions)
+      return (apiModule.streamSimple as any)(model, context, normalizeOptions(options))
     }
   }
 }
@@ -1450,7 +1394,7 @@ async function buildPiRuntimeBridge(input: {
     providerApiType === 'openai-completions'
       ? packageBridge.openAiCompletionsApi
       : packageBridge.anthropicMessagesApi
-  const apiModule = wrapPiApiModuleWithLogging({
+  const apiModule = wrapPiApiModuleWithPayloadNormalization({
     apiModule: rawApiModule,
     invokeContext,
     providerApiType
@@ -1571,6 +1515,16 @@ async function buildPiRuntimeBridge(input: {
         content: template.content
       }))
     }
+  })
+
+  const mcpToolNames = new Set(mcpTools.tools.map((tool) => tool.name))
+  const projectReadImageContext = createReadImageContextProjector(invokeContext.runtime.workspacePath, undefined, { beginNewTurn: true })
+  harness.on('context', async (context: any) => ({
+    messages: await projectReadImageContext(context.messages)
+  }))
+  harness.on('tool_result', (context: any) => {
+    if (!mcpToolNames.has(context.toolName) || context.isError) return undefined
+    return projectMcpArtifactForContext(context, invokeContext.runtime.workspacePath)
   })
 
   harness.on('tool_call', async (context: any) => {

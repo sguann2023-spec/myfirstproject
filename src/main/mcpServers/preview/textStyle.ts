@@ -476,9 +476,10 @@ export const renderTextPositionPreview = (options: TextPositionPreviewOptions): 
 
   // 字号：和 index.js 完全一致。
   const anchor = resolveAlignAnchor(align, vertical)
-  const fontSize = isPositive(options.font_size)
-    ? resolveStageFontSize(Number(options.font_size), canvasScale.y)
-    : clamp(Math.min(boxHeightDisplay, boxWidthDisplay) * (vertical ? 0.5 : 0.45), 8, 24)
+  const sourceFontSize = isPositive(options.font_size)
+    ? Number(options.font_size)
+    : canvasHeight > canvasWidth ? 12 : 5
+  const fontSize = resolveStageFontSize(sourceFontSize, canvasScale.y)
   const lineHeight = Math.max(1, fontSize * 1.2 + lineGap)
   ctx.font = `${resolveFontStyle(bold, italic)} ${fontSize}px ${fontFamily}`
   ctx.fillStyle = TEXT_COLOR
@@ -680,7 +681,7 @@ export const renderTextStylePreview = (options: TextStylePreviewOptions): {
   }
 
   const text = typeof options.text === 'string' && options.text.trim() ? options.text : DEFAULT_TEXT
-  const sourceFontSize = optionalNumber(options.font_size, 54, 5, 300)
+  const sourceFontSize = optionalNumber(options.font_size, canvasHeight > canvasWidth ? 12 : 5, 0.01, 300)
 
   const { display, canvasScale, positionScale } = resolveStageLayout(canvasWidth, canvasHeight)
   const transformXPx = Number.isFinite(options.transform_x_px) ? Number(options.transform_x_px) : 0

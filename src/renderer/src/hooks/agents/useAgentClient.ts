@@ -17,6 +17,14 @@ export const useAgentClient = () => {
         headers: {
           Authorization: `Bearer ${apiKey || 'disabled'}`
         }
+      }, undefined, async () => {
+        const status = await window.api.apiServer.getStatus()
+        const config = status.config
+        if (!status.running || !config?.enabled || !config.apiKey || !status.actualPort) return null
+        return {
+          baseURL: `http://${config.host}:${status.actualPort}`,
+          apiKey: config.apiKey
+        }
       }),
     [apiKey, enabled, host, isRunning, port]
   )

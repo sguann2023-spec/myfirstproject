@@ -1091,7 +1091,7 @@ describe('processPiHarnessQuery', () => {
 
   })
 
-  it('bounds retries for transient upstream errors after visible text has streamed', async () => {
+  it.each(['502 "上游请求失败"', '400 status code (no body)'])('bounds retries after visible text has streamed: %s', async (errorMessage) => {
     vi.useFakeTimers()
     const harnessStub = createHarnessStub({
       prompt: async () => {
@@ -1126,7 +1126,7 @@ describe('processPiHarnessQuery', () => {
             model: 'model-1',
             usage: {},
             stopReason: 'error',
-            errorMessage: '502 "上游请求失败"',
+            errorMessage,
             content: [{ type: 'text', text: 'partial' }]
           }
         })
@@ -1134,7 +1134,7 @@ describe('processPiHarnessQuery', () => {
           role: 'assistant',
           content: [{ type: 'text', text: 'partial' }],
           stopReason: 'error',
-          errorMessage: '502 "上游请求失败"',
+          errorMessage,
           usage: {}
         }
       }
@@ -1438,12 +1438,41 @@ describe('processPiHarnessQuery', () => {
     expect(stream.events.find((event) => event.type === 'error')?.error).toBe(original)
   })
 
+  it.each([
+    '400 Bad Request: invalid parameter temperature',
+    '400 status code (no body): context length exceeded',
+    '401 status code (no body)',
+    '403 status code (no body)',
+    '422 status code (no body)'
+  ])('does not retry actionable request or permission failures: %s', async (errorMessage) => {
+    const harnessStub = createHarnessStub({ prompt: async () => { throw new Error(errorMessage) } })
+    const stream = createStreamRecorder()
+    await processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', currentPrompt: 'hello',
+        activeSegment, currentTurn,
+        promptEnvelope: { systemPromptVersion: 'v1', systemPromptHash: 'hash-1', systemPrompt: 'system' },
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness,
+      prompt: 'hello'
+    })
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(1)
+    expect(stream.events.map((event) => event.type)).toContain('error')
+  })
+
   it('retries broader transient provider errors before streaming starts', async () => {
     vi.useFakeTimers()
 
     const transientErrors = [
       'HTTP 429 Too Many Requests',
       '500 Internal Server Error',
+      '400 status code (no body)',
+      'HTTP 400',
+      '400 Bad Request',
       'model overloaded, please try again later',
       '服务繁忙，请稍后重试'
     ]

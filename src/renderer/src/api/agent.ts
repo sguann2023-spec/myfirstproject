@@ -48,6 +48,8 @@ import axios, { isAxiosError } from 'axios'
 import { ZodError } from 'zod'
 
 type ApiVersion = 'v1'
+type AgentConnectionConfig = { baseURL: string; apiKey: string }
+type RefreshAgentConnection = () => Promise<AgentConnectionConfig | null>
 
 const logger = loggerService.withContext('AgentApiClient')
 
@@ -70,7 +72,7 @@ export const DEFAULT_SESSION_PAGE_SIZE = 20
 export class AgentApiClient {
   private axios: Axios
   private apiVersion: ApiVersion = 'v1'
-  constructor(config: AxiosRequestConfig, apiVersion?: ApiVersion) {
+  constructor(config: AxiosRequestConfig, apiVersion?: ApiVersion, refreshConnection?: RefreshAgentConnection) {
     if (!config.baseURL || !config.headers?.Authorization) {
       throw new Error('Please pass in baseUrl and Authroization header.')
     }
@@ -78,6 +80,31 @@ export class AgentApiClient {
       throw new Error('baseURL should not end with /')
     }
     this.axios = axios.create(config)
+    if (refreshConnection) {
+      let refreshPromise: Promise<AgentConnectionConfig | null> | null = null
+      this.axios.interceptors.response.use(undefined, async (error: unknown) => {
+        if (!isAxiosError(error)) throw error
+        const request = error.config as (typeof error.config & { agentAuthRetried?: boolean })
+        if (!request || request.agentAuthRetried || ![401, 403].includes(error.response?.status ?? 0)) throw error
+
+        // Refresh only through trusted IPC, never from the rejected HTTP response.
+        request.agentAuthRetried = true
+        try {
+          if (!refreshPromise) {
+            refreshPromise = refreshConnection().finally(() => { refreshPromise = null })
+          }
+          const connection = await refreshPromise
+          if (!connection?.apiKey || !connection.baseURL) throw error
+          this.axios.defaults.baseURL = connection.baseURL
+          this.axios.defaults.headers.Authorization = `Bearer ${connection.apiKey}`
+          request.baseURL = connection.baseURL
+          request.headers.set('Authorization', `Bearer ${connection.apiKey}`)
+        } catch {
+          throw error
+        }
+        return this.axios.request(request)
+      })
+    }
     if (apiVersion) {
       this.apiVersion = apiVersion
     }

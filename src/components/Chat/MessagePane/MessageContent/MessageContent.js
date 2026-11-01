@@ -135,7 +135,8 @@ const buildAssistantBlockState = ({ message, isLoading }) => {
     }
   }
 
-  if (visibleTurnError(message)) {
+  const hasErrorBlock = blockIds.some((id) => entities[id]?.type === MessageBlockType.ERROR);
+  if (visibleTurnError(message) && !hasErrorBlock) {
     const errorId = `${messageId}-error`;
     entities[errorId] = {
       id: errorId,
@@ -247,15 +248,21 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
     };
   const blocks = React.useMemo(() => {
     const resolvedBlockIds = Array.isArray(resolvedMessage?.blocks) ? resolvedMessage.blocks : [];
+    const cancelled = isCancelledTurn(fallbackMessage) || isCancelledTurn(storeMessage);
+    const hasResolvedErrorBlock = resolvedBlockIds.some((id) => {
+      const block = storeBlockEntities[id] || fallbackAssistantState.entities[id];
+      return block?.type === MessageBlockType.ERROR
+        && !shouldSuppressCancelledTurnError(block.error, cancelled);
+    });
     const extraFallbackIds = fallbackAssistantState.blockIds.filter((id) => {
       const block = fallbackAssistantState.entities[id];
       if (!block) return false;
       // 补充 UNKNOWN 占位（loading）与 ERROR 兜底块，避免最终失败时 UI 空白
-      return block.type === MessageBlockType.UNKNOWN || block.type === MessageBlockType.ERROR;
+      return block.type === MessageBlockType.UNKNOWN
+        || (block.type === MessageBlockType.ERROR && !hasResolvedErrorBlock);
     });
     const merged = [...resolvedBlockIds, ...extraFallbackIds.filter((id) => !resolvedBlockIds.includes(id))];
     // 无论是否 loading，都需要合并 ERROR；UNKNOWN 只在 loading 时保留
-    const cancelled = isCancelledTurn(fallbackMessage) || isCancelledTurn(storeMessage);
     const visible = merged.filter((id) => {
       const block = storeBlockEntities[id] || fallbackAssistantState.entities[id];
       return block?.type !== MessageBlockType.ERROR || !shouldSuppressCancelledTurnError(block.error, cancelled);

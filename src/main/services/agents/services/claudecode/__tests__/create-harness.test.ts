@@ -73,7 +73,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { normalizeOpenAiMessages, wrapPiApiModuleWithLogging, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
+import { normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -150,7 +150,7 @@ describe('OpenAI tool message normalization', () => {
 
   it.each(['stream', 'streamSimple'] as const)('%s normalizes callback replacements and original payloads without tools', async method => {
     const underlying = vi.fn((_model, _context, options) => options)
-    const wrapper = wrapPiApiModuleWithLogging({
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({
       apiModule: { stream: underlying, streamSimple: underlying } as any,
       invokeContext: { runtime: { traceId: 'test' }, projection: {} } as any,
       providerApiType: 'openai-completions'
@@ -180,16 +180,19 @@ describe('OpenAI tool message normalization', () => {
     }
   })
 
-  it.each(['stream', 'streamSimple'] as const)('%s stays silent on success, warns on HTTP errors, and forwards callbacks', async method => {
+  it.each(['stream', 'streamSimple'] as const)('%s forwards fetch and response callbacks without diagnostic logging', async method => {
     const underlying = vi.fn((_model, _context, options) => options)
-    const wrapper = wrapPiApiModuleWithLogging({
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({
       apiModule: { stream: underlying, streamSimple: underlying } as any,
       invokeContext: { runtime: { traceId: 'test' }, projection: { topicId: 'topic' } } as any,
       providerApiType: 'openai-completions'
     })
     const onResponse = vi.fn(async () => {})
+    const fetch = vi.fn()
     const model = { id: 'model', baseUrl: 'https://example.com/v1' }
-    const options = (wrapper[method] as any)(model, {}, { onResponse })
+    const options = (wrapper[method] as any)(model, {}, { onResponse, fetch })
+    expect(options.fetch).toBe(fetch)
+    expect(options.onResponse).toBe(onResponse)
     await options.onPayload({ messages: [] }, model)
     const success = { status: 200 }
     await options.onResponse(success, model)
@@ -199,18 +202,43 @@ describe('OpenAI tool message normalization', () => {
 
     const failure = { status: 503 }
     await options.onResponse(failure, model)
-    expect(logMocks.warn).toHaveBeenCalledExactlyOnceWith(
-      '[AgentCore] pi provider response error',
-      expect.objectContaining({ traceId: 'test', topicId: 'topic', status: 503, method })
-    )
+    expect(logMocks.warn).not.toHaveBeenCalled()
     expect(onResponse).toHaveBeenLastCalledWith(failure, model)
     expect(onResponse).toHaveBeenCalledTimes(2)
     expect(logMocks.info).not.toHaveBeenCalled()
   })
 
+  it('preserves installed SDK HTTP 400 error events without diagnostic logging', async () => {
+    const moduleName = '@earendil-works/pi-ai/api/openai-completions'
+    const apiModule = await import(moduleName)
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({
+      apiModule,
+      invokeContext: { runtime: { traceId: 'test' }, projection: { topicId: 'topic' } } as any,
+      providerApiType: 'openai-completions'
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({
+      error: { type: 'invalid_request_error', message: 'invalid input', param: 'messages' }
+    }), { status: 400, headers: { 'Content-Type': 'application/json', 'X-Request-Id': 'backend-rejected' } }))
+    const onResponse = vi.fn()
+    const stream = (wrapper.streamSimple as any)({
+      id: 'test-model', name: 'Test', api: 'openai-completions', provider: 'openai',
+      baseUrl: 'https://example.com/v1', reasoning: false, input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10000, maxTokens: 1000
+    }, { messages: [{ role: 'user', content: 'hello', timestamp: Date.now() }] }, {
+      apiKey: 'private-api-key', fetch, onResponse, maxRetries: 0
+    })
+    const events = []
+    for await (const event of stream) events.push(event)
+    expect(events.some(event => event.type === 'error')).toBe(true)
+    expect(onResponse).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(logMocks.info).not.toHaveBeenCalled()
+    expect(logMocks.warn).not.toHaveBeenCalled()
+  })
+
   it.each(['stream', 'streamSimple'] as const)('%s preserves Anthropic messages and existing parameter semantics', async method => {
     const underlying = vi.fn((_model, _context, options) => options)
-    const wrapper = wrapPiApiModuleWithLogging({
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({
       apiModule: { stream: underlying, streamSimple: underlying } as any,
       invokeContext: { runtime: {}, projection: {} } as any,
       providerApiType: 'anthropic-messages'

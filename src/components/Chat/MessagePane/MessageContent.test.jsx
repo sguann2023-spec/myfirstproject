@@ -192,6 +192,22 @@ it('keeps an interrupted assistant turn visible when no answer text was produced
 });
 
 for (const live of [false, true]) {
+  it(`renders one error card for block and top-level errors on ${live ? 'live' : 'historical'} turns`, async () => {
+    const error = { message: '400 status code (no body)', status: 400 };
+    const errorBlock = { id: 'original-error', type: 'error', status: 'error', error };
+    const value = {
+      id: 'reply', role: 'assistant', blocks: [errorBlock], error,
+      ...(live ? { storeAssistantMessageId: 'liveMessage' } : {}),
+    };
+    if (live) store.state = {
+      messageBlocks: { entities: { 'store-error': { ...errorBlock, id: 'store-error' } } },
+      messages: { entities: { liveMessage: { id: 'liveMessage', role: 'assistant', status: 'error', blocks: ['store-error'], error } } },
+    };
+    await act(async () => root.render(<Probe value={value} />));
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(container.textContent).toContain(error.message);
+  });
+
   for (const error of [{}, { message: 'Unknown error', category: 'unknown' }]) {
     it(`suppresses generic errors on cancelled ${live ? 'live' : 'historical'} legacy turns`, async () => {
       const value = {
