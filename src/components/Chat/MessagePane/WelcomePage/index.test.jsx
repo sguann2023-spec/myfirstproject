@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe('homepage operations cards', () => {
-  it('shows only the first three compatible operations, opens the original and executes without installation', async () => {
+  it('shows only the first three compatible operations, opens the original and installs the selected template before applying it', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const skill = (folderName, order, extra = {}) => ({ folderName, order, version: '1.0.0',
       name: folderName, title: `${folderName}模版`, followers_count: '15万+', likes_count: '1千+',
@@ -26,8 +26,9 @@ describe('homepage operations cards', () => {
       old: skill('old', 0, { maxAppVersion: '1.0.0' }),
       fourth: skill('fourth', 4), first: skill('first', 1), third: skill('third', 3), second: skill('second', 2)
     } };
-    const install = vi.fn();
+    const install = vi.fn().mockResolvedValue({ success: true });
     window.api = { getAppInfo: async () => ({ version: '1.7.27', appDataPath: '/data', resourcesPath: '/resources' }),
+      skill: { list: vi.fn().mockResolvedValue({ success: true, data: [] }), installFromDirectory: install },
       fs: { readText: vi.fn().mockResolvedValue(JSON.stringify(manifest)) } };
     window.electronAPI = { agentSkills: { installFromDirectory: install } };
     const onSelectSkill = vi.fn();
@@ -59,7 +60,8 @@ describe('homepage operations cards', () => {
     expect(trackEvent).toHaveBeenCalledWith('quick_skill_do_same_click', { title: 'first模版' });
     expect(onSelectSkill).toHaveBeenCalledWith(expect.objectContaining({ folderName: 'first', directoryPath: '/resources/quick/skills/first' }));
     expect(window.api.fs.readText).toHaveBeenCalledExactlyOnceWith('/resources/quick/skills/manifest.json');
-    expect(install).not.toHaveBeenCalled();
+    expect(install).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ directoryPath: '/resources/quick/skills/first', folderName: 'first', source: 'builtin' }));
+    expect(install.mock.invocationCallOrder[0]).toBeLessThan(onSelectSkill.mock.invocationCallOrder[0]);
     await act(async () => container.querySelector('.chat-panel__welcome-more-skills').click());
     expect(onOpenSkillStore).toHaveBeenCalledOnce();
     delete window.electronAPI;

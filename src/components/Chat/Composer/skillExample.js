@@ -1,3 +1,5 @@
+import semver from 'semver';
+
 // Shared helpers for the skill usage-template format (example.json).
 //
 // A skill folder may ship an example.json describing one runnable example:
@@ -330,4 +332,35 @@ export const resolveSkillExampleModel = (requested, options, fallback) => {
   candidates.sort((a, b) => String(b.value).localeCompare(String(a.value), undefined, { numeric: true }));
   return candidates[0]?.value || available.find((item) => item.isDefault || item.is_default)?.value
     || available.find((item) => item.value === fallback)?.value || available[0]?.value || '';
+};
+
+// Homepage templates become regular installed skills when the user chooses 做同款.
+export const ensureHomepageSkillInstalled = async (skill) => {
+  const api = window.api?.skill;
+  if (!api?.list || !api?.installFromDirectory) throw new Error('技能安装服务不可用');
+  const listed = await api.list();
+  if (!listed?.success) throw new Error('读取已安装技能失败，请重试');
+  const existing = (listed.data || []).find((item) => item.folderName === skill.folderName);
+  let shouldInstall = !existing;
+  if (existing) {
+    if (!api.readSkillFile) throw new Error('技能版本读取服务不可用');
+    const result = await api.readSkillFile(existing.id || existing.folderName, '.version');
+    if (!result?.success) throw new Error('读取已安装技能版本失败，请重试');
+    const installedVersion = String(result.data || '').trim();
+    const templateVersion = String(skill.version || '').trim();
+    // Unknown versions cannot be proven older: preserve the user's installed copy.
+    shouldInstall = Boolean(semver.valid(installedVersion) && semver.valid(templateVersion)
+      && semver.gt(templateVersion, installedVersion));
+  }
+  if (shouldInstall) {
+    const installed = await api.installFromDirectory({
+      directoryPath: skill.directoryPath,
+      folderName: skill.folderName,
+      source: 'builtin',
+      iconUrl: skill.coverUrl || null,
+      previewVideoUrl: skill.previewVideoUrl || null,
+    });
+    if (!installed?.success) throw new Error(installed?.error?.message || '安装技能失败，请重试');
+  }
+  window.dispatchEvent(new Event('skill-store-updated'));
 };

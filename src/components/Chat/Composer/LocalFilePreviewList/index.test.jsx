@@ -143,18 +143,36 @@ describe('toolbar attachment sidebar previews', () => {
     const kind = fileType.split('/')[0];
     const modal = document.querySelector(`.chat-panel__media-click-modal--${kind}`);
     expect(modal).not.toBeNull();
+    expect(modal.querySelector('[class*="zoom-appear"], [class*="zoom-enter"]')).toBeNull();
+    expect(modal.querySelector('.ant-modal-close')).not.toBeNull();
     expect(modal.querySelector('.ant-modal-header, .ant-modal-footer')).toBeNull();
     expect(modal.querySelector(kind === 'image' ? 'img' : kind).getAttribute('src')).toBe(file.url);
     if (kind === 'image') {
+      expect(modal.querySelector('[role="toolbar"]')).toBeNull();
       const image = modal.querySelector('img');
-      await click(modal.querySelector('[aria-label="放大"]'));
-      expect(image.style.transform).toContain('scale(1.25, 1.25)');
-      await click(modal.querySelector('[aria-label="向右旋转"]'));
-      expect(image.style.transform).toContain('rotate(90deg)');
-      await click(modal.querySelector('[aria-label="水平翻转"]'));
-      expect(image.style.transform).toContain('scale(-1.25, 1.25)');
+      Object.defineProperties(image, { naturalWidth: { value: 600 }, naturalHeight: { value: 1200 } });
+      await act(async () => image.dispatchEvent(new Event('load', { bubbles: true })));
+      expect(modal.querySelector('.ant-modal').style.width).toBe('min(80vw, 40vh)');
     } else expect(modal.querySelector(kind).controls).toBe(true);
     expect(openAttachmentPreview).not.toHaveBeenCalled();
+  });
+
+  it.each(['close', 'image', 'background'])('dismisses image previews through %s', async (target) => {
+    const image = { uid: 'image', name: 'preview.png', fileType: 'image/png', url: 'https://example.com/image.png' };
+    await render({ files: [], fileGroups: [{ key: 'images', label: '图片', files: [image] }] });
+    await open(image.name);
+    const modal = document.querySelector('.chat-panel__media-click-modal');
+    if (target === 'close') await click(modal.querySelector('.ant-modal-close'));
+    else if (target === 'image') await click(modal.querySelector('.chat-panel__media-click-image'));
+    else {
+      const wrap = modal.querySelector('.ant-modal-wrap');
+      await act(async () => {
+        wrap.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        wrap.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        wrap.click();
+      });
+    }
+    expect(document.querySelector('.ant-modal-wrap')?.style.display || 'none').toBe('none');
   });
 
   it('renders image groups with a thumbnail, preview, remove and refill actions', async () => {

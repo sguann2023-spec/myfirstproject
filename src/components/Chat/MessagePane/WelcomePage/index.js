@@ -4,6 +4,7 @@ import { selectHomepageSkills } from '../../../../shared/quickSkillManifest';
 import { trackEvent } from '../../../../shared/analytics';
 import './WelcomePage.css';
 import { formatTemplateCount } from './formatCount';
+import { ensureHomepageSkillInstalled } from '../../Composer/skillExample';
 
 const BEGINNER_GUIDE_QUICK_SKILL_ACTION = 'bootstrap-trendy-koubo';
 const QUICK_SKILLS_ROOT_RELATIVE_PATH = 'quick/skills';
@@ -96,6 +97,7 @@ const WelcomePage = ({ emptyWelcomeText, onSelectSkill, onOpenSkillStore, onOpen
     setPendingAction(item.folderName);
     try {
       trackEvent('quick_skill_do_same_click', { title: item.title || item.name });
+      await ensureHomepageSkillInstalled(item);
       await onSelectSkill?.(item);
     } catch (error) {
       window.toast?.error?.(error?.message || '加载模版失败，请重试');
