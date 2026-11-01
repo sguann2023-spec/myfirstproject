@@ -441,12 +441,11 @@
 .chat-panel__media-click-modal .ant-modal { padding-bottom: 0; max-width: calc(100vw - 32px); }
 .chat-panel__media-click-content { position: relative; }
 .chat-panel__media-click-modal--video .chat-panel__media-click-content {
-  height: min(349px, calc(100vh - 48px));
   overflow: hidden;
   border-radius: 18px;
   background: #000;
 }
-.chat-panel__media-click-content video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.chat-panel__media-click-content video { display: block; width: 100%; height: auto; max-height: 80vh; object-fit: contain; }
 .chat-panel__media-click-title {
   position: absolute; top: 0; left: 0; right: 0;
   padding: 12px 8px 20px;
@@ -455,11 +454,20 @@
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; pointer-events: none;
 }
 .chat-panel__media-click-content audio { display: block; width: 100%; height: 54px; }
-.chat-panel__media-click-image { display: block; width: 200px; height: 249.73px; object-fit: contain; max-height: calc(100vh - 140px); transition: transform 0.15s; }
-.chat-panel__media-click-image-tools {
-  position: fixed; bottom: 36px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 16px; padding: 10px 20px;
-  border-radius: 24px; background: #0002;
+.chat-panel__media-click-image { display: block; width: 100%; height: auto; max-height: 80vh; object-fit: contain; }
+
+.chat-panel__media-click-modal .ant-modal-mask { background: rgba(0, 0, 0, 0.3); }
+.chat-panel__media-click-modal .ant-modal { transform: none !important; }
+.chat-panel__media-click-modal .ant-modal-close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.3);
+  -webkit-app-region: no-drag;
 }
-.chat-panel__media-click-image-tools button { display: inline-flex; border: 0; padding: 4px; background: transparent; color: #fff; cursor: pointer; }
-.chat-panel__media-click-image-tools button:disabled { opacity: 0.4; cursor: default; }
+.chat-panel__media-click-modal .ant-modal-close:hover { color: #fff; background: rgba(0, 0, 0, 0.3); }
+.chat-panel__media-click-image { border-radius: 16px; cursor: pointer; }
