@@ -5215,7 +5215,6 @@ const Composer = ({
         />
         <VoiceLib controller={musicVoiceLib} hideTrigger />
         <VoiceLib controller={voiceConversionVoiceLib} hideTrigger />
-        {skillExampleLoading ? <div className="chat-panel__skill-template-loading" role="status">示例素材加载中…</div> : null}
         {skillExampleError ? <div role="alert">{skillExampleError}<button onClick={() => void applySkillExampleDetail(skillExample)}>重试</button></div> : null}
         <LocalFilePreviewList
           files={nonSkillExampleFileMeta}
