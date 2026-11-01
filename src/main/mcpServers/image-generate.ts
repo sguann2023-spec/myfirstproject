@@ -33,10 +33,13 @@ const FILE_UPLOAD_REGION = 'oss-cn-hangzhou'
 const FILE_UPLOAD_FOLDER_TEMPLATE = 'agent_tmp/{uid}'
 const FILE_UPLOAD_OBJECT_KEY_PREFIX = 'vectcut_ai_image_reference_'
 const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
+const IMAGE_MODEL_SELECTION_GUIDANCE =
+  'Unless the user explicitly requests a particular model, select from the available models returned by capabilities that support the requested task, in this priority order: the latest GPT Image model first, then the latest Banana (Nano Banana) model, then the latest Seedream model, then other available models. Within each family, choose the newest available version according to capabilities, not the order of the model list or a hard-coded example. Only fall back to the next family when no model in the preferred family is available or supports the requested task. Pass the selected model ID explicitly. '
 
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
+    IMAGE_MODEL_SELECTION_GUIDANCE +
     'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. GPT Image 2/2.5 (models gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all) supports transparent-background PNG generation; when the user asks for stickers, icons, cutouts, overlays, or any image with no background, use one of those models with transparent_background=true and outputFormat="png", and also state the transparent background requirement in the prompt. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image as JSON plus inline image content when the result image is small enough to embed; treat that returned image content as the source of truth for visual judgment. Do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
   inputSchema: {
     type: 'object',
@@ -60,6 +63,7 @@ const IMAGE_GENERATE_TOOL: Tool = {
       model: {
         type: 'string',
         description:
+          IMAGE_MODEL_SELECTION_GUIDANCE +
           'Optional image model, such as seedream-4.5, nano_banana_2, gpt-image-2, or gpt-image-2.5. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities. Use gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all for transparent-background PNG generation.'
       },
       size: {
@@ -142,7 +146,7 @@ const externalSubmitProperties = Object.fromEntries(
 const EXTERNAL_IMAGE_TOOLS: Tool[] = [
   {
     name: 'submit',
-    description: 'Submit an image generation/editing task and return its backend task_id immediately, without waiting for generation. References must be publicly accessible HTTP(S) URLs. Poll task_status for progress and results.',
+    description: IMAGE_MODEL_SELECTION_GUIDANCE + 'Submit an image generation/editing task and return its backend task_id immediately, without waiting for generation. References must be publicly accessible HTTP(S) URLs. Poll task_status for progress and results.',
     inputSchema: { type: 'object', properties: externalSubmitProperties, required: ['prompt'], additionalProperties: true }
   },
   {

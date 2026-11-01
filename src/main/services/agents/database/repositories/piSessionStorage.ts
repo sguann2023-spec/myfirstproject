@@ -28,9 +28,9 @@ type AgentDatabase = LibSQLDatabase<typeof schema>
 type DatabaseExecutor = AgentDatabase
 
 export const PI_HISTORY_LIMITS = {
-  entryBytes: 4 * 1024 * 1024,
-  batchBytes: 4 * 1024 * 1024,
-  totalBytes: 16 * 1024 * 1024,
+  entryBytes: 8 * 1024 * 1024,
+  batchBytes: 8 * 1024 * 1024,
+  totalBytes: 256 * 1024 * 1024,
   entries: 100000,
   metadataBatch: 512
 } as const
@@ -38,7 +38,8 @@ export const PI_HISTORY_LIMITS = {
 // bytes. This bounds recording backlog, not the live PI tree or JS heap.
 export const PI_PERSISTENCE_LIMITS = {
   tasks: 1024,
-  bytes: 8 * 1024 * 1024
+  // Leave room for multiple large entries and their persistence metadata.
+  bytes: 4 * PI_HISTORY_LIMITS.entryBytes
 } as const
 interface EntryMetadata { id: string; bytes: number }
 

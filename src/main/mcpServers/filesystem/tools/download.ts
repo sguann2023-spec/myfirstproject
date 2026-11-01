@@ -1,5 +1,9 @@
 import fs from 'fs/promises'
+import { createWriteStream } from 'fs'
 import path from 'path'
+import { Readable, Transform } from 'stream'
+import { pipeline } from 'stream/promises'
+import type { ReadableStream } from 'stream/web'
 import { net } from 'electron'
 import * as z from 'zod'
 
@@ -47,11 +51,40 @@ export async function handleDownloadTool(args: unknown, baseDir: string) {
   }
 
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {})
     throw new Error(`Failed to download file: HTTP ${response.status} ${response.statusText}`.trim())
   }
 
-  const buffer = Buffer.from(await response.arrayBuffer())
-  await fs.writeFile(validPath, buffer)
+  let tempDir: string | undefined
+  let source: Readable | undefined
+  let size = 0
+  try {
+    // Stage on the same filesystem so failed downloads never truncate an existing file.
+    tempDir = await fs.mkdtemp(path.join(parentDir, '.download-'))
+    const tempPath = path.join(tempDir, 'download')
+    source = response.body
+      ? Readable.fromWeb(response.body as ReadableStream<Uint8Array>)
+      : Readable.from([])
+    const counter = new Transform({
+      transform(chunk, _encoding, callback) {
+        size += chunk.length
+        callback(null, chunk)
+      }
+    })
+    await pipeline(source, counter, createWriteStream(tempPath, { flags: 'wx' }))
+    await fs.rename(tempPath, validPath)
+  } catch (error: any) {
+    // A synchronous write-stream setup error occurs before pipeline can destroy the source.
+    if (source && !source.destroyed) source.destroy()
+    await response.body?.cancel().catch(() => {})
+    throw new Error(`Failed to download file: ${error?.message || String(error)}`)
+  } finally {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch((error) => {
+        logger.warn('Failed to clean up download temporary directory', { path: tempDir, error })
+      })
+    }
+  }
 
   const relativePath = path.relative(baseDir, validPath)
   const contentType = response.headers.get('content-type') || 'unknown'
@@ -59,7 +92,7 @@ export async function handleDownloadTool(args: unknown, baseDir: string) {
   logger.info('File downloaded', {
     url: parsed.data.url,
     path: validPath,
-    size: buffer.length,
+    size,
     contentType
   })
 
@@ -69,7 +102,7 @@ export async function handleDownloadTool(args: unknown, baseDir: string) {
         type: 'text',
         text:
           `Downloaded file: ${relativePath}\n` +
-          `Size: ${buffer.length} bytes\n` +
+          `Size: ${size} bytes\n` +
           `Content-Type: ${contentType}`
       }
     ]

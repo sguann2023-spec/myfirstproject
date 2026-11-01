@@ -231,8 +231,6 @@ export class SessionMessageService extends BaseService {
       assistantTools: new Map<string, string>()
     }
     const persistenceQueue = new OrderedTaskQueue()
-    const persistedParts = new Map<string, string>()
-    let persistedUsage = ''
     let finished = false
     let readerCancelled = false
     let acceptingEvents = true
@@ -242,36 +240,6 @@ export class SessionMessageService extends BaseService {
         logger.error(failureMessage, error as Error)
         return undefined
       })
-
-    const persistStreamParts = () => {
-      try {
-        // Capture before enqueueing: later events may mutate nested tool inputs/results.
-        const parts = structuredClone(this.canonicalAssistantParts({
-          sessionId: session.id,
-          messageId: headlessAssistantMsgId,
-          blocks: accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model),
-          partIds: canonicalPartIds,
-          createdAtIso
-        }).map((part) => ({ ...part, data: { ...part.data, status: 'streaming' } })))
-        const usage = this.canonicalUsage(accumulator.getUsage())
-        void queuePersistence(async () => {
-          const changed = parts.filter((part) => persistedParts.get(part.id) !== JSON.stringify(part.data))
-          if (changed.length) {
-            await agentTranscriptRepository.upsertParts(changed)
-            for (const part of changed) persistedParts.set(part.id, JSON.stringify(part.data))
-          }
-          if (usage && JSON.stringify(usage) !== persistedUsage) {
-            await agentTranscriptRepository.upsertMessage({
-              id: headlessAssistantMsgId, sessionId: session.id, turnId: invocationIds.turnId,
-              role: 'assistant', status: 'streaming', usage, createdAt: createdAtIso
-            })
-            persistedUsage = JSON.stringify(usage)
-          }
-        }, 'Failed to persist streaming assistant parts')
-      } catch (error) {
-        logger.error('Failed to capture streaming assistant parts', error as Error)
-      }
-    }
 
     void queuePersistence(() => this.persistCanonicalTurnStart({
       session,
@@ -321,7 +289,6 @@ export class SessionMessageService extends BaseService {
               .find((block) => block.type === 'tool' && ids.includes(block.toolId))
             const toolCallId = existing?.toolId ?? question.aliases[question.aliases.length - 1] ?? question.rawToolCallId ?? question.toolCallId
             accumulator.add({ type: 'tool-call', toolCallId, toolName: question.toolName, input: question.input } as TextStreamPart<any>)
-            persistStreamParts()
           }
         }
       )
@@ -444,9 +411,26 @@ export class SessionMessageService extends BaseService {
                   logger.warn('Received agent chunk event without chunk payload')
                   return
                 }
+                // Persist at PI turn checkpoints and invocation termination, never per chunk.
                 accumulator.add(chunk)
                 if (!readerCancelled) controller.enqueue(chunk)
-                persistStreamParts()
+                break
+              }
+
+              case 'turn-checkpoint': {
+                // Freeze this boundary before later chunks mutate the accumulator.
+                const blocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
+                const usage = structuredClone(accumulator.getUsage())
+                void queuePersistence(() => this.finalizeCanonicalAssistant({
+                  sessionId: session.id,
+                  invocationIds,
+                  modelId: req.model,
+                  blocks,
+                  usage,
+                  createdAtIso,
+                  status: 'streaming',
+                  partIds: canonicalPartIds
+                }), 'Failed to persist PI turn checkpoint')
                 break
               }
 

@@ -1711,7 +1711,8 @@ export async function createClaudeCodeHarness(input: {
       )
     },
     recordProjectionEvent(event) {
-      if (mode === 'disabled') return
+      // Chunk telemetry is not durable conversation history.
+      if (mode === 'disabled' || event.kind === 'chunk') return
 
       const persistedEvent = {
         ...event,

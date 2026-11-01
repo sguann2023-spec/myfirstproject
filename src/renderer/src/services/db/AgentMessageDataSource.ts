@@ -20,7 +20,6 @@ import type { AgentPersistedMessage } from '@renderer/types/agent'
 import type { Message, MessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockType } from '@renderer/types/newMessage'
 import { IpcChannel } from '@shared/IpcChannel'
-import { throttle } from 'lodash'
 import { LRUCache } from 'lru-cache'
 
 import type { MessageDataSource } from './types'
@@ -42,19 +41,8 @@ const streamingMessageCache = new LRUCache<
     agentSessionId?: string
   }
 >({
-  max: 100,
-  ttl: 1000 * 60 * 5 // 5 minutes
-})
-
-/**
- * Throttled persisters for each message to batch updates during streaming
- */
-const messagePersistThrottlers = new LRUCache<string, ReturnType<typeof throttle>>({
-  max: 100,
-  ttl: 1000 * 60 * 5,
-  dispose: (throttler) => {
-    throttler.cancel()
-  }
+  // A long-running turn must retain its latest state until terminal persistence.
+  max: 100
 })
 
 /**
@@ -63,46 +51,6 @@ const messagePersistThrottlers = new LRUCache<string, ReturnType<typeof throttle
  */
 export class AgentMessageDataSource implements MessageDataSource {
   // ============ Helper Methods ============
-
-  /**
-   * Get or create a throttled persister for a message
-   */
-  private getMessagePersister(messageId: string): ReturnType<typeof throttle> {
-    if (!messagePersistThrottlers.has(messageId)) {
-      const persister = throttle(async () => {
-        const cached = streamingMessageCache.get(messageId)
-        if (!cached) return
-
-        const { message, blocks, sessionId, isComplete, agentSessionId } = cached
-        const sessionPointer = agentSessionId ?? message.agentSessionId ?? ''
-
-        try {
-          // Persist to backend
-          await window.electron.ipcRenderer.invoke(IpcChannel.AgentMessage_PersistExchange, {
-            sessionId,
-            agentSessionId: sessionPointer,
-            ...(message.role === 'user'
-              ? { user: { payload: { message, blocks } } }
-              : { assistant: { payload: { message, blocks } } })
-          })
-
-          logger.debug(`Persisted ${isComplete ? 'complete' : 'streaming'} message ${messageId} to backend`)
-
-          // Clean up if complete
-          if (isComplete) {
-            streamingMessageCache.delete(messageId)
-            messagePersistThrottlers.delete(messageId)
-          }
-        } catch (error) {
-          logger.error(`Failed to persist message ${messageId}:`, error as Error)
-        }
-      }, 500) // Throttle to 500ms for agent messages (less frequent than chat)
-
-      messagePersistThrottlers.set(messageId, persister)
-    }
-
-    return messagePersistThrottlers.get(messageId)!
-  }
 
   /**
    * Check if a message is in streaming state based on status
@@ -116,11 +64,6 @@ export class AgentMessageDataSource implements MessageDataSource {
    */
   private cleanupMessage(messageId: string): void {
     streamingMessageCache.delete(messageId)
-    const throttler = messagePersistThrottlers.get(messageId)
-    if (throttler) {
-      throttler.cancel()
-      messagePersistThrottlers.delete(messageId)
-    }
   }
 
   private mergeBlockUpdates(existingBlocks: MessageBlock[], updates: MessageBlock[]): MessageBlock[] {
@@ -239,37 +182,36 @@ export class AgentMessageDataSource implements MessageDataSource {
             }
           : message
 
-      // Always persist immediately for visibility in UI
+      // The renderer already owns the visible streaming message.
       const payload: AgentPersistedMessage = {
         message: messageWithMetadata,
         blocks
       }
 
-      await window.electron.ipcRenderer.invoke(IpcChannel.AgentMessage_PersistExchange, {
-        sessionId,
-        agentSessionId,
-        ...(message.role === 'user' ? { user: { payload } } : { assistant: { payload } })
-      })
+      if (!isStreaming || message.role === 'user') {
+        await window.electron.ipcRenderer.invoke(IpcChannel.AgentMessage_PersistExchange, {
+          sessionId,
+          agentSessionId,
+          ...(message.role === 'user' ? { user: { payload } } : { assistant: { payload } })
+        })
+      }
 
-      logger.info(`Saved ${message.role} message for agent session ${sessionId}`, {
+      logger.info(`${isStreaming && message.role === 'assistant' ? 'Cached' : 'Saved'} ${message.role} message for agent session ${sessionId}`, {
         messageId: message.id,
         blockCount: blocks.length,
         status: message.status,
         isStreaming
       })
 
-      // If streaming, also set up cache for throttled updates
+      // Retain only the latest streaming state until the turn settles.
       if (isStreaming && message.role === 'assistant') {
         streamingMessageCache.set(message.id, {
-          message,
+          message: messageWithMetadata,
           blocks,
           isComplete: false,
           sessionId,
           agentSessionId
         })
-
-        // Set up throttled persister for future updates
-        this.getMessagePersister(message.id)
 
         logger.debug(`Set up streaming cache for message ${message.id}`)
       } else {
@@ -289,13 +231,11 @@ export class AgentMessageDataSource implements MessageDataSource {
     }
 
     try {
-      // Fetch current message from backend to merge updates
-      const historicalMessages: AgentPersistedMessage[] = await window.electron.ipcRenderer.invoke(
-        IpcChannel.AgentMessage_GetHistory,
-        { sessionId }
+      const cached = streamingMessageCache.get(messageId)
+      const historicalMessages: AgentPersistedMessage[] = cached ? [] : await window.electron.ipcRenderer.invoke(
+        IpcChannel.AgentMessage_GetHistory, { sessionId }
       )
-
-      const existingMessage = historicalMessages?.find((pm) => pm.message?.id === messageId)
+      const existingMessage = cached ?? historicalMessages?.find((pm) => pm.message?.id === messageId)
       if (!existingMessage?.message) {
         logger.warn(`Message ${messageId} not found in agent session ${sessionId}`)
         return
@@ -304,6 +244,17 @@ export class AgentMessageDataSource implements MessageDataSource {
       // Merge updates with existing message
       const updatedMessage = { ...existingMessage.message, ...updates }
       const agentSessionId = updatedMessage.agentSessionId ?? existingMessage.message.agentSessionId ?? ''
+
+      if (updatedMessage.role === 'assistant' && this.isMessageStreaming(updatedMessage)) {
+        streamingMessageCache.set(messageId, {
+          message: updatedMessage,
+          blocks: existingMessage.blocks || [],
+          isComplete: false,
+          sessionId,
+          agentSessionId
+        })
+        return
+      }
 
       // Save updated message back to backend
       await window.electron.ipcRenderer.invoke(IpcChannel.AgentMessage_PersistExchange, {
@@ -314,14 +265,7 @@ export class AgentMessageDataSource implements MessageDataSource {
           : { assistant: { payload: { message: updatedMessage, blocks: existingMessage.blocks || [] } } })
       })
 
-      const cacheEntry = streamingMessageCache.get(messageId)
-      if (cacheEntry) {
-        streamingMessageCache.set(messageId, {
-          ...cacheEntry,
-          message: updatedMessage,
-          agentSessionId: agentSessionId || cacheEntry.agentSessionId
-        })
-      }
+      this.cleanupMessage(messageId)
 
       logger.info(`Updated message ${messageId} in agent session ${sessionId}`)
     } catch (error) {
@@ -341,13 +285,13 @@ export class AgentMessageDataSource implements MessageDataSource {
     }
 
     try {
-      const isStreaming = this.isMessageStreaming(messageUpdates)
-
       // Check if we have cached data for this message
       const cached = streamingMessageCache.get(messageUpdates.id)
+      const knownMessage = cached?.message ?? store.getState().messages.entities[messageUpdates.id]
+      const isStreaming = this.isMessageStreaming({ ...knownMessage, ...messageUpdates })
 
       if (isStreaming) {
-        // During streaming, update cache and trigger throttled persist
+        // During streaming, update memory only; terminal updates persist below.
         let currentMessage: Message
         let currentBlocks: MessageBlock[]
 
@@ -388,10 +332,6 @@ export class AgentMessageDataSource implements MessageDataSource {
           sessionId,
           agentSessionId
         })
-
-        // Trigger throttled persist
-        const persister = this.getMessagePersister(messageUpdates.id)
-        persister()
 
         logger.debug(`Updated streaming cache for message ${messageUpdates.id}`, {
           status: messageUpdates.status,
@@ -598,6 +538,13 @@ export class AgentMessageDataSource implements MessageDataSource {
               blocks: mergedBlocks,
               agentSessionId
             })
+          }
+
+          if (message.role === 'assistant' && this.isMessageStreaming(message)) {
+            streamingMessageCache.set(messageId, {
+              message, blocks: mergedBlocks, isComplete: false, sessionId, agentSessionId
+            })
+            continue
           }
 
           await window.electron.ipcRenderer.invoke(IpcChannel.AgentMessage_PersistExchange, {

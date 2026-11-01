@@ -429,17 +429,20 @@ describe('SqlitePiSessionStorage', () => {
   it('rejects aggregate history overflow during initialization before reading bodies', async () => {
     await open()
     await settlePersistence()
-    await insertHistory(5, 'x'.repeat(Math.floor(3.5 * 1024 * 1024)))
     database = drizzle(client, { schema })
-    const reads = vi.spyOn(database, 'all')
+    // Exercise the metadata guard without allocating more than 256 MiB of bodies.
+    const count = Math.floor(PI_HISTORY_LIMITS.totalBytes / PI_HISTORY_LIMITS.entryBytes) + 1
+    const reads = vi.spyOn(database, 'all').mockResolvedValueOnce(Array.from({ length: count }, (_, sequence) => ({
+      id: `bounded-${sequence}`, bytes: PI_HISTORY_LIMITS.entryBytes, sequence
+    })))
     await expect(open()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
     expect(reads).toHaveBeenCalledTimes(1)
   })
 
-  it('recovers valid bodies in byte-bounded batches and uses no runtime SQL', async () => {
+  it('recovers entries above 4 MiB and history above 16 MiB in byte-bounded batches without runtime SQL', async () => {
     await open()
     await settlePersistence()
-    await insertHistory(3, 'x'.repeat(Math.floor(2.2 * 1024 * 1024)))
+    await insertHistory(3, 'x'.repeat(6 * 1024 * 1024))
     database = drizzle(client, { schema })
     const reads = vi.spyOn(database, 'all')
     const storage = await open()
@@ -713,7 +716,8 @@ describe('SqlitePiSessionStorage', () => {
       await running
       expect(state.pendingWrites).toBe(1)
       expect(state.pendingWriteBytes).toBeGreaterThan(Buffer.byteLength(text))
-      const maximum = limit === 'tasks' ? PI_PERSISTENCE_LIMITS.tasks + 1 : 8
+      const maximum = limit === 'tasks' ? PI_PERSISTENCE_LIMITS.tasks + 1
+        : Math.ceil(PI_PERSISTENCE_LIMITS.bytes / Buffer.byteLength(text)) + 1
       for (let index = 1; index < maximum; index++) {
         await append(index)
         expect(state.pendingWrites).toBeLessThanOrEqual(PI_PERSISTENCE_LIMITS.tasks)
