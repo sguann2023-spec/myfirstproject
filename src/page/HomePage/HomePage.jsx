@@ -55,12 +55,12 @@ import appStore from '../../renderer/src/store';
 import { updateOneBlock, upsertManyBlocks } from '../../renderer/src/store/messageBlock';
 import { newMessagesActions } from '../../renderer/src/store/newMessage';
 import { toolPermissionsActions } from '../../renderer/src/store/toolPermissions';
-import { preserveAskUserQuestionInput } from '../../renderer/src/utils/askUserQuestionSnapshot';
+import { preserveAskUserQuestionInput, restorePendingAskUserQuestion } from '../../renderer/src/utils/askUserQuestionSnapshot';
 import { setupChannelStream } from '../../renderer/src/store/thunk/messageThunk';
 import { MessageBlockStatus } from '../../renderer/src/types/newMessage';
 import { createImageBlock, createMainTextBlock, createMessage } from '../../renderer/src/utils/messageUtils/create';
 import { IpcChannel } from '../../packages/shared/IpcChannel';
-import { isChatSessionAwaitingConfirmation, isChatSessionCompleted, isChatSessionPending } from '../../shared/chatSessionCompletion';
+import { isChatSessionAwaitingConfirmation, isChatSessionCompleted, isChatSessionPending, shouldDeferChatHistoryHydration } from '../../shared/chatSessionCompletion';
 import { compareChatSessionOrder, getChatSessionOrderTime } from '../../shared/chatSessionOrder';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
@@ -1791,7 +1791,7 @@ const sanitizePersistedToolResponse = (rawToolResponse = {}) => {
   };
 };
 
-const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false, aborted = false } = {}) => {
+const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false, aborted = false, preservePendingQuestions = false } = {}) => {
   const nextBlockStatus = aborted ? 'cancelled' : (hasError ? 'error' : 'success');
   return (Array.isArray(blocks) ? blocks : []).reduce((acc, block) => {
     if (!block || typeof block !== 'object') return acc;
@@ -1827,6 +1827,22 @@ const normalizeStructuredBlocksForPersistence = (blocks = [], { hasError = false
       nextBlock.metadata = {
         ...nextBlock.metadata,
         rawMcpToolResponse: sanitizePersistedToolResponse(rawToolResponse)
+      };
+    }
+
+    // History normalization must not finalize a question still waiting in the live runtime.
+    const pendingQuestion = preservePendingQuestions && !hasError && !aborted && rawToolResponse
+      ? restorePendingAskUserQuestion(rawToolResponse, appStore.getState().toolPermissions)
+      : rawToolResponse;
+    if (pendingQuestion !== rawToolResponse) {
+      nextBlock.status = 'streaming';
+      nextBlock.metadata = {
+        ...nextBlock.metadata,
+        rawMcpToolResponse: {
+          ...nextBlock.metadata.rawMcpToolResponse,
+          status: pendingQuestion.status,
+          arguments: pendingQuestion.arguments
+        }
       };
     }
 
@@ -2349,6 +2365,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
   const role = String(sourceMessage?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
   const sourceBlocks = Array.isArray(persistedEntry?.blocks) ? persistedEntry.blocks.filter((block) => isStructuredBlockObject(block)) : [];
   const normalizedBlocks = normalizeStructuredBlocksForPersistence(sourceBlocks, {
+    preservePendingQuestions: true,
     hasError: Boolean(sourceMessage?.error),
     aborted: hasInterruptedAssistantState({
       ...sourceMessage,
@@ -3382,6 +3399,18 @@ const HomePage = () => {
   const activeChatSessionPending = isChatSessionPending({
     isPending: activeChatSessionInFlight
   });
+  const toolPermissionRequests = useSyncExternalStore(
+    appStore.subscribe,
+    () => appStore.getState().toolPermissions.requests
+  );
+  const deferActiveChatHistoryHydration = shouldDeferChatHistoryHydration({
+    isPending: activeChatSessionPending,
+    isAwaitingConfirmation: isChatSessionAwaitingConfirmation({
+      runtimeSessionId: activeChatRuntimeSessionId,
+      isPending: activeChatSessionPending
+    }, toolPermissionRequests),
+    messageCount: Array.isArray(activeChatSession?.messages) ? activeChatSession.messages.length : 0
+  });
   const activeChatSessionCompleted = isChatSessionCompleted({
     isPending: activeChatSessionPending,
     isFulfilled: Boolean(activeChatId && chatSessionFulfilledMap[String(activeChatId || '').trim()])
@@ -3480,7 +3509,7 @@ const HomePage = () => {
     if (!canUseAgentRuntime) return;
     if (selectedPane !== 'chat') return;
     if (!activeChatSession || !activeChatNeedsHistoryHydrate) return;
-    if (activeChatSessionPending) return;
+    if (deferActiveChatHistoryHydration) return;
     if (!window?.ipc?.invoke && !window?.electron?.ipcRenderer?.invoke) {
       logger.warn('[HomePage][HistoryHydrate] bridge unavailable', {
         chatId: activeChatSession?.id || '',
@@ -3609,7 +3638,7 @@ const HomePage = () => {
     activeChatId,
     activeChatRuntimeSessionId,
     activeChatNeedsHistoryHydrate,
-    activeChatSessionPending
+    deferActiveChatHistoryHydration
   ]);
   const setChatSessionSending = (chatId, sending) => {
     const id = String(chatId || '').trim();
@@ -3783,10 +3812,6 @@ const HomePage = () => {
     (activeChatId && chatWorkspaceStatusMap[String(activeChatId || '').trim()]) || ''
   ).trim();
   const isChatSessionSending = (chatId) => Boolean(chatId) && Boolean(chatSessionSendingMap[chatId]);
-  const toolPermissionRequests = useSyncExternalStore(
-    appStore.subscribe,
-    () => appStore.getState().toolPermissions.requests
-  );
   const chatSessionsWithStatus = useMemo(
     () =>
       chatSessions.map((session) => ({

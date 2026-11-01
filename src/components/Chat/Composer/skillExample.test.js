@@ -15,6 +15,7 @@ import {
   dispatchSkillExampleApply,
   formatSkillExampleCountHint,
   formatSkillExampleDuration,
+  formatSkillExampleEstimatedUsage,
   loadSkillExample,
   parseSkillExample,
   stashPendingSkillExample
@@ -311,6 +312,17 @@ describe('loadSkillExample', () => {
 });
 
 describe('apply detail lifecycle', () => {
+  it.each([600, '800', 4.8, 0])('preserves and formats estimated usage %s through apply detail', (points) => {
+    const example = parseSkillExample(buildExamplePayload({ display_info: { estimated_usage: points } }));
+    const detail = buildSkillExampleApplyDetail(example);
+    expect(detail.displayInfo.estimated_usage).toBe(points);
+    expect(formatSkillExampleEstimatedUsage(detail.displayInfo.estimated_usage)).toBe(`预估 ${Number(points)}积分`);
+  });
+
+  it.each([undefined, null, '', ' ', 'unknown', -1, Infinity, true, {}, []])('hides invalid estimated usage %s', (points) => {
+    expect(formatSkillExampleEstimatedUsage(points)).toBe('');
+  });
+
   it('builds the detail payload from a parsed example', () => {
     const example = parseSkillExample(buildExamplePayload());
     const detail = buildSkillExampleApplyDetail(example, '美食短视频风格');
@@ -496,13 +508,14 @@ describe('template execution regressions', () => {
     expect(buildSkillExampleApplyDetail(example).audios[0].url).toBe('https://example.com/music.mp3');
     expect(buildSkillExampleGroupSlotId('hero', 'audio')).not.toBe(buildSkillExampleGroupSlotId('hero', 'image'));
   });
-  it('blocks missing required groups, partial optional groups, excess files and loading', () => {
+  it('validates file counts without showing a message during loading', () => {
     const group = { id: 'hero', kind: 'image', label: '主图', required: true, minCount: 1, maxCount: 1 };
     const file = { slotId: buildSkillExampleGroupSlotId('hero', 'image') };
     expect(getSkillExampleValidationError([group], [])).toBe('主图最少需要1个文件');
     expect(getSkillExampleValidationError([group], [file])).toBe('');
     expect(getSkillExampleValidationError([group], [file, file])).toBe('主图最多添加1个文件');
-    expect(getSkillExampleValidationError([group], [file], true)).toContain('加载中');
+    expect(getSkillExampleValidationError([group], [file], true)).toBe('');
+    expect(getSkillExampleValidationError([group], [], true)).toBe('');
     const optional = { ...group, required: false, minCount: 2, maxCount: 3 };
     expect(getSkillExampleValidationError([optional], [])).toBe('');
     expect(getSkillExampleValidationError([optional], [file])).toContain('最少需要2个');

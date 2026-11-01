@@ -1,4 +1,5 @@
 import { useAgent } from '@renderer/hooks/agents/useAgent';
+import { CloseOutlined } from '@ant-design/icons';
 import React from 'react';
 import { buildTextStyleRanges } from '../../../shared/textTypography';
 import { buildTextEffectParams } from '../../../shared/textEffects';
@@ -18,6 +19,7 @@ import { getProjectPricing } from '../../../api/pricing';
 import { trackEvent } from '../../../shared/analytics';
 import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import SkillTemplateIcon from '../../../../public/skill-template.svg';
+import Point2Icon from '../../../../public/point2.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
 import {
   getDefaultAiWritePresetId,
@@ -41,6 +43,7 @@ import {
   consumePendingSkillExample,
   formatSkillExampleCountHint,
   formatSkillExampleDuration,
+  formatSkillExampleEstimatedUsage,
   getSkillExampleUploadAccept,
   buildSkillExamplePrompt,
   getSkillExampleValidationError,
@@ -2190,6 +2193,7 @@ const Composer = ({
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [skillExampleGroups, setSkillExampleGroups] = React.useState([]);
   const [skillExample, setSkillExample] = React.useState(null);
+  const skillExampleEstimatedUsageText = formatSkillExampleEstimatedUsage(skillExample?.displayInfo?.estimated_usage);
   const [skillExampleLoading, setSkillExampleLoading] = React.useState(false);
   const [skillExampleError, setSkillExampleError] = React.useState('');
   const [activeSkillExampleSlot, setActiveSkillExampleSlot] = React.useState('');
@@ -3933,9 +3937,10 @@ const Composer = ({
     uploadedFileMeta,
     digitalHumanCompletionState
   ]);
+  const skillExampleMediaLoading = Boolean(skillExample) && (skillExampleLoading || skillExampleUploadsPending > 0);
   const skillExampleValidationError = skillExample
-    ? skillExampleError || getSkillExampleValidationError(skillExampleGroups, uploadedFileMeta, skillExampleLoading || skillExampleUploadsPending > 0) : '';
-  const canSend = Boolean(toolSendState?.canSend) && !skillExampleValidationError;
+    ? skillExampleError || getSkillExampleValidationError(skillExampleGroups, uploadedFileMeta, skillExampleMediaLoading) : '';
+  const canSend = Boolean(toolSendState?.canSend) && !skillExampleValidationError && !skillExampleMediaLoading;
   const sendDisabledReason = modelListLoading
     ? '正在获取可用模型'
     : skillExampleValidationError || (!canSend ? String(toolSendState?.disabledReason || '').trim() : '');
@@ -3954,7 +3959,7 @@ const Composer = ({
 
   const queueFilesForUpload = React.useCallback(async (files = []) => {
     if (sessionSending) return;
-    if (skillExampleLoading) { message.info('示例素材加载中，请稍候'); return; }
+    if (skillExampleLoading) return;
     const normalizedFiles = files.filter((item) => isFileLike(item));
     if (normalizedFiles.length === 0) return;
     const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
@@ -5255,7 +5260,35 @@ const Composer = ({
                 ].filter(Boolean).join(' ')}
               >
                 <div ref={toolContentScrollRef} className="chat-panel__tool-content-scroll">
-                  {skillExample ? <Tooltip title="点击退出"><button type="button" className="chat-panel__skill-template-exit" onClick={exitSkillExample}><img className="chat-panel__skill-template-icon" src={SkillTemplateIcon} alt="" aria-hidden="true" /><span>使用技能</span><span aria-hidden="true">×</span></button></Tooltip> : null}
+                  {skillExample ? (
+                    <div className="chat-panel__tool-detail-area">
+                      <Tooltip title="点击退出">
+                        <span className="chat-panel__tool-tooltip-trigger">
+                          <button
+                            type="button"
+                            className="chat-panel__tool-button chat-panel__tool-button--active"
+                            aria-label="使用技能"
+                            title="使用技能"
+                            aria-pressed="true"
+                            onClick={exitSkillExample}
+                          >
+                            <img className="chat-panel__tool-icon chat-panel__skill-template-icon" src={SkillTemplateIcon} alt="" aria-hidden="true" />
+                            <span className="chat-panel__tool-text chat-panel__tool-text--active">使用技能</span>
+                            <CloseOutlined className="chat-panel__tool-close-icon" aria-hidden="true" />
+                          </button>
+                        </span>
+                      </Tooltip>
+                      {skillExampleEstimatedUsageText ? (
+                        <span
+                          className="chat-panel__skill-template-price"
+                          title="积分消耗为预估值，实际消耗以执行结果为准"
+                        >
+                          <img className="chat-panel__skill-template-price-icon" src={Point2Icon} alt="" aria-hidden="true" />
+                          <span>{skillExampleEstimatedUsageText}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {!skillExample ? <>
 
                   {activeTool === 'recognize-subtitle' ? (

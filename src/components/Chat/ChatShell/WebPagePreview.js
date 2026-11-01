@@ -446,10 +446,15 @@ const WebPagePreview = ({
       return;
     }
 
+    // Manual previews have no tabId; reuse their stable key, including on first mount.
+    const existingTab = tabsStateRef.current.find((tab) => (
+      tab.type === WEB_PREVIEW_TYPE && tab.previewKey === previewKey
+    ));
+    const resolvedTabId = existingTab?.id || nextTab.id;
     setTabs((prev) => (
-      prev.some((tab) => tab.id === previewTabId)
+      prev.some((tab) => tab.id === resolvedTabId)
         ? prev.map((tab) => (
-          tab.id === previewTabId
+          tab.id === resolvedTabId
             ? {
               ...tab,
               previewKey: nextTab.previewKey,
@@ -462,7 +467,7 @@ const WebPagePreview = ({
         : [...prev, nextTab]
     ));
     if (shouldActivate) {
-      setActiveTabId(nextTab.id);
+      setActiveTabId(resolvedTabId);
       setAddressValue(nextTab.url);
     }
   }, [preview]);

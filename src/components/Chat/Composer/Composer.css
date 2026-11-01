@@ -422,6 +422,29 @@
   cursor: pointer;
 }
 
+.chat-panel__tool-icon.chat-panel__skill-template-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
+.chat-panel__skill-template-price {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #595959;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chat-panel__skill-template-price-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
 .chat-panel__input {
   background: transparent;
   margin-left: 0;
@@ -1295,7 +1318,4 @@
   height: 20px;
   stroke-width: 2.2;
 }
-.chat-panel__skill-template-exit { display: inline-flex; align-items: center; gap: 5px; background: #e9ecff; color: #526bff; border: 0; border-radius: 7px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
 .chat-panel__skill-template-loading { padding: 6px 12px; color: #777; font-size: 12px; }
-
-.chat-panel__skill-template-icon { display: block; width: 14px; height: 14px; flex: 0 0 14px; }

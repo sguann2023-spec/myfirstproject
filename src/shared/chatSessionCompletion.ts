@@ -22,6 +22,19 @@ export function isChatSessionPending(flags: ChatSessionCompletionFlags = {}): bo
   return Boolean(flags.isPending)
 }
 
+/** Empty restored chats and paused questions need history even while the turn is running. */
+export function shouldDeferChatHistoryHydration({
+  isPending,
+  isAwaitingConfirmation,
+  messageCount
+}: {
+  isPending: boolean
+  isAwaitingConfirmation: boolean
+  messageCount: number
+}): boolean {
+  return isPending && !isAwaitingConfirmation && messageCount > 0
+}
+
 /**
  * 会话“已完结”的统一语义：
  * - 已收到完成信号

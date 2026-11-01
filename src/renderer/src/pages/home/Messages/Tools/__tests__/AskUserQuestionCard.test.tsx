@@ -2,6 +2,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AskUserQuestionCard } from '../AskUserQuestionCard'
+import { restorePendingAskUserQuestion } from '@renderer/utils/askUserQuestionSnapshot'
+import { isChatSessionAwaitingConfirmation, shouldDeferChatHistoryHydration } from '../../../../../../../shared/chatSessionCompletion'
 
 const mocks = vi.hoisted(() => ({ state: {} as any, dispatch: vi.fn(), respond: vi.fn() }))
 vi.mock('@renderer/store', () => ({
@@ -57,6 +59,42 @@ function expectQuestionOnly() {
   expect(container.textContent).not.toContain('agent.askUserQuestion.submit')
   expect(mocks.respond).not.toHaveBeenCalled()
 }
+
+it('hydrates empty running chats and chats paused for confirmation', () => {
+  expect(shouldDeferChatHistoryHydration({ isPending: true, isAwaitingConfirmation: false, messageCount: 0 })).toBe(false)
+  expect(shouldDeferChatHistoryHydration({ isPending: true, isAwaitingConfirmation: true, messageCount: 2 })).toBe(false)
+  expect(shouldDeferChatHistoryHydration({ isPending: true, isAwaitingConfirmation: false, messageCount: 2 })).toBe(true)
+  expect(shouldDeferChatHistoryHydration({ isPending: false, isAwaitingConfirmation: false, messageCount: 2 })).toBe(false)
+  const requests = { request: { toolName: 'AskUserQuestion', toolCallId: 'session:ask', status: 'pending' } }
+  expect(isChatSessionAwaitingConfirmation({ runtimeSessionId: 'session', isPending: true }, requests)).toBe(true)
+  expect(isChatSessionAwaitingConfirmation({ runtimeSessionId: 'other', isPending: true }, requests)).toBe(false)
+})
+
+it('restores request-only question input by alias and permits submitting the answer', async () => {
+  mocks.state.toolPermissions.requests.request.toolCallId = 'session:ask'
+  mocks.state.toolPermissions.requests.request.toolCallIdAliases = ['ask']
+  const restored = restorePendingAskUserQuestion({ ...toolResponse, arguments: undefined }, mocks.state.toolPermissions)
+  expect(restored.status).toBe('pending')
+  expect(restored.arguments).toEqual(input)
+  await render(restored)
+  await act(async () => (container.querySelector('.ask-user-question-option') as HTMLElement).click())
+  await act(async () => container.querySelector('button')!.click())
+  expect(mocks.respond).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'request', behavior: 'allow' }))
+})
+
+it('does not restore ended, resolved, missing or unrelated permission requests', () => {
+  for (const status of ['done', 'error', 'cancelled']) {
+    const response = { ...toolResponse, status }
+    expect(restorePendingAskUserQuestion(response, mocks.state.toolPermissions)).toBe(response)
+  }
+  mocks.state.toolPermissions.requests.request.status = 'invoking'
+  expect(restorePendingAskUserQuestion(toolResponse, mocks.state.toolPermissions)).toBe(toolResponse)
+  mocks.state.toolPermissions.requests.request.status = 'pending'
+  mocks.state.toolPermissions.requests.request.toolCallId = 'other'
+  expect(restorePendingAskUserQuestion(toolResponse, mocks.state.toolPermissions)).toBe(toolResponse)
+  mocks.state.toolPermissions.requests = {}
+  expect(restorePendingAskUserQuestion(toolResponse, mocks.state.toolPermissions)).toBe(toolResponse)
+})
 
 it.each(['cancelled', 'error', 'done'])('keeps %s cards read-only despite stale or unrelated active requests', async (status) => {
   for (const requestStatus of ['pending', 'submitting-allow', 'invoking']) {

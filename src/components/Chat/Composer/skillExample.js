@@ -210,11 +210,18 @@ export const buildSkillExampleApplyDetail = (example, skillName = '') => ({
   skillName: String(example?.skillName || skillName || '').trim(),
   prompt: String(example?.prompt || '').trim(),
   model: String(example?.model || '').trim(),
+  displayInfo: isPlainObject(example?.displayInfo) ? { ...example.displayInfo } : {},
   audios: Array.isArray(example?.audios) ? example.audios : [],
   images: Array.isArray(example?.images) ? example.images : [],
   videos: Array.isArray(example?.videos) ? example.videos : [],
   groups: Array.isArray(example?.groups) ? example.groups : []
 });
+
+export const formatSkillExampleEstimatedUsage = (value) => {
+  if (!['number', 'string'].includes(typeof value) || String(value).trim() === '') return '';
+  const points = Number(value);
+  return Number.isFinite(points) && points >= 0 ? `预估 ${points}积分` : '';
+};
 
 export const stashPendingSkillExample = (detail) => {
   pendingSkillExampleDetail = detail;
@@ -253,7 +260,7 @@ export const buildSkillExamplePrompt = (prompt, skillName) => {
 };
 
 export const getSkillExampleValidationError = (groups, files, loading = false) => {
-  if (loading) return '示例素材加载中，请稍候';
+  if (loading) return '';
   for (const group of groups || []) {
     const slotId = group.slotId || buildSkillExampleGroupSlotId(group.id, group.kind);
     const count = (files || []).filter((file) => file.slotId === slotId).length;
