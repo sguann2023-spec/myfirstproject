@@ -364,3 +364,17 @@ export const ensureHomepageSkillInstalled = async (skill) => {
   }
   window.dispatchEvent(new Event('skill-store-updated'));
 };
+
+export const buildSkillMentionHighlightRegex = (names) => {
+  const labels = [...new Set((names || []).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!labels.length) return null;
+  const escaped = labels.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const boundary = '[\\s,.!?;:，。！？；：)]';
+  return new RegExp(`@(?:${escaped.join('|')})(?=$|${boundary}|技能(?=$|${boundary}))`, 'gi');
+};
+
+export const SKILL_EXAMPLE_RESET_EVENT = 'chat-reset-skill-example';
+export const dispatchSkillExampleReset = () => {
+  clearPendingSkillExample();
+  window.dispatchEvent(new Event(SKILL_EXAMPLE_RESET_EVENT));
+};

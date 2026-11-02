@@ -38,6 +38,7 @@ import LocalFilePreviewList from './LocalFilePreviewList/index';
 import { filterTreeNodesByQuery, replaceLazyTreeChildren, loadReferenceRoots } from './referenceTree';
 import {
   SKILL_EXAMPLE_APPLY_EVENT,
+  SKILL_EXAMPLE_RESET_EVENT,
   buildSkillExampleGroupSlotId,
   clearPendingSkillExample,
   consumePendingSkillExample,
@@ -46,6 +47,7 @@ import {
   formatSkillExampleEstimatedUsage,
   getSkillExampleUploadAccept,
   buildSkillExamplePrompt,
+  buildSkillMentionHighlightRegex,
   getSkillExampleValidationError,
   probeSkillExampleMedia,
   resolveSkillExampleModel
@@ -119,7 +121,6 @@ const CHAT_MODEL_ANALYTICS_EVENTS = new Map([
 ]);
 const MAX_UPLOAD_COUNT = 100;
 const SKILL_MENTION_CLOSE_DELAY = 120;
-const MENTION_TOKEN_BOUNDARY = '[\\s,.!?;:，。！？；：)]';
 const MENTION_PANEL_DEFAULT_WIDTH = 180;
 const MENTION_PANEL_EDGE_OFFSET = 4;
 const MODEL_HOVER_CARD_WIDTH = 180;
@@ -1780,7 +1781,7 @@ const getActiveMentionStateFromSelection = (selection) => {
 
   const symbol = blockTextBeforeCursor.charAt(triggerIndex);
   const query = blockTextBeforeCursor.slice(triggerIndex + 1);
-  if (/[\s@#]/.test(query)) {
+  if (/[\s@#]/.test(query) || (symbol === '@' && /[,!?;:，。！？；：]/.test(query))) {
     return null;
   }
 
@@ -2310,6 +2311,7 @@ const Composer = ({
   const mentionCloseTimerRef = React.useRef(null);
   const dragCounterRef = React.useRef(0);
   const latestInputRef = React.useRef(String(input || ''));
+  const pendingSkillExamplePromptRef = React.useRef(null);
   const queueFilesForUploadRef = React.useRef(() => {});
   const latestMentionStateRef = React.useRef(mentionState);
   const latestFilteredSkillsRef = React.useRef([]);
@@ -2618,14 +2620,9 @@ const Composer = ({
   }, []);
 
   const mentionHighlightRegex = React.useMemo(() => {
-    const escapedNames = [...skills.map((skill) => getSkillMentionLabel(skill)), skillExample?.skillName]
-      .filter(Boolean)
-      .sort((left, right) => right.length - left.length)
-      .map((name) => escapeRegExp(name));
-
-    if (escapedNames.length === 0) return null;
-
-    return new RegExp(`@(?:${escapedNames.join('|')})(?=$|${MENTION_TOKEN_BOUNDARY})`, 'gi');
+    return buildSkillMentionHighlightRegex([
+      ...skills.map((skill) => getSkillMentionLabel(skill)), skillExample?.skillName,
+    ]);
   }, [skills, skillExample?.skillName]);
 
   const updateMentionPanelPosition = React.useCallback((editorInstance) => {
@@ -3101,7 +3098,7 @@ const Composer = ({
     },
     onUpdate: ({ editor: currentEditor }) => {
       const nextText = getEditorPlainText(currentEditor);
-      if (nextText !== latestInputRef.current) {
+      if (pendingSkillExamplePromptRef.current === null && nextText !== latestInputRef.current) {
         latestInputRef.current = nextText;
         setInput(nextText);
       }
@@ -3150,6 +3147,10 @@ const Composer = ({
 
     const currentText = getEditorPlainText(editor);
     const nextText = String(input || '');
+    // A template can be applied between commits while input still contains the prior prompt.
+    const pendingPrompt = pendingSkillExamplePromptRef.current;
+    if (pendingPrompt !== null && nextText !== pendingPrompt) return;
+    pendingSkillExamplePromptRef.current = null;
     if (currentText === nextText) return;
 
     const selection = {
@@ -3157,7 +3158,7 @@ const Composer = ({
       end: mapDocPositionToTextOffset(editor, editor.state.selection.to),
     };
 
-    editor.commands.setContent(buildEditorDocument(nextText, mentionHighlightRegex), false);
+    editor.commands.setContent(buildEditorDocument(nextText, mentionHighlightRegex), { emitUpdate: false });
 
     const nextPlainText = getEditorPlainText(editor);
     const nextSelectionEnd = Math.min(selection.end, nextPlainText.length);
@@ -4718,6 +4719,7 @@ const Composer = ({
       (skillExampleSnapshotRef.current?.files || []).forEach((item) => revokeLocalObjectUrl(item?.localThumbUrl));
       skillExampleSnapshotRef.current = null;
       skillExampleDetailRef.current = null;
+      pendingSkillExamplePromptRef.current = null;
       clearPendingSkillExample();
       setSkillExample(null);
       setSkillExampleGroups([]);
@@ -4930,7 +4932,7 @@ const Composer = ({
     latestInputRef.current = nextText;
     setInput(nextText);
     if (!editor || editor.isDestroyed) return;
-    editor.commands.setContent(buildEditorDocument(nextText, mentionHighlightRegex), false);
+    editor.commands.setContent(buildEditorDocument(nextText, mentionHighlightRegex), { emitUpdate: false });
     editor.commands.focus('end');
   }, [editor, mentionHighlightRegex, setInput]);
 
@@ -5042,14 +5044,45 @@ const Composer = ({
     pendingTemplateSlotAutoReferenceRef.current = '';
     uploadedFileMeta.filter((item) => item.sourceType === 'skill_example').forEach((item) => revokeLocalObjectUrl(item.localThumbUrl));
     if (!saved) return;
+    pendingSkillExamplePromptRef.current = saved.input;
     setInput(saved.input);
     latestInputRef.current = saved.input;
     setUploadFileList(saved.uploads);
     setUploadedFileMeta(saved.files);
     setActiveTool(saved.activeTool);
     onModelChange?.(saved.model);
-    if (editor && !editor.isDestroyed && saved.document) editor.commands.setContent(saved.document, false);
+    if (editor && !editor.isDestroyed && saved.document) editor.commands.setContent(saved.document, { emitUpdate: false });
   }, [editor, onModelChange, setInput, uploadedFileMeta]);
+
+  React.useEffect(() => {
+    const reset = () => {
+      ++skillExampleGenerationRef.current;
+      skillExampleUploadReservationsRef.current.clear();
+      [...latestUploadedFileMetaRef.current, ...(skillExampleSnapshotRef.current?.files || [])]
+        .forEach((item) => revokeLocalObjectUrl(item?.localThumbUrl));
+      skillExampleSnapshotRef.current = null;
+      skillExampleDetailRef.current = null;
+      pendingSkillExampleModelRef.current = '';
+      pendingSkillExamplePromptRef.current = null;
+      pendingTemplateSlotAutoReferenceRef.current = '';
+      clearPendingSkillExample();
+      setSkillExample(null);
+      setSkillExampleGroups([]);
+      setActiveSkillExampleSlot('');
+      setSkillExampleLoading(false);
+      setSkillExampleUploadsPending(0);
+      setSkillExampleError('');
+      setUploadFileList([]);
+      setUploadedFileMeta([]);
+      setActiveTool(null);
+      latestInputRef.current = '';
+      setInput('');
+      if (editor && !editor.isDestroyed) editor.commands.setContent({ type: 'doc', content: [{ type: 'paragraph' }] }, { emitUpdate: false });
+      closeMentionPanel();
+    };
+    window.addEventListener(SKILL_EXAMPLE_RESET_EVENT, reset);
+    return () => window.removeEventListener(SKILL_EXAMPLE_RESET_EVENT, reset);
+  }, [editor, setInput, closeMentionPanel]);
 
   const applySkillExampleDetail = React.useCallback(async (detail) => {
     skillExampleDetailRef.current = detail;
@@ -5075,11 +5108,12 @@ const Composer = ({
     setUploadFileList([]);
     setUploadedFileMeta([]);
     const prompt = buildSkillExamplePrompt(detail.prompt, detail.skillName);
+    pendingSkillExamplePromptRef.current = prompt;
     setInput(prompt);
     latestInputRef.current = prompt;
     if (editor && !editor.isDestroyed) {
       editor.commands.setContent(buildEditorDocument(prompt, detail.skillName
-        ? new RegExp(`@${escapeRegExp(detail.skillName)}(?=$|${MENTION_TOKEN_BOUNDARY})`, 'gi') : mentionHighlightRegex), false);
+        ? buildSkillMentionHighlightRegex([detail.skillName]) : mentionHighlightRegex), { emitUpdate: false });
       editor.commands.focus('end');
     }
     if (!applySkillExampleModel(detail.model)) pendingSkillExampleModelRef.current = detail.model;
@@ -5113,6 +5147,7 @@ const Composer = ({
   React.useEffect(() => {
     const previous = skillExampleSessionRef.current;
     skillExampleSessionRef.current = runtimeSessionId;
+    if (previous && previous !== runtimeSessionId) pendingSkillExamplePromptRef.current = null;
     if (!previous || previous === runtimeSessionId || !skillExampleSnapshotRef.current) return;
     ++skillExampleGenerationRef.current;
     [...uploadedFileMeta, ...skillExampleSnapshotRef.current.files].forEach((file) => revokeLocalObjectUrl(file.localThumbUrl));

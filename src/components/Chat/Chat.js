@@ -14,6 +14,7 @@ import Composer from './Composer/Composer';
 import {
   buildSkillExampleApplyDetail,
   dispatchSkillExampleApply,
+  dispatchSkillExampleReset,
   loadSkillExample,
   stashPendingSkillExample
 } from './Composer/skillExample';
@@ -475,33 +476,14 @@ const Chat = ({
     const mentionLabel = String(skill?.name || skill?.folderName || skill?.filename || skill?.id || '').trim();
     if (!mentionLabel) return;
 
-    const currentText = String(input || '');
-    const inputElement = inputRef.current;
-    const isInputFocused = typeof inputElement?.isFocused === 'function'
-      ? inputElement.isFocused()
-      : inputElement && document.activeElement === inputElement;
-    const selectionRange = typeof inputElement?.getSelectionRange === 'function'
-      ? inputElement.getSelectionRange()
-      : {
-        start: isInputFocused ? (inputElement?.selectionStart ?? currentText.length) : currentText.length,
-        end: isInputFocused ? (inputElement?.selectionEnd ?? currentText.length) : currentText.length,
-      };
-    const selectionStart = selectionRange?.start ?? currentText.length;
-    const selectionEnd = selectionRange?.end ?? selectionStart;
-    const prefix = currentText.slice(0, selectionStart);
-    const suffix = currentText.slice(selectionEnd);
-    const promptText = `修改@${mentionLabel}`;
-    const needsLeadingBreak = prefix.length > 0 && !/\s$/.test(prefix);
-    const needsTrailingSpace = suffix.length > 0 && !/^\s/.test(suffix);
-    const nextText = `${prefix}${needsLeadingBreak ? '\n' : ''}${promptText}${needsTrailingSpace ? ' ' : ''}${suffix}`;
-    const nextCursor = prefix.length + (needsLeadingBreak ? 1 : 0) + promptText.length;
-
+    dispatchSkillExampleReset();
+    const nextText = `修改@${mentionLabel}技能，我想要`;
     setInput(nextText);
     window.requestAnimationFrame(() => {
       inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+      inputRef.current?.setSelectionRange(nextText.length, nextText.length);
     });
-  }, [input, setInput]);
+  }, [setInput]);
 
   const insertQuickSkillMention = React.useCallback((skill) => {
     const mentionLabel = getSkillMentionLabel(skill);

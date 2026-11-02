@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ensureHomepageSkillInstalled } from './skillExample';
+import { ensureHomepageSkillInstalled, buildSkillMentionHighlightRegex } from './skillExample';
 afterEach(() => { delete window.api; vi.restoreAllMocks(); });
 
 describe('homepage skill installation', () => {
@@ -33,5 +33,18 @@ describe('homepage skill installation', () => {
   it('does not continue when installation fails', async () => {
     window.api = { skill: { list: vi.fn().mockResolvedValue({ success: true, data: [] }), installFromDirectory: vi.fn().mockResolvedValue({ success: false }) } };
     await expect(ensureHomepageSkillInstalled(skill)).rejects.toThrow('安装技能失败');
+  });
+});
+
+describe('skill modification mentions', () => {
+  it('recognizes only the skill name before the 技能 suffix', () => {
+    const regex = buildSkillMentionHighlightRegex(['微缩世界化妆品带货']);
+    const matches = [...'修改@微缩世界化妆品带货技能，我想要'.matchAll(regex)];
+    expect(matches.map((match) => match[0])).toEqual(['@微缩世界化妆品带货']);
+    expect(buildSkillMentionHighlightRegex(['口播']).test('@口播技能增强')).toBe(false);
+  });
+  it('escapes model punctuation and prefers the longest skill label', () => {
+    expect([...('修改@技能(A)+技能，我想要').matchAll(buildSkillMentionHighlightRegex(['技能(A)+']))][0][0]).toBe('@技能(A)+');
+    expect([...('修改@口播技能技能，我想要').matchAll(buildSkillMentionHighlightRegex(['口播', '口播技能']))][0][0]).toBe('@口播技能');
   });
 });

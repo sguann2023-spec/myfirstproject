@@ -28,6 +28,7 @@ import Chat from '../../components/Chat/Chat';
 import {
   buildSkillExampleApplyDetail,
   dispatchSkillExampleApply,
+  dispatchSkillExampleReset,
   loadSkillExample,
   stashPendingSkillExample
 } from '../../components/Chat/Composer/skillExample';
@@ -2625,9 +2626,10 @@ const HomePage = () => {
   }, []);
 
   const handleSkillEdit = useCallback((skill) => {
+    dispatchSkillExampleReset();
     const name = String(skill?.name || skill?.folderName || '').trim();
     setSelectedPane('chat');
-    setChatDraftInput(name ? `请帮我编辑 @${name} 这个 skill，我想要...` : '请帮我编辑这个 skill，我想要...');
+    setChatDraftInput(name ? `修改@${name}技能，我想要` : '修改技能，我想要');
   }, []);
 
   const handleCreateSkillFromStore = useCallback(() => {
