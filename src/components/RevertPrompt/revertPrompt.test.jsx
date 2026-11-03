@@ -94,7 +94,7 @@ const createHandler = (callTool = vi.fn(async () => result)) => {
   const source = readFileSync('src/main/services/agents/services/channels/sessionStreamIpc.ts', 'utf8');
   const code = source.slice(source.indexOf('  const handleReversePromptRequest ='), source.indexOf('  const handleSessionCreate ='));
   const save = vi.fn(async () => {});
-  const persistExchange = vi.fn(async () => {});
+  const persistDirectRequestExchange = vi.fn(async () => {});
   const close = vi.fn(async () => {});
   const activeAbortControllers = new Map();
   const context = {
@@ -114,12 +114,12 @@ const createHandler = (callTool = vi.fn(async () => result)) => {
     },
     ensureDirectRequestSegment: vi.fn(async () => ({ id: 'segment' })),
     agentTurnRepository: { save },
-    agentMessageRepository: { persistExchange },
+    persistDirectRequestExchange,
     broadcastSessionChanged: vi.fn(),
   };
   const js = transpileModule(`${code}\nglobalThis.handler = handleReversePromptRequest;`, { compilerOptions: { target: 9 } }).outputText;
   runInNewContext(js, context);
-  return { handler: context.handler, save, persistExchange, close, activeAbortControllers, callTool };
+  return { ...context, save, persistDirectRequestExchange, close, callTool };
 };
 const payload = { sessionId: 's', requestId: 'r', assistantMessageId: 'a', userMessageId: 'u', userContent: '反推视频提示词', reversePromptRequest: request };
 describe('普通分镜请求元数据', () => {
@@ -187,7 +187,9 @@ describe('主进程直连 MCP', () => {
     expect(output.assistantBlocks[0].content.billing).toEqual(billing);
     expect(output.assistantText).toContain('/tmp/workspace/all.md');
     expect(output.assistantText).not.toContain('0~0.3秒');
-    expect(h.persistExchange.mock.calls[0][0].user.payload.message.videoUnderstandRequest.requestId).toBe('r');
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].user.payload.message.videoUnderstandRequest.requestId).toBe('r');
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].turnId).toBe('turn_generated-id');
+    expect(h.save.mock.calls[0][0].id).toBe('turn_generated-id');
   });
   it('传递 shareText、进度 ID，并保存结果与重试元数据', async () => {
     const h = createHandler();
@@ -195,15 +197,22 @@ describe('主进程直连 MCP', () => {
     expect(output.ok).toBe(true);
     expect(h.callTool.mock.calls[0][0].params).toEqual({ name: 'derive_copy_prompt', arguments: request });
     expect(h.callTool.mock.calls[0][1].toolCallId).toBe('reverse_prompt_request_r');
-    expect(h.persistExchange.mock.calls[0][0].user.payload.message.reversePromptRequest).toEqual({ ...request, requestId: 'r' });
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].user.payload.message.reversePromptRequest).toEqual({ ...request, requestId: 'r' });
+    expect(h.persistDirectRequestExchange).toHaveBeenCalledOnce();
+    expect(h.persistDirectRequestExchange.mock.calls[0][0]).toMatchObject({
+      turnId: 'turn_generated-id', sessionId: 's', agentSessionId: 's',
+    });
     expect(h.save).toHaveBeenCalledOnce();
+    expect(h.save.mock.calls[0][0]).toMatchObject({
+      id: 'turn_generated-id', userMessageId: 'u', assistantMessageId: 'a', status: 'completed',
+    });
     expect(h.close).toHaveBeenCalledOnce();
     expect(h.activeAbortControllers.size).toBe(0);
   });
   it('工具错误释放资源，不写入成功历史', async () => {
     const h = createHandler(vi.fn(async () => ({ isError: true, content: [{ type: 'text', text: '链接解析失败' }] })));
     expect(await h.handler(null, payload)).toMatchObject({ ok: false, error: '链接解析失败' });
-    expect(h.persistExchange).not.toHaveBeenCalled();
+    expect(h.persistDirectRequestExchange).not.toHaveBeenCalled();
     expect(h.close).toHaveBeenCalledOnce();
     expect(h.activeAbortControllers.size).toBe(0);
   });
@@ -213,8 +222,23 @@ describe('主进程直连 MCP', () => {
       return result;
     }));
     expect(await h.handler(null, payload)).toMatchObject({ ok: false, aborted: true });
-    expect(h.persistExchange).not.toHaveBeenCalled();
+    expect(h.persistDirectRequestExchange).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
     expect(h.close).toHaveBeenCalledOnce();
+    expect(h.activeAbortControllers.size).toBe(0);
+  });
+  it('等待 segment 时取消不保存 turn 或提交 exchange', async () => {
+    const h = createHandler();
+    h.ensureDirectRequestSegment.mockImplementation(async () => {
+      h.activeAbortControllers.get('s').controller.abort();
+      return { id: 'segment' };
+    });
+    expect(await h.handler(null, payload)).toMatchObject({ ok: false, aborted: true });
+    expect(h.ensureDirectRequestSegment).toHaveBeenCalledOnce();
+    expect(h.persistDirectRequestExchange).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.close).toHaveBeenCalledOnce();
+    expect(h.activeAbortControllers.size).toBe(0);
   });
   it('错误回包保留已计费结果并写入失败历史', async () => {
     const billing = { total_consumed_points: 0.8, complete: false };
@@ -227,7 +251,9 @@ describe('主进程直连 MCP', () => {
     expect(output.assistantBlocks[0].metadata.rawMcpToolResponse).toMatchObject({
       status: 'error', response: { billing },
     });
-    expect(h.persistExchange.mock.calls[0][0].assistant.payload.blocks[0].content.billing).toEqual(billing);
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].assistant.payload.blocks[0].content.billing).toEqual(billing);
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].turnId).toBe('turn_generated-id');
+    expect(h.save.mock.calls[0][0].id).toBe('turn_generated-id');
     expect(h.save.mock.calls[0][0].status).toBe('failed');
   });
 });

@@ -556,6 +556,7 @@ curl --location 'https://open.vectcut.com/llm/sts/submit/task_status?task_id=<ta
 | `Coze` 是否可展示 | 是，使用 `workflowId=7668682150007488554`，复制 `generate_ai_video` + 循环查询链路（`time_delay` / `ai_video_task_status` / 选择器 / 设置变量）；Coze 节点保留必填 `prompt`，`content` 按插件要求写入 JSON 字符串 |
 | 前端发送条件 | 必须输入提示词，参考素材按生成方式传入统一 `content` 数组 |
 | 触发工具 | `mcp__vectcut__video__generate_video` |
+| 历史与上下文 | 保存同一 session 的 user / assistant / tool / main_text 后，显式追加到当前 PI 分支；已打开的会话无需重启即可读取生成结果，重启后仍可恢复。user / assistant 保留 turnId，assistant 关联 userMessageId；成功工具块的 `success` 状态必须转换为真实 toolResult，不得补成中断错误 |
 
 典型 payload：
 
@@ -1059,6 +1060,9 @@ curl --location 'https://open.vectcut.com/cut_jianying/add_image' \
 | tool 卡片 | 继续按标准 MCP tool 卡片渲染 |
 | 历史落库 | 必须写入 user / assistant / tool block / main_text block |
 | Agent 上下文 | 必须进入同一条 session/topic 的上下文 |
+| 统一提交入口 | 所有 direct handler 使用 `persistDirectRequestExchange` 保存完整 user / assistant / tool / main_text，并显式追加到当前 PI 分支；不对普通流式消息或历史编辑无条件追加 |
+| 回合关联与恢复 | user / assistant 保留相同 `turnId`，assistant 的 `askId` 关联 user message；首次打开、已有 PI 会话及 overlay 历史均支持追加，重复提交不重复追加、不移动后续分支，重启后恢复 |
+| 失败工具上下文 | direct 消息标记 `semantics.origin=direct_request`；业务失败保留真实错误 toolResult 和已成功阶段，不按模型流中断过滤工具结果；已取消并被执行入口忽略的迟到结果不追加 |
 | 展示切换影响范围 | 仅影响前端展示态和复制内容，不改真实发送和持久化结果 |
 
 ---

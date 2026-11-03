@@ -141,7 +141,7 @@ function isToolError(part: AgentMessagePart): boolean {
 
 function hasToolResult(part: AgentMessagePart): boolean {
   const status = String(part.data.status ?? '').toLowerCase()
-  if (!['completed', 'complete', 'error', 'failed', 'cancelled'].includes(status) && part.data.isError !== true) {
+  if (!['success', 'completed', 'complete', 'error', 'failed', 'cancelled'].includes(status) && part.data.isError !== true) {
     return false
   }
   return ['rawOutput', 'output', 'content', 'result', 'error'].some(
@@ -198,7 +198,10 @@ export function canonicalMessageToPi(entry: AgentMessageWithParts, includeProvid
         cacheWrite: Number(usage.cacheWriteTokens ?? 0),
         totalTokens: Number(usage.totalTokens ?? 0)
       },
-      stopReason: message.status === 'failed' || message.status === 'interrupted' ? 'error' : 'stop',
+      // A failed direct tool is a completed exchange, not a failed model stream.
+      // Keep its real error results (and any earlier successful stages) replayable.
+      stopReason: message.semantics?.origin !== 'direct_request' &&
+        (message.status === 'failed' || message.status === 'interrupted') ? 'error' : 'stop',
       errorMessage: message.error?.message,
       timestamp
     } as PiAgentMessage
@@ -327,6 +330,38 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     storage.recoveryWrites = undefined
     // Once a topic exists, its identity wins over any requested replacement ID.
     return storage
+  }
+
+  static async appendCanonicalExchange(input: {
+    topicId: string
+    userMessageId: string
+    assistantMessageId: string
+    database?: AgentDatabase
+  }): Promise<void> {
+    const db = await this.database(input.database)
+    const repository = new AgentTranscriptRepository(db)
+    const transcript: AgentMessageWithParts[] = []
+    for (const id of [input.userMessageId, input.assistantMessageId]) {
+      const message = await repository.getMessage(input.topicId, id)
+      if (!message) throw new Error(`Direct request message ${id} was not persisted`)
+      transcript.push({ message, parts: await repository.listMessageParts(input.topicId, id) })
+    }
+    // Exclude this exchange from first-open hydration, then explicitly append it
+    // to the active PI branch. Never rescan or expand a frozen history prefix.
+    const storage = await this.openOrCreate({
+      topicId: input.topicId, invocationId: input.userMessageId, database: db
+    })
+    // Commit the complete exchange without yielding so another append cannot
+    // interleave its user message between the tool call and its result.
+    for (const item of transcript) {
+      for (const [index, message] of canonicalMessageToPi(item).entries()) {
+        const id = stableEntryId('canonical', input.topicId, item.message.id, index)
+        if (storage.state.byId.has(id)) continue
+        storage.commitEntry({ type: 'message', id, parentId: storage.state.leafId,
+          timestamp: item.message.createdAt, message },
+        message.role === 'user' ? item.message.id : undefined)
+      }
+    }
   }
 
   static async hasDurableConversation(input: {
@@ -687,19 +722,17 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
 
   async getPathToRootOrCompaction(leafId: string | null): Promise<SessionTreeEntry[]> {
     const path: SessionTreeEntry[] = []
-    const metadata: EntryMetadata[] = []
     const visited = new Set<string>()
     let next = leafId
     let stopAt: string | null = null
-    let bytes = 0
     while (next !== null) {
       if (visited.has(next)) throw await sessionError('invalid_session', `Cycle at entry ${next}`)
+      if (visited.size >= PI_HISTORY_LIMITS.entries) throw historyLimitError()
       visited.add(next)
       const entry = this.lookupEntry(next)
       if (!entry) throw await sessionError(path.length ? 'invalid_session' : 'not_found', `Entry ${next} not found`)
-      const item = { id: entry.id, bytes: Buffer.byteLength(JSON.stringify(entry)) }
-      bytes = this.checkHistoryMetadata(metadata, item, bytes)
-      metadata.push(item)
+      // These entries are already in memory. Database transfer limits must not
+      // reject a live image before the model/context projector can consume it.
       path.push(entry)
       if (entry.id === stopAt || (entry.type === 'compaction' && Array.isArray(entry.retainedTail))) break
       if (entry.type === 'compaction') stopAt = entry.firstKeptEntryId ?? null
@@ -747,6 +780,30 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     return total + bytes
   }
 
+  private restoredEntryJson() {
+    // Project in SQLite so historical image payloads never cross the worker
+    // boundary. Keep images without a reusable source rather than losing them.
+    const source = sql`json_extract(entry_json, '$.message.details.source')`
+    return sql`CASE WHEN
+      json_extract(entry_json, '$.message.role') = 'toolResult'
+      AND json_extract(entry_json, '$.message.toolName') IN ('ReadImageAsContent', 'builtin_ReadImageAsContent', 'Read', 'builtin_Read')
+      AND coalesce(json_extract(entry_json, '$.message.isError'), 0) = 0
+      AND json_type(entry_json, '$.message.content') = 'array'
+      AND json_type(entry_json, '$.message.details.source') = 'text'
+      AND (substr(${source}, 1, 1) = '/' OR ${source} LIKE 'https://%' OR ${source} LIKE 'http://%'
+        OR substr(${source}, 2, 2) IN (':\\', ':/'))
+      THEN json_set(entry_json, '$.message.content', json((
+        SELECT json_group_array(json(part)) FROM (
+          SELECT CASE WHEN json_extract(value, '$.type') = 'image'
+            THEN json_object('type', 'text', 'text',
+              'Previously loaded image: ' || json_quote(${source}) ||
+              '. Raw image omitted when restoring history. Use ReadImageAsContent with this file_path or URL if visual inspection is needed again.')
+            ELSE value END AS part
+          FROM json_each(entry_json, '$.message.content') ORDER BY CAST(key AS INTEGER)
+        )
+      ))) ELSE entry_json END`
+  }
+
   private async readBoundedEntries(db: DatabaseExecutor, metadata: EntryMetadata[]): Promise<SessionTreeEntry[]> {
     const entries: SessionTreeEntry[] = []
     let total = 0
@@ -760,19 +817,21 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
       }
       if (!batch.length) throw historyLimitError()
       const ids = sql.join(batch.map(item => sql`${item.id}`), sql`, `)
-      // Recheck actual byte counts in SQL before returning any body, in case a
+      // Recheck projected byte counts before returning any body, in case a
       // record changed between metadata and body reads. Oversize bodies are NULL.
       const rows = await db.all<{ id: string; bytes: number; entry: string | null }>(sql`
-        WITH sizes AS (
-          SELECT entry_id AS id, octet_length(entry_json) AS bytes FROM pi_session_entries
+        WITH projected AS MATERIALIZED (
+          SELECT entry_id AS id, ${this.restoredEntryJson()} AS entry FROM pi_session_entries
           WHERE topic_id = ${this.topicId} AND entry_id IN (${ids})
+        ), sizes AS (
+          SELECT id, octet_length(entry) AS bytes FROM projected
         ), bounded AS (
           SELECT id, bytes, sum(bytes) OVER (ORDER BY id ROWS UNBOUNDED PRECEDING) AS running_bytes FROM sizes
         )
         SELECT bounded.id, bounded.bytes,
           CASE WHEN bounded.bytes <= ${PI_HISTORY_LIMITS.entryBytes} AND bounded.running_bytes <= ${PI_HISTORY_LIMITS.batchBytes}
-            THEN e.entry_json END AS entry
-        FROM bounded JOIN pi_session_entries e ON e.topic_id = ${this.topicId} AND e.entry_id = bounded.id
+            THEN e.entry END AS entry
+        FROM bounded JOIN projected e ON e.id = bounded.id
       `)
       if (rows.length !== batch.length) throw await sessionError('invalid_session', 'History changed during reading')
       const bodies = new Map<string, { id: string; bytes: number; entry: string | null }>(rows.map(row => [row.id, row]))
@@ -799,7 +858,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     while (metadata.length < limit) {
       const count = Math.min(PI_HISTORY_LIMITS.metadataBatch, limit - metadata.length)
       const rows = await db.all<EntryMetadata & { sequence: number }>(sql`
-        SELECT substr(entry_id, 1, 1025) AS id, octet_length(entry_json) AS bytes, sequence
+        SELECT substr(entry_id, 1, 1025) AS id, octet_length(${this.restoredEntryJson()}) AS bytes, sequence
         FROM pi_session_entries WHERE topic_id = ${this.topicId} AND sequence > ${sequence}
         ORDER BY sequence LIMIT ${count}
       `)

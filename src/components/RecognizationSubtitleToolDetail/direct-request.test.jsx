@@ -78,7 +78,7 @@ describe('字幕直连请求与固定回复', () => {
 const createHandler = (execute = vi.fn(async () => result)) => {
   const source = readFileSync('src/main/services/agents/services/channels/sessionStreamIpc.ts', 'utf8');
   const code = source.slice(source.indexOf('  const handleReversePromptRequest ='), source.indexOf('  const handleSessionCreate ='));
-  const persistExchange = vi.fn(async () => {});
+  const persistDirectRequestExchange = vi.fn(async () => {});
   const save = vi.fn(async () => {});
   const close = vi.fn(async () => {});
   const activeAbortControllers = new Map();
@@ -93,8 +93,8 @@ const createHandler = (execute = vi.fn(async () => result)) => {
       executeDirectRequest = execute;
       mcpServer = { server: { _requestHandlers: new Map([['tools/call', vi.fn()]]) }, close };
     },
-    ensureDirectRequestSegment: async () => ({ id: 'segment' }),
-    agentTurnRepository: { save }, agentMessageRepository: { persistExchange },
+    ensureDirectRequestSegment: vi.fn(async () => ({ id: 'segment' })),
+    agentTurnRepository: { save }, persistDirectRequestExchange,
     broadcastSessionChanged: vi.fn(),
     windowService: { getMainWindow: () => ({ webContents: { send: vi.fn() } }) },
     IpcChannel: { Mcp_Progress: 'progress' },
@@ -102,7 +102,7 @@ const createHandler = (execute = vi.fn(async () => result)) => {
   runInNewContext(transpileModule(`${code}\nglobalThis.handler = handleReversePromptRequest;`, {
     compilerOptions: { target: 9 },
   }).outputText, context);
-  return { ...context, persistExchange, execute, close, save };
+  return { ...context, persistDirectRequestExchange, execute, close, save };
 };
 const payload = { sessionId: 's', requestId: 'r', assistantMessageId: 'a', userMessageId: 'u', userContent: '识别字幕', subtitleRecognitionRequest: request };
 
@@ -113,7 +113,7 @@ describe('字幕主进程直连', () => {
     const output = await h.handler(null, { ...payload, subtitleRecognitionRequest: languageRequest });
     expect(output.ok).toBe(true);
     expect(h.execute.mock.calls[0][0]).toEqual(languageRequest);
-    expect(h.persistExchange.mock.calls[0][0].user.payload.message.subtitleRecognitionRequest)
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].user.payload.message.subtitleRecognitionRequest)
       .toEqual({ ...languageRequest, requestId: 'r' });
   });
   it('直接执行 MCP、保存同会话历史及固定回复、关闭资源', async () => {
@@ -123,10 +123,15 @@ describe('字幕主进程直连', () => {
     expect(h.execute.mock.calls[0][0]).toEqual(request);
     expect(h.execute.mock.calls[0][1]._meta.progressToken).toBe('subtitle_recognition_request_r');
     expect(output.assistantBlocks[0].metadata.rawMcpToolResponse.response.billing.consume).toBe(3);
-    const exchange = h.persistExchange.mock.calls[0][0];
+    const exchange = h.persistDirectRequestExchange.mock.calls[0][0];
     expect(exchange.user.payload.message.subtitleRecognitionRequest).toEqual({ ...request, requestId: 'r' });
     expect(exchange.assistant.payload.blocks[1].content).toContain('共 1 条字幕');
+    expect(h.persistDirectRequestExchange).toHaveBeenCalledOnce();
+    expect(exchange).toMatchObject({ turnId: 'turn_new-id', sessionId: 's', agentSessionId: 's' });
     expect(h.save).toHaveBeenCalledOnce();
+    expect(h.save.mock.calls[0][0]).toMatchObject({
+      id: 'turn_new-id', userMessageId: 'u', assistantMessageId: 'a', status: 'completed',
+    });
     expect(h.close).toHaveBeenCalledOnce();
     expect(h.activeAbortControllers.size).toBe(0);
   });
@@ -136,8 +141,23 @@ describe('字幕主进程直连', () => {
       return result;
     }));
     expect(await h.handler(null, payload)).toMatchObject({ ok: false, aborted: true });
-    expect(h.persistExchange).not.toHaveBeenCalled();
+    expect(h.persistDirectRequestExchange).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
     expect(h.close).toHaveBeenCalledOnce();
+    expect(h.activeAbortControllers.size).toBe(0);
+  });
+  it('等待 segment 时取消不保存 turn 或提交 exchange', async () => {
+    const h = createHandler();
+    h.ensureDirectRequestSegment.mockImplementation(async () => {
+      h.activeAbortControllers.get('s').controller.abort();
+      return { id: 'segment' };
+    });
+    expect(await h.handler(null, payload)).toMatchObject({ ok: false, aborted: true });
+    expect(h.ensureDirectRequestSegment).toHaveBeenCalledOnce();
+    expect(h.persistDirectRequestExchange).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.close).toHaveBeenCalledOnce();
+    expect(h.activeAbortControllers.size).toBe(0);
   });
   it('没有工作区时创建并保存到当前会话', async () => {
     const h = createHandler();
@@ -157,7 +177,10 @@ describe('字幕主进程直连', () => {
     expect(output.ok).toBe(false);
     expect(output.assistantBlocks[0].status).toBe('error');
     expect(output.assistantBlocks[0].metadata.rawMcpToolResponse.response.billing.consume).toBe(2);
-    expect(h.persistExchange).toHaveBeenCalledOnce();
+    expect(h.persistDirectRequestExchange).toHaveBeenCalledOnce();
+    expect(h.persistDirectRequestExchange.mock.calls[0][0].turnId).toBe('turn_new-id');
+    expect(h.save).toHaveBeenCalledOnce();
+    expect(h.save.mock.calls[0][0]).toMatchObject({ id: 'turn_new-id', status: 'failed' });
   });
 });
 

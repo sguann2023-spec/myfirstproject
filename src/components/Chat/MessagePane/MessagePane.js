@@ -343,12 +343,16 @@ const MessagePane = ({
 
   return (
     <div className="chat-panel__message-pane">
-      {historyLoading && visibleMessages.length === 0 ? (
+      {(historyLoading || sending) && visibleMessages.length === 0 ? (
         <div className="chat-panel__messages">
           <div className="chat-panel__history-loading" role="status" aria-live="polite">
             <div className="chat-panel__history-loading-spinner" />
-            <div className="chat-panel__history-loading-title">正在加载对话记录</div>
-            <div className="chat-panel__history-loading-subtitle">请稍候...</div>
+            <div className="chat-panel__history-loading-title">
+              {historyLoading ? '正在加载对话记录' : '对话正在进行中'}
+            </div>
+            <div className="chat-panel__history-loading-subtitle">
+              {historyLoading ? '请稍候...' : '正在等待消息，请稍候...'}
+            </div>
           </div>
         </div>
       ) : visibleMessages.length === 0 ? (

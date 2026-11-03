@@ -958,6 +958,35 @@ describe('processPiHarnessQuery', () => {
     )
   })
 
+  it.each(['throw', 'result'])('does not retry deterministic PI history limits (%s)', async kind => {
+    vi.useFakeTimers()
+    const message = 'PI history exceeds safe reading limits; compact the conversation or start a new session.'
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        if (kind === 'throw') {
+          const error = new Error(message)
+          error.name = 'PiHistoryLimitError'
+          throw error
+        }
+        return { role: 'assistant', content: [], stopReason: 'error', errorMessage: message, usage: {} }
+      }
+    })
+    const stream = createStreamRecorder()
+    const run = processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: {
+        traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn,
+        pendingFileChanges: new Map()
+      } as any,
+      harness: harnessStub.harness, prompt: 'continue'
+    })
+    await vi.runAllTimersAsync()
+    await run
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(1)
+    expect(stream.events.some(event => event.type === 'error')).toBe(true)
+    expect(stream.events.some(event => event.type === 'chunk' && 'text' in event.chunk && String(event.chunk.text).includes('次重试'))).toBe(false)
+  })
+
   it('retries retriable upstream errors and finalizes abandoned calls and partial inputs', async () => {
     vi.useFakeTimers()
     let promptAttempt = 0

@@ -865,9 +865,11 @@ const ChatShell = ({
         activate: webPreview?.activate !== false
       };
       setPanePreview(nextPreview);
-      return;
     }
+  }, [webPreview]);
 
+  // File updates must not replay a previously requested web navigation.
+  React.useEffect(() => {
     if (!webPreview) {
       setPanePreview((prev) => {
         if (prev?.previewType !== 'web') return prev;

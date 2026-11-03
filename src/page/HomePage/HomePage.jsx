@@ -2638,6 +2638,7 @@ const HomePage = () => {
   }, []);
   const chatHistoryAnimTimerRef = useRef(null);
   const chatSessionsRef = useRef([]);
+  const chatSessionsRestoredRef = useRef(false);
   const chatTitleGeneratingSessionIdsRef = useRef(new Set());
   const chatAgentSessionIdByChatIdRef = useRef(new Map());
   const chatIdByAgentSessionIdRef = useRef(new Map());
@@ -3162,6 +3163,9 @@ const HomePage = () => {
   }, [chatModelOptions]);
 
   useEffect(() => {
+    // Fast Refresh reruns effects while retaining messages and live controllers.
+    if (chatSessionsRestoredRef.current) return;
+    chatSessionsRestoredRef.current = true;
     try {
       const storedSessions = electronStore.get(CHAT_STORAGE_KEY);
       const storedActiveId = electronStore.get(CHAT_ACTIVE_ID_KEY);
@@ -4582,6 +4586,23 @@ const HomePage = () => {
         }
       }
     });
+    // Restore background turns as well as the active chat after effect teardown.
+    // Subscribe only after the renderer listeners have been installed.
+    const getSubscribedSessionIds = () => new Set([
+      ...chatAgentSessionIdByChatIdRef.current.values(),
+      ...Array.from(chatPendingByRequestIdRef.current.values(), (pending) => pending?.agentSessionId)
+    ].filter(Boolean));
+    for (const sessionId of getSubscribedSessionIds()) {
+      void window.electronAPI.cherryChatStream.subscribe(sessionId).then((result) => {
+        if (result?.success === false) throw new Error(result.error || 'stream subscription failed');
+      }).catch((error) => {
+        logger.warn('[HomePage] restore stream subscription failed', {
+          sessionId,
+          error: error?.message || String(error)
+        });
+      });
+    }
+
     return () => {
       chatSnapshotThrottleByRequestIdRef.current.forEach((entry) => {
         if (entry?.timer) clearTimeout(entry.timer);
@@ -4590,6 +4611,14 @@ const HomePage = () => {
       if (typeof offPermissionRequest === 'function') offPermissionRequest();
       if (typeof offPermissionResult === 'function') offPermissionResult();
       if (typeof offChunk === 'function') offChunk();
+      for (const sessionId of getSubscribedSessionIds()) {
+        void window.electronAPI.cherryChatStream.unsubscribe(sessionId).catch((error) => {
+          logger.warn('[HomePage] unsubscribe stream failed', {
+            sessionId,
+            error: error?.message || String(error)
+          });
+        });
+      }
     };
   }, [canUseAgentRuntime]);
 
@@ -6890,11 +6919,6 @@ const HomePage = () => {
     return () => {
       if (chatHistoryAnimTimerRef.current) {
         clearTimeout(chatHistoryAnimTimerRef.current);
-      }
-      if (canUseAgentRuntime) {
-        for (const agentSessionId of chatAgentSessionIdByChatIdRef.current.values()) {
-          void window.electronAPI.cherryChatStream.unsubscribe(agentSessionId);
-        }
       }
       chatTitleRevealTimersRef.current.forEach((timer) => {
         clearTimeout(timer);

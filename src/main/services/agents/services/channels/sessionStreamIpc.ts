@@ -44,7 +44,7 @@ import path from 'node:path'
 
 import { windowService } from '../../../WindowService'
 import { agentsTable } from '../../database/schema'
-import { agentMessageRepository } from '../../database/sessionMessageRepository'
+import { persistDirectRequestExchange } from './directRequestPersistence'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
 import { allocateAgentInvocationIds } from '../agent-invocation-ids'
 import { sessionService } from '../SessionService'
@@ -3082,7 +3082,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3204,7 +3205,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3325,7 +3327,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3455,7 +3458,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3594,7 +3598,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3724,7 +3729,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3849,7 +3855,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -3973,7 +3980,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -4099,7 +4107,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -4223,7 +4232,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -4346,7 +4356,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -4469,7 +4480,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -4596,7 +4608,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -4779,18 +4792,24 @@ export function registerSessionStreamIpc(): void {
         if (!packagingArgs.videoUrl) {
           packagingError = '数字人结果中没有可用于智能包装的视频链接'
         } else {
-          packagingToolResult = await callKouboTemplateTool(
-            'submit_koubo_template_task',
-            packagingArgs,
-            createDirectToolProgressExtra(toolCallId, 0.7, 0.99)
-          )
-          packagingResponse = parseDraftResultText(packagingToolResult)
-          packagingError = String(
-            packagingResponse?.error
-            || packagingResponse?.rawText
-            || (packagingResponse?.success === false ? packagingResponse?.message : '')
-            || ''
-          ).trim()
+          try {
+            packagingToolResult = await callKouboTemplateTool(
+              'submit_koubo_template_task',
+              packagingArgs,
+              createDirectToolProgressExtra(toolCallId, 0.7, 0.99)
+            )
+            packagingResponse = parseDraftResultText(packagingToolResult)
+            packagingError = String(
+              packagingResponse?.error
+              || packagingResponse?.rawText
+              || (packagingResponse?.success === false ? packagingResponse?.message : '')
+              || ''
+            ).trim()
+          } catch (error) {
+            // A later stage must not discard the already generated video.
+            packagingError = error instanceof Error ? error.message : String(error)
+            packagingResponse = { error: packagingError }
+          }
         }
       }
 
@@ -4804,13 +4823,18 @@ export function registerSessionStreamIpc(): void {
         if (!draftExportArgs) {
           draftExportError = '智能包装结果中没有可导出的草稿 ID'
         } else {
-          draftExportToolResult = await callDraftDownloadTool('export_draft', draftExportArgs)
-          draftExportResponse = parseDraftResultText(draftExportToolResult)
-          draftExportError = String(
-            draftExportResponse?.error
-            || draftExportResponse?.rawText
-            || ''
-          ).trim()
+          try {
+            draftExportToolResult = await callDraftDownloadTool('export_draft', draftExportArgs)
+            draftExportResponse = parseDraftResultText(draftExportToolResult)
+            draftExportError = String(
+              draftExportResponse?.error
+              || draftExportResponse?.rawText
+              || ''
+            ).trim()
+          } catch (error) {
+            draftExportError = error instanceof Error ? error.message : String(error)
+            draftExportResponse = { error: draftExportError }
+          }
         }
       }
 
@@ -4892,8 +4916,9 @@ export function registerSessionStreamIpc(): void {
       ]
 
       const activeSegment = await ensureDirectRequestSegment(session)
+      const turnId = `turn_${randomUUID()}`
       await agentTurnRepository.save({
-        id: `turn_${randomUUID()}`,
+        id: turnId,
         topicId: session.id,
         segmentId: activeSegment.id,
         userMessageId,
@@ -4906,7 +4931,8 @@ export function registerSessionStreamIpc(): void {
       })
 
       const topicId = `agent-session:${session.id}`
-      const persisted = await agentMessageRepository.persistExchange({
+      const persisted = await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {
@@ -5053,13 +5079,15 @@ export function registerSessionStreamIpc(): void {
       const activeSegment = await ensureDirectRequestSegment(session)
       if (controller.signal.aborted) return { ok: false, aborted: true }
       const completedAt = new Date().toISOString()
+      const turnId = `turn_${randomUUID()}`
       await agentTurnRepository.save({
-        id: `turn_${randomUUID()}`, topicId: session.id, segmentId: activeSegment.id,
+        id: turnId, topicId: session.id, segmentId: activeSegment.id,
         userMessageId, assistantMessageId, userText: String(payload.userContent || ''),
         assistantText, startedAt: createdAt, completedAt, status: failure ? 'failed' : 'completed'
       })
       const topicId = `agent-session:${session.id}`
-      await agentMessageRepository.persistExchange({
+      await persistDirectRequestExchange({
+        turnId,
         sessionId: session.id,
         agentSessionId: session.id,
         user: {

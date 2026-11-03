@@ -241,7 +241,7 @@ describe('VideoGenerateServer', () => {
           first_frame_extend_supported: true,
           first_last_frame_supported: true,
           multi_image_reference_supported: true,
-          generate_audio_supported: true,
+          silent_video_supported: true,
           seedance_offline_supported: false,
           super_resolve_supported: true,
           gen_durations: [4, 5, 6],
@@ -285,6 +285,23 @@ describe('VideoGenerateServer', () => {
         }
       ]
     })
+  })
+
+  it.each([true, false])('exposes silent output support (%s) to agents while preserving the IPC field', async (supported) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        capabilities: { 'minimax-h3': { generate_audio_supported: supported } }
+      }))
+
+    const server = createServer()
+    const ipcResult = await server.listVideoCapabilities()
+    expect(ipcResult.models[0].generate_audio_supported).toBe(supported)
+
+    const result = await callTool(server, {}, 'get_video_capabilities')
+    const model = JSON.parse(result.content[0].text).models[0]
+    expect(model.silent_video_supported).toBe(supported)
+    expect(model).not.toHaveProperty('generate_audio_supported')
   })
 
   it('should cache video model list from capabilities', async () => {

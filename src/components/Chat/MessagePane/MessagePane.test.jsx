@@ -116,6 +116,32 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('MessagePane empty state', () => {
+  it('does not show the new-chat welcome page while an empty chat is running', async () => {
+    messages = [];
+    await render('session-1', { sending: true });
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+    expect(container.textContent).toContain('对话正在进行中');
+    expect(container.textContent).not.toContain('Welcome');
+
+    messages = [{ id: 'reply', role: 'assistant', content: 'Recovered reply' }];
+    await render('session-1', { sending: true });
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.textContent).toContain('Recovered reply');
+  });
+
+  it('shows history loading before the running state and welcomes an idle empty chat', async () => {
+    messages = [];
+    await render('session-1', { sending: true, historyLoading: true });
+    expect(container.textContent).toContain('正在加载对话记录');
+    expect(container.textContent).not.toContain('Welcome');
+
+    await render('session-1', { sending: false, historyLoading: false });
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.textContent).toContain('Welcome');
+  });
+});
+
 describe('MessagePane auto-scroll', () => {
   it('renders terminal block and interrupted-state updates when message text is unchanged', async () => {
     messages = [{ id: 'reply', role: 'assistant', content: '', blocks: [] }];

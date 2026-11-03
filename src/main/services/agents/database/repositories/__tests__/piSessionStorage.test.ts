@@ -26,6 +26,7 @@ vi.mock('../../../BaseService', async () => {
   const { DatabaseManager } = await import('../../DatabaseManager')
   return { BaseService: class { async getDatabase() { return (await DatabaseManager.getInstance()).getDatabase() } } }
 })
+vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ warn: vi.fn(), error: vi.fn() }) } }))
 
 import { agentArtifactRepository } from '../agentArtifactRepository'
 import { agentTurnRepository } from '../agentTurnRepository'
@@ -34,6 +35,8 @@ import { insertMissingTaskSubscriptions } from '../taskSubscriptionRepository'
 import * as schema from '../../schema'
 import { AgentTranscriptRepository } from '../agentTranscriptRepository'
 import { canonicalMessageToPi, PI_HISTORY_LIMITS, PI_PERSISTENCE_LIMITS, SqlitePiSessionStorage } from '../piSessionStorage'
+import { createReadImageContextProjector } from '../../../services/claudecode/harness/read-image-context'
+import { persistDirectRequestExchange } from '../../../services/channels/directRequestPersistence'
 
 vi.mock('../../canonicalTranscriptMigration', () => ({ backfillCanonicalTranscript: vi.fn(() => { throw new Error('backfill forbidden') }) }))
 
@@ -417,6 +420,65 @@ describe('SqlitePiSessionStorage', () => {
     await expect(open()).rejects.toThrow(/source context changed or is unavailable/)
   })
 
+  it.each([false, true])('restores oversized read-image results as references without changing disk or live messages (overlay=%s)', async overlayMode => {
+    const session = new Session(await open())
+    const source = '/workspace/segments/seg2-grid.png'
+    const text = { type: 'text' as const, text: 'Loaded image content' }
+    const image = { type: 'image' as const, data: 'A'.repeat(PI_HISTORY_LIMITS.entryBytes + 4), mimeType: 'image/png' }
+    const message = {
+      role: 'toolResult' as const, toolCallId: 'image-call', toolName: 'ReadImageAsContent',
+      content: [text, image, text, image], details: { source, mimeType: image.mimeType, byteLength: 6291459 },
+      isError: false, timestamp: Date.now()
+    }
+    const entryId = await session.appendMessage(message)
+    await settlePersistence()
+    const disk = (await client.execute({ sql: 'SELECT entry_json FROM pi_session_entries WHERE entry_id=?', args: [entryId] })).rows[0].entry_json
+    expect(JSON.stringify(JSON.parse(String(disk)).message) === JSON.stringify(message)).toBe(true)
+    expect(JSON.stringify((await session.getEntry(entryId) as any).message) === JSON.stringify(message)).toBe(true)
+
+    const readsBeforeRestart = vi.spyOn(database, 'all')
+    const liveContext = await session.buildContext()
+    const projector = createReadImageContextProjector(tempDirectory)
+    const current = await projector(liveContext.messages as any)
+    expect(JSON.stringify(current[0]) === JSON.stringify(message)).toBe(true)
+    expect(readsBeforeRestart).not.toHaveBeenCalled()
+    readsBeforeRestart.mockRestore()
+    await session.appendMessage(assistantMessage('image inspected'))
+    const later = await projector((await session.buildContext()).messages as any)
+    expect((later[0] as any).content.every((part: any) => part.type === 'text')).toBe(true)
+    expect(JSON.stringify((await session.getEntry(entryId) as any).message) === JSON.stringify(message)).toBe(true)
+
+    const overlay = overlayMode ? await useOverlay() : undefined
+    const restored = await recover()
+    const reads = vi.spyOn(database, 'all')
+    const entry = (await restored.getEntries())[0] as any
+    expect(entry.id).toBe(entryId)
+    expect(entry.message.details).toEqual(message.details)
+    expect(entry.message.toolCallId).toBe(message.toolCallId)
+    expect(entry.message.content).toHaveLength(4)
+    expect(entry.message.content[0]).toEqual(text)
+    expect(entry.message.content[2]).toEqual(text)
+    for (const index of [1, 3]) {
+      expect(entry.message.content[index].type).toBe('text')
+      expect(entry.message.content[index].text).toContain(source)
+    }
+    expect(JSON.stringify(entry).includes(image.data)).toBe(false)
+    expect(await restored.getPathToRootOrCompaction(entryId)).toEqual([entry])
+    expect(reads).not.toHaveBeenCalled()
+    expect((await client.execute({ sql: 'SELECT entry_json FROM pi_session_entries WHERE entry_id=?', args: [entryId] })).rows[0].entry_json === disk).toBe(true)
+    if (overlay) expect((await readFile(overlay.legacyPath)).equals(overlay.before)).toBe(true)
+  })
+
+  it('does not discard an oversized image without a reusable source', async () => {
+    const session = new Session(await open())
+    await session.appendMessage({
+      role: 'toolResult', toolCallId: 'inline-image', toolName: 'ReadImageAsContent',
+      content: [{ type: 'image', data: 'A'.repeat(PI_HISTORY_LIMITS.entryBytes + 4), mimeType: 'image/png' }],
+      details: { source: 'data-url' }, isError: false, timestamp: Date.now()
+    })
+    await expect(recover()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+  })
+
   it('rejects oversized UTF-8 history during initialization before reading bodies', async () => {
     await open()
     await settlePersistence()
@@ -495,6 +557,115 @@ describe('SqlitePiSessionStorage', () => {
     expect(transaction).not.toHaveBeenCalled()
     expect(await storage.getEntries()).toHaveLength(1)
     expect(await storage.getLeafId()).toBe((await storage.getEntries())[0].id)
+  })
+
+  it.each([
+    { overlay: false, opened: false }, { overlay: false, opened: true },
+    { overlay: true, opened: false }, { overlay: true, opened: true }
+  ])('appends direct video results to PI context exactly once and restores them ($overlay, $opened)', async ({ overlay, opened }) => {
+    await addCanonical('old-question', 'previous conversation')
+    const overlayState = overlay ? await useOverlay() : undefined
+    const existing = opened ? await open() : undefined
+    if (existing) await new Session(existing).appendMessage(assistantMessage('previous answer'))
+    const repository = new AgentTranscriptRepository(database)
+    await addCanonical('direct-user', 'generate a video')
+    await repository.upsertMessage({ id: 'direct-assistant', sessionId: 'topic-a', role: 'assistant',
+      status: 'completed', parentMessageId: 'direct-user', createdAt: '2026-01-01T00:00:00.000Z' })
+    const result = { success: true, task_id: 'video-task', video_url: 'https://example.com/generated.mp4' }
+    await repository.upsertPart({ id: 'direct-tool', sessionId: 'topic-a', messageId: 'direct-assistant', type: 'tool',
+      data: { toolCallId: 'ai_video_request_direct', toolName: 'mcp__vectcut__video__generate_video',
+        status: 'success', arguments: { model: 'seedance-2.0-fast' }, content: JSON.stringify(result),
+        metadata: { rawMcpToolResponse: { responseRaw: result } } } })
+    await repository.upsertPart({ id: 'direct-text', sessionId: 'topic-a', messageId: 'direct-assistant', type: 'text',
+      data: { text: 'video generated' } })
+    const exchange = { topicId: 'topic-a', userMessageId: 'direct-user', assistantMessageId: 'direct-assistant', database }
+    await SqlitePiSessionStorage.appendCanonicalExchange(exchange)
+    const storage = await open()
+    const session = new Session(storage)
+    const messages = (await session.buildContext()).messages as any[]
+    expect(messages.map(message => message.role)).toEqual([
+      'user', ...(opened ? ['assistant'] : []), 'user', 'assistant', 'toolResult'
+    ])
+    expect(messages[messages.length - 1]).toMatchObject({ toolCallId: 'ai_video_request_direct', isError: false,
+      content: [{ type: 'text', text: JSON.stringify(result) }] })
+    const nextId = await session.appendMessage(userMessage('use the generated video'))
+    await SqlitePiSessionStorage.appendCanonicalExchange(exchange)
+    expect(await storage.getLeafId()).toBe(nextId)
+    expect((await session.buildContext()).messages).toHaveLength(messages.length + 1)
+    if (overlayState) await overlayState.restart()
+    const restored = new Session(await recover())
+    expect((await restored.buildContext()).messages).toEqual((await session.buildContext()).messages)
+    expect((await restored.buildContext()).messages.filter((message: any) => message.role === 'toolResult')).toHaveLength(1)
+    if (overlayState) expect(await readFile(overlayState.legacyPath)).toEqual(overlayState.before)
+  })
+
+  it.each([false, true])('persists all direct request families including failures and partial stage results (overlay=%s)', async overlayMode => {
+    await addCanonical('prior-user', 'prior question')
+    const overlay = overlayMode ? await useOverlay() : undefined
+    ;(globalThis as any).__pressureDatabase = database
+    const session = new Session(await open())
+    await session.appendMessage(assistantMessage('prior answer'))
+    const requests = [
+      ['draftRequest', 'draft-management__create_draft'],
+      ['draftModifyRequest', 'draft-management__modify_draft'],
+      ['textAddRequest', 'draft-elements__add_text'],
+      ['imageAddRequest', 'draft-elements__add_image'],
+      ['presetAddRequest', 'draft-elements__add_preset'],
+      ['audioAddRequest', 'draft-elements__add_audio'],
+      ['draftDownloadRequest', 'draft-download__download_draft'],
+      ['draftExportRequest', 'draft-download__export_draft'],
+      ['speechRequest', 'speech__generate_speech'],
+      ['seedAudioRequest', 'seed-audio__generate_seed_audio'],
+      ['voiceConversionRequest', 'voice-conversion__submit_voice_conversion_task'],
+      ['aiVideoRequest', 'video__generate_video'],
+      ['imageGenerateRequest', 'image__generate_or_edit_image'],
+      ['digitalHumanRequest', 'digital-human__create_seedance_digital_human'],
+      ['reversePromptRequest', 'copylab__derive_copy_prompt'],
+      ['subtitleRecognitionRequest', 'subtitle-recognition__submit_subtitle_recognition_task'],
+      ['videoUnderstandRequest', 'video-understand__understand_video']
+    ]
+    const expectedResults: Record<string, unknown>[] = []
+    for (const [marker, toolName] of requests) {
+      for (const failed of [false, true]) {
+        const id = `${marker}-${failed}`
+        const now = new Date().toISOString()
+        const raw = failed ? { error: 'backend_failure', task_id: id, billing: { consume: 3 } }
+          : { success: true, task_id: id, output_url: `https://example.com/${id}`, billing: { consume: 2 } }
+        expectedResults.push(raw)
+        const blocks: any[] = [{ id: `${id}-tool`, messageId: `${id}-assistant`, type: 'tool',
+          status: failed ? 'error' : 'success', createdAt: now,
+          toolId: `${id}-call`, toolName: `mcp__vectcut__${toolName}`, input: { request: id },
+          content: JSON.stringify(raw), metadata: { rawMcpToolResponse: { responseRaw: raw } } }]
+        if (marker === 'digitalHumanRequest' && failed) {
+          const priorResult = { success: true, video_url: 'https://example.com/digital-human.mp4' }
+          blocks.unshift({ ...blocks[0], id: `${id}-generated`, toolId: `${id}-generated-call`,
+            status: 'success', content: JSON.stringify(priorResult),
+            metadata: { rawMcpToolResponse: { responseRaw: priorResult } } })
+          expectedResults.splice(expectedResults.length - 1, 0, priorResult)
+        }
+        blocks.push({ id: `${id}-text`, messageId: `${id}-assistant`, type: 'main_text',
+          status: failed ? 'error' : 'success', createdAt: now, content: `${id} response` })
+        const exchange: any = { sessionId: 'topic-a', agentSessionId: 'topic-a', turnId: `${id}-turn`,
+          user: { payload: { message: { id: `${id}-user`, role: 'user', status: 'success', createdAt: now,
+            [marker]: { requestId: id } }, blocks: [{ id: `${id}-user-text`, type: 'main_text', content: id }] } },
+          assistant: { payload: { message: { id: `${id}-assistant`, role: 'assistant',
+            status: failed ? 'error' : 'success', createdAt: now }, blocks } } }
+        await persistDirectRequestExchange(exchange)
+        const leaf = await session.getLeafId()
+        await persistDirectRequestExchange(exchange)
+        expect(await session.getLeafId()).toBe(leaf)
+        const canonical = await new AgentTranscriptRepository(database).getMessage('topic-a', `${id}-assistant`)
+        expect(canonical).toMatchObject({ turnId: `${id}-turn`, parentMessageId: `${id}-user`,
+          semantics: { origin: 'direct_request' } })
+      }
+    }
+    const context = await session.buildContext()
+    const results = context.messages.filter((message: any) => message.role === 'toolResult') as any[]
+    expect(results.map(message => JSON.parse(message.content[0].text))).toEqual(expectedResults)
+    expect(results.filter(message => message.isError)).toHaveLength(requests.length)
+    expect(context.messages.filter(message => message.role === 'user')).toHaveLength(1 + requests.length * 2)
+    if (overlay) await overlay.restart()
+    expect((await new Session(await recover()).buildContext()).messages).toEqual(context.messages)
   })
 
   it('serializes competing first openers and hydrates only once', async () => {

@@ -604,7 +604,7 @@ const Chat = ({
       beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
       beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
       onRefreshCredits={onRefreshCredits}
-      beginnerGuideEligible={messages.length === 0}>
+      beginnerGuideEligible={messages.length === 0 && !sending && !historyLoading}>
       <MessagePane
         messages={messages}
         chatSessionId={chatSessionId || session?.id}

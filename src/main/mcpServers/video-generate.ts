@@ -65,12 +65,12 @@ const VIDEO_GENERATE_TOOL: Tool = {
       generateAudio: {
         type: 'boolean',
         description:
-          'Alias of generate_audio. Set true to request audio or false to request a silent video. In capabilities, generate_audio_supported indicates support for silent video generation (disabling audio), not support for audio generation. A false capability value does not mean the model cannot output audio.'
+          'Alias of generate_audio. Set true to request audio or false to request a silent video. Use false only when get_video_capabilities returns silent_video_supported=true. silent_video_supported=false does not mean the model cannot output audio. The upstream legacy field generate_audio_supported has the same silent-output meaning, NOT audio-generation support.'
       },
       generate_audio: {
         type: 'boolean',
         description:
-          'Set true to request audio or false to request a silent video. In capabilities, generate_audio_supported indicates support for silent video generation (disabling audio), not support for audio generation. A false capability value does not mean the model cannot output audio.'
+          'Set true to request audio or false to request a silent video. Use false only when get_video_capabilities returns silent_video_supported=true. silent_video_supported=false does not mean the model cannot output audio. The upstream legacy field generate_audio_supported has the same silent-output meaning, NOT audio-generation support.'
       },
       super_resolve: {
         type: 'boolean',
@@ -102,7 +102,7 @@ const VIDEO_GENERATE_TOOL: Tool = {
 const VIDEO_CAPABILITIES_TOOL: Tool = {
   name: 'get_video_capabilities',
   description:
-    'Get supported AI video generation models, generation duration options, supported resolutions, first-frame or first-last-frame support, multimodal reference support, silent video generation support, super-resolution support, and optional pricing information from VectCut. The generate_audio_supported field indicates whether the model supports generating silent videos (disabling audio), NOT whether it can generate audio. A false value must not be interpreted as silent-only output or lack of audio/voice generation support.',
+    'Get supported AI video generation models, generation duration options, supported resolutions, first-frame or first-last-frame support, multimodal reference support, silent video generation support, super-resolution support, and optional pricing information from VectCut. silent_video_supported=true means generate_audio=false is supported; silent_video_supported=false means disabling audio is not supported, NOT that audio/voice generation is unavailable. This tool renames the upstream legacy generate_audio_supported field to silent_video_supported to avoid confusion. Do not use this capability to decide whether the model can generate audio or speech.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -215,6 +215,7 @@ type VideoModelCapability = {
   first_frame_extend_supported?: boolean
   first_last_frame_supported?: boolean
   multi_image_reference_supported?: boolean
+  // Legacy upstream name: supports disabling audio, not generating audio.
   generate_audio_supported?: boolean
   seedance_offline_supported?: boolean
   super_resolve_supported?: boolean
@@ -1203,7 +1204,11 @@ class VideoGenerateServer {
       action: 'capabilities',
       ...(result.requestedModel ? { requested_model: result.requestedModel } : {}),
       ...(result.resolvedModel ? { resolved_model: result.resolvedModel } : {}),
-      models: result.models
+      // Keep the legacy field for IPC consumers, but expose its actual meaning to agents.
+      models: result.models.map(({ generate_audio_supported, ...capability }) => ({
+        ...capability,
+        silent_video_supported: Boolean(generate_audio_supported)
+      }))
     })
   }
 

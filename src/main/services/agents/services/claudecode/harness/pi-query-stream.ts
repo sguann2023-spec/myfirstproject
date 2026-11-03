@@ -93,6 +93,9 @@ function isRetriablePiError(error: Error): boolean {
   const nonRetriableStatusCodePattern = /\b(400|401|403|404|422)\b/
   const isNonRetriable =
     name === 'AbortError'
+    || name === 'PiHistoryLimitError'
+    // The harness can turn a thrown local error into a plain errorMessage.
+    || normalized.includes('pi history exceeds safe reading limits')
     || (nonRetriableStatusCodePattern.test(message) && !isUnexplainedBadRequest)
     || normalized.includes('unauthorized')
     || normalized.includes('forbidden')

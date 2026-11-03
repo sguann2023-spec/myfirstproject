@@ -9,6 +9,9 @@ const { handleMock, publishMock, getSessionMock, listSessionsMock, createSession
   sessionChangedMock: vi.fn(),
   loggerError: vi.fn()
 }))
+const { digitalHumanCall, packagingCall, exportCall, persistDirect, saveTurn } = vi.hoisted(() => ({
+  digitalHumanCall: vi.fn(), packagingCall: vi.fn(), exportCall: vi.fn(), persistDirect: vi.fn(), saveTurn: vi.fn()
+}))
 
 vi.mock('@logger', () => ({
   loggerService: {
@@ -32,6 +35,7 @@ vi.mock('@shared/IpcChannel', () => ({
     CherryChatStream_Subscribe: 'CherryChatStream_Subscribe',
     CherryChatStream_Unsubscribe: 'CherryChatStream_Unsubscribe',
     CherryChatStream_Chunk: 'CherryChatStream_Chunk',
+    CherryChatStream_DigitalHumanRequest: 'CherryChatStream_DigitalHumanRequest',
     AgentSession_Changed: 'AgentSession_Changed'
   }
 }))
@@ -52,11 +56,17 @@ vi.mock('@main/apiServer/services/models', () => ({
   }
 }))
 
-vi.mock('@main/mcpServers/draft-download', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/draft-download', () => ({ default: class {
+  mcpServer = { server: { _requestHandlers: new Map([['tools/call', exportCall]]) } }
+} }))
 vi.mock('@main/mcpServers/draft-elements', () => ({ default: class MockMcpServer {} }))
 vi.mock('@main/mcpServers/draft-management', () => ({ default: class MockMcpServer {} }))
-vi.mock('@main/mcpServers/digital-human', () => ({ default: class MockMcpServer {} }))
-vi.mock('@main/mcpServers/koubo-template', () => ({ default: class MockMcpServer {} }))
+vi.mock('@main/mcpServers/digital-human', () => ({ default: class {
+  mcpServer = { server: { _requestHandlers: new Map([['tools/call', digitalHumanCall]]) } }
+} }))
+vi.mock('@main/mcpServers/koubo-template', () => ({ default: class {
+  mcpServer = { server: { _requestHandlers: new Map([['tools/call', packagingCall]]) } }
+} }))
 vi.mock('@main/mcpServers/seed-audio', () => ({ default: class MockMcpServer {} }))
 vi.mock('@main/mcpServers/speech-generate', () => ({ default: class MockMcpServer {} }))
 vi.mock('@main/mcpServers/image-generate', () => ({ default: class MockMcpServer {} }))
@@ -71,11 +81,13 @@ vi.mock('@main/utils', () => ({
 }))
 vi.mock('@main/utils/locales', () => ({ t: vi.fn((key: string) => key) }))
 
-vi.mock('../../database/schema', () => ({ agentsTable: {} }))
-vi.mock('../../database/sessionMessageRepository', () => ({ agentMessageRepository: {} }))
-vi.mock('../../database/repositories/agentTurnRepository', () => ({ agentTurnRepository: {} }))
-vi.mock('../builtin/BuiltinAgentIds', () => ({ CHERRY_CLAW_AGENT_ID: 'builtin-agent' }))
-vi.mock('../claudecode/session-architecture/ConversationSegmentService', () => ({ conversationSegmentService: {} }))
+vi.mock('../../../database/schema', () => ({ agentsTable: {} }))
+vi.mock('../directRequestPersistence', () => ({ persistDirectRequestExchange: persistDirect }))
+vi.mock('../../../database/repositories/agentTurnRepository', () => ({ agentTurnRepository: { save: saveTurn } }))
+vi.mock('../../builtin/BuiltinAgentIds', () => ({ CHERRY_CLAW_AGENT_ID: 'builtin-agent' }))
+vi.mock('../../claudecode/session-architecture/ConversationSegmentService', () => ({
+  conversationSegmentService: { getActiveSegment: vi.fn(async () => ({ id: 'segment' })) }
+}))
 
 vi.mock('../../../../WindowService', () => ({
   windowService: {
@@ -155,6 +167,37 @@ describe('sessionStreamIpc abort handling', () => {
   afterEach(async () => {
     await vi.runOnlyPendingTimersAsync()
     vi.useRealTimers()
+  })
+
+  it.each(['packaging', 'export'])('commits completed digital-human stages when %s throws', async failedStage => {
+    const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any>>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    const generated = { task_status: 1, digital_human_url: 'https://example.com/generated.mp4' }
+    const packaged = { success: true, output: { draft_id: 'packaged-draft' } }
+    digitalHumanCall.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify(generated) }] })
+    packagingCall.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify(packaged) }] })
+    exportCall.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify({ accepted: 1 }) }] })
+    const failure = new Error(`${failedStage} unavailable`)
+    if (failedStage === 'packaging') packagingCall.mockRejectedValueOnce(failure)
+    else exportCall.mockRejectedValueOnce(failure)
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const result = await handlers.get('CherryChatStream_DigitalHumanRequest')!(null, {
+      sessionId: 'session-1', userMessageId: 'direct-user', assistantMessageId: 'direct-assistant',
+      digitalHumanRequest: { mode: 'lip_sync', copywriting: 'copy', voice_id: 'voice',
+        video_url: 'https://example.com/presenter.mp4', packaging_template: 'fisheye_ins' }
+    })
+    expect(result.ok).toBe(true)
+    expect(persistDirect).toHaveBeenCalledOnce()
+    const exchange = persistDirect.mock.calls[0][0]
+    expect(exchange.turnId).toBe(saveTurn.mock.calls[0][0].id)
+    expect(saveTurn.mock.calls[0][0].status).toBe('failed')
+    const tools = exchange.assistant.payload.blocks.filter((block: any) => block.type === 'tool')
+    expect(tools).toHaveLength(failedStage === 'packaging' ? 2 : 3)
+    expect(tools[0]).toMatchObject({ status: 'success', metadata: { rawMcpToolResponse: { responseRaw: generated } } })
+    expect(tools[tools.length - 1]).toMatchObject({ status: 'error',
+      metadata: { rawMcpToolResponse: { responseRaw: { error: failure.message } } } })
+    if (failedStage === 'packaging') expect(exportCall).not.toHaveBeenCalled()
   })
 
   it('gets a session by ID without listing or enriching unrelated sessions', async () => {

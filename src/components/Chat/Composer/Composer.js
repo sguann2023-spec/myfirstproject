@@ -600,8 +600,13 @@ const buildVideoOptionPromptSegments = ({
   if (!capability || typeof capability !== 'object') return [];
 
   const segments = [];
+  // This legacy capability controls silent output, not audio-generation support.
   if (capability.generate_audio_supported) {
-    segments.push(generateAudio ? '输出有声音' : '输出无声音');
+    segments.push(generateAudio
+      ? '输出有声音（generate_audio=true，不启用静音）'
+      : '输出静音视频（generate_audio=false，模型支持关闭声音）');
+  } else if (capability.generate_audio_supported === false) {
+    segments.push('模型不支持关闭声音（不代表不能生成声音，不要据此设置 generate_audio=false）');
   }
   if (capability.seedance_offline_supported) {
     segments.push(seedanceOffline ? '开启闲时生成' : '关闭闲时生成');
