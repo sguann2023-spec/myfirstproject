@@ -166,18 +166,8 @@ export const normalizeChatError = (error) => {
   };
 };
 
-// Old cancelled turns can contain a synthetic empty failure from the stream closing.
-// Only discard that placeholder: a concrete provider/tool failure remains actionable.
-export const shouldSuppressCancelledTurnError = (error, cancelled) => {
-  if (!cancelled) return false;
-  if (isAbortError(error) || error?.category === 'aborted') return true;
-  if (error?.status || error?.statusCode || error?.code) return false;
-  if (error?.cause || error?.responseBody || error?.data || error?.toolName) return false;
-  if (error?.name && !['Error', 'UnknownError'].includes(error.name)) return false;
-  if (error?.category && !['unknown', 'generic'].includes(error.category)) return false;
-  const reason = String(error?.detail || error?.message || '').trim();
-  return !reason || /^(unknown error|agent request failed|request failed|error)$/i.test(reason);
-};
+// User cancellation is terminal, not a failure, even if the stream reports a late error.
+export const shouldSuppressCancelledTurnError = (_error, cancelled) => Boolean(cancelled);
 
 export const buildErrorSignature = (error) => {
   if (!error) return '';

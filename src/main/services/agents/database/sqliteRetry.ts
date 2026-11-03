@@ -3,6 +3,7 @@ type SqliteDiagnosticCause = {
   code?: string
   rawCode?: number
   category?: string
+  frames?: string[]
 }
 
 /** Safe diagnostics: never log wrapper messages (Drizzle includes SQL and parameters). */
@@ -20,12 +21,28 @@ export function sqliteErrorDiagnostics(error: unknown): SqliteDiagnosticCause & 
             : /not null constraint/i.test(message) ? 'not_null'
               : /no such table/i.test(message) ? 'missing_table'
                 : /no such column|has no column named/i.test(message) ? 'missing_column'
-                  : undefined
+                  : /offline for storage replacement/i.test(message) ? 'storage_maintenance'
+                    : /writer stopped after an earlier failure/i.test(message) ? 'writer_stopped'
+                      : /duplicate entity identity/i.test(message) ? 'duplicate_identity'
+                        : /broker.*(?:disconnected|connection closed|timed out)/i.test(message) ? 'broker_disconnected'
+                          : /worker exited/i.test(message) ? 'worker_exited'
+                            : /identity mismatch|configuration mismatch|configuration hello/i.test(message) ? 'broker_configuration'
+                              : /writer is closed|client closed|shutting down/i.test(message) ? 'closed'
+                                : /safely represented|safe integer range/i.test(message) ? 'integer_range'
+                                  : /disk.*full|SQLITE_FULL/i.test(message) ? 'disk_full'
+                                    : /disk I\/O|SQLITE_IOERR/i.test(message) ? 'io_error'
+                                      : /readonly database|SQLITE_READONLY/i.test(message) ? 'readonly'
+                                        : /syntax error/i.test(message) ? 'syntax_error'
+                                          : undefined
     causes.push({
       name: String(current.name || 'Error').slice(0, 80),
       code: typeof current.code === 'string' ? current.code.slice(0, 80) : undefined,
       rawCode: typeof current.rawCode === 'number' ? current.rawCode : undefined,
-      category
+      category,
+      // Omit stack headers, which repeat the SQL-bearing wrapper message.
+      frames: typeof current.stack === 'string'
+        ? current.stack.split('\n').filter((line: string) => /^\s+at\s/.test(line)).slice(0, 8)
+        : undefined
     })
     current = current.cause
   }

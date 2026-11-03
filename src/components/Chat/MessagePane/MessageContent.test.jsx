@@ -188,7 +188,7 @@ it('keeps an interrupted assistant turn visible when no answer text was produced
   };
   await act(async () => root.render(<Probe value={value} />));
 
-  expect(container.textContent).toBe('已停止生成');
+  expect(container.textContent).toBe('用户已取消');
 });
 
 for (const live of [false, true]) {
@@ -208,8 +208,11 @@ for (const live of [false, true]) {
     expect(container.textContent).toContain(error.message);
   });
 
-  for (const error of [{}, { message: 'Unknown error', category: 'unknown' }]) {
-    it(`suppresses generic errors on cancelled ${live ? 'live' : 'historical'} legacy turns`, async () => {
+  for (const error of [{}, { message: 'Unknown error', category: 'unknown' },
+    { message: 'Invalid API key', status: 401 },
+    { message: 'Error Details: {}', category: 'unknown' },
+    { message: 'Connection closed', code: 'ECONNRESET' }]) {
+    it(`suppresses ${JSON.stringify(error)} on cancelled ${live ? 'live' : 'historical'} turns`, async () => {
       const value = {
         id: 'reply', role: 'assistant', content: '', aborted: true, error,
         blocks: [{ id: 'stale-error', type: 'error', status: 'error', error }],
@@ -220,19 +223,19 @@ for (const live of [false, true]) {
         messages: { entities: { liveMessage: { id: 'liveMessage', role: 'assistant', status: 'error', blocks: ['stale-error'], error } } },
       };
       await act(async () => root.render(<Probe value={value} />));
-      expect(container.textContent).toBe('已停止生成');
+      expect(container.textContent).toBe('用户已取消');
       expect(container.querySelector('[role="alert"]')).toBeNull();
     });
   }
 }
 
-it('retains concrete failures even when a historical turn was stopped', async () => {
+it('preserves generated text without an error card when a historical turn was cancelled', async () => {
   await act(async () => root.render(<Probe value={{
-    id: 'reply', role: 'assistant', aborted: true, blocks: [],
+    id: 'reply', role: 'assistant', aborted: true, blocks: [block('partial', 'Partial reply')],
     error: { message: 'Invalid API key', status: 401 },
   }} />));
-  expect(container.textContent).toContain('Invalid API key');
-  expect(container.textContent).toContain('已停止生成');
+  expect(container.textContent).toBe('Partial reply用户已取消');
+  expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
 it('retains generic failures when the turn was not cancelled', async () => {
@@ -240,14 +243,14 @@ it('retains generic failures when the turn was not cancelled', async () => {
     id: 'reply', role: 'assistant', blocks: [], error: {},
   }} />));
   expect(container.textContent).toContain('本次请求未能完成');
-  expect(container.textContent).not.toContain('已停止生成');
+  expect(container.textContent).not.toContain('用户已取消');
 });
 
 it('recognizes persisted cancellation status without an aborted flag', async () => {
   await act(async () => root.render(<Probe value={{
     id: 'reply', role: 'assistant', status: 'cancelled', blocks: [], error: {},
   }} />));
-  expect(container.textContent).toBe('已停止生成');
+  expect(container.textContent).toBe('用户已取消');
 });
 
 it('keeps stop visible when a late stream-close error replaces the live snapshot', async () => {
@@ -257,8 +260,8 @@ it('keeps stop visible when a late stream-close error replaces the live snapshot
     ...stopped, error: { message: 'agent request failed', category: 'unknown' },
     blocks: [{ id: 'late-error', type: 'error', error: {} }],
   }} />));
-  expect(firstLayouts).toEqual(['已停止生成', '已停止生成']);
-  expect(container.textContent).toBe('已停止生成');
+  expect(firstLayouts).toEqual(['用户已取消', '用户已取消']);
+  expect(container.textContent).toBe('用户已取消');
 });
 
 it('HomePage snapshots retain completed-step accounting when the turn fails', () => {
@@ -298,7 +301,7 @@ it('HomePage finalization preserves cancellation across the stop/error race', ()
   expect(message).toMatchObject({ aborted: true, error: null });
   expect(message.usageSteps).toEqual(snapshot.usageSteps);
   finalize({ message: 'Invalid API key', status: 401 });
-  expect(message).toMatchObject({ aborted: true, error: { status: 401 } });
+  expect(message).toMatchObject({ aborted: true, error: null });
   finalize(null, true);
-  expect(message.error).toMatchObject({ status: 401 });
+  expect(message.error).toBeNull();
 });

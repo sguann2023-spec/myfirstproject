@@ -44,7 +44,7 @@ it('initializes the restored suite records path and ignores live databases and o
   const manager = await DatabaseManager.getInstance()
   expect(fixtureState.construct).toHaveBeenCalledWith(
     { url: `file:${path.join(f.suite, 'records.db')}`, intMode: 'number' }, undefined, expect.any(Function),
-    { legacyPaths: [path.join(f.suite, 'legacy/0.db')], migrationDir: '/resources/database/drizzle' }
+    { legacyPaths: [path.join(f.suite, 'legacy/0.db')], migrationDir: '/resources/database/drizzle' }, expect.any(Function)
   )
   fixtureState.backup.mockResolvedValueOnce(f.manifest)
   expect(await manager.backupStorage('/backup')).toEqual(f.manifest)

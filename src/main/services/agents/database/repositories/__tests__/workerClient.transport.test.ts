@@ -283,6 +283,50 @@ it('stops on broker execution failure, revives nested causes, and rejects other 
   expect(broker.requests.filter(request => request.args[0] === 'future')).toEqual([])
 })
 
+it('reports the first failure with safe causes and pending methods, without logging SQL or retrying', async () => {
+  const databaseUrl = url()
+  const broker = new Broker(databaseIdentity(databaseUrl))
+  await broker.listen()
+  const diagnostic = vi.fn()
+  const client = new WorkerDatabaseClient({ url: databaseUrl }, '/test/databaseWorker.js', undefined, undefined, diagnostic)
+  clients.push(client)
+  await client.waitUntilReady()
+  broker.handler = (request, socket) => broker.reply(socket, request, undefined, {
+    name: 'Error', message: 'Failed query: private SQL params: secret-token',
+    stack: 'Error: private SQL params: secret-token\n    at query (/app/query.js:1:2)',
+    cause: { name: 'SqliteError', message: 'SQLITE_BUSY: database is locked', code: 'SQLITE_BUSY' }
+  })
+  await expect(client.execute('private SQL')).rejects.toThrow('Failed query')
+  await expect(client.execute('future')).rejects.toThrow('Failed query')
+  expect(diagnostic).toHaveBeenCalledOnce()
+  expect(diagnostic.mock.calls[0][0]).toMatchObject({ event: 'failure', pendingRequests: 1, methods: ['execute'],
+    error: { causes: [{ name: 'Error', frames: ['    at query (/app/query.js:1:2)'] }, { code: 'SQLITE_BUSY', category: 'busy' }] } })
+  expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/private SQL|secret-token/)
+  expect(broker.requests.filter(request => request.method === 'execute')).toHaveLength(1)
+})
+
+it('logging errors cannot prevent rejecting pending calls and closing the client', async () => {
+  const databaseUrl = url()
+  const broker = new Broker(databaseIdentity(databaseUrl))
+  await broker.listen()
+  const client = new WorkerDatabaseClient({ url: databaseUrl }, '/test/databaseWorker.js', undefined, undefined, () => { throw new Error('logger unavailable') })
+  clients.push(client)
+  broker.handler = (request, socket) => broker.reply(socket, request, undefined, { message: 'disk full', code: 'SQLITE_FULL' })
+  await expect(client.execute('INSERT once')).rejects.toThrow('disk full')
+  expect(client.closed).toBe(true)
+})
+
+it('reports maintenance separately and does not report normal shutdown as a failure', async () => {
+  const diagnostic = vi.fn()
+  const client = new WorkerDatabaseClient({ url: url(), intMode: 'bigint' }, '/test/databaseWorker.js', undefined, undefined, diagnostic)
+  clients.push(client)
+  await client.beginStorageMaintenance()
+  expect(diagnostic).toHaveBeenCalledOnce()
+  expect(diagnostic.mock.calls[0][0]).toMatchObject({ event: 'maintenance_started', owner: true, pendingRequests: 0 })
+  await client.closeAsync()
+  expect(diagnostic).toHaveBeenCalledOnce()
+})
+
 it('never replays submitted writes or reconnects when a reply is lost', async () => {
   const { broker, client } = await listening()
   broker.handler = (_request, socket) => socket.destroy()

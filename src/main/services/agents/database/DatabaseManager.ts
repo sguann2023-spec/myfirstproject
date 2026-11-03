@@ -178,7 +178,10 @@ export class DatabaseManager {
         url: `file:${dbPath}`,
         // intMode: 'number' helps avoid some Windows compatibility issues
         intMode: 'number'
-      }, undefined, DatabaseManager.reportProgress, overlayStorage)
+      }, undefined, DatabaseManager.reportProgress, overlayStorage, diagnostic => {
+        if (diagnostic.event === 'failure') logger.error('[DBDiagnostics] Database client stopped', diagnostic)
+        else logger.info('[DBDiagnostics] Storage maintenance started', diagnostic)
+      })
 
       // Create drizzle instance
       this.db = drizzle(this.client, { schema })
@@ -253,6 +256,9 @@ export class DatabaseManager {
   }
 
   public static async beginStorageMaintenance(): Promise<void> {
+    logger.info('[DBDiagnostics] Storage maintenance requested', {
+      requestedBy: new Error().stack?.split('\n').slice(2, 6)
+    })
     const manager = await DatabaseManager.getInstance()
     // Keep the broker endpoint reserved while files are replaced. Other clients
     // fail closed instead of spawning a writer against partially restored files.

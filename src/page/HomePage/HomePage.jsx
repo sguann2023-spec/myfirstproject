@@ -3764,8 +3764,7 @@ const HomePage = () => {
     if (!chatId || !assistantMessageId) return;
     const snapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
     updateChatAssistantMessage(chatId, assistantMessageId, (message) => {
-      // Stop is terminal for this turn. A late generic stream-close error must
-      // not undo it; preserve concrete failures that happened before/after stop.
+      // User cancellation stays terminal even when a late stream error arrives.
       const cancelled = aborted || hasInterruptedAssistantState(message);
       const terminalError = error || (cancelled ? message?.error : null);
       const turnError = shouldSuppressCancelledTurnError(terminalError, cancelled) ? null : terminalError;

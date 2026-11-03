@@ -89,7 +89,7 @@ const isActiveBlockStatus = (status) => (
 );
 
 const InterruptedNotice = ({ visible }) => (
-  visible ? <div className="chat-message-interrupted">已停止生成</div> : null
+  visible ? <div className="chat-message-interrupted">用户已取消</div> : null
 );
 
 const buildAssistantBlockState = ({ message, isLoading }) => {
@@ -226,7 +226,9 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
   const resolvedMessage = storeMessage
     ? {
       ...storeMessage,
-      status: isLoading || shouldUseTerminalFallback
+      status: isCancelledTurn(fallbackMessage) || isCancelledTurn(storeMessage)
+        ? 'success'
+        : isLoading || shouldUseTerminalFallback
         ? fallbackAssistantStatus
         : (storeMessage?.status || fallbackAssistantStatus),
       blocks: shouldUseTerminalFallback ? fallbackAssistantState.blockIds : storeMessage?.blocks,

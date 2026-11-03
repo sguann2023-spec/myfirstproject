@@ -5,6 +5,16 @@ import { Worker } from 'node:worker_threads'
 import path from 'node:path'
 import { databaseIdentity, databaseEndpoint, encodeFrame, FrameDecoder, storageConfiguration, type OverlayStorageOptions } from './brokerProtocol'
 import type { StorageManifest } from './persistentRecordStore'
+import { sqliteErrorDiagnostics } from './sqliteRetry'
+
+export type DatabaseClientDiagnostic = {
+  event: 'failure' | 'maintenance_started'
+  database: string
+  owner: boolean
+  pendingRequests: number
+  methods: string[]
+  error?: ReturnType<typeof sqliteErrorDiagnostics>
+}
 
 const STARTUP_TIMEOUT_MS = 10000
 const CLOSE_TIMEOUT_MS = 5000
@@ -66,14 +76,14 @@ export class WorkerDatabaseClient implements Client {
   private socket?: Socket
   private owner = false
   private sequence = 0
-  private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>()
+  private pending = new Map<number, { method: string; resolve: (value: any) => void; reject: (error: Error) => void }>()
   private stopped: Promise<void> = Promise.resolve()
   private readonly ready: Promise<void>
   private failure?: Error
   private rejectFailure!: (error: Error) => void
   private readonly failed = new Promise<never>((_resolve, reject) => { this.rejectFailure = reject })
   private closing?: Promise<void>
-  constructor(private config: Config, private workerPath = path.join(__dirname, 'databaseWorker.js'), private onProgress?: (phase: string, count?: number, total?: number, detail?: string) => void, private overlayStorage?: OverlayStorageOptions) {
+  constructor(private config: Config, private workerPath = path.join(__dirname, 'databaseWorker.js'), private onProgress?: (phase: string, count?: number, total?: number, detail?: string) => void, private overlayStorage?: OverlayStorageOptions, private onDiagnostic?: (diagnostic: DatabaseClientDiagnostic) => void) {
     this.configuration = storageConfiguration(overlayStorage)
     if (overlayStorage) {
       const { legacyPaths, migrationDir } = JSON.parse(this.configuration)
@@ -166,8 +176,6 @@ export class WorkerDatabaseClient implements Client {
           if (!pending) throw new Error('Unexpected database broker reply')
           if (error) {
             const revived = reviveError(error)
-            this.pending.delete(id)
-            pending.reject(revived)
             this.fail(revived)
           } else {
             const revived = reviveResult(value, this.config.intMode)
@@ -199,7 +207,16 @@ export class WorkerDatabaseClient implements Client {
     const hello = await this.send('hello', [this.ownerToken, this.configuration])
     this.owner = hello?.owner === true
   }
-  private fail(error: Error): void {
+  private reportDiagnostic(event: DatabaseClientDiagnostic['event'], error?: Error): void {
+    // Observability must never interrupt failure cleanup or submit another command.
+    try {
+      this.onDiagnostic?.({ event, database: this.database, owner: this.owner,
+        pendingRequests: this.pending.size, methods: [...new Set([...this.pending.values()].map(entry => entry.method))],
+        error: error ? sqliteErrorDiagnostics(error) : undefined })
+    } catch { /* A broken logging transport must not affect database ownership. */ }
+  }
+  private fail(error: Error, report = true): void {
+    if (!this.failure && report) this.reportDiagnostic('failure', error)
     this.failure ??= error
     this.closed = true
     this.rejectFailure(this.failure)
@@ -211,7 +228,7 @@ export class WorkerDatabaseClient implements Client {
     if (this.closed) return Promise.reject(this.failure)
     const id = ++this.sequence
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      this.pending.set(id, { method, resolve, reject })
       try {
         this.socket!.write(encodeFrame({ id, database: this.database, method, args }), error => {
           if (error) this.fail(error)
@@ -252,6 +269,7 @@ export class WorkerDatabaseClient implements Client {
     await this.ready
     if (!this.owner) throw new Error('Close the other database owner before replacing storage')
     await this.rpc('beginMaintenance', [this.ownerToken])
+    this.reportDiagnostic('maintenance_started')
   }
   sync: Client['sync'] = async () => { throw new Error('Append storage does not support sync') }
   async transaction(_mode?: TransactionMode): Promise<Transaction> {
@@ -259,7 +277,7 @@ export class WorkerDatabaseClient implements Client {
   }
   close(): void {
     if (this.closed) return
-    this.fail(new Error('Database client closed'))
+    this.fail(new Error('Database client closed'), false)
   }
   closeAsync(): Promise<void> {
     return this.closing ??= this.detachAndShutdown()

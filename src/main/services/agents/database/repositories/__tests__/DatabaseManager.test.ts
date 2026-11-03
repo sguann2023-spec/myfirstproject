@@ -83,7 +83,7 @@ describe('DatabaseManager initialization singleflight', () => {
       { legacyPaths: [
         '/tmp/agent-db-init-test/Data/agents.db.v2.db', '/tmp/agent-db-init-test/Data/agents.db',
         '/tmp/agent-db-init-test/agents.db.v2.db', '/tmp/agent-db-init-test/agents.db'
-      ], migrationDir: '/resources/database/drizzle' }
+      ], migrationDir: '/resources/database/drizzle' }, expect.any(Function)
     )
     expect(files.renameSync).not.toHaveBeenCalled()
     expect(files.unlinkSync).not.toHaveBeenCalled()
