@@ -1388,7 +1388,7 @@ const createImageTemplateAttachmentEntries = async (template = {}) => {
   return urlEntries.filter(Boolean);
 };
 const isSkillExampleGroupSlotId = (slotId) => String(slotId || '').startsWith('skill-example-group:');
-const createSkillExampleAttachmentEntries = async (detail = {}) => {
+const createSkillExampleAttachmentEntries = async (detail = {}, onInitialEntries) => {
   const videos = Array.isArray(detail?.videos) ? detail.videos : [];
   const images = Array.isArray(detail?.images) ? detail.images : [];
   const audios = Array.isArray(detail?.audios) ? detail.audios : [];
@@ -1397,8 +1397,9 @@ const createSkillExampleAttachmentEntries = async (detail = {}) => {
   const skillName = String(detail?.skillName || '').trim();
   const groupById = new Map(groups.map((group) => [buildSkillExampleGroupSlotId(group?.id, group?.kind), group]));
 
-  const entries = await Promise.all(media.map((video, index) => {
+  const initialEntries = media.map((video, index) => {
     const url = String(video?.url || '').trim() || String(video?.uri || '').trim();
+    if (!url) return null;
     const group = groupById.get(buildSkillExampleGroupSlotId(video?.groupId, video.kind)) || null;
     const groupId = String(video?.groupId || group?.id || '').trim();
     const groupLabel = String(video?.groupLabel || group?.label || '').trim() || '分镜';
@@ -1409,7 +1410,7 @@ const createSkillExampleAttachmentEntries = async (detail = {}) => {
       ? filename
       : `${groupLabel}-${index + 1}.${extension}`;
 
-    return createRemoteAttachmentEntry({
+    return {
       uid: `skill-example:${skillName || 'skill'}:${video.kind}:${groupId}:${index}:${video?.id || index}`,
       name: resolvedName,
       url,
@@ -1418,18 +1419,28 @@ const createSkillExampleAttachmentEntries = async (detail = {}) => {
           ? guessFileTypeFromName(filename || getRemoteMediaUrlFileName(url)) : 'image/png')
         : video.kind === 'audio' ? 'audio/mpeg' : 'video/mp4',
       sourceType: 'skill_example',
-      sourceLabel: skillName
-    }).then((entry) => (
-      entry
-        ? {
-          ...entry,
-          slotId: buildSkillExampleGroupSlotId(groupId, video.kind),
-          slotLabel: groupLabel,
-          durationLabel: String(entry.durationLabel || '').trim()
-            || (video?.durationSeconds ? formatSkillExampleDuration(video.durationSeconds) : '')
-        }
-        : null
-    ));
+      sourceLabel: skillName,
+      slotId: buildSkillExampleGroupSlotId(groupId, video.kind),
+      slotLabel: groupLabel,
+      thumbnailUrl: url,
+      previewUrl: url,
+      sourcePath: url,
+      localThumbUrl: '',
+      localPreviewUrl: '',
+      durationSeconds: Number(video?.durationSeconds) || 0,
+      durationLabel: video?.durationSeconds ? formatSkillExampleDuration(video.durationSeconds) : '',
+    };
+  }).filter(Boolean);
+
+  // 先显示模版自带的信息，不等待媒体解码或网络探测。
+  onInitialEntries?.(initialEntries);
+  const entries = await Promise.all(initialEntries.map(async (initial) => {
+    const entry = await createRemoteAttachmentEntry(initial);
+    return entry ? {
+      ...initial,
+      ...entry,
+      durationLabel: String(entry.durationLabel || '').trim() || initial.durationLabel,
+    } : null;
   }));
 
   return entries.filter(Boolean);
@@ -5106,7 +5117,6 @@ const Composer = ({
     setActiveSkillExampleSlot(groups[0]?.slotId || '');
     pendingTemplateSlotAutoReferenceRef.current = '';
     setUploadFileList([]);
-    setUploadedFileMeta([]);
     const prompt = buildSkillExamplePrompt(detail.prompt, detail.skillName);
     pendingSkillExamplePromptRef.current = prompt;
     setInput(prompt);
@@ -5118,9 +5128,10 @@ const Composer = ({
     }
     if (!applySkillExampleModel(detail.model)) pendingSkillExampleModelRef.current = detail.model;
     try {
-      const entries = await createSkillExampleAttachmentEntries(detail);
+      const entries = await createSkillExampleAttachmentEntries(detail, setUploadedFileMeta);
       if (generation !== skillExampleGenerationRef.current) return;
-      setUploadedFileMeta(entries);
+      const entriesByUid = new Map(entries.map((entry) => [entry.uid, entry]));
+      setUploadedFileMeta((files) => files.map((file) => entriesByUid.get(file.uid) || file));
     } catch (error) {
       if (generation === skillExampleGenerationRef.current) setSkillExampleError('示例素材加载失败，请重试');
     } finally {

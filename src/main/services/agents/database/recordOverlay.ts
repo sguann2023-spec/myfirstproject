@@ -119,7 +119,16 @@ export function initializeOverlay(db: Database.Database, schema: ReturnType<type
   if (Number(db.pragma('user_version', { simple: true })) > RECORD_CONSTRAINT_REVISION) throw new Error('Unsupported record constraint revision')
   initializeRecords(db)
   const entities = new Map(schema.entities.map(entity => [entity.name, entity]))
-  if (existing) for (const entity of storedEntities(db)) entities.set(entity.name, entity)
+  if (existing) for (const stored of storedEntities(db)) {
+    const current = entities.get(stored.name)
+    if (!current) { entities.set(stored.name, stored); continue }
+    if (stored.keys.join('\0') !== current.keys.join('\0')) throw new Error(`Incompatible overlay identity: ${stored.name}`)
+    // Upgrade metadata, not facts. Keep unknown legacy fields, but let the
+    // bundled schema supply current columns/defaults/constraints on every open.
+    const columns = new Map(stored.columns.map(column => [column.name, column]))
+    for (const column of current.columns) columns.set(column.name, column)
+    entities.set(stored.name, { ...stored, ...current, columns: [...columns.values()] })
+  }
   for (const source of sources) {
     if (!source.warning) {
       try {
@@ -138,7 +147,7 @@ export function initializeOverlay(db: Database.Database, schema: ReturnType<type
       progress('overlay-warning', undefined, undefined, `${source.filename}: ${source.warning.message}`)
     } else progress('overlay-attach', undefined, undefined, source.filename)
   }
-  for (const entity of entities.values()) db.prepare('INSERT OR IGNORE INTO storage_entities(name,definition) VALUES (?,?)').run(entity.name, JSON.stringify(entity))
+  for (const entity of entities.values()) db.prepare('INSERT INTO storage_entities(name,definition) VALUES (?,?) ON CONFLICT(name) DO UPDATE SET definition=excluded.definition').run(entity.name, JSON.stringify(entity))
   db.exec('CREATE TABLE IF NOT EXISTS migrations(version INTEGER PRIMARY KEY,tag TEXT NOT NULL,executed_at INTEGER NOT NULL)')
   for (const entry of schema.migrations) db.prepare('INSERT OR IGNORE INTO migrations(version,tag,executed_at) VALUES (?,?,?)').run(entry.idx, entry.tag, Date.now())
   if (!existing) db.prepare("UPDATE storage_upgrade SET phase='complete' WHERE version=2").run()
@@ -147,7 +156,14 @@ export function initializeOverlay(db: Database.Database, schema: ReturnType<type
   db.exec(`CREATE TABLE IF NOT EXISTS storage_overlay_ids(entity TEXT PRIMARY KEY,last_id INTEGER NOT NULL)`)
   const definitions = [...entities.values()]
   const active = sources.filter(source => source.attached && !source.warning)
-  const decode = (entity: Entity, column: Entity['columns'][number], source?: OverlaySource) => decodeColumn(column, 'e', source?.jsonPaths?.[entity.name]?.[column.name])
+  const decode = (entity: Entity, column: Entity['columns'][number], source?: OverlaySource) => {
+    const jsonPath = source?.jsonPaths?.[entity.name]?.[column.name] ?? `$."${column.name.replace(/"/g, '\\"')}"`
+    const value = decodeColumn(column, 'e', jsonPath)
+    // An added field has no value in old facts. Match ALTER TABLE defaults,
+    // while preserving explicit nulls instead of coalescing existing values.
+    return column.dflt_value === null ? value
+      : `CASE WHEN json_type(e.payload,${literal(jsonPath)}) IS NULL THEN ${column.dflt_value} ELSE ${value} END`
+  }
   // Probe old session identity history, not messages, even when session-message
   // indexes never existed. Deleted sessions remain classified as legacy.
   const legacySessions = active.flatMap(source => {
@@ -218,6 +234,9 @@ export function initializeOverlay(db: Database.Database, schema: ReturnType<type
     if (['agent_messages', 'agent_message_parts', 'session_messages'].includes(entity.name)) db.exec(`CREATE TEMP VIEW ${quote(`overlay_new_${entity.name}`)} AS ${readSql(entity, '', true)}`)
   }
   if (!existing) markRecordIndexesComplete(db)
+  // CREATE VIEW defers resolving dependencies. Verify the final projections
+  // on this attached connection before announcing readiness, without scanning history.
+  for (const entity of definitions) db.prepare(`SELECT ${entity.columns.map(column => quote(column.name)).join(',')} FROM ${quote(entity.name)} LIMIT 0`)
   progress('overlay-ready')
 }
 

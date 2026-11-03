@@ -6,6 +6,7 @@ import LocalFilePreviewList from './index.js';
 import MaterialPlusIcon from '../../../../../public/material-plus.svg';
 import MaterialPlusErrorIcon from '../../../../../public/material-plus-error.svg';
 import TextFilePreview from '../../ChatShell/TextFilePreview';
+import { buildSkillExampleGroupSlotId, formatSkillExampleDuration } from '../skillExample';
 
 const files = [
   { uid: 'image1', name: 'first.png', fileType: 'image/png', localPreviewUrl: 'blob:first' },
@@ -194,7 +195,7 @@ describe('toolbar attachment sidebar previews', () => {
     expect(onAddFile).toHaveBeenCalledWith(placeholder);
   });
 
-  it('shows a loading placeholder for remote video thumbs until metadata loads', async () => {
+  it('keeps remote video thumbs loading until the first frame loads', async () => {
     await render({
       files: [
         { uid: 'cloud', name: '云端视频.mp4', fileType: 'video/mp4', previewUrl: 'https://example.com/cloud.mp4', durationLabel: '00:05' }
@@ -207,7 +208,33 @@ describe('toolbar attachment sidebar previews', () => {
     await act(async () => {
       container.querySelector('video').dispatchEvent(new Event('loadedmetadata'));
     });
+    expect(container.querySelector('.chat-panel__local-file-preview-thumb-loading')).not.toBeNull();
+    await act(async () => {
+      container.querySelector('video').dispatchEvent(new Event('loadeddata'));
+    });
     expect(container.querySelector('.chat-panel__local-file-preview-thumb-loading')).toBeNull();
+  });
+
+  it('shows template filenames, counts and thumbnail loading before remote probing finishes', async () => {
+    const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
+    const helper = source.slice(source.indexOf('const createSkillExampleAttachmentEntries ='), source.indexOf('const renderFilePreviewContent ='));
+    let finishProbe;
+    const create = new Function('buildSkillExampleGroupSlotId', 'createRemoteAttachmentEntry', 'guessFileTypeFromName', 'getRemoteMediaUrlFileName', 'formatSkillExampleDuration', `${helper}; return createSkillExampleAttachmentEntries;`)(
+      buildSkillExampleGroupSlotId,
+      (entry) => new Promise((resolve) => { finishProbe = () => resolve({ ...entry, durationLabel: '00:05' }); }),
+      () => 'text/plain', (url) => url.split('/').pop(), formatSkillExampleDuration
+    );
+    const initial = vi.fn();
+    const pending = create({ videos: [{ groupId: 'clips', filename: 'video1.mp4', url: 'https://example.com/video1.mp4', durationSeconds: 5 }] }, initial);
+    expect(initial).toHaveBeenCalledOnce();
+    const entries = initial.mock.calls[0][0];
+    await render({ files: [], fileGroups: [{ key: entries[0].slotId, label: '商品实拍', count: entries.length, files: entries }] });
+    expect(container.querySelector('[role=tab]').textContent).toBe('商品实拍(1)');
+    expect(container.querySelector('.chat-panel__local-file-preview-name').textContent).toBe('video1.mp4');
+    expect(container.querySelector('.chat-panel__local-file-preview-meta').textContent).toBe('MP4');
+    expect(container.querySelector('.chat-panel__local-file-preview-thumb-loading')).not.toBeNull();
+    finishProbe();
+    expect((await pending)[0].uid).toBe(entries[0].uid);
   });
 
   it('does not open previews on removal, external deletion, clearing or unmount', async () => {

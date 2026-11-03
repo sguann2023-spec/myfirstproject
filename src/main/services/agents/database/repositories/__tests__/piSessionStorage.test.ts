@@ -260,13 +260,14 @@ describe('SqlitePiSessionStorage', () => {
     expect(await readFile(overlay.legacyPath)).toEqual(overlay.before)
   })
 
-  it('materializes a legacy overlay before first PI open without changing the old database', async () => {
+  it('opens legacy overlay PI history without materializing canonical bodies or changing the old database', async () => {
     await addLegacy(1, 'z-question', 'old question')
     await addLegacy(2, 'a-answer', 'old answer')
     const overlay = await useOverlay()
     const repository = new AgentTranscriptRepository(database)
     await repository.migrateLegacyHistory('topic-a')
-    expect((await repository.listMessages('topic-a')).map(message => message.id)).toEqual(['z-question', 'a-answer'])
+    expect(await repository.listMessages('topic-a')).toEqual([])
+    expect((await client.execute("SELECT entity_type FROM entity_records WHERE entity_type IN ('agent_messages','agent_message_parts')")).rows).toEqual([])
     const storage = await open()
     expect((await new Session(storage).buildContext()).messages.map((message: any) => message.content)).toEqual(['old question', 'old answer'])
     await overlay.restart()
@@ -518,7 +519,8 @@ describe('SqlitePiSessionStorage', () => {
     const transaction = vi.spyOn(database, 'transaction')
     await expect(storage.appendEntry({ ...first, id: 'bad', parentId: 'first' })).resolves.toBeUndefined()
     await settlePersistence()
-    expect(client.closed).toBe(true)
+    expect(client.closed).toBe(false)
+    expect((await client.execute('SELECT 1 AS alive')).rows[0].alive).toBe(1)
     await storage.appendEntry({ ...first, id: 'tail', parentId: 'bad' })
     expect((await storage.getEntries()).map(entry => entry.id)).toEqual(['first', 'bad', 'tail'])
     expect(await storage.getLeafId()).toBe('tail')

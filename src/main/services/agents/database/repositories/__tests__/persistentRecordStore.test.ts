@@ -353,7 +353,8 @@ describe('durable record table upgrade', () => {
     expect(store.execute('SELECT * FROM children').rows).toEqual([])
     expect(store.execute('SELECT count(*) FROM entity_records').rows).toEqual([[4n]])
     expect(() => store.execute('DELETE FROM entity_records')).toThrow('immutable')
-    expect(() => store.execute('SELECT 1')).toThrow('stopped')
+    expect(store.execute('SELECT 1').rows).toEqual([[1n]])
+    expect(store.execute('SELECT count(*) FROM entity_records').rows).toEqual([[4n]])
   })
 
   it('leaves source data intact when an unknown table cannot be migrated safely', async () => {

@@ -17,6 +17,7 @@ vi.mock('../../DatabaseManager', () => ({
 vi.mock('@logger', () => ({
   loggerService: { withContext: () => ({ warn: vi.fn(), info: vi.fn() }) }
 }))
+vi.mock('@shared/parseToolArguments', () => import('../../../../../../packages/shared/parseToolArguments'))
 vi.mock('../../sessionMessageRepository', () => ({
   agentMessageRepository: { getSessionHistory: vi.fn() }
 }))
@@ -262,10 +263,9 @@ describe('AgentTranscriptRepository', () => {
     expect(statuses.rows.map(row => JSON.parse(String(row.payload)).status)).toEqual(['streaming', 'completed', 'completed'])
     expect(JSON.parse(JSON.parse(String(statuses.rows[2].payload)).semantics_json).tombstone).toBe(true)
     await expect(client.execute('DELETE FROM entity_records')).rejects.toThrow('immutable')
-    expect(client.closed).toBe(true)
-    await expect(repository.getMessage('session-a', 'event-message')).rejects.toMatchObject({
-      cause: { message: expect.stringContaining('immutable') }
-    })
+    expect(client.closed).toBe(false)
+    expect((await repository.getMessage('session-a', 'event-message'))?.semantics?.tombstone).toBe(true)
+    expect((await client.execute("SELECT payload FROM entity_records WHERE entity_type='agent_messages' AND entity_key=json_array('event-message') ORDER BY position")).rows).toEqual(statuses.rows)
   })
 
   it('finalizes the schema once and retains physical deletion history', async () => {
@@ -733,7 +733,7 @@ describe('AgentTranscriptRepository', () => {
     ).rejects.toThrow('already belongs to another message')
   })
 
-  it('stops after a bulk SQL failure and restores only the completed prefix on explicit restart', async () => {
+  it('rejects a failed bulk command without poisoning history reads or replaying the unwritten tail', async () => {
     const execute = vi.spyOn(client, 'execute')
     const db = drizzle(client, { schema })
     repository = new AgentTranscriptRepository(db)
@@ -750,11 +750,8 @@ describe('AgentTranscriptRepository', () => {
     const inserts = execute.mock.calls.filter(([statement]) =>
       /insert into/i.test(typeof statement === 'string' ? statement : (statement as { sql: string }).sql))
     expect(inserts).toHaveLength(2)
-    expect(client.closed).toBe(true)
-    await expect(repository.listMessages('session-a')).rejects.toThrow()
-    await expect(repository.upsertMessage({
-      id: 'message-stopped', sessionId: 'session-a', role: 'user', status: 'completed'
-    })).rejects.toThrow()
+    expect(client.closed).toBe(false)
+    expect((await repository.listMessages('session-a')).map(message => message.id)).toEqual(['message-good'])
     transaction.mockRestore()
     execute.mockRestore()
     await (client as WorkerDatabaseClient).closeAsync()

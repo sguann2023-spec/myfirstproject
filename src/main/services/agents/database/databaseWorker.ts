@@ -19,8 +19,8 @@ function errorData(error: any): any {
   return error && { name: error.name, message: error.message ?? String(error), stack: error.stack, code: error.code, rawCode: error.rawCode, cause: error.cause ? errorData(error.cause) : undefined }
 }
 
-function reply(socket: Socket, id: number, value?: unknown, error?: unknown): void {
-  if (!socket.destroyed) socket.write(encodeFrame({ id, value, error: errorData(error) }))
+function reply(socket: Socket, id: number, value?: unknown, error?: unknown, fatal = true): void {
+  if (!socket.destroyed) socket.write(encodeFrame({ id, value, error: errorData(error), fatal }))
 }
 
 function stopBroker(): void {
@@ -86,7 +86,10 @@ async function drain(): Promise<void> {
         }
         reply(socket, id, value)
       } catch (error) {
-        reply(socket, id, undefined, error)
+        const requestOnly = ['execute', 'executeMultiple', 'batch', 'migrate'].includes(method)
+          && !startupFailure && !stopping && !maintenance && configuredSockets.has(socket)
+          && request.database === database && store && !store.isStopped
+        reply(socket, id, undefined, error, !requestOnly)
       }
     }
   } finally {

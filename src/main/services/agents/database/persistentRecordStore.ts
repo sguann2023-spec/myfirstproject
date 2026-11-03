@@ -132,6 +132,7 @@ export class PersistentRecordStore {
     if (this.closed) throw new Error('Database writer is closed')
     if (this.failed) throw Object.assign(new Error('Database writer stopped after an earlier failure'), { code: 'APPEND_WRITER_STOPPED', cause: this.failed })
   }
+  get isStopped(): boolean { return this.closed || this.failed !== undefined }
   private stop(error: unknown): never {
     this.failed = error instanceof Error ? error : new Error(String(error))
     throw this.failed
@@ -151,10 +152,11 @@ export class PersistentRecordStore {
     this.assertOpen()
     const sql = typeof input === 'string' ? input : input.sql
     const args = typeof input === 'string' ? positionalArgs ?? [] : input.args ?? []
+    // Rejected commands never reached SQLite and cannot poison the writer.
+    guard(sql)
+    if (this.overlay) guardOverlaySql(sql, this.overlay.entities)
+    if (splitSqlStatements(sql).length !== 1) throw new Error('execute requires exactly one SQL statement')
     try {
-      guard(sql)
-      if (this.overlay) guardOverlaySql(sql, this.overlay.entities)
-      if (splitSqlStatements(sql).length !== 1) throw new Error('execute requires exactly one SQL statement')
       const statement = this.db.prepare(sql)
       const values = Array.isArray(args) ? args.map(binding) : [Object.fromEntries(Object.entries(args).map(([key, value]) => [key.replace(/^[:@$]/, ''), binding(value)]))]
       this.written = []
@@ -181,7 +183,13 @@ export class PersistentRecordStore {
       }
       const info = statement.run(...values)
       return { columns: [], columnTypes: [], rows: [], rowsAffected: this.written.length || info.changes, lastInsertRowid: BigInt(info.lastInsertRowid) }
-    } catch (error) { return this.stop(error) }
+    } catch (error) {
+      // SQLite aborts these statements without invalidating the connection.
+      // Storage/IO failures remain fail-closed; no submitted statement is retried.
+      const code = (error as { code?: string })?.code ?? ''
+      if (/^SQLITE_(?:ERROR|CONSTRAINT|RANGE|MISMATCH|TOOBIG)(?:_|$)/.test(code) || error instanceof RangeError) throw error
+      return this.stop(error)
+    }
   }
   executeMultiple(sql: string): void { for (const statement of splitSqlStatements(sql)) this.execute(statement) }
   batch(statements: Array<string | { sql: string; args?: any }>): WireResult[] { return statements.map(statement => this.execute(statement)) }

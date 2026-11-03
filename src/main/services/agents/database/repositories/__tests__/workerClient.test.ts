@@ -1,4 +1,5 @@
-import { afterEach, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest'
+import { build } from 'vite'
 import { WorkerDatabaseClient } from '../../workerClient'
 import Database from 'better-sqlite3'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -7,6 +8,12 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 const clients: WorkerDatabaseClient[] = []
 const dirs: string[] = []
+let buildDirectory: string
+beforeAll(async () => {
+  buildDirectory = await mkdtemp(path.join(tmpdir(), 'worker-client-build-'))
+  await build({ configFile: false, logLevel: 'silent', build: { ssr: path.resolve('src/main/services/agents/database/workerClient.ts'), outDir: buildDirectory, rollupOptions: { output: { format: 'cjs', entryFileNames: 'workerClient.cjs' } } } })
+})
+afterAll(async () => { if (buildDirectory) await rm(buildDirectory, { recursive: true, force: true }) })
 afterEach(async () => { for (const c of clients.splice(0)) await c.closeAsync(); await Promise.all(dirs.splice(0).map(d => rm(d, { recursive: true, force: true }))) })
 function open(url: string) { const c = new WorkerDatabaseClient({ url, intMode: 'bigint' }, path.resolve('out/main/databaseWorker.js')); clients.push(c); return c }
 it('forwards migration progress after broker readiness during schema finalization', async () => {
@@ -62,7 +69,7 @@ it('close rejects pending requests without admitting another business write', as
   await expect(c.execute('SELECT 1')).rejects.toThrow('closed')
 })
 
-it('failure stops every client of that database and preserves only successful appends on restart', async () => {
+it('a rejected SQL command preserves successful appends and leaves other clients available', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'worker-stop-')); dirs.push(dir)
   const url = `file:${path.join(dir, 'test.db')}`
   const owner = open(url)
@@ -71,11 +78,11 @@ it('failure stops every client of that database and preserves only successful ap
   const other = open(url)
   await other.execute('INSERT INTO test VALUES (1)')
   await expect(owner.batch(['INSERT INTO test VALUES (2)', 'INSERT INTO missing VALUES (3)', 'INSERT INTO test VALUES (4)'])).rejects.toThrow(/missing/)
-  await expect(other.execute('INSERT INTO test VALUES (5)')).rejects.toThrow(/stopped/)
+  await other.execute('INSERT INTO test VALUES (5)')
   await other.closeAsync()
   await owner.closeAsync()
   const restarted = open(url)
-  expect((await restarted.execute('SELECT id FROM test')).rows.map(row => row.id)).toEqual([1n, 2n])
+  expect((await restarted.execute('SELECT id FROM test')).rows.map(row => row.id)).toEqual([1n, 2n, 5n])
 })
 
 it('an independent database continues after another database stops', async () => {
@@ -90,7 +97,7 @@ it('separate processes submit to the same broker and non-owners cannot shut it d
   const owner = open(url)
   await owner.execute('CREATE TABLE test(id INTEGER PRIMARY KEY)')
   await owner.finalizeSchema()
-  const script = `const {WorkerDatabaseClient}=require(${JSON.stringify(path.resolve('out/main/workerClient.cjs'))});
+  const script = `const {WorkerDatabaseClient}=require(${JSON.stringify(path.join(buildDirectory, 'workerClient.cjs'))});
     const c=new WorkerDatabaseClient({url:${JSON.stringify(url)},intMode:'bigint'},${JSON.stringify(path.resolve('out/main/databaseWorker.js'))});
     (async()=>{for(let i=0;i<20;i++) await c.execute({sql:'INSERT INTO test VALUES (?)',args:[Number(process.argv[1])+i]}); await c.closeAsync()})().catch(e=>{console.error(e);process.exitCode=1});`
   const run = (offset: number) => new Promise<void>((resolve, reject) => {

@@ -8,7 +8,7 @@ import type { StorageManifest } from './persistentRecordStore'
 import { sqliteErrorDiagnostics } from './sqliteRetry'
 
 export type DatabaseClientDiagnostic = {
-  event: 'failure' | 'maintenance_started'
+  event: 'failure' | 'request_error' | 'maintenance_started'
   database: string
   owner: boolean
   pendingRequests: number
@@ -171,12 +171,18 @@ export class WorkerDatabaseClient implements Client {
     socket.on('close', () => this.fail(new Error('Database broker connection closed')))
     socket.on('data', chunk => {
       try {
-        decoder.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk), ({ id, value, error }) => {
+        decoder.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk), ({ id, value, error, fatal }) => {
           const pending = this.pending.get(id)
           if (!pending) throw new Error('Unexpected database broker reply')
           if (error) {
             const revived = reviveError(error)
-            this.fail(revived)
+            // Only an explicit broker acknowledgement allows the connection
+            // to survive. Older brokers and transport failures stay fail-closed.
+            if (fatal === false) {
+              this.reportDiagnostic('request_error', revived)
+              this.pending.delete(id)
+              pending.reject(revived)
+            } else this.fail(revived)
           } else {
             const revived = reviveResult(value, this.config.intMode)
             this.pending.delete(id)

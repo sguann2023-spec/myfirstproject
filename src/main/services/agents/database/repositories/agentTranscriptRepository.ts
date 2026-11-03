@@ -242,6 +242,9 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
 
   async migrateLegacyHistory(sessionId: string, suppliedLegacy?: AgentPersistedMessage[]): Promise<void> {
     await this.withOrderedWrite(async database => {
+      // Overlay already reads the immutable legacy prefix. Opening history
+      // must not copy its bodies or rewrite its ordering as new business facts.
+      if ((database as AgentDatabase & { $client?: { overlayEnabled?: boolean } }).$client?.overlayEnabled) return
       // Production reads the latest source inside the write queue, not a UI snapshot.
       const legacy = suppliedLegacy ?? (await readMessageProjection<SessionMessageRow>(database, 'session_messages', sessionId))
         .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)

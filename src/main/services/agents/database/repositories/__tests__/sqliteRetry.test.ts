@@ -22,7 +22,9 @@ describe('agent DB one-shot writes and safe diagnostics', () => {
     ['UNIQUE constraint failed: private.value', 'unique'],
     ['NOT NULL constraint failed: private.value', 'not_null'],
     ['no such table: private', 'missing_table'],
-    ['table private has no column named value', 'missing_column']
+    ['table private has no column named value', 'missing_column'],
+    ['malformed JSON', 'malformed_json'],
+    ['execute requires exactly one SQL statement', 'unsupported_statement']
   ])('classifies %s without logging the message', (message, category) => {
     const diagnostics = sqliteErrorDiagnostics(new Error(message))
     expect(diagnostics.category).toBe(category)
@@ -71,7 +73,7 @@ describe('agent DB one-shot writes and safe diagnostics', () => {
     expect(database.transaction).not.toHaveBeenCalled()
   })
 
-  it('never retries a failed append, stops later requests, and restores the durable prefix on explicit restart', async () => {
+  it('never retries a rejected append and keeps the committed prefix available without replaying its tail', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'agent-one-shot-'))
     const config = { url: 'file:' + join(directory, 'test.db'), intMode: 'number' as const }
     let client = new WorkerDatabaseClient(config, resolve('out/main/databaseWorker.js'))
@@ -87,9 +89,8 @@ describe('agent DB one-shot writes and safe diagnostics', () => {
       await expect(retrySqliteBusy(operation)).rejects.toThrow(/duplicate entity identity/)
       expect(operation).toHaveBeenCalledOnce()
       expect(execute).toHaveBeenCalledTimes(2)
-      expect(client.closed).toBe(true)
-      await expect(client.execute('SELECT * FROM entries')).rejects.toThrow()
-      await expect(client.execute("INSERT INTO entries VALUES (3, 'stopped')")).rejects.toThrow()
+      expect(client.closed).toBe(false)
+      expect((await client.execute('SELECT * FROM entries')).rows).toEqual([{ id: 1, value: 'durable' }])
       execute.mockRestore()
       await client.closeAsync()
       client = new WorkerDatabaseClient(config, resolve('out/main/databaseWorker.js'))

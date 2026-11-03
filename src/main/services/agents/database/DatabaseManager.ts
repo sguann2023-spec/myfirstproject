@@ -180,6 +180,7 @@ export class DatabaseManager {
         intMode: 'number'
       }, undefined, DatabaseManager.reportProgress, overlayStorage, diagnostic => {
         if (diagnostic.event === 'failure') logger.error('[DBDiagnostics] Database client stopped', diagnostic)
+        else if (diagnostic.event === 'request_error') logger.warn('[DBDiagnostics] Database request failed; connection remains available', diagnostic)
         else logger.info('[DBDiagnostics] Storage maintenance started', diagnostic)
       })
 

@@ -44,7 +44,7 @@ const getPreviewUrl = (file = {}) => (
 const RemoteImageThumb = ({ src, name }) => {
   const [loading, setLoading] = React.useState(true);
   return <>
-    {loading ? <span className="chat-panel__local-file-preview-thumb-loading" aria-hidden="true"><LoaderCircle size={16} /></span> : null}
+    {loading ? <span className="chat-panel__local-file-preview-thumb-loading" aria-hidden="true"><LoaderCircle className="chat-panel__local-file-preview-thumb-loading-icon" size={16} /></span> : null}
     <img className="chat-panel__local-file-preview-thumb-image" src={src} alt={name}
       onLoad={() => setLoading(false)} onError={() => setLoading(false)} />
   </>;
@@ -74,7 +74,6 @@ const RemoteVideoThumb = ({ src, durationLabel }) => {
         playsInline
         preload="metadata"
         style={status === 'loading' ? { position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' } : undefined}
-        onLoadedMetadata={() => setStatus((current) => (current === 'loading' ? 'ready' : current))}
         onLoadedData={() => setStatus((current) => (current === 'loading' ? 'ready' : current))}
         onError={() => setStatus('error')}
       />
@@ -360,7 +359,7 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
         {selectedGroup ? renderGroupSection(selectedGroup) : null}
       </div>
       <Modal open={Boolean(modalFile)} centered title={null} closable closeIcon={<X size={22} />} maskClosable
-        transitionName=""
+        transitionName="" maskTransitionName=""
         width={modalFile && getPreviewKind(modalFile) === 'audio' ? 492 : `min(80vw, ${80 * previewAspectRatio}vh)`}
         rootClassName={`chat-panel__media-click-modal chat-panel__media-click-modal--${modalFile ? getPreviewKind(modalFile) : ''}`}
         onCancel={() => setModalFile(null)} footer={null} destroyOnHidden>

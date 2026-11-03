@@ -7,11 +7,21 @@ import { build } from 'vite'
 import { WorkerDatabaseClient } from '../../workerClient'
 import type { OverlayOptions } from '../../persistentRecordStore'
 import { OVERLAY_INTEGER_START } from '../../recordOverlay'
+import { drizzle } from 'drizzle-orm/libsql'
+import { eq } from 'drizzle-orm'
+import * as schema from '../../schema'
+import { initializeRecords } from '../../recordSchema'
+import { finalizeRecords } from '../../legacyRecordMigration'
 
 vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }) } }))
 vi.mock('@main/utils', () => ({ getResourcePath: () => '/resources' }))
 vi.mock('electron', () => ({ app: { getPath: () => '/unused' } }))
+vi.mock('@shared/parseToolArguments', () => import('../../../../../../packages/shared/parseToolArguments'))
+vi.mock('../../../BaseService', () => ({ BaseService: class { async getDatabase(): Promise<never> { throw new Error('Test database not injected') } } }))
 import { resolveStorageConfiguration } from '../../DatabaseManager'
+import { AgentTranscriptRepository } from '../agentTranscriptRepository'
+import { agentMessageRepository } from '../../sessionMessageRepository'
+import { AgentHistoryService } from '../../agentHistoryService'
 
 const clients: WorkerDatabaseClient[] = []
 const directories: string[] = []
@@ -99,6 +109,88 @@ it('shares equivalent canonical configuration across clients with independent in
   await other.closeAsync()
   expect((await owner.execute('SELECT id,name FROM entries WHERE id=1')).rows[0]).toEqual({ id: 1n, name: 'shared' })
 })
+
+it('isolates a failed history query from concurrent skills/agent reads and later writes', async () => {
+  const f = fixture()
+  const owner = open(f.filename, f.options)
+  await owner.waitUntilReady()
+  const other = open(f.filename, f.options)
+  await other.waitUntilReady()
+  const results = await Promise.allSettled([
+    owner.execute("SELECT json_extract('not-json', '$.id')"),
+    owner.execute('SELECT name FROM entries WHERE id=1'),
+    other.execute('SELECT name FROM entries WHERE id=1')
+  ])
+  expect(results[0]).toMatchObject({ status: 'rejected', reason: { code: 'SQLITE_ERROR' } })
+  expect(results.slice(1).map(result => result.status)).toEqual(['fulfilled', 'fulfilled'])
+  expect(owner.closed).toBe(false)
+  await expect(owner.execute('SELECT missing_column FROM entries')).rejects.toThrow('no such column')
+  await expect(owner.execute('UPDATE main.entity_records SET payload=NULL')).rejects.toThrow('unqualified')
+  await expect(owner.execute("INSERT INTO entries(id,name) VALUES(1,'duplicate')")).rejects.toThrow(/identity/)
+  await owner.execute("UPDATE entries SET name='still-usable' WHERE id=1")
+  expect((await other.execute('SELECT name FROM entries WHERE id=1')).rows[0].name).toBe('still-usable')
+})
+
+it.each(['relational', 'records'])('opens v11 %s history with data-migration v10001 without copying old bodies', async format => {
+  const f = fixture(), migrationDir = path.resolve('resources/database/drizzle')
+  const legacy = path.join(f.directory, 'agents.db')
+  const db = new Database(legacy)
+  const journal = JSON.parse(readFileSync(path.join(migrationDir, 'meta/_journal.json'), 'utf8'))
+  for (const entry of journal.entries.filter((entry: { idx: number }) => entry.idx <= 11)) {
+    db.exec(readFileSync(path.join(migrationDir, `${entry.tag}.sql`), 'utf8'))
+    db.prepare('INSERT INTO migrations(version,tag,executed_at) VALUES(?,?,?)').run(entry.idx, entry.tag, 1)
+  }
+  db.exec("INSERT INTO migrations VALUES(10001,'fix_block_references',1)")
+  db.exec("INSERT INTO agents(id,type,name,model,created_at,updated_at) VALUES('vectcut_claw_default','x','Agent','model','now','now'); INSERT INTO sessions(id,agent_type,agent_id,name,model,created_at,updated_at) VALUES('s','x','vectcut_claw_default','Session','model','now','now'),('s2','x','vectcut_claw_default','Second','model','now','now')")
+  const payload = { message: { id: 'old', role: 'assistant', assistantId: 'vectcut_claw_default', topicId: 'agent-session:s', status: 'success', blocks: ['block-old'] }, blocks: [{ id: 'block-old', messageId: 'old', type: 'main_text', content: 'history '.repeat(100000), status: 'success' }] }
+  const content = JSON.stringify(payload)
+  db.prepare("INSERT INTO session_messages(session_id,role,content,created_at,updated_at) VALUES('s','agent',?,'2026-10-01T00:00:00.000Z','2026-10-01T00:00:00.000Z')").run(content)
+  db.prepare("INSERT INTO session_messages(session_id,role,content,created_at,updated_at) VALUES('s2','agent',?,'2026-10-01T00:00:00.000Z','2026-10-01T00:00:00.000Z')").run(JSON.stringify({ ...payload, message: { ...payload.message, id: 'second' } }))
+  db.exec("INSERT INTO skills(id,name,folder_name,source,content_hash,is_enabled,created_at,updated_at) VALUES('skill','Skill','pop-y2k-consumer-12s-storyboard','local','hash',1,1,1)")
+  if (format === 'records') { initializeRecords(db); finalizeRecords(db, () => {}) }
+  db.close()
+  const before = readFileSync(legacy)
+  const options = { legacyPaths: [legacy], migrationDir }
+  const owner = open(f.filename, options, undefined, 'number')
+  const orm = drizzle(owner, { schema })
+  const [history, skills, agents] = await Promise.all([
+    owner.execute({ sql: 'SELECT * FROM session_messages WHERE session_id=?', args: ['s'] }),
+    orm.select().from(schema.skillsTable),
+    orm.select().from(schema.agentsTable).where(eq(schema.agentsTable.id, 'vectcut_claw_default'))
+  ])
+  expect(history.rows[0].content).toBe(content)
+  expect(skills[0].folder_name).toBe('pop-y2k-consumer-12s-storyboard')
+  expect(agents[0].id).toBe('vectcut_claw_default')
+  const database = vi.spyOn(agentMessageRepository, 'getDatabase').mockResolvedValue(orm)
+  try {
+    const service = new AgentHistoryService(new AgentTranscriptRepository(orm), agentMessageRepository, { readQuestions: async () => [] } as any)
+    const first = await service.getHistory('s')
+    expect(first.messages.map(item => item.message.id)).toEqual(['old'])
+    expect(first.messages[0].blocks[0].content).toBe(payload.blocks[0].content)
+    expect((await service.getHistory('s2')).messages.map(item => item.message.id)).toEqual(['second'])
+    expect((await owner.execute('SELECT count(*) AS count FROM entity_records')).rows[0].count).toBe(0)
+  } finally { database.mockRestore() }
+  const nextContent = JSON.stringify({ message: { ...payload.message, id: 'raw-new', blocks: [] }, blocks: [] })
+  await owner.execute({ sql: "INSERT INTO session_messages(session_id,role,content) VALUES('s','agent',?)", args: [nextContent] })
+  await owner.closeAsync()
+  const again = open(f.filename, options, undefined, 'number')
+  expect((await again.execute("SELECT content FROM session_messages WHERE session_id='s' ORDER BY id")).rows.map(row => row.content)).toEqual([content, nextContent])
+  const reopenedOrm = drizzle(again, { schema })
+  const reopenedDatabase = vi.spyOn(agentMessageRepository, 'getDatabase').mockResolvedValue(reopenedOrm)
+  try {
+    // Verify both compatibility-row and canonical continuations after restart.
+    const transcript = new AgentTranscriptRepository(reopenedOrm)
+    const service = new AgentHistoryService(transcript, agentMessageRepository, { readQuestions: async () => [] } as any)
+    expect((await service.getHistory('s')).messages.map(item => item.message.id)).toEqual(['old', 'raw-new'])
+    expect((await service.getHistory('s2')).messages.map(item => item.message.id)).toEqual(['second'])
+    await transcript.upsertMessage({ id: 'continued', sessionId: 's2', role: 'assistant', status: 'completed', createdAt: '2026-11-03T00:00:00.000Z' })
+    await transcript.upsertPart({ id: 'continued-text', sessionId: 's2', messageId: 'continued', type: 'text', data: { text: 'new answer' } })
+    expect((await service.getHistory('s2')).messages.map(item => item.message.id)).toEqual(['second', 'continued'])
+    expect((await again.execute("SELECT count(*) AS count FROM entity_records WHERE entity_type='agent_messages' AND json_extract(payload,'$.id')='second'")).rows[0].count).toBe(0)
+  } finally { reopenedDatabase.mockRestore() }
+  await again.closeAsync()
+  expect(readFileSync(legacy)).toEqual(before)
+}, 15000)
 
 it('rejects different sources, precedence, schema path and legacy mode without disturbing the owner', async () => {
   const f = fixture()

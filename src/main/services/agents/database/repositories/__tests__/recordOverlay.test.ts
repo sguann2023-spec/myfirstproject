@@ -94,6 +94,27 @@ describe('record overlay', () => {
     expect(() => other.execute("INSERT INTO items(parent_id,alias) VALUES ('missing','new')")).toThrow('referenced')
   })
 
+  it('adds new schema fields on reopen without replacing old facts or touching legacy storage', async () => {
+    const f = fixture(), before = readFileSync(f.legacy), store = await open(f)
+    store.execute("UPDATE parents SET name='continued' WHERE id='p'")
+    const facts = store.execute('SELECT * FROM entity_records').rows
+    store.close()
+    writeFileSync(path.join(f.migrationDir, 'added.sql'), "ALTER TABLE parents ADD COLUMN description TEXT; ALTER TABLE parents ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;")
+    writeFileSync(path.join(f.migrationDir, 'meta', '_journal.json'), JSON.stringify({ entries: [{ idx: 0, tag: 'initial' }, { idx: 1, tag: 'added' }] }))
+    const again = await open(f)
+    expect(again.execute('SELECT name,description FROM parents').rows).toEqual([['continued', null]])
+    expect(again.execute('SELECT enabled FROM parents').rows).toEqual([[1n]])
+    expect(again.execute('SELECT * FROM entity_records').rows).toEqual(facts)
+    expect(again.execute('PRAGMA table_info(parents)').rows.map(row => row[1])).toContain('enabled')
+    again.execute("INSERT INTO parents(id,name) VALUES('new','new')")
+    expect(again.execute("SELECT enabled FROM parents WHERE id='new'").rows).toEqual([[1n]])
+    again.close()
+    const reopened = await open(f)
+    expect(reopened.execute("SELECT description,enabled FROM parents WHERE id='new'").rows).toEqual([[null, 1n]])
+    reopened.close()
+    expect(readFileSync(f.legacy)).toEqual(before)
+  })
+
   it('keeps BLOBs and giant integer IDs native and never reuses a deleted new ID', async () => {
     const f = fixture(), store = await open(f)
     const value = store.execute('SELECT data FROM items WHERE id=20').rows[0][0]
@@ -302,7 +323,19 @@ describe('record overlay', () => {
     expect(() => fresh.execute("UPDATE main.parents SET name='bad'")).toThrow('unqualified')
     const second = await open(f)
     expect(() => second.execute("INSERT INTO entity_records(entity_type,entity_key,operation,payload) VALUES('parents','[]','put','{}')")).toThrow('unqualified')
-    await expect(second.backup(path.join(f.directory, 'bad.db'))).rejects.toThrow('earlier failure')
+    expect(second.execute('SELECT name FROM parents').rows).toEqual([['old']])
+    await expect(second.backup(path.join(f.directory, 'bad.db'))).rejects.toThrow('require backupStorage')
+  })
+
+  it('still stops on native storage failures without retrying the failed statement', async () => {
+    const f = fixture(), store = await open(f)
+    const connection = (store as any).db as Database.Database
+    connection.function('simulate_io_failure', () => { throw Object.assign(new Error('disk I/O error'), { code: 'SQLITE_IOERR' }) })
+    const execute = vi.spyOn(connection, 'prepare')
+    expect(() => store.execute('SELECT simulate_io_failure()')).toThrow('disk I/O error')
+    expect(store.isStopped).toBe(true)
+    expect(() => store.execute('SELECT 1')).toThrow('earlier failure')
+    expect(execute).toHaveBeenCalledTimes(1)
   })
 
   it('creates a portable manifest with old-source WAL snapshots and restores using relative files', async () => {

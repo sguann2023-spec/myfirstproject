@@ -32,8 +32,10 @@ export function sqliteErrorDiagnostics(error: unknown): SqliteDiagnosticCause & 
                                   : /disk.*full|SQLITE_FULL/i.test(message) ? 'disk_full'
                                     : /disk I\/O|SQLITE_IOERR/i.test(message) ? 'io_error'
                                       : /readonly database|SQLITE_READONLY/i.test(message) ? 'readonly'
-                                        : /syntax error/i.test(message) ? 'syntax_error'
-                                          : undefined
+                                      : /syntax error/i.test(message) ? 'syntax_error'
+                                        : /malformed JSON/i.test(message) ? 'malformed_json'
+                                          : /unqualified entity view|exactly one SQL statement|unsupported/i.test(message) ? 'unsupported_statement'
+                                            : undefined
     causes.push({
       name: String(current.name || 'Error').slice(0, 80),
       code: typeof current.code === 'string' ? current.code.slice(0, 80) : undefined,
