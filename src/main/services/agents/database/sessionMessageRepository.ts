@@ -240,7 +240,12 @@ class AgentMessageRepository extends BaseService {
     try {
       const database = await this.getDatabase()
       const rows = (await readMessageProjection<SessionMessageRow>(database, 'session_messages', sessionId))
-        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+        .sort((a, b) => {
+          // Compatibility continuations can lack timestamps; retain them after
+          // dated history and use their durable IDs for deterministic ordering.
+          if (!a.created_at || !b.created_at) return a.created_at ? -1 : b.created_at ? 1 : a.id - b.id
+          return a.created_at.localeCompare(b.created_at) || a.id - b.id
+        })
 
       const messages: AgentPersistedMessage[] = []
 

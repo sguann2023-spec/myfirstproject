@@ -59,7 +59,9 @@ export function databaseEndpoint(identity: string): { host: string; port: number
 
 export function encodeFrame(value: unknown): Buffer {
   const payload = serialize(value)
-  if (payload.length > MAX_FRAME_BYTES) throw new Error('Database frame exceeds size limit')
+  if (payload.length > MAX_FRAME_BYTES) {
+    throw Object.assign(new Error('Database frame exceeds size limit'), { frameBytes: payload.length, maxFrameBytes: MAX_FRAME_BYTES })
+  }
   const frame = Buffer.allocUnsafe(payload.length + 4)
   frame.writeUInt32BE(payload.length)
   payload.copy(frame, 4)

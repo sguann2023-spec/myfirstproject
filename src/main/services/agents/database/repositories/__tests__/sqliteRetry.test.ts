@@ -17,6 +17,14 @@ describe('agent DB one-shot writes and safe diagnostics', () => {
     expect(JSON.stringify(diagnostics)).not.toMatch(/secret|params|Failed query/)
   })
 
+  it('reports frame sizes without exposing the history query or content', () => {
+    const cause = Object.assign(new Error('Database frame exceeds size limit'), { frameBytes: 300000000, maxFrameBytes: 268435456 })
+    const error = new Error('Failed query: secret SQL params: secret-token', { cause })
+    const diagnostics = sqliteErrorDiagnostics(error)
+    expect(diagnostics.causes[1]).toMatchObject({ category: 'frame_size', frameBytes: 300000000, maxFrameBytes: 268435456 })
+    expect(JSON.stringify(diagnostics)).not.toMatch(/secret|params|Failed query/)
+  })
+
   it.each([
     ['FOREIGN KEY constraint failed', 'foreign_key'],
     ['UNIQUE constraint failed: private.value', 'unique'],

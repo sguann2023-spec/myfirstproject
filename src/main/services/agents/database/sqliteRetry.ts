@@ -3,6 +3,8 @@ type SqliteDiagnosticCause = {
   code?: string
   rawCode?: number
   category?: string
+  frameBytes?: number
+  maxFrameBytes?: number
   frames?: string[]
 }
 
@@ -14,7 +16,8 @@ export function sqliteErrorDiagnostics(error: unknown): SqliteDiagnosticCause & 
   while (current && typeof current === 'object' && !seen.has(current) && causes.length < 8) {
     seen.add(current)
     const message = typeof current.message === 'string' ? current.message : ''
-    const category = /\bSQLITE_BUSY(?:_\w+)?\b|database is locked/i.test(message) ? 'busy'
+    const category = /^Database frame exceeds size limit/.test(message) ? 'frame_size'
+      : /\bSQLITE_BUSY(?:_\w+)?\b|database is locked/i.test(message) ? 'busy'
       : /\bSQLITE_LOCKED(?:_\w+)?\b|database table is locked/i.test(message) ? 'locked'
         : /foreign key constraint/i.test(message) ? 'foreign_key'
           : /unique constraint/i.test(message) ? 'unique'
@@ -40,6 +43,8 @@ export function sqliteErrorDiagnostics(error: unknown): SqliteDiagnosticCause & 
       name: String(current.name || 'Error').slice(0, 80),
       code: typeof current.code === 'string' ? current.code.slice(0, 80) : undefined,
       rawCode: typeof current.rawCode === 'number' ? current.rawCode : undefined,
+      frameBytes: typeof current.frameBytes === 'number' ? current.frameBytes : undefined,
+      maxFrameBytes: typeof current.maxFrameBytes === 'number' ? current.maxFrameBytes : undefined,
       category,
       // Omit stack headers, which repeat the SQL-bearing wrapper message.
       frames: typeof current.stack === 'string'

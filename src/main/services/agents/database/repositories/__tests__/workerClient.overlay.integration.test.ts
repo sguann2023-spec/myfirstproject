@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm'
 import * as schema from '../../schema'
 import { initializeRecords } from '../../recordSchema'
 import { finalizeRecords } from '../../legacyRecordMigration'
+import { readMessageProjection } from '../../messageEventStore'
 
 vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }) } }))
 vi.mock('@main/utils', () => ({ getResourcePath: () => '/resources' }))
@@ -26,19 +27,36 @@ import { AgentHistoryService } from '../../agentHistoryService'
 const clients: WorkerDatabaseClient[] = []
 const directories: string[] = []
 const databases: Database.Database[] = []
+const TEST_FRAME_BYTES = 8192
 let workerPath: string
+let lowBudgetWorkerPath: string
 let buildDirectory: string
 beforeAll(async () => {
   const cache = path.resolve('node_modules/.cache')
   mkdirSync(cache, { recursive: true })
   buildDirectory = mkdtempSync(path.join(cache, 'overlay-worker-'))
   workerPath = path.join(buildDirectory, 'databaseWorker.cjs')
+  lowBudgetWorkerPath = path.join(buildDirectory, 'databaseWorker.low-budget.cjs')
   // Build the real current Worker, independently of app build output and mocks.
-  await build({ configFile: false, logLevel: 'error', build: {
-    target: 'node22', outDir: buildDirectory, emptyOutDir: false, minify: false,
-    lib: { entry: path.resolve('src/main/services/agents/database/databaseWorker.ts'), formats: ['cjs'], fileName: () => 'databaseWorker.cjs' },
-    rollupOptions: { external: ['better-sqlite3', /^node:/] }
-  } })
+  for (const lowBudget of [false, true]) {
+    let budgetReplaced = false
+    await build({ configFile: false, logLevel: 'error', plugins: lowBudget ? [{
+      name: 'overlay-worker-test-frame-budget',
+      enforce: 'pre',
+      transform(source, id) {
+        if (id !== path.resolve('src/main/services/agents/database/brokerProtocol.ts')) return
+        const declaration = 'const MAX_FRAME_BYTES = 256 * 1024 * 1024'
+        if (!source.includes(declaration)) throw new Error('Worker frame budget declaration changed')
+        budgetReplaced = true
+        return { code: source.replace(declaration, `const MAX_FRAME_BYTES = ${TEST_FRAME_BYTES}`), map: null }
+      }
+    }] : [], build: {
+      target: 'node22', outDir: buildDirectory, emptyOutDir: false, minify: false,
+      lib: { entry: path.resolve('src/main/services/agents/database/databaseWorker.ts'), formats: ['cjs'], fileName: () => path.basename(lowBudget ? lowBudgetWorkerPath : workerPath) },
+      rollupOptions: { external: ['better-sqlite3', /^node:/] }
+    } })
+    if (lowBudget) expect(budgetReplaced).toBe(true)
+  }
 }, 30000)
 afterEach(async () => {
   await Promise.all(clients.splice(0).reverse().map(client => client.closeAsync()))
@@ -130,6 +148,86 @@ it('isolates a failed history query from concurrent skills/agent reads and later
   await owner.execute("UPDATE entries SET name='still-usable' WHERE id=1")
   expect((await other.execute('SELECT name FROM entries WHERE id=1')).rows[0].name).toBe('still-usable')
 })
+
+it.each(['agent_messages', 'agent_message_parts', 'session_messages'] as const)('recovers oversized %s pages through the real low-budget worker and keeps later queries usable', async entity => {
+  const f = fixture()
+  const numericId = entity === 'session_messages'
+  const options = { legacyPaths: [], migrationDir: path.resolve('resources/database/drizzle') }
+  const owner = new WorkerDatabaseClient({ url: `file:${f.filename}`, intMode: 'number' }, lowBudgetWorkerPath, undefined, options)
+  clients.push(owner)
+  await owner.waitUntilReady()
+  await owner.execute("INSERT INTO agents(id,type,name,model,created_at,updated_at) VALUES('a','x','Agent','model','now','now')")
+  for (const sessionId of ['s', 'other']) {
+    await owner.execute({
+      sql: "INSERT INTO sessions(id,agent_type,agent_id,name,model,created_at,updated_at) VALUES(?,'x','a',?,'model','now','now')",
+      args: [sessionId, sessionId]
+    })
+    if (entity === 'agent_message_parts') {
+      await owner.execute({
+        sql: "INSERT INTO agent_messages(id,session_id,sequence,role,status,created_at,updated_at) VALUES(?,?,0,'assistant','completed','now','now')",
+        args: [`parent-${sessionId}`, sessionId]
+      })
+    }
+  }
+  function messageRow(id: string | number, sessionId: string, index: number, text: string): Record<string, string | number | null | { index: number; text: string }> & { id: string | number } {
+    const common = { id, session_id: sessionId, created_at: 'now', updated_at: 'now' }
+    const payload = { index, text }
+    if (entity === 'agent_messages') return {
+      ...common, sequence: index, turn_id: null, parent_message_id: null, role: 'assistant', status: 'completed',
+      semantics_json: payload, provider_json: null, usage_json: null, error_json: null, finish_json: null, completed_at: null
+    }
+    if (entity === 'agent_message_parts') return {
+      ...common, message_id: `parent-${sessionId}`, sequence: index, type: 'text', data_json: payload
+    }
+    return { ...common, agent_session_id: '', role: 'agent', content: JSON.stringify(payload), metadata: null }
+  }
+  const expected = Array.from({ length: 145 }, (_, index) => messageRow(
+    numericId ? Number(OVERLAY_INTEGER_START) + index : `message-${String(index).padStart(3, '0')}`,
+    's', index, index < 64 ? 'small' : '\u4f60\u597d\ud83c\udfac'.repeat(400)
+  ))
+  const otherId = numericId ? Number(OVERLAY_INTEGER_START) + 999 : 'other'
+  const otherRow = messageRow(otherId, 'other', 0, 'unrelated')
+  for (const row of [...expected, otherRow]) {
+    const columns = Object.keys(row)
+    await owner.execute({
+      sql: `INSERT INTO ${entity}(${columns.join(',')}) VALUES(${columns.map(() => '?').join(',')})`,
+      args: columns.map(column => {
+        const value = row[column]
+        if (numericId && column === 'id') return BigInt(value as number)
+        if (typeof value === 'string' || typeof value === 'number') return value
+        return value === null ? null : JSON.stringify(value)
+      })
+    })
+  }
+  // Large rows force a request-only frame error in the real broker.
+  await expect(owner.execute({
+    sql: `SELECT * FROM ${entity} WHERE session_id=? AND id > ? ORDER BY id LIMIT 64`,
+    args: ['s', expected[63].id]
+  })).rejects.toMatchObject({ message: 'Database frame exceeds size limit', maxFrameBytes: TEST_FRAME_BYTES, frameBytes: expect.any(Number) })
+  const execute = vi.spyOn(owner, 'execute')
+  try {
+    const orm = drizzle(owner, { schema })
+    expect(await readMessageProjection(orm, entity, 's')).toEqual(expected)
+    const inputs: unknown[] = execute.mock.calls.map(([input]) => input)
+    const pages = inputs.filter((input): input is { sql: string; args: unknown[] } =>
+      typeof input === 'object' && input !== null && 'sql' in input && typeof input.sql === 'string'
+      && 'args' in input && Array.isArray(input.args) && /ORDER BY id LIMIT \?/.test(input.sql))
+    expect(pages[0].args).toEqual(['s', 64])
+    const retries = pages.filter(page => page.args.length === 3 && page.args[1] === expected[63].id)
+    expect(retries.length).toBeGreaterThan(1)
+    expect(retries[retries.length - 1].args[2]).toBe(2)
+    for (let index = 1; index < retries.length; index++) {
+      expect(retries[index].args[2]).toBe(Number(retries[index - 1].args[2]) / 2)
+    }
+    expect(pages.some(page => page.args.length === 3 && page.args[1] === expected[143].id)).toBe(true)
+    expect(pages.every(page => !/OFFSET/i.test(page.sql))).toBe(true)
+    expect(owner.closed).toBe(false)
+    expect((await owner.execute(`SELECT count(*) AS count FROM ${entity}`)).rows[0].count).toBe(146)
+    expect(await readMessageProjection(orm, entity, 'other')).toEqual([otherRow])
+    await owner.execute("UPDATE sessions SET name='after-pagination' WHERE id='s'")
+    expect((await owner.execute("SELECT name FROM sessions WHERE id='s'")).rows[0].name).toBe('after-pagination')
+  } finally { execute.mockRestore() }
+}, 15000)
 
 it.each(['relational', 'records'])('opens v11 %s history with data-migration v10001 without copying old bodies', async format => {
   const f = fixture(), migrationDir = path.resolve('resources/database/drizzle')

@@ -16,7 +16,8 @@ const queue: Array<{ socket: Socket; request: any }> = []
 let draining = false
 
 function errorData(error: any): any {
-  return error && { name: error.name, message: error.message ?? String(error), stack: error.stack, code: error.code, rawCode: error.rawCode, cause: error.cause ? errorData(error.cause) : undefined }
+  return error && { name: error.name, message: error.message ?? String(error), stack: error.stack, code: error.code, rawCode: error.rawCode,
+    frameBytes: error.frameBytes, maxFrameBytes: error.maxFrameBytes, cause: error.cause ? errorData(error.cause) : undefined }
 }
 
 function reply(socket: Socket, id: number, value?: unknown, error?: unknown, fatal = true): void {

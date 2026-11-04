@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { serialize } from 'node:v8'
 import type { Client } from '@libsql/client'
 import { drizzle } from 'drizzle-orm/libsql'
 import * as schema from '../../schema'
@@ -17,11 +18,17 @@ const stores: PersistentRecordStore[] = [], directories: string[] = []
 const entities = ['agent_messages', 'agent_message_parts', 'session_messages'] as const
 const hash = (filename: string) => createHash('sha256').update(readFileSync(filename)).digest('hex')
 
-function adapter(store: PersistentRecordStore, overlayEnabled?: boolean) {
+function adapter(store: PersistentRecordStore, overlayEnabled?: boolean, maxFrameBytes = Infinity) {
   const queries: Array<{ sql: string; args: any[] }> = []
+  const oversized: Array<{ sql: string; args: any[] }> = []
   const client = { overlayEnabled, execute: async (input: { sql: string; args: any[] }) => {
     queries.push(input)
     const result = store.execute(input)
+    const frameBytes = serialize({ id: 1, value: result, fatal: true }).length
+    if (frameBytes > maxFrameBytes) {
+      oversized.push(input)
+      throw Object.assign(new Error('Database frame exceeds size limit'), { frameBytes, maxFrameBytes })
+    }
     const rows = result.rows.map(values => {
       const row = Object.fromEntries(result.columns.map((column, index) => [column, values[index]]))
       Object.defineProperty(row, 'length', { value: values.length })
@@ -30,7 +37,7 @@ function adapter(store: PersistentRecordStore, overlayEnabled?: boolean) {
     })
     return { ...result, rows }
   } } as unknown as Client
-  return { database: drizzle(client, { schema }), queries }
+  return { database: drizzle(client, { schema }), queries, oversized }
 }
 
 async function fixture() {
@@ -156,4 +163,46 @@ it('leaves non-overlay history tables unchanged and never queries a missing TEMP
   const unknownClient = adapter(store)
   expect(await readMessageProjection(unknownClient.database, 'agent_messages', 's')).toHaveLength(1)
   expect(unknownClient.queries).toHaveLength(2)
+})
+
+it.each(entities)('pages %s by its native ID and shrinks oversized frames without losing UTF-8 JSON', async entity => {
+  const store = await PersistentRecordStore.open(`memory:projection-pages-${entity}`, 'number')
+  stores.push(store)
+  const numericId = entity === 'session_messages'
+  store.execute(`CREATE TABLE ${entity}(id ${numericId ? 'INTEGER' : 'TEXT'} PRIMARY KEY,session_id TEXT,data_json TEXT)`)
+  const expected = Array.from({ length: 145 }, (_, index) => ({
+    id: numericId ? index + 1 : `message-${String(index).padStart(3, '0')}`,
+    session_id: 's', data_json: { text: '\u4f60\u597d\ud83c\udfac'.repeat(200), index }
+  }))
+  for (const row of expected) store.execute({ sql: `INSERT INTO ${entity} VALUES(?,?,?)`, args: [row.id, row.session_id, JSON.stringify(row.data_json)] })
+  store.execute({ sql: `INSERT INTO ${entity} VALUES(?,?,?)`, args: [numericId ? 999 : 'other', 'other', '{}'] })
+  // Scale the real V8 frame budget down so the regression does not allocate 256MiB.
+  const f = adapter(store, false, 8192)
+  expect(await readMessageProjection(f.database, entity, 's')).toEqual(expected)
+  expect(f.oversized.length).toBeGreaterThan(0)
+  expect(f.queries.every(query => /ORDER BY id LIMIT \?/.test(query.sql))).toBe(true)
+  expect(f.queries.some(query => /AND id > \?/.test(query.sql))).toBe(true)
+  expect(f.queries.some(query => /OFFSET/.test(query.sql))).toBe(false)
+  expect(store.execute('SELECT count(*) FROM ' + entity).rows).toEqual([[146]])
+})
+
+it('reports a single oversized message instead of skipping or truncating it', async () => {
+  const store = await PersistentRecordStore.open('memory:projection-oversized', 'number')
+  stores.push(store)
+  store.execute('CREATE TABLE session_messages(id INTEGER PRIMARY KEY,session_id TEXT,content TEXT)')
+  const content = 'x'.repeat(16384)
+  store.execute({ sql: 'INSERT INTO session_messages VALUES(1,?,?)', args: ['s', content] })
+  const f = adapter(store, false, 8192)
+  await expect(readMessageProjection(f.database, 'session_messages', 's')).rejects.toThrow('a single message exceeds')
+  expect(f.oversized).toHaveLength(7) // 64, 32, 16, 8, 4, 2, 1.
+  expect(store.execute('SELECT content FROM session_messages').rows).toEqual([[content]])
+  expect(await f.database.all<{ ok: number }>('SELECT 1 AS ok')).toEqual([{ ok: 1 }])
+})
+
+it('does not retry unrelated database failures as size errors', async () => {
+  const store = await PersistentRecordStore.open('memory:projection-failure', 'number')
+  stores.push(store)
+  const f = adapter(store, false)
+  await expect(readMessageProjection(f.database, 'session_messages', 's')).rejects.toThrow('Failed query')
+  expect(f.queries).toHaveLength(1)
 })
