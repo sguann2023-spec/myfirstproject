@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { remapWorkspacePath, validateWorkspaceRename } from '../workspaceRename'
+import { getWorkspaceActivityPaths, isWorkspaceRunning, remapWorkspacePath, validateWorkspaceRename, workspaceActivity, workspacePathsOverlap } from '../workspaceRename'
 
 const roots: string[] = []
 function fixture() {
@@ -12,8 +12,24 @@ function fixture() {
   fs.mkdirSync(source)
   return { root, source }
 }
-afterEach(() => roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true })))
+afterEach(() => {
+  roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true }))
+  workspaceActivity.runPaths.clear()
+})
 describe('workspace rename safety', () => {
+  it('scopes runs to all referenced workspace paths, including descendants and ancestors', () => {
+    const paths = getWorkspaceActivityPaths({ accessible_paths: ['/work/old/sub', 'relative'],
+      configuration: { selected_workspace_path: '/work/selected' } })
+    expect(paths).toEqual(['/work/old/sub', '/work/selected'])
+    workspaceActivity.runPaths.set(Symbol(), paths)
+    expect(isWorkspaceRunning('/work/old')).toBe(true)
+    expect(isWorkspaceRunning('/work/selected')).toBe(true)
+    expect(isWorkspaceRunning('/work/older')).toBe(false)
+    expect(isWorkspaceRunning('/work/other')).toBe(false)
+    expect(workspacePathsOverlap('/work/old/sub/deep', paths)).toBe(true)
+    expect(workspacePathsOverlap('/work/old/', ['/work/old/./sub'])).toBe(true)
+    expect(workspacePathsOverlap(undefined as any, paths)).toBe(false)
+  })
   it.each(['', '.', '..', '../escape', 'a/b', 'a\\b', 'x\0', ' trailing ', 'x.', 'CON', 'a'.repeat(256)])('rejects invalid name %j', (name) => {
     expect(() => validateWorkspaceRename(fixture().source, name)).toThrow()
   })

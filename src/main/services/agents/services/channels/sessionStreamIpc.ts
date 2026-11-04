@@ -48,7 +48,7 @@ import { persistDirectRequestExchange } from './directRequestPersistence'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
 import { allocateAgentInvocationIds } from '../agent-invocation-ids'
 import { sessionService } from '../SessionService'
-import { workspaceActivity } from '../workspaceRename'
+import { getWorkspaceActivityPaths, isWorkspaceRunning, workspaceActivity, workspacePathsOverlap } from '../workspaceRename'
 import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { conversationSegmentService } from '../claudecode/session-architecture/ConversationSegmentService'
 import { sessionStreamBus, type SessionStreamChunk } from './SessionStreamBus'
@@ -5162,21 +5162,35 @@ export function registerSessionStreamIpc(): void {
   }
 
   let workspaceMutationPending = false
-  let pendingWorkspaceRequests = 0
-  const guardWorkspaceRequest = (handler: (...args: any[]) => any) => async (...args: any[]) => {
+  const pendingWorkspaceRequests = new Map<symbol, string[] | null>()
+  const guardWorkspaceRequest = (handler: (...args: any[]) => any, resolveWorkspace = true) => async (...args: any[]) => {
     if (workspaceMutationPending) return { ok: false, error: '工作空间正在重命名，请稍后重试' }
-    pendingWorkspaceRequests++
-    try { return await handler(...args) } finally { pendingWorkspaceRequests-- }
+    const request = Symbol()
+    // Keep an unresolved request protected until its workspace has been loaded.
+    pendingWorkspaceRequests.set(request, null)
+    try {
+      const payload = args[1] || {}
+      const sessionId = String(payload.sessionId || payload.id || '').trim()
+      if (sessionId && resolveWorkspace) {
+        const session = await resolveSessionById(sessionId, payload.agent_id)
+        if (session) pendingWorkspaceRequests.set(request,
+          [...getWorkspaceActivityPaths(session), ...getWorkspaceActivityPaths(payload)])
+      }
+      return await handler(...args)
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    } finally { pendingWorkspaceRequests.delete(request) }
   }
   ipcMain.handle(IpcChannel.CherryChatStream_WorkspaceRename, async (_event, payload = {}) => {
-    if (workspaceMutationPending || pendingWorkspaceRequests || activeAbortControllers.size || workspaceActivity.runs) {
-      return { ok: false, error: '存在运行中的会话，请等待所有任务结束后重命名工作空间' }
+    const isBusy = () => isWorkspaceRunning(payload.source)
+      || [...pendingWorkspaceRequests.values()].some((paths) => paths === null || workspacePathsOverlap(payload.source, paths))
+    if (workspaceMutationPending || isBusy()) {
+      return { ok: false, error: '存在运行中的会话或工作空间操作，请等待该工作空间的任务结束后重命名' }
     }
     workspaceMutationPending = true
     workspaceActivity.renaming = true
     try {
-      const result = await sessionService.renameWorkspace(payload.source, payload.name,
-        () => pendingWorkspaceRequests > 0 || activeAbortControllers.size > 0)
+      const result = await sessionService.renameWorkspace(payload.source, payload.name, isBusy)
       for (const session of result.sessions) broadcastSessionChanged(session.agent_id, session.id, true)
       return { ok: true, ...result }
     } catch (error) {
@@ -5184,16 +5198,16 @@ export function registerSessionStreamIpc(): void {
     } finally { workspaceMutationPending = false; workspaceActivity.renaming = false }
   })
   ipcMain.handle(LegacyChannels.SessionCreate, guardWorkspaceRequest(handleSessionCreate))
-  ipcMain.handle(LegacyChannels.SessionGet, guardWorkspaceRequest(handleSessionGet))
+  ipcMain.handle(LegacyChannels.SessionGet, guardWorkspaceRequest(handleSessionGet, false))
   ipcMain.handle(LegacyChannels.SessionList, guardWorkspaceRequest(handleSessionList))
-  ipcMain.handle(LegacyChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList))
+  ipcMain.handle(LegacyChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList, false))
   ipcMain.handle(LegacyChannels.SessionMessageCreate, guardWorkspaceRequest(handleSessionMessageCreate))
 
   ipcMain.handle(CherryChannels.SessionCreate, guardWorkspaceRequest(handleSessionCreate))
-  ipcMain.handle(CherryChannels.SessionGet, guardWorkspaceRequest(handleSessionGet))
+  ipcMain.handle(CherryChannels.SessionGet, guardWorkspaceRequest(handleSessionGet, false))
   ipcMain.handle(CherryChannels.SessionUpdate, guardWorkspaceRequest(handleSessionUpdate))
   ipcMain.handle(CherryChannels.SessionList, guardWorkspaceRequest(handleSessionList))
-  ipcMain.handle(CherryChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList))
+  ipcMain.handle(CherryChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList, false))
   ipcMain.handle(CherryChannels.SessionMessageCreate, guardWorkspaceRequest(handleSessionMessageCreate))
   ipcMain.handle(IpcChannel.CherryChatStream_DraftRequest, guardWorkspaceRequest(handleDraftRequest))
   ipcMain.handle(IpcChannel.CherryChatStream_DraftModifyRequest, guardWorkspaceRequest(handleDraftModifyRequest))

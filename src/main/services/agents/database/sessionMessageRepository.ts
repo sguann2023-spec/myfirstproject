@@ -175,32 +175,21 @@ class AgentMessageRepository extends BaseService {
     // reasoning, tool, or image parts to the same message.
     const existingParts = await agentTranscriptRepository.listMessageParts(sessionId, canonical.message.id)
     if (existingParts.length > 0) {
-      const firstByType = new Map<string, string>()
-      const toolByCallId = new Map<string, string>()
-      const imagePartIds: string[] = []
+      const idsByType = new Map<string, string[]>()
+      const toolByCallId = new Map<string, string[]>()
       for (const part of existingParts) {
-        if (part.type === 'tool') {
-          const callId = String(part.data?.toolCallId ?? part.data?.toolId ?? '')
-          if (callId) toolByCallId.set(callId, part.id)
-        } else if (part.type === 'image') {
-          imagePartIds.push(part.id)
-        } else if (!firstByType.has(part.type)) {
-          firstByType.set(part.type, part.id)
-        }
+        const callId = part.type === 'tool' ? String(part.data?.toolCallId ?? part.data?.toolId ?? '') : ''
+        const ids = callId ? toolByCallId : idsByType
+        const key = callId || part.type
+        const queue = ids.get(key) ?? []
+        queue.push(part.id)
+        ids.set(key, queue)
       }
-      let imageIndex = 0
       canonical.parts = canonical.parts.map((part) => {
-        if (part.type === 'tool') {
-          const callId = String(part.data?.toolCallId ?? part.data?.toolId ?? '')
-          const existingId = callId ? toolByCallId.get(callId) : undefined
-          return existingId ? { ...part, id: existingId } : part
-        }
-        if (part.type === 'image') {
-          const existingId = imagePartIds[imageIndex]
-          imageIndex += 1
-          return existingId ? { ...part, id: existingId } : part
-        }
-        const existingId = firstByType.get(part.type)
+        const callId = part.type === 'tool' ? String(part.data?.toolCallId ?? part.data?.toolId ?? '') : ''
+        const ids = callId ? toolByCallId : idsByType
+        // Consume each existing id once so same-type blocks cannot overwrite one another.
+        const existingId = ids.get(callId || part.type)?.shift()
         return existingId ? { ...part, id: existingId } : part
       })
     }

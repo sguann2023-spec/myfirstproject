@@ -213,6 +213,97 @@ describe('agentMessageRepository dual-write part dedupe', () => {
     }
   })
 
+  it.each([
+    ['text', 'main_text'],
+    ['reasoning', 'thinking'],
+    ['image', 'image'],
+    ['tool', 'tool'],
+    ['legacy', 'legacy']
+  ])('reuses %s ids one-to-one and appends excess blocks idempotently', async (type, legacyType) => {
+    const { agentMessageRepository } = await import('../sessionMessageRepository')
+    const { agentTranscriptRepository } = await import('../repositories/agentTranscriptRepository')
+    ;(agentMessageRepository as any).getDatabase = async () => db
+    const messageId = `multi-${type}`
+    await agentTranscriptRepository.upsertMessage({
+      id: messageId, sessionId: 'session-1', role: 'assistant', status: 'streaming'
+    })
+    await agentTranscriptRepository.upsertParts([0, 1].map((index) => ({
+      id: `stream-${type}-${index}`, sessionId: 'session-1', messageId, type,
+      data: { content: `partial-${index}` }
+    })))
+    const payload = {
+      message: { id: messageId, role: 'assistant', status: 'success', blocks: [0, 1, 2].map((i) => `legacy-${type}-${i}`) },
+      blocks: [0, 1, 2].map((index) => ({
+        id: `legacy-${type}-${index}`, messageId, type: legacyType, content: `final-${index}`,
+        transcriptBlockIndex: 99
+      }))
+    } as any
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await agentMessageRepository.persistAssistantMessage({ sessionId: 'session-1', agentSessionId: 'session-1', payload })
+      const parts = await agentTranscriptRepository.listMessageParts('session-1', messageId)
+      expect(parts.map((part) => part.id)).toEqual([`stream-${type}-0`, `stream-${type}-1`, `legacy-${type}-2`])
+      expect(parts.map((part) => part.data.content)).toEqual(['final-0', 'final-1', 'final-2'])
+      expect(parts.map((part) => part.data.transcriptBlockIndex)).toEqual([0, 1, 2])
+    }
+  })
+
+  it('matches tool calls one-to-one and restores interleaved block order without changing stored sequences', async () => {
+    const { agentMessageRepository } = await import('../sessionMessageRepository')
+    const { agentTranscriptRepository } = await import('../repositories/agentTranscriptRepository')
+    const { canonicalEntryToPersisted } = await import('../agentHistoryMapper')
+    ;(agentMessageRepository as any).getDatabase = async () => db
+    const messageId = 'interleaved'
+    await agentTranscriptRepository.upsertMessage({
+      id: messageId, sessionId: 'session-1', role: 'assistant', status: 'streaming'
+    })
+    const existing = [
+      { id: 'text-0', type: 'text', data: {} },
+      { id: 'text-1', type: 'text', data: {} },
+      { id: 'reason-0', type: 'reasoning', data: {} },
+      { id: 'tool-a-0', type: 'tool', data: { toolCallId: 'a' } },
+      { id: 'tool-a-1', type: 'tool', data: { toolCallId: 'a' } },
+      { id: 'tool-b', type: 'tool', data: { toolId: 'b' } }
+    ]
+    await agentTranscriptRepository.upsertParts(existing.map((part) => ({ ...part, sessionId: 'session-1', messageId })))
+    const blocks = [
+      { id: 'legacy-text-0', type: 'main_text', content: 'first' },
+      { id: 'legacy-tool-b', type: 'tool', toolCallId: 'b' },
+      { id: 'legacy-reason', type: 'thinking', content: 'thinking' },
+      { id: 'legacy-tool-a-0', type: 'tool', toolId: 'a' },
+      { id: 'legacy-text-1', type: 'main_text', content: 'last' },
+      { id: 'legacy-tool-a-1', type: 'tool', toolCallId: 'a' },
+      { id: 'legacy-tool-c', type: 'tool', toolCallId: 'c' }
+    ]
+    const payload = {
+      message: { id: messageId, role: 'assistant', status: 'success', blocks: blocks.map((block) => block.id) }, blocks
+    } as any
+    const expectedIds = ['text-0', 'tool-b', 'reason-0', 'tool-a-0', 'text-1', 'tool-a-1', 'legacy-tool-c']
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await agentMessageRepository.persistAssistantMessage({ sessionId: 'session-1', agentSessionId: 'session-1', payload })
+      const entry = (await agentTranscriptRepository.listTranscript('session-1')).find((item) => item.message.id === messageId)!
+      expect(entry.parts.map((part) => part.id)).toEqual([...existing.map((part) => part.id), 'legacy-tool-c'])
+      const hydrated = canonicalEntryToPersisted(entry)
+      expect(hydrated.message.blocks).toEqual(expectedIds)
+      expect(hydrated.blocks.map((block) => block.id)).toEqual(expectedIds)
+      expect(hydrated.blocks.map((block: any) => block.content)).toEqual(blocks.map((block) => block.content))
+      expect(entry.parts.map((part) => part.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6])
+    }
+  })
+
+  it('falls back to sequence for missing or invalid transcript indexes without mutating the source parts', async () => {
+    const { agentTranscriptRepository } = await import('../repositories/agentTranscriptRepository')
+    const { canonicalEntryToPersisted } = await import('../agentHistoryMapper')
+    const indexes = [undefined, null, '0', -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]
+    const entry = (await agentTranscriptRepository.listTranscript('session-1'))[0]
+    entry.parts = indexes.map((transcriptBlockIndex, sequence) => ({
+      ...entry.parts[0], id: `fallback-${sequence}`, sequence, data: { transcriptBlockIndex }
+    })).reverse()
+    const sourceIds = entry.parts.map((part) => part.id)
+    const hydrated = canonicalEntryToPersisted(entry)
+    expect(hydrated.message.blocks).toEqual(indexes.map((_, sequence) => `fallback-${sequence}`))
+    expect(entry.parts.map((part) => part.id)).toEqual(sourceIds)
+  })
+
   it('reuses the turn-start part instead of appending duplicate text parts', async () => {
     const { agentMessageRepository } = await import('../sessionMessageRepository')
     ;(agentMessageRepository as any).getDatabase = async () => db

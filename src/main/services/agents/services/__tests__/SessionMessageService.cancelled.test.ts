@@ -2,8 +2,9 @@ import { EventEmitter } from 'node:events'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { UpsertAgentMessagePartInput } from '../../database/repositories/agentTranscript.types'
 import type { AgentPersistenceHooks, AgentStream } from '../../interfaces/AgentStreamInterface'
-import { workspaceActivity } from '../workspaceRename'
+import { isWorkspaceRunning, workspaceActivity } from '../workspaceRename'
 
 const {
   invokeMock,
@@ -109,7 +110,7 @@ async function startCanonicalStream(runtimeFinished?: Promise<void>) {
   invokeMock.mockResolvedValue(agentStream)
   vi.spyOn(service as any, 'getLastAgentSessionId').mockResolvedValue('last-session-id')
   const result = await service.createSessionMessage(
-    { id: 'session-1', agent_id: 'agent-1', model: 'claude-3' } as any,
+    { id: 'session-1', agent_id: 'agent-1', model: 'claude-3', accessible_paths: ['/work/running'] } as any,
     { content: 'hello', model: 'claude-3' } as any,
     abortController
   )
@@ -182,6 +183,8 @@ describe('SessionMessageService cancelled persistence', () => {
     expect(upsertCanonicalPartsMock).not.toHaveBeenCalled()
     expect(result.runtimeFinished).toBe(runtime.promise)
     expect(workspaceActivity.runs).toBe(initialRuns + 1)
+    expect(isWorkspaceRunning('/work/running')).toBe(true)
+    expect(isWorkspaceRunning('/work/other')).toBe(false)
     try {
       if (terminal === 'reader cancel') {
         await expect(reader.cancel('reader disconnected')).resolves.toBeUndefined()
@@ -202,11 +205,13 @@ describe('SessionMessageService cancelled persistence', () => {
       expect(upsertCanonicalMessageMock).not.toHaveBeenCalled()
       expect(agentStream.listenerCount('data')).toBe(0)
       expect(workspaceActivity.runs).toBe(initialRuns + 1)
+      expect(isWorkspaceRunning('/work/running')).toBe(true)
 
       runtime.resolve()
       await result.runtimeFinished
       await flushMicrotasks(16)
       expect(workspaceActivity.runs).toBe(initialRuns)
+      expect(isWorkspaceRunning('/work/running')).toBe(false)
       expect(historyResolved).not.toHaveBeenCalled()
       // Duplicate terminal events cannot reacquire or release the run guard again.
       agentStream.emit('data', { type: 'complete' })
@@ -215,10 +220,11 @@ describe('SessionMessageService cancelled persistence', () => {
       expect(workspaceActivity.runs).toBe(initialRuns)
       expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
       expect(upsertCanonicalPartsMock.mock.calls[0][0]).toEqual([
-        expect.objectContaining({ data: {
+        expect.objectContaining({ data: expect.objectContaining({
           text: 'partial reply',
-          status: terminal === 'complete' ? 'completed' : terminal === 'error' ? 'failed' : 'cancelled'
-        } })
+          status: terminal === 'complete' ? 'completed' : terminal === 'error' ? 'failed' : 'cancelled',
+          transcriptBlockIndex: 0
+        }) })
       ])
     } finally {
       runtime.resolve()
@@ -782,7 +788,7 @@ describe('SessionMessageService cancelled persistence', () => {
       await result.historyPersisted
       const writes = upsertCanonicalPartsMock.mock.calls.map(([parts]) => parts[0])
       expect(writes.map((part) => part.data)).toEqual([
-        { text: 'AB', status: 'completed' }
+        expect.objectContaining({ text: 'AB', status: 'completed', transcriptBlockIndex: 0 })
       ])
       expect(new Set(writes.map((part) => part.id)).size).toBe(1)
     } finally {
@@ -808,9 +814,9 @@ describe('SessionMessageService cancelled persistence', () => {
       await flushMicrotasks(16)
       expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
       expect(upsertCanonicalPartsMock.mock.calls[0][0]).toEqual([
-        expect.objectContaining({ type: 'reasoning', data: { text: 'think', status: 'streaming' } }),
-        expect.objectContaining({ type: 'text', data: { text: 'A', status: 'streaming' } }),
-        expect.objectContaining({ type: 'tool', data: expect.objectContaining({ toolId: 'tool-1', content: 'ok' }) })
+        expect.objectContaining({ type: 'reasoning', data: expect.objectContaining({ text: 'think', status: 'streaming', transcriptBlockIndex: 0 }) }),
+        expect.objectContaining({ type: 'text', data: expect.objectContaining({ text: 'A', status: 'streaming', transcriptBlockIndex: 1 }) }),
+        expect.objectContaining({ type: 'tool', data: expect.objectContaining({ toolId: 'tool-1', content: 'ok', transcriptBlockIndex: 2 }) })
       ])
       expect(completed).not.toHaveBeenCalled()
       // Neither another turn nor terminal delivery waits for the first write.
@@ -824,17 +830,108 @@ describe('SessionMessageService cancelled persistence', () => {
       gate.resolve()
       await finish()
     }
-    const textWrites = upsertCanonicalPartsMock.mock.calls.map(([parts]) => parts.find(part => part.type === 'text'))
-    expect(textWrites.map(part => part.data)).toEqual([
-      { text: 'A', status: 'streaming' },
-      { text: 'AB', status: 'streaming' },
-      { text: 'ABC', status: 'completed' }
+    const textWrites: UpsertAgentMessagePartInput[][] = upsertCanonicalPartsMock.mock.calls.map(([parts]) =>
+      parts.filter((part: UpsertAgentMessagePartInput) => part.type === 'text'))
+    expect(textWrites.map(parts => parts.map(part => part.data))).toEqual([
+      [expect.objectContaining({ text: 'A', status: 'streaming', transcriptBlockIndex: 1 })],
+      [
+        expect.objectContaining({ text: 'A', status: 'streaming', transcriptBlockIndex: 1 }),
+        expect.objectContaining({ text: 'B', status: 'streaming', transcriptBlockIndex: 3 })
+      ],
+      [
+        expect.objectContaining({ text: 'A', status: 'completed', transcriptBlockIndex: 1 }),
+        expect.objectContaining({ text: 'BC', status: 'completed', transcriptBlockIndex: 3 })
+      ]
     ])
-    expect(new Set(textWrites.map(part => part.id)).size).toBe(1)
+    expect(new Set(textWrites.map(parts => parts[0].id)).size).toBe(1)
+    expect(textWrites[1][1].id).toBe(`${textWrites[0][0].id}_1`)
+    expect(textWrites[2].map(part => part.id)).toEqual(textWrites[1].map(part => part.id))
     expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.status)).toEqual([
       'streaming', 'streaming', 'completed'
     ])
     expect(upsertCanonicalMessageMock.mock.calls[0][0].completedAt).toBeUndefined()
+  })
+
+  it.each(['complete', 'error', 'cancelled', 'reader cancel'])('preserves interleaved segment order and stable part IDs across queued checkpoints and %s', async (terminal) => {
+    const { agentStream, send, reader, result } = await startCanonicalStream()
+    const gate = deferred()
+    const historyResolved = vi.fn()
+    void result.historyPersisted!.then(historyResolved)
+    upsertCanonicalPartsMock.mockReturnValueOnce(gate.promise)
+    const status = terminal === 'complete' ? 'completed' : terminal === 'error' ? 'failed' : 'cancelled'
+    try {
+      await send({ type: 'reasoning-delta', id: 'reasoning-1', text: 'think' })
+      await send({ type: 'text-delta', id: 'text-1', text: 'A' })
+      await send({ type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: { path: 'a' } })
+      await send({ type: 'text-delta', id: 'text-2', text: 'B' })
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      await flushMicrotasks(16)
+      expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
+      expect(upsertCanonicalMessageMock).not.toHaveBeenCalled()
+
+      await send({ type: 'tool-result', toolCallId: 'tool-1', toolName: 'Read', output: 'first result' })
+      await send({ type: 'tool-call', toolCallId: 'tool-2', toolName: 'Read', input: { path: 'b' } })
+      await send({ type: 'text-delta', id: 'text-3', text: 'C' })
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      await send({ type: 'text-delta', id: 'text-3', text: 'D' })
+      if (terminal === 'reader cancel') {
+        await reader.cancel('disconnected')
+      } else if (terminal === 'error') {
+        const error = new Error('provider failed')
+        const readFailure = expect(reader.read()).rejects.toBe(error)
+        agentStream.emit('data', { type: 'error', error })
+        await readFailure
+      } else {
+        agentStream.emit('data', { type: terminal } as any)
+        await expect(reader.read()).resolves.toEqual({ done: true, value: undefined })
+      }
+      await expect(result.completion).resolves.toEqual({})
+      await expect(result.streamFinished).resolves.toBeUndefined()
+      expect(historyResolved).not.toHaveBeenCalled()
+      expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
+      expect(upsertCanonicalMessageMock).not.toHaveBeenCalled()
+      // Late events cannot append another snapshot or change the captured tail.
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      agentStream.emit('data', { type: 'chunk', chunk: { type: 'text-delta', id: 'text-3', text: 'late' } })
+      agentStream.emit('data', { type: 'complete' })
+    } finally {
+      gate.resolve()
+      if (terminal !== 'error') await reader.cancel()
+      await result.historyPersisted
+    }
+
+    const snapshots: UpsertAgentMessagePartInput[][] = upsertCanonicalPartsMock.mock.calls.map(([parts]) => parts)
+    const expectedSegments = [
+      ['think', 'A', 'tool-1', 'B'],
+      ['think', 'A', 'tool-1', 'B', 'tool-2', 'C'],
+      ['think', 'A', 'tool-1', 'B', 'tool-2', 'CD']
+    ]
+    const assistantId = upsertCanonicalMessagesMock.mock.calls[0][0][1].id
+    expect(snapshots).toHaveLength(3)
+    for (const [index, parts] of snapshots.entries()) {
+      expect(parts.map(part => part.data.toolId ?? part.data.text)).toEqual(expectedSegments[index])
+      expect(parts.map(part => part.type)).toEqual(
+        index === 0 ? ['reasoning', 'text', 'tool', 'text'] : ['reasoning', 'text', 'tool', 'text', 'tool', 'text']
+      )
+      expect(parts.map(part => part.data.transcriptBlockIndex)).toEqual(parts.map((_, blockIndex) => blockIndex))
+      expect(parts.every(part => part.messageId === assistantId && part.sessionId === 'session-1')).toBe(true)
+      expect(parts.map(part => part.data.status)).toEqual(parts.map(() => index === 2 ? status : 'streaming'))
+      expect(new Set(parts.map(part => part.id)).size).toBe(parts.length)
+      const partWriteOrder = upsertCanonicalPartsMock.mock.invocationCallOrder[index]
+      const messageWriteOrder = upsertCanonicalMessageMock.mock.invocationCallOrder[index]
+      expect(partWriteOrder).toBeLessThan(messageWriteOrder)
+      if (index < 2) expect(messageWriteOrder).toBeLessThan(upsertCanonicalPartsMock.mock.invocationCallOrder[index + 1])
+    }
+    expect(snapshots[0][2].data.content).toBeUndefined()
+    expect(snapshots[1][2].data.content).toBe('first result')
+    expect(snapshots[2][2].data.content).toBe('first result')
+    expect(snapshots[1].slice(0, 4).map(part => part.id)).toEqual(snapshots[0].map(part => part.id))
+    expect(snapshots[2].map(part => part.id)).toEqual(snapshots[1].map(part => part.id))
+    const textIds = snapshots[2].filter(part => part.type === 'text').map(part => part.id)
+    expect(textIds).toEqual([textIds[0], `${textIds[0]}_1`, `${textIds[0]}_2`])
+    expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.status)).toEqual(['streaming', 'streaming', status])
+    expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.id)).toEqual([assistantId, assistantId, assistantId])
+    expect(upsertCanonicalMessageMock.mock.calls[2][0].completedAt).toEqual(expect.any(String))
   })
 
   it('persists a PI checkpoint before invocation termination and ignores late checkpoints', async () => {
@@ -843,7 +940,7 @@ describe('SessionMessageService cancelled persistence', () => {
     agentStream.emit('data', { type: 'turn-checkpoint' })
     await flushMicrotasks(32)
     expect(upsertCanonicalPartsMock).toHaveBeenCalledExactlyOnceWith([
-      expect.objectContaining({ data: { text: 'saved before the next model round', status: 'streaming' } })
+      expect.objectContaining({ data: expect.objectContaining({ text: 'saved before the next model round', status: 'streaming', transcriptBlockIndex: 0 }) })
     ])
     expect(upsertCanonicalMessageMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 'streaming' }))
     await finish()
@@ -870,9 +967,9 @@ describe('SessionMessageService cancelled persistence', () => {
     await finish()
     expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
     expect(upsertCanonicalPartsMock.mock.calls[0][0]).toEqual([
-      expect.objectContaining({ type: 'reasoning', data: { text: 'think', status: 'completed' } }),
-      expect.objectContaining({ type: 'text', data: { text: 'AB', status: 'completed' } }),
-      expect.objectContaining({ type: 'tool', data: expect.objectContaining({ toolId: 'tool-1', content: 'ok', status: 'completed' }) })
+      expect.objectContaining({ type: 'reasoning', data: expect.objectContaining({ text: 'think', status: 'completed', transcriptBlockIndex: 0 }) }),
+      expect.objectContaining({ type: 'text', data: expect.objectContaining({ text: 'AB', status: 'completed', transcriptBlockIndex: 1 }) }),
+      expect.objectContaining({ type: 'tool', data: expect.objectContaining({ toolId: 'tool-1', content: 'ok', status: 'completed', transcriptBlockIndex: 2 }) })
     ])
     expect(upsertCanonicalMessageMock).toHaveBeenCalledTimes(1)
     expect(upsertCanonicalMessageMock).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -889,7 +986,7 @@ describe('SessionMessageService cancelled persistence', () => {
     expect(upsertCanonicalMessageMock).not.toHaveBeenCalled()
     await finish()
     expect(upsertCanonicalPartsMock).toHaveBeenCalledExactlyOnceWith([
-      expect.objectContaining({ data: { text: 'x'.repeat(2000), status: 'completed' } })
+      expect.objectContaining({ data: expect.objectContaining({ text: 'x'.repeat(2000), status: 'completed', transcriptBlockIndex: 0 }) })
     ])
     expect(upsertCanonicalMessageMock).toHaveBeenCalledTimes(1)
   })

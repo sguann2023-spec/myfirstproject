@@ -8,6 +8,7 @@ import { isChatSessionAwaitingConfirmation, isChatSessionCompleted } from '../..
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ChatHistoryList from './ChatHistoryList';
+import { getWorkspaceActivityPaths, isWorkspaceRunning, workspaceActivity, workspacePathsOverlap } from '../../main/services/agents/services/workspaceRename';
 
 const renderCounts = vi.hoisted(() => ({ group: vi.fn(), row: vi.fn() }));
 vi.mock('lucide-react', async (importOriginal) => {
@@ -112,7 +113,10 @@ beforeEach(async () => {
   root = createRoot(container);
   await act(async () => root.render(<ChatHistoryList sessions={[session]} onRenameWorkspace={rename} />));
 });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); delete window.toast; });
+afterEach(async () => {
+  await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); delete window.toast;
+  workspaceActivity.runPaths.clear(); workspaceActivity.runs = 0; workspaceActivity.renaming = false;
+});
 
 describe('history render isolation', () => {
   const makeSessions = () => Array.from({ length: 100 }, (_, index) => ({
@@ -324,27 +328,35 @@ function realRenameChain() {
   const preload = read('preload/index.ts');
   const handlers = new Map();
   const service = { renameWorkspace: vi.fn(async (source, name) => ({ source, target: `/work/${name}`, sessions: [] })) };
-  const activity = { runs: 0, renaming: false };
+  const activity = workspaceActivity;
   const controllers = new Map();
+  const state = { sessions: [session] };
+  const requestHandler = vi.fn().mockResolvedValue({ ok: true });
+  const resolveSession = vi.fn(async (id) => state.sessions.find(item => item.id === id));
   const context = { ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
     IpcChannel: { CherryChatStream_WorkspaceRename: 'rename' }, sessionService: service,
-    workspaceActivity: activity, activeAbortControllers: controllers, broadcastSessionChanged: vi.fn() };
+    workspaceActivity: activity, activeAbortControllers: controllers, broadcastSessionChanged: vi.fn(),
+    getWorkspaceActivityPaths, isWorkspaceRunning, workspacePathsOverlap,
+    resolveSessionById: resolveSession, requestHandler };
   const registration = ipc.slice(ipc.indexOf('  let workspaceMutationPending = false'), ipc.indexOf('  ipcMain.handle(LegacyChannels.SessionCreate, guardWorkspaceRequest'));
   vm.runInNewContext(ts.transpileModule(registration, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  vm.runInNewContext("ipcMain.handle('request', guardWorkspaceRequest(requestHandler))", context);
   const method = preload.match(/renameWorkspace: (.*),\n/)[1];
   const bridge = vm.runInNewContext(ts.transpileModule(`const rename = ${method}; rename`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
     { ipcRenderer: { invoke: (channel, payload) => handlers.get(channel)(null, payload) }, IpcChannel: context.IpcChannel });
   window.electronAPI = { cherryChatStream: { renameWorkspace: bridge } };
   const map = {};
-  const state = { sessions: [session] };
+  const inFlightMap = {};
   const version = { current: 0 };
   const callback = home.slice(home.indexOf('  const handleRenameWorkspace = async'), home.indexOf('  const handleDeleteWorkspace = async'));
   const handle = vm.runInNewContext(`${callback}; handleRenameWorkspace`, {
-    window, CustomEvent, workspaceRenameVersionRef: version, chatSessionSendingMap: map, chatSessionInFlightMap: {},
+    window, CustomEvent, workspaceRenameVersionRef: version, chatSessionSendingMap: map, chatSessionInFlightMap: inFlightMap,
+    chatSessionsRef: { get current() { return state.sessions; } }, normalizeLocalPath: value => value || '',
+    getSessionWorkspacePath: item => item.configuration?.selected_workspace_path || item.accessible_paths?.[0] || '',
     setChatSessions: (update) => { state.sessions = update(state.sessions); },
     readWorkspaceStore: () => ({ library: ['/work/old'], recent: [], accessTimes: {} }), writeWorkspaceStore: vi.fn()
   });
-  return { handle, service, activity, map, state, version };
+  return { handle, service, activity, map, inFlightMap, state, version, handlers, requestHandler, resolveSession };
 }
 it('submits through real HomePage/preload/IPC and remaps the frontend session', async () => {
   const chain = realRenameChain();
@@ -362,10 +374,10 @@ it('surfaces frontend/backend locks and IPC errors inline and releases the gate 
   chain.map.s1 = true; await key('Enter');
   expect(chain.service.renameWorkspace).not.toHaveBeenCalled();
   expect(container.querySelector('[role=alert]').textContent).toContain('运行中');
-  chain.map.s1 = false; chain.activity.runs = 1; await blur();
+  chain.map.s1 = false; chain.activity.runPaths.set('run', ['/work/old']); await blur();
   expect(chain.service.renameWorkspace).not.toHaveBeenCalled();
   expect(container.querySelector('[role=alert]').textContent).toContain('运行中');
-  chain.activity.runs = 0;
+  chain.activity.runPaths.clear();
   chain.service.renameWorkspace.mockRejectedValueOnce(new Error('同名文件或文件夹已存在'));
   await key('Enter'); expect(input().getAttribute('aria-invalid')).toBe('true');
   expect(container.querySelector('[role=alert]').textContent).toContain('已存在');
@@ -394,6 +406,57 @@ it('keeps the shared IPC rename gate until completion and rejects concurrent att
   finish({ source: '/work/old', target: '/work/new', sessions: [] });
   await first;
   expect(chain.activity.renaming).toBe(false);
+  delete window.electronAPI;
+});
+
+it.each(['sending', 'inFlight'])('allows renaming an idle workspace while another workspace is %s', async (status) => {
+  const chain = realRenameChain();
+  const other = { id: 's2', accessible_paths: ['/work/other'], configuration: { selected_workspace_path: '/work/other' } };
+  chain.state.sessions.push(other);
+  (status === 'sending' ? chain.map : chain.inFlightMap).s2 = true;
+  chain.activity.runPaths.set('other-run', ['/work/other']);
+  await expect(chain.handle('/work/old', 'new')).resolves.toBeUndefined();
+  expect(chain.service.renameWorkspace).toHaveBeenCalledTimes(1);
+  expect(chain.state.sessions[1].accessible_paths).toEqual(['/work/other']);
+  expect(chain.activity.runPaths.get('other-run')).toEqual(['/work/other']);
+  delete window.electronAPI;
+});
+
+it('blocks another conversation in the target workspace, including in-flight-only state', async () => {
+  const chain = realRenameChain();
+  chain.state.sessions.push({ ...session, id: 's2' });
+  chain.inFlightMap.s2 = true;
+  await expect(chain.handle('/work/old', 'new')).rejects.toThrow('该工作空间');
+  expect(chain.service.renameWorkspace).not.toHaveBeenCalled();
+  delete window.electronAPI;
+});
+
+it('scopes pending IPC requests and retains their protection until the handler settles', async () => {
+  const chain = realRenameChain();
+  chain.state.sessions.push({ id: 's2', accessible_paths: ['/work/other'] });
+  let finish;
+  chain.requestHandler.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = chain.handlers.get('request')(null, { sessionId: 's2' });
+  await Promise.resolve();
+  await expect(chain.handle('/work/other', 'new')).rejects.toThrow('运行中');
+  await expect(chain.handle('/work/old', 'new')).resolves.toBeUndefined();
+  finish({ ok: true }); await pending;
+  await expect(chain.handle('/work/other', 'renamed')).resolves.toBeUndefined();
+  delete window.electronAPI;
+});
+
+it('protects unresolved requests and proposed workspace updates before invoking the handler', async () => {
+  const chain = realRenameChain();
+  let resolveSession, finish;
+  chain.resolveSession.mockImplementationOnce(() => new Promise(resolve => { resolveSession = resolve; }));
+  chain.requestHandler.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const pending = chain.handlers.get('request')(null, { sessionId: 's1', accessible_paths: ['/work/other'] });
+  await expect(chain.handle('/work/old', 'new')).rejects.toThrow('运行中');
+  expect(chain.requestHandler).not.toHaveBeenCalled();
+  resolveSession(session); await Promise.resolve();
+  await expect(chain.handle('/work/other', 'new')).rejects.toThrow('运行中');
+  finish({ ok: true }); await pending;
+  await expect(chain.handle('/work/old', 'new')).resolves.toBeUndefined();
   delete window.electronAPI;
 });
 

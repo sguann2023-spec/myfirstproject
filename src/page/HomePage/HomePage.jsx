@@ -5338,8 +5338,17 @@ const HomePage = () => {
   };
 
   const handleRenameWorkspace = async (source, name) => {
-    if (Object.values(chatSessionSendingMap).some(Boolean) || Object.values(chatSessionInFlightMap).some(Boolean)) {
-      throw new Error('请等待运行中的会话结束后重命名');
+    const normalizedSource = normalizeLocalPath(source).replace(/\/$/, '');
+    const isRelatedPath = (value) => {
+      const normalized = normalizeLocalPath(value).replace(/\/$/, '');
+      return normalized && (normalized === normalizedSource || normalized.startsWith(`${normalizedSource}/`)
+        || normalizedSource.startsWith(`${normalized}/`));
+    };
+    const hasRunningSession = chatSessionsRef.current.some((session) =>
+      (chatSessionSendingMap[session.id] || chatSessionInFlightMap[session.id])
+      && [...(session.accessible_paths || []), getSessionWorkspacePath(session)].some(isRelatedPath));
+    if (hasRunningSession) {
+      throw new Error('请等待该工作空间内运行中的会话结束后重命名');
     }
     if (typeof window.electronAPI?.cherryChatStream?.renameWorkspace !== 'function') {
       throw new Error('当前版本不支持重命名工作空间，请重启或更新应用');

@@ -1,7 +1,26 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const workspaceActivity = { renaming: false, runs: 0 }
+export const workspaceActivity = { renaming: false, runs: 0, runPaths: new Map<symbol, string[]>() }
+
+export function getWorkspaceActivityPaths(session: {
+  accessible_paths?: string[]
+  configuration?: unknown
+}): string[] {
+  const selected = (session.configuration as { selected_workspace_path?: unknown })?.selected_workspace_path
+  return [...(session.accessible_paths || []), ...(typeof selected === 'string' ? [selected] : [])]
+    .filter((value) => typeof value === 'string' && path.isAbsolute(value))
+}
+
+export function workspacePathsOverlap(source: string, paths: string[]): boolean {
+  if (typeof source !== 'string' || !path.isAbsolute(source)) return false
+  return paths.some((value) => remapWorkspacePath(value, source, '/__workspace_activity__') !== value
+    || remapWorkspacePath(source, value, '/__workspace_activity__') !== source)
+}
+
+export function isWorkspaceRunning(source: string): boolean {
+  return [...workspaceActivity.runPaths.values()].some((paths) => workspacePathsOverlap(source, paths))
+}
 
 export function remapWorkspacePath(value: string, source: string, target: string): string {
   if (!value || !path.isAbsolute(value)) return value

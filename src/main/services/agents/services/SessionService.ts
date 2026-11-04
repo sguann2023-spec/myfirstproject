@@ -302,7 +302,7 @@ export class SessionService extends BaseService {
         })
         if (!associated) throw new Error('工作空间信息已过期，请刷新后重试')
         const target = validateWorkspaceRename(source, name)
-        if (isBusy()) throw new Error('存在运行中的会话，请等待所有任务结束后重命名工作空间')
+        if (isBusy()) throw new Error('存在运行中的会话，请等待该工作空间的任务结束后重命名')
         if (target === path.resolve(source)) return { source, target, sessions: [] }
         const affected = rows.flatMap((row) => {
           const session = this.deserializeJsonFields(row) as AgentSessionEntity

@@ -53,6 +53,7 @@ export default defineConfig({
       'src/main/services/agents/services/claudecode/__tests__/pi-query-stream.test.ts',
       'src/main/services/agents/services/channels/__tests__/sessionStreamIpc.test.ts',
       'src/main/services/agents/services/__tests__/SessionMessageService.cancelled.test.ts',
+      'src/main/services/agents/services/__tests__/workspaceRename.test.ts',
       'src/main/services/agents/database/__tests__/sessionMessageDualWrite.test.ts',
       'src/main/apiServer/routes/agents/handlers/__tests__/messages.test.ts'
     ]

@@ -65,7 +65,13 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
   const { message } = entry
   const status = messageStatus(message.status, message.role)
   const messageError = optionalError(message.error)
-  const blocks: Record<string, any>[] = entry.parts.map((part) => {
+  const blockOrder = (part: AgentMessageWithParts['parts'][number]): number => {
+    const index = part.data?.transcriptBlockIndex
+    return typeof index === 'number' && Number.isInteger(index) && index >= 0 ? index : part.sequence
+  }
+  // Reused stream ids keep their database sequence, not necessarily transcript order.
+  const parts = [...entry.parts].sort((a, b) => blockOrder(a) - blockOrder(b) || a.sequence - b.sequence)
+  const blocks: Record<string, any>[] = parts.map((part) => {
     const data = record(part.data)
     const type = legacyBlockType(part.type)
     const content = typeof data.text === 'string' && data.content === undefined ? data.text : data.content
@@ -172,7 +178,7 @@ export function persistedToCanonicalInputs(
     },
     parts: (Array.isArray(persisted.blocks) ? persisted.blocks : []).map((rawBlock, index) => {
       const block = record(rawBlock)
-      const data = { ...block }
+      const data: Record<string, any> = { ...block, transcriptBlockIndex: index }
       delete data.id
       delete data.messageId
       delete data.type

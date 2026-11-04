@@ -1,7 +1,7 @@
 import { readMessageProjection } from '../database/messageEventStore'
 import type { SessionMessageRow } from '../database/schema'
 import { randomUUID } from 'node:crypto'
-import { workspaceActivity } from './workspaceRename'
+import { getWorkspaceActivityPaths, workspaceActivity } from './workspaceRename'
 
 import { loggerService } from '@logger'
 import type {
@@ -195,14 +195,20 @@ export class SessionMessageService extends BaseService {
     options?: CreateMessageOptions
   ): Promise<SessionStreamResult> {
     if (workspaceActivity.renaming) throw new Error('工作空间正在重命名，请稍后重试')
+    const run = Symbol(session.id)
+    workspaceActivity.runPaths.set(run, getWorkspaceActivityPaths(session))
     workspaceActivity.runs++
+    const release = () => {
+      workspaceActivity.runPaths.delete(run)
+      workspaceActivity.runs--
+    }
     try {
       const result = await this.startSessionMessageStream(session, messageData, abortController, options)
       void Promise.allSettled([result.streamFinished, result.completion, result.runtimeFinished]).then(
-        () => { workspaceActivity.runs-- })
+        release)
       return result
     } catch (error) {
-      workspaceActivity.runs--
+      release()
       throw error
     }
   }
@@ -564,14 +570,8 @@ export class SessionMessageService extends BaseService {
     createdAtIso: string
   }) {
     const { sessionId, messageId, blocks, partIds, createdAtIso } = params
-    const text = blocks
-      .filter((block) => block.type === 'main_text')
-      .map((block) => String(block.content ?? ''))
-      .join('')
-    const reasoning = blocks
-      .filter((block) => block.type === 'thinking')
-      .map((block) => String(block.content ?? ''))
-      .join('\n\n')
+    let textIndex = 0
+    let reasoningIndex = 0
     const parts: Array<{
       id: string
       sessionId: string
@@ -580,39 +580,43 @@ export class SessionMessageService extends BaseService {
       data: Record<string, unknown>
       createdAt: string
     }> = []
-    if (reasoning) {
-      parts.push({
-        id: partIds.assistantReasoning,
-        sessionId,
-        messageId,
-        type: 'reasoning',
-        data: { text: reasoning, status: 'streaming' },
-        createdAt: createdAtIso
-      })
-    }
-    if (text) {
-      parts.push({
-        id: partIds.assistantText,
-        sessionId,
-        messageId,
-        type: 'text',
-        data: { text, status: 'streaming' },
-        createdAt: createdAtIso
-      })
-    }
-    for (const block of blocks.filter((candidate) => candidate.type === 'tool')) {
-      const toolCallId = String(block.toolId || block.id)
-      let partId = partIds.assistantTools.get(toolCallId)
-      if (!partId) {
-        partId = `part_${randomUUID()}`
-        partIds.assistantTools.set(toolCallId, partId)
+    for (const [transcriptBlockIndex, block] of blocks.entries()) {
+      let partId: string
+      let type: string
+      if (block.type === 'main_text' || block.type === 'thinking') {
+        const isText = block.type === 'main_text'
+        const index = isText ? textIndex++ : reasoningIndex++
+        const baseId = isText ? partIds.assistantText : partIds.assistantReasoning
+        // Accumulator block IDs change per snapshot; segment ordinals do not.
+        partId = index === 0 ? baseId : `${baseId}_${index}`
+        type = isText ? 'text' : 'reasoning'
+      } else if (block.type === 'tool') {
+        const toolCallId = String(block.toolId || block.id)
+        let toolPartId = partIds.assistantTools.get(toolCallId)
+        if (!toolPartId) {
+          toolPartId = `part_${randomUUID()}`
+          partIds.assistantTools.set(toolCallId, toolPartId)
+        }
+        partId = toolPartId
+        type = 'tool'
+      } else {
+        continue
       }
       parts.push({
         id: partId,
         sessionId,
         messageId,
-        type: 'tool',
-        data: { ...block, id: undefined, messageId: undefined, createdAt: undefined, updatedAt: undefined },
+        type,
+        data: {
+          ...block,
+          id: undefined,
+          messageId: undefined,
+          type: undefined,
+          createdAt: undefined,
+          updatedAt: undefined,
+          ...(type === 'text' || type === 'reasoning' ? { text: String(block.content ?? '') } : {}),
+          transcriptBlockIndex
+        },
         createdAt: createdAtIso
       })
     }
