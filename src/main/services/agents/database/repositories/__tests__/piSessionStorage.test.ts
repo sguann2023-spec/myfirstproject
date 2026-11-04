@@ -343,6 +343,89 @@ describe('SqlitePiSessionStorage', () => {
     expect((await client.execute("SELECT entity_type FROM entity_records WHERE entity_type='pi_session_entries'")).rows).toEqual([])
   })
 
+  it.each(['canonical', 'legacy', 'pi', 'canonical-hydration'])('restores oversized inline user images as file references before the budget check (%s)', async source => {
+    const bytes = Buffer.alloc(PI_HISTORY_LIMITS.entryBytes / 4 * 3 + 3, 0x71)
+    const data = bytes.toString('base64')
+    const repository = new AgentTranscriptRepository(database)
+    if (source === 'pi') {
+      const session = new Session(await open())
+      await session.appendMessage({ role: 'user', timestamp: Date.now(), content: [
+        { type: 'text', text: 'Inspect this image' }, { type: 'image', data, mimeType: 'image/png' }
+      ] })
+    } else if (source === 'legacy') {
+      await client.execute({ sql: 'INSERT INTO session_messages(id,session_id,role,content,created_at,updated_at) VALUES (?,?,?,?,?,?)', args: [
+        1, 'topic-a', 'user', JSON.stringify({ message: { id: 'image-user', role: 'user', status: 'success', createdAt: '2026-01-01' },
+          blocks: [{ type: 'main_text', content: 'Inspect this image' }, { type: 'image', url: `data:image/png;base64,${data}` }] }), '2026-01-01', '2026-01-01'
+      ] })
+    } else {
+      await addCanonical('image-user', 'Inspect this image')
+      await repository.upsertPart({ id: 'image-part', sessionId: 'topic-a', messageId: 'image-user', type: 'image',
+        data: { data, mediaType: 'image/png', url: `data:image/png;base64,${data}` } })
+    }
+    const overlay = source === 'canonical-hydration' ? undefined : await useOverlay()
+    expect(await SqlitePiSessionStorage.hasDurableConversation({ topicId: 'topic-a', database, workspacePath: tempDirectory })).toBe(true)
+    const storage = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database, metadata: { workspacePath: tempDirectory } })
+    const session = new Session(storage)
+    const context = await session.buildContext()
+    expect(context.messages).toHaveLength(1)
+    expect(JSON.stringify(context)).not.toContain(data)
+    expect(JSON.stringify(context)).toContain('Inspect this image')
+    const parts = (context.messages[0] as any).content as Array<{ type: string; text: string }>
+    const referenceText = parts.find(part => part.text?.startsWith('Previously loaded image:'))!.text
+    const file = JSON.parse(/^Previously loaded image: (".*?")\./.exec(referenceText)![1])
+    expect((await readFile(file)).equals(bytes)).toBe(true)
+    const root = await storage.getLeafId()
+    await session.appendMessage(userMessage('Continue the same conversation'))
+    if (overlay) await overlay.restart()
+    else { await settlePersistence(); database = drizzle(client, { schema }) }
+    const reopened = await open()
+    const restoredContext = await new Session(reopened).buildContext()
+    expect(JSON.stringify(restoredContext)).not.toContain(data)
+    expect(JSON.stringify(restoredContext)).toContain(file)
+    expect(JSON.stringify(restoredContext)).toContain('Continue the same conversation')
+    expect((await reopened.getEntries())[1].parentId).toBe(root)
+    if (overlay) expect((await readFile(overlay.legacyPath)).equals(overlay.before)).toBe(true)
+    expect((await client.execute("SELECT name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%'")).rows).toEqual([])
+  })
+
+  it('projects images inside duplicated legacy tool result JSON before restoring the overlay prefix', async () => {
+    const data = Buffer.alloc(PI_HISTORY_LIMITS.entryBytes / 4, 0x71).toString('base64')
+    const response = { content: [{ type: 'text', text: 'Loaded grid' }, { type: 'image', data, mimeType: 'image/png' }] }
+    const tool = { id: 'tool-block', type: 'tool', toolName: 'ReadImageAsContent', toolCallId: 'grid-call', status: 'success',
+      input: { file_path: 'data-url' }, content: JSON.stringify(response), rawOutput: response,
+      metadata: { rawMcpToolResponse: { responseRaw: response } } }
+    await client.execute({ sql: 'INSERT INTO session_messages(id,session_id,role,content,created_at,updated_at) VALUES (?,?,?,?,?,?)', args: [
+      1, 'topic-a', 'assistant', JSON.stringify({ message: { id: 'image-tool', role: 'assistant', status: 'success', createdAt: '2026-01-01' }, blocks: [tool] }), '2026-01-01', '2026-01-01'
+    ] })
+    const overlay = await useOverlay()
+    const storage = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database, metadata: { workspacePath: tempDirectory } })
+    const context = await new Session(storage).buildContext()
+    expect(JSON.stringify(context)).not.toContain(data)
+    expect(JSON.stringify(context)).toContain('Loaded grid')
+    expect(JSON.stringify(context)).toContain('Previously loaded image:')
+    expect((await readFile(overlay.legacyPath)).equals(overlay.before)).toBe(true)
+  })
+
+  it('keeps hydrated image references usable after a workspace rename and subsequent restarts', async () => {
+    const workspace = path.join(tempDirectory, 'old-workspace')
+    const renamed = path.join(tempDirectory, 'new-workspace')
+    await mkdir(workspace)
+    await addCanonical('image-user', 'Inspect this image')
+    await new AgentTranscriptRepository(database).upsertPart({ id: 'image-part', sessionId: 'topic-a', messageId: 'image-user',
+      type: 'image', data: { data: Buffer.from('original image').toString('base64'), mediaType: 'image/png' } })
+    await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database, metadata: { workspacePath: workspace } })
+    await settlePersistence()
+    await rename(workspace, renamed)
+    database = drizzle(client, { schema })
+    const moved = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database, metadata: { workspacePath: renamed } })
+    expect(JSON.stringify(await new Session(moved).buildContext())).toContain(renamed)
+    expect(JSON.stringify(await new Session(moved).buildContext())).not.toContain(workspace)
+    const restarted = await recover()
+    const context = await new Session(restarted).buildContext()
+    expect(JSON.stringify(context)).toContain(renamed)
+    expect(JSON.stringify(context)).not.toContain(workspace)
+  })
+
   it('overlay preserves explicit canonical fork parents and restores compaction referring to a virtual entry', async () => {
     await addCanonical('root', 'root')
     await addCanonical('fork-a', 'branch A', 'root')

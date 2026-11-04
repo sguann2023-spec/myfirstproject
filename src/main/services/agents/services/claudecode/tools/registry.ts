@@ -17,6 +17,7 @@ import type ImageGenerateServer from '@main/mcpServers/image-generate'
 import ImageUnderstandServer from '@main/mcpServers/image-understand'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
+import MediaSearchServer from '@main/mcpServers/media-search'
 import RemoveBgServer from '@main/mcpServers/remove-bg'
 import ScraptToolServer from '@main/mcpServers/scrapt-tool'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
@@ -146,6 +147,8 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('materials', { type: 'sdk', name: 'materials', instance: materialsServer.mcpServer })
     autoAllowTools.add(vt('materials', 'folder_links'))
     allowMcpPattern(vp('materials'))
+    mountMcpServer('media-search', { type: 'sdk', name: 'media-search', instance: new MediaSearchServer().mcpServer })
+    allowMcpTools([vt('media-search', 'search_images'), vt('media-search', 'search_videos')])
   }
 
   if (hasWebDomain) {

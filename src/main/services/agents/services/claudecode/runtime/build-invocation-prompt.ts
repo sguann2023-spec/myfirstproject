@@ -126,6 +126,7 @@ export async function buildInvocationPromptState(input: {
 
   const durablePiHistoryAvailable = await SqlitePiSessionStorage.hasDurableConversation({
     topicId: session.id,
+    workspacePath: input.cwd,
     excludeMessageIds: [invocationIds.userMessageId, invocationIds.assistantMessageId]
   })
   const recentTurnLimit = getSegmentRecentTurnLimit(activeSegment?.continuationSummary)

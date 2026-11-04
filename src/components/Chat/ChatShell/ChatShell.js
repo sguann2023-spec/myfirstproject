@@ -401,6 +401,7 @@ const ChatShell = ({
   const [skillPreviewPaths, setSkillPreviewPaths] = React.useState({});
   const [skillExamplePaths, setSkillExamplePaths] = React.useState({});
   const [expandedSkillKeys, setExpandedSkillKeys] = React.useState(() => new Set());
+  const [skillMembersCollapsed, setSkillMembersCollapsed] = React.useState(false);
   const [expandedNodeKeys, setExpandedNodeKeys] = React.useState(() => new Set());
   const [skillTrees, setSkillTrees] = React.useState({});
   const [skillTreeLoading, setSkillTreeLoading] = React.useState({});
@@ -987,6 +988,10 @@ const ChatShell = ({
       await loadSkillTree(skill);
     }
   }, [loadSkillTree, skillTrees]);
+
+  const toggleSkillMembersCollapsed = React.useCallback(() => {
+    setSkillMembersCollapsed((prev) => !prev);
+  }, []);
 
   const toggleNodeExpanded = React.useCallback((skill, nodePath) => {
     if (!skill || !nodePath) return;
@@ -1705,6 +1710,8 @@ const ChatShell = ({
               beginnerGuideChildrensBookRunButtonRef={beginnerGuideChildrensBookRunButtonRef}
               beginnerGuideChildrensBookEditButtonRef={beginnerGuideChildrensBookEditButtonRef}
               onToggleSkillExpanded={toggleSkillExpanded}
+              skillMembersCollapsed={skillMembersCollapsed}
+              onToggleSkillMembersCollapsed={toggleSkillMembersCollapsed}
               onOpenSkillWebPreview={openSkillWebPreview}
               onRunSkillExample={runSkillExample}
               onSelectSkill={onSelectSkill}

@@ -113,6 +113,36 @@ describe('mcpToolDisplay', () => {
     ).toBe('Custom Tools: Generate Or Edit Image')
   })
 
+  it.each(['media-search', 'pixabay'])('uses standalone search titles for %s in all primary locales', (server) => {
+    for (const [tool, simplified, traditional, english] of [
+      ['search_images', '图片搜索', '圖片搜尋', 'Image Search'],
+      ['search_videos', '视频搜索', '影片搜尋', 'Video Search']
+    ]) {
+      for (const name of [`mcp__vectcut__${server}__${tool}`, `mcp__${server}__${tool}`, `${server}:${tool}`]) {
+        for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
+          const translate = ((key: string, options?: { defaultValue?: string }) =>
+            key.split('.').reduce<unknown>(
+              (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
+              locale
+            ) ?? options?.defaultValue ?? key) as any
+          expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(expected)
+        }
+      }
+    }
+  })
+
+  it.each(['media-search', 'pixabay'])('uses English search fallbacks for %s when translations are missing', (serverName) => {
+    const translate = ((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key) as any
+    expect(getMcpToolDisplayName({ serverName, toolName: 'search_images', t: translate })).toBe('Image Search')
+    expect(getMcpToolDisplayName({ serverName, toolName: 'search_videos', t: translate })).toBe('Video Search')
+  })
+
+  it('preserves server prefixes for unrelated search tools and unknown media tools', () => {
+    expect(getMcpToolDisplayName({ serverName: 'custom-tools', toolName: 'search_images', t })).toBe('Custom Tools: Search Images')
+    expect(getMcpToolDisplayName({ serverName: 'media-search', toolName: 'unknown_tool', t })).toBe('Media Search: Unknown Tool')
+    expect(getMcpToolDisplayName({ serverName: 'pixabay', toolName: 'unknown_tool', t })).toBe('Media Search: Unknown Tool')
+  })
+
   it.each([
     [zhCn, 'TikTok：搜索视频'],
     [zhTw, 'TikTok：搜索視頻'],

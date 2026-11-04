@@ -338,7 +338,7 @@ const WorkspaceCreateDialog = ({
               新建工作空间
             </h2>
             <div className="chat-panel__workspace-create-tip">
-              为工作空间命名，本地将自动创建同名文件夹，命名后不可随意更改
+              为工作空间命名，本地将自动创建同名文件夹
             </div>
           </div>
           {isWindows && (

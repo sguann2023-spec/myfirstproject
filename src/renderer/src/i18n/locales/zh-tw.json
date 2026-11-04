@@ -2766,6 +2766,10 @@
           "koubo_template": {
             "submit_koubo_template_task": "提交口播模板任務"
           },
+          "media_search": {
+            "search_images": "圖片搜尋",
+            "search_videos": "影片搜尋"
+          },
           "remove_bg": {
             "submit_remove_bg_text_behind_task": "文字置於人物後方",
             "submit_remove_bg_pip_task": "去背子母畫面",

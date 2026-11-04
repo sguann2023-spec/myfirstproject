@@ -41,6 +41,7 @@ export default defineConfig({
       'src/main/services/agents/database/__tests__/canonicalTranscriptMigration.test.ts',
       'src/main/services/agents/database/repositories/__tests__/agentTranscriptRepository.test.ts',
       'src/main/services/agents/database/repositories/__tests__/piSessionStorage.test.ts',
+      'src/main/services/agents/database/repositories/__tests__/piHistoryImages.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/cancelled-context.test.ts',
       'src/main/services/agents/services/cherryclaw/__tests__/prompt.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/provider-payload-summary.test.ts',

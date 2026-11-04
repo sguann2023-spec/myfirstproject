@@ -249,6 +249,9 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Reserve the scrollbar gutter so the section title/buttons do not shift
+     horizontally when the scrollbar appears or disappears. */
+  scrollbar-gutter: stable;
   padding: 0px 2px 10px;
 }
 

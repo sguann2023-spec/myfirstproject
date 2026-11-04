@@ -252,14 +252,55 @@ function sqlTokens(sql: string): Array<{ value: string; quoted: boolean }> {
   return result
 }
 
-/** Only entity DML is writable. Ordinary ATTACH connections are protected here. */
+/** Entity DML and narrowly scoped history-image TEMP tables are writable. */
 export function guardOverlaySql(sql: string, entities: Set<string>): void {
   const tokens = sqlTokens(sql)
   const keyword = (index: number, value: string) => !tokens[index]?.quoted && tokens[index]?.value.toUpperCase() === value
   const deny = () => { throw new Error('Overlay SQL must read or write an unqualified entity view; storage and connection controls belong to the writer') }
+  const historyTable = (index: number) => /^pi_history_images_[0-9a-f]{32}(?:_leaves)?$/i.test(tokens[index]?.value ?? '')
+  const tempHistoryTable = (index: number) => tokens[index]?.value.toLowerCase() === 'temp' && tokens[index + 1]?.value === '.' && historyTable(index + 2) && tokens[index + 3]?.value !== '.'
+  const end = (index: number) => index === tokens.length || (tokens[index]?.value === ';' && index === tokens.length - 1)
+  const fixedDefinition = (index: number, definition: string) => {
+    for (const value of definition.split(' ')) {
+      const token = tokens[index++]
+      const identifier = /^(?:doc|source_id|body|canonical|payload|node|parent|location|parentPath|key|kind|chars|prefix|nested)$/.test(value)
+      if (!token || (!identifier && token.quoted) || token.value.toUpperCase() !== value.toUpperCase()) deny()
+    }
+    if (!end(index)) deny()
+  }
   for (let i = 0; i < tokens.length; i++) {
     if (/^(?:load_extension|writefile|readfile|eval)$/i.test(tokens[i].value) && tokens[i + 1]?.value === '(') deny()
     if (tokens[i].value === ';' && i !== tokens.length - 1) deny()
+  }
+  if (keyword(0, 'CREATE')) {
+    if (keyword(1, 'INDEX')) {
+      let index = 2
+      // SQLite places an unqualified index in the target TEMP table's schema.
+      if (tokens[index]?.value.toLowerCase() === 'temp' && tokens[index + 1]?.value === '.') index += 2
+      const name = tokens[index++]?.value ?? ''
+      if (!/^pi_history_images_[0-9a-f]{32}_parents$/i.test(name) || !keyword(index++, 'ON')) deny()
+      if (tokens[index++]?.value.toLowerCase() !== name.replace(/_parents$/i, '_leaves').toLowerCase()) deny()
+      fixedDefinition(index, '( doc , parent , key , kind )')
+      return
+    }
+    if ((!keyword(1, 'TEMP') && !keyword(1, 'TEMPORARY')) || !keyword(2, 'TABLE')) deny()
+    let index = 3
+    if (keyword(index, 'IF') && keyword(index + 1, 'NOT') && keyword(index + 2, 'EXISTS')) index += 3
+    if (tempHistoryTable(index)) index += 2
+    if (!historyTable(index)) deny()
+    const metadata = /_leaves$/i.test(tokens[index++].value)
+    // Match the helper's complete schema, not just its table name or prefix.
+    fixedDefinition(index, metadata
+      ? '( doc INTEGER , node INTEGER , parent INTEGER , location TEXT , parentPath TEXT , key TEXT , kind TEXT , chars INTEGER , prefix TEXT , nested INTEGER , PRIMARY KEY ( doc , node ) )'
+      : '( doc INTEGER PRIMARY KEY , source_id UNIQUE , body , canonical INTEGER , payload BLOB )')
+    return
+  }
+  if (keyword(0, 'DROP')) {
+    if (!keyword(1, 'TABLE')) deny()
+    let index = 2
+    if (keyword(index, 'IF') && keyword(index + 1, 'EXISTS')) index += 2
+    if (!tempHistoryTable(index) || !end(index + 3)) deny()
+    return
   }
   if (keyword(0, 'SELECT')) return
   if (keyword(0, 'EXPLAIN')) {
@@ -289,8 +330,9 @@ export function guardOverlaySql(sql: string, entities: Set<string>): void {
   } else if (keyword(0, 'DELETE')) {
     if (!keyword(index++, 'FROM')) deny()
   } else deny()
+  if (tempHistoryTable(index)) return
   const target = tokens[index]
-  if (!target || /^(?:storage_|sqlite_|overlay_source_)|^(?:entity_records|migrations)$/i.test(target.value) || !entities.has(target.value) || tokens[index + 1]?.value === '.') deny()
+  if (!target || /^pi_history_images_/i.test(target.value) || /^(?:storage_|sqlite_|overlay_source_)|^(?:entity_records|migrations)$/i.test(target.value) || !entities.has(target.value) || tokens[index + 1]?.value === '.') deny()
 }
 
 export async function backupOverlayStorage(db: Database.Database, filename: string, sources: OverlaySource[], directory: string): Promise<StorageManifest> {

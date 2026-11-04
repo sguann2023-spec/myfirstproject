@@ -38,6 +38,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: ImageUnderstandServer },
       { default: KouboTemplateServer },
       { default: MaterialsServer },
+      { default: MediaSearchServer },
       { default: RemoveBgServer },
       { default: ScraptToolServer },
       { default: SeedAudioServer },
@@ -72,6 +73,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/image-understand'),
       import('@main/mcpServers/koubo-template'),
       import('@main/mcpServers/materials'),
+      import('@main/mcpServers/media-search'),
       import('@main/mcpServers/remove-bg'),
       import('@main/mcpServers/scrapt-tool'),
       import('@main/mcpServers/seed-audio'),
@@ -107,6 +109,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'materials',
         serverName: 'materials',
         createInstance: () => new MaterialsServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'media-search',
+        serverName: 'media-search',
+        createInstance: () => new MediaSearchServer().mcpServer
       },
       {
         serverId: 'browser',

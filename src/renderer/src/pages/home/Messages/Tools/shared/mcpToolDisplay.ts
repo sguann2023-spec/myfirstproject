@@ -74,10 +74,19 @@ export function getMcpToolDisplayName(
     t: TFunction
   }
 ): string {
-  const serverKey = normalizeKeyPart(args.serverName)
+  const rawServerKey = normalizeKeyPart(args.serverName)
+  const serverKey = rawServerKey === 'pixabay' ? 'media_search' : rawServerKey
   const toolKey = normalizeKeyPart(args.toolName)
-  const fallbackServer = humanizeName(args.serverName)
+  const fallbackServer = rawServerKey === 'pixabay' ? 'Media Search' : humanizeName(args.serverName)
   const fallbackTool = humanizeName(args.toolName) || args.toolName
+
+  // Historical calls share the provider-neutral search titles.
+  if (serverKey === 'media_search' &&
+    (toolKey === 'search_images' || toolKey === 'search_videos')) {
+    return args.t(`message.tools.mcp.tools.media_search.${toolKey}`, {
+      defaultValue: toolKey === 'search_images' ? 'Image Search' : 'Video Search'
+    })
+  }
 
   // Standalone titles do not need the internal server name.
   if (serverKey === 'scrapt' || serverKey === 'audio_understand' || serverKey === 'draft_render') {

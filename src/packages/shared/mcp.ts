@@ -136,6 +136,7 @@ export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
   'audio-understand',
   'koubo-template',
   'materials',
+  'media-search',
   'search',
   'seed-audio',
   'skills',
@@ -158,7 +159,9 @@ export function buildVectcutMcpPattern(serverName: string): string {
 }
 
 export function normalizeVectcutMcpToolName(toolName: string): string {
+  // Migrate persisted permissions without exposing the legacy service in discovery.
   const normalized = String(toolName || '').trim()
+    .replace(/^mcp__(?:vectcut__)?pixabay__/, `mcp__${VECTCUT_MCP_NAMESPACE}__media-search__`)
   if (!normalized.startsWith('mcp__') || normalized.startsWith(`mcp__${VECTCUT_MCP_NAMESPACE}__`)) {
     return normalized
   }

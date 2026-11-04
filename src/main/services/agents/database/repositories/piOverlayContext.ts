@@ -7,6 +7,7 @@ import { persistedToCanonicalInputs } from '../agentHistoryMapper'
 import { resolveMessageProjectionTables } from '../messageEventStore'
 import type { AgentMessageWithParts } from './agentTranscript.types'
 import { canonicalMessageToPi, PI_HISTORY_LIMITS } from './piSessionStorage'
+import { prepareHistoryImageProjection } from './piHistoryImages'
 
 type Database = LibSQLDatabase<typeof schema>
 export interface OverlayContextBoundary {
@@ -39,7 +40,8 @@ export async function readOverlayPrefix(
   database: Database,
   topicId: string,
   boundary: OverlayContextBoundary,
-  entryId: (messageId: string, index: number) => string
+  entryId: (messageId: string, index: number) => string,
+  workspacePath?: string
 ): Promise<SessionTreeEntry[]> {
   if (!Number.isSafeInteger(boundary.canonicalSequence) || !Number.isSafeInteger(boundary.legacyId)) throw limitError()
   const tables = await resolveMessageProjectionTables(database, topicId)
@@ -48,42 +50,51 @@ export async function readOverlayPrefix(
   let actualBytes = 0
   const read = async (table: string, predicate: SQL): Promise<Record<string, any>[]> => {
     const columns = await database.all<{ name: string }>(sql`PRAGMA table_info(${sql.identifier(table)})`)
-    const fields = sql.join(columns.flatMap(({ name }) => [sql`${name}`, sql.identifier(name)]), sql`, `)
-    const json = sql`json_object(${fields})`
-    const [size] = await database.all<{ count: number; bytes: number; largest: number }>(sql`
-      SELECT count(*) AS count, coalesce(sum(octet_length(${json})),0) AS bytes,
-        coalesce(max(octet_length(${json})),0) AS largest FROM ${sql.identifier(table)} WHERE ${predicate}
-    `)
-    totalBytes += Number(size.bytes)
-    totalRows += Number(size.count)
-    if (totalBytes > PI_HISTORY_LIMITS.totalBytes || totalRows > PI_HISTORY_LIMITS.entries || Number(size.largest) > PI_HISTORY_LIMITS.entryBytes) throw limitError()
-    const result: Record<string, any>[] = []
-    let offset = 0
-    while (offset < Number(size.count)) {
-      const rows = await database.all<{ body: string | null; bytes: number }>(sql`
-        WITH page AS (SELECT ${json} AS body FROM ${sql.identifier(table)} WHERE ${predicate}
-          ORDER BY id LIMIT ${PI_HISTORY_LIMITS.metadataBatch} OFFSET ${offset}),
-        sized AS (SELECT body, octet_length(body) AS bytes,
-          sum(octet_length(body)) OVER (ROWS UNBOUNDED PRECEDING) AS running FROM page)
-        SELECT CASE WHEN bytes<=${PI_HISTORY_LIMITS.entryBytes} AND running<=${PI_HISTORY_LIMITS.batchBytes}
-          THEN body END AS body, bytes FROM sized
-      `)
-      let accepted = 0
-      for (const row of rows) {
-        if (row.body === null) break
-        actualBytes += Number(row.bytes)
-        if (actualBytes > PI_HISTORY_LIMITS.totalBytes || result.length >= PI_HISTORY_LIMITS.entries) throw limitError()
-        const item = JSON.parse(row.body)
-        for (const key of Object.keys(item)) {
-          if (key.endsWith('_json') && typeof item[key] === 'string') item[key] = JSON.parse(item[key])
-        }
-        result.push(item)
-        accepted++
+    const projectedColumns = columns.filter(({ name }) => name === 'data_json' || name === 'content' || name === 'metadata')
+    const projections = new Map<string, Awaited<ReturnType<typeof prepareHistoryImageProjection>>>()
+    try {
+      for (const { name } of projectedColumns) {
+        projections.set(name, await prepareHistoryImageProjection(database, table, name, predicate, 'id', workspacePath))
       }
-      if (!accepted) throw limitError()
-      offset += accepted
+      const fields = sql.join(columns.flatMap(({ name }) => [sql`${name}`, projections.get(name)?.expression ?? sql.identifier(name)]), sql`, `)
+      const json = sql`json_object(${fields})`
+      const [size] = await database.all<{ count: number; bytes: number; largest: number }>(sql`
+        SELECT count(*) AS count, coalesce(sum(octet_length(${json})),0) AS bytes,
+          coalesce(max(octet_length(${json})),0) AS largest FROM ${sql.identifier(table)} WHERE ${predicate}
+      `)
+      totalBytes += Number(size.bytes)
+      totalRows += Number(size.count)
+      if (totalBytes > PI_HISTORY_LIMITS.totalBytes || totalRows > PI_HISTORY_LIMITS.entries || Number(size.largest) > PI_HISTORY_LIMITS.entryBytes) throw limitError()
+      const result: Record<string, any>[] = []
+      let offset = 0
+      while (offset < Number(size.count)) {
+        const rows = await database.all<{ body: string | null; bytes: number }>(sql`
+          WITH page AS (SELECT ${json} AS body FROM ${sql.identifier(table)} WHERE ${predicate}
+            ORDER BY id LIMIT ${PI_HISTORY_LIMITS.metadataBatch} OFFSET ${offset}),
+          sized AS (SELECT body, octet_length(body) AS bytes,
+            sum(octet_length(body)) OVER (ROWS UNBOUNDED PRECEDING) AS running FROM page)
+          SELECT CASE WHEN bytes<=${PI_HISTORY_LIMITS.entryBytes} AND running<=${PI_HISTORY_LIMITS.batchBytes}
+            THEN body END AS body, bytes FROM sized
+        `)
+        let accepted = 0
+        for (const row of rows) {
+          if (row.body === null) break
+          actualBytes += Number(row.bytes)
+          if (actualBytes > PI_HISTORY_LIMITS.totalBytes || result.length >= PI_HISTORY_LIMITS.entries) throw limitError()
+          const item = JSON.parse(row.body)
+          for (const key of Object.keys(item)) {
+            if (key.endsWith('_json') && typeof item[key] === 'string') item[key] = JSON.parse(item[key])
+          }
+          result.push(item)
+          accepted++
+        }
+        if (!accepted) throw limitError()
+        offset += accepted
+      }
+      return result
+    } finally {
+      for (const projection of projections.values()) await projection.dispose()
     }
-    return result
   }
   const canonicalPredicate = sql`session_id=${topicId} AND sequence<=${boundary.canonicalSequence}`
   const messages = await read(tables.agent_messages, canonicalPredicate)

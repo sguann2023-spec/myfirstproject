@@ -7,7 +7,7 @@ import permissionsReducer, { toolPermissionsActions as permissions } from '../..
 import { isChatSessionAwaitingConfirmation, isChatSessionCompleted } from '../../shared/chatSessionCompletion';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ChatHistoryList from './ChatHistoryList';
+import ChatHistoryList, { formatChatSessionTime } from './ChatHistoryList';
 import { getWorkspaceActivityPaths, isWorkspaceRunning, workspaceActivity, workspacePathsOverlap } from '../../main/services/agents/services/workspaceRename';
 
 const renderCounts = vi.hoisted(() => ({ group: vi.fn(), row: vi.fn() }));
@@ -16,6 +16,7 @@ vi.mock('lucide-react', async (importOriginal) => {
   return {
     ...icons,
     Folder: (props) => { renderCounts.group(); return <icons.Folder {...props} />; },
+    FolderOpen: (props) => { renderCounts.group(); return <icons.FolderOpen {...props} />; },
     X: (props) => { renderCounts.row(); return <icons.X {...props} />; },
   };
 });
@@ -132,7 +133,7 @@ describe('history render isolation', () => {
     await act(async () => root.render(<ChatHistoryList sessions={sessions} onSelectSession={oldSelect} />));
     resetCounts();
     await act(async () => root.render(<ChatHistoryList
-      sessions={sessions.map(item => ({ ...item, messages: [{ role: 'assistant', content: 'updated' }], updatedAt: 999 }))}
+      sessions={sessions.map(item => ({ ...item, messages: [{ role: 'assistant', content: 'updated' }] }))}
       onSelectSession={newSelect} onDeleteSession={newDelete} />));
     expect(renderCounts.group).not.toHaveBeenCalled();
     expect(renderCounts.row).not.toHaveBeenCalled();
@@ -492,4 +493,136 @@ it('ignores late workspace hydration responses after rename, including queued st
   const renamed = { ...state, accessible_paths: ['/work/new'] };
   expect(queued([renamed])[0]).toBe(renamed);
   delete window.electronAPI;
+});
+
+describe('session relative time', () => {
+  const now = Date.parse('2026-11-04T12:00:00');
+  it.each([
+    [2 * 60 * 1000, '刚刚'],
+    [3 * 60 * 1000, '3分'],
+    [59 * 60 * 1000, '59分'],
+    [60 * 60 * 1000, '1时'],
+    [23 * 60 * 60 * 1000, '23时'],
+    [24 * 60 * 60 * 1000, '1天'],
+    [29 * 24 * 60 * 60 * 1000, '29天'],
+    [30 * 24 * 60 * 60 * 1000, '1月'],
+    [100 * 24 * 60 * 60 * 1000, '3月'],
+    [5 * 60 * 1000 + 30 * 1000, '5分'],
+  ])('formats %s ago as %s', (elapsed, expected) => {
+    expect(formatChatSessionTime(now - elapsed, now)).toBe(expected);
+  });
+
+  it('treats missing, invalid and future timestamps as no label', () => {
+    expect(formatChatSessionTime(0, now)).toBe('');
+    expect(formatChatSessionTime(undefined, now)).toBe('');
+    expect(formatChatSessionTime('not-a-time', now)).toBe('');
+    expect(formatChatSessionTime(now + 10 * 60 * 1000, now)).toBe('刚刚');
+  });
+
+  it('renders the time label after the title in session rows', async () => {
+    const at = Date.now() - 4 * 24 * 60 * 60 * 1000;
+    await act(async () => root.render(<ChatHistoryList sessions={[{
+      id: 'timed', title: '有时间戳的会话', lastUserMessageAt: at, accessible_paths: ['/work/timed'],
+    }]} />));
+    const row = container.querySelector('.chat-history-list__item:not(.chat-history-list__group-toggle) .chat-history-list__item-top');
+    expect(row.querySelector('.chat-history-list__item-time').textContent).toBe('4天');
+    expect(row.querySelector('.chat-history-list__item-time').previousElementSibling.textContent).toBe('有时间戳的会话');
+  });
+});
+
+describe('drag reorder', () => {
+  const ORDER_KEY = 'chat-history:manual-order';
+  let mountSeq = 0;
+  const grouped = (path, ids) => ids.map((id, i) => ({
+    id, title: id, lastUserMessageAt: 1000 - i, accessible_paths: [path],
+  }));
+  const titles = () => [...container.querySelectorAll('.chat-history-list__item-title')].map((node) => node.textContent);
+  const sessionRow = (title) => [...container.querySelectorAll('.chat-history-list__item:not(.chat-history-list__group-toggle)')]
+    .find((node) => node.querySelector('.chat-history-list__item-title').textContent === title);
+  const groupHeader = (label) => [...container.querySelectorAll('.chat-history-list__group-toggle')]
+    .find((node) => node.querySelector('.chat-history-list__group-title')?.textContent === label
+      || node.querySelector('.chat-history-list__rename-input'));
+  const fire = (element, type) => act(async () => {
+    element.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 0, clientY: 0 }));
+  });
+  // Fresh key per test forces a remount so manualOrder state is read after storage is cleared.
+  const mount = (sessions) => {
+    const mountKey = `drag-${++mountSeq}`;
+    return (next) => act(async () => root.render(
+      <ChatHistoryList key={mountKey} sessions={next || sessions} />
+    ));
+  };
+
+  beforeEach(() => { window.localStorage.removeItem(ORDER_KEY); });
+
+  it('reorders sessions within a group and persists the manual order', async () => {
+    const render = mount([...grouped('/w/a', ['a1', 'a2', 'a3']), ...grouped('/w/b', ['b1'])]);
+    await render();
+    expect(titles()).toEqual(['a', 'a1', 'a2', 'a3', 'b', 'b1']);
+    await fire(sessionRow('a1'), 'dragstart');
+    expect(sessionRow('a1').className).toContain('is-dragging');
+    await fire(sessionRow('a3'), 'dragover');
+    await fire(sessionRow('a3'), 'drop');
+    expect(titles()).toEqual(['a', 'a2', 'a3', 'a1', 'b', 'b1']);
+    expect(JSON.parse(window.localStorage.getItem(ORDER_KEY)).sessions['/w/a']).toEqual(['a2', 'a3', 'a1']);
+  });
+
+  it('rejects drops into a different group and stores nothing', async () => {
+    const render = mount([...grouped('/w/a', ['a1', 'a2']), ...grouped('/w/b', ['b1'])]);
+    await render();
+    await fire(sessionRow('a1'), 'dragstart');
+    await fire(sessionRow('b1'), 'dragover');
+    await fire(sessionRow('b1'), 'drop');
+    expect(titles()).toEqual(['a', 'a1', 'a2', 'b', 'b1']);
+    expect(window.localStorage.getItem(ORDER_KEY)).toBeNull();
+  });
+
+  it('moves a session to the end when dropped on its own group header', async () => {
+    const render = mount([...grouped('/w/a', ['a1', 'a2', 'a3'])]);
+    await render();
+    await fire(sessionRow('a1'), 'dragstart');
+    await fire(groupHeader('a'), 'dragover');
+    await fire(groupHeader('a'), 'drop');
+    expect(titles()).toEqual(['a', 'a2', 'a3', 'a1']);
+  });
+
+  it('reorders groups by dragging a folder header', async () => {
+    const render = mount([...grouped('/w/a', ['a1']), ...grouped('/w/b', ['b1'])]);
+    await render();
+    await fire(groupHeader('a'), 'dragstart');
+    await fire(groupHeader('b'), 'dragover');
+    await fire(groupHeader('b'), 'drop');
+    expect(titles()).toEqual(['b', 'b1', 'a', 'a1']);
+    expect(JSON.parse(window.localStorage.getItem(ORDER_KEY)).groups).toEqual(['/w/b', '/w/a']);
+  });
+
+  it('restores manual order from storage and keeps new sessions on top', async () => {
+    window.localStorage.setItem(ORDER_KEY, JSON.stringify({ sessions: { '/w/a': ['a2', 'a1'] } }));
+    const sessions = grouped('/w/a', ['a1', 'a2']);
+    const render = mount(sessions);
+    await render();
+    expect(titles()).toEqual(['a', 'a2', 'a1']);
+    await render([{ id: 'a0', title: 'a0', lastUserMessageAt: 2000, accessible_paths: ['/w/a'] }, ...sessions]);
+    expect(titles()).toEqual(['a', 'a0', 'a2', 'a1']);
+  });
+});
+
+describe('toggle all groups', () => {
+  it('collapses and expands every group from the header button', async () => {
+    const sessions = [
+      { id: 't1', title: '任务一', lastUserMessageAt: 3000, accessible_paths: ['/w/one'] },
+      { id: 't2', title: '任务二', lastUserMessageAt: 2000, accessible_paths: ['/w/two'] },
+    ];
+    const button = () => container.querySelector('.chat-history-list__toggle-all');
+    const visibleRows = () => [...container.querySelectorAll('.chat-history-list__item-title')]
+      .map((node) => node.textContent);
+    await act(async () => root.render(<ChatHistoryList sessions={sessions} />));
+    expect(visibleRows()).toEqual(['one', '任务一', 'two', '任务二']);
+    expect(button().getAttribute('aria-label')).toBe('折叠全部');
+    await click(button());
+    expect(visibleRows()).toEqual(['one', 'two']);
+    expect(button().getAttribute('aria-label')).toBe('展开全部');
+    await click(button());
+    expect(visibleRows()).toEqual(['one', '任务一', 'two', '任务二']);
+  });
 });

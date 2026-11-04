@@ -6,6 +6,8 @@ import {
   Folder,
   FolderOpen,
   Link,
+  ListChevronsDownUp,
+  ListChevronsUpDown,
   Search,
   SquarePen,
   Trash2,
@@ -26,6 +28,8 @@ const SkillMembersSection = ({
   beginnerGuideChildrensBookRunButtonRef,
   beginnerGuideChildrensBookEditButtonRef,
   onToggleSkillExpanded,
+  skillMembersCollapsed,
+  onToggleSkillMembersCollapsed,
   onOpenSkillStore,
   onOpenSkillWebPreview,
   onRunSkillExample,
@@ -40,13 +44,29 @@ const SkillMembersSection = ({
   childrensBookSkillLabel,
 }) => {
   const [openTooltipSkillKey, setOpenTooltipSkillKey] = React.useState('');
+  const showToggleAll = !skillsLoading && !skillsError && skills.length > 0;
 
   return (
     <>
-      <div className="chat-panel__members-title">
-        技能成员
-        {!skillsLoading && <span className="chat-panel__members-count">{skills.length}</span>}
+      <div className="chat-panel__members-title chat-panel__members-title--skills">
+        <span className="chat-panel__members-title-text">
+          技能成员
+          {!skillsLoading && <span className="chat-panel__members-count">{skills.length}</span>}
+        </span>
+        {showToggleAll && (
+          <button
+            type="button"
+            className="chat-panel__members-toggle-all"
+            onClick={onToggleSkillMembersCollapsed}
+            aria-label={skillMembersCollapsed ? '展开技能成员' : '折叠技能成员'}
+            title={skillMembersCollapsed ? '展开技能成员' : '折叠技能成员'}>
+            {skillMembersCollapsed
+              ? <ListChevronsUpDown size={14} strokeWidth={1.9} aria-hidden="true" />
+              : <ListChevronsDownUp size={14} strokeWidth={1.9} aria-hidden="true" />}
+          </button>
+        )}
       </div>
+      {!skillMembersCollapsed && (<>
       {skillsLoading && <div className="chat-panel__members-empty">加载中...</div>}
       {!skillsLoading && skillsError && <div className="chat-panel__members-empty">{skillsError}</div>}
       {!skillsLoading && !skillsError && skills.length === 0 && (
@@ -209,6 +229,7 @@ const SkillMembersSection = ({
           <span>寻找技能</span>
         </button>
       )}
+      </>)}
       <div className="chat-panel__section-divider" aria-hidden="true" />
     </>
   );

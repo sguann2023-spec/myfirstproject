@@ -2768,6 +2768,10 @@
           "koubo_template": {
             "submit_koubo_template_task": "提交口播模板任务"
           },
+          "media_search": {
+            "search_images": "图片搜索",
+            "search_videos": "视频搜索"
+          },
           "materials": {
             "folder_links": "查看文件夹"
           },

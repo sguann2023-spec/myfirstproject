@@ -7,6 +7,9 @@ import { createHash } from 'node:crypto'
 import { PersistentRecordStore } from '../../persistentRecordStore'
 import { initializeRecords, discoverEntities, installCurrentView } from '../../recordSchema'
 import { OVERLAY_INTEGER_START, canonicalPath, guardOverlaySql } from '../../recordOverlay'
+import { sql, type SQL } from 'drizzle-orm/sql/sql'
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core/dialect'
+import { prepareHistoryImageProjection } from '../piHistoryImages'
 
 const stores: PersistentRecordStore[] = [], directories: string[] = []
 const fixture = () => {
@@ -53,7 +56,194 @@ async function open(f: ReturnType<typeof fixture>, legacyPaths: string[] = [f.le
 }
 afterEach(() => { stores.splice(0).forEach(store => store.close()); directories.splice(0).forEach(directory => rmSync(directory, { recursive: true, force: true })) })
 
+const historyTable = 'pi_history_images_0123456789abcdef0123456789abcdef'
+const historySchema = '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, canonical INTEGER, payload BLOB)'
+const metadataTable = `${historyTable}_leaves`
+const parentsIndex = `${historyTable}_parents`
+const metadataSchema = '(doc INTEGER, node INTEGER, parent INTEGER, location TEXT, parentPath TEXT, key TEXT, kind TEXT, chars INTEGER, prefix TEXT, nested INTEGER, PRIMARY KEY(doc,node))'
+
+describe('overlay history-image SQL guard', () => {
+  const entities = new Set(['parents', 'items', historyTable, metadataTable])
+
+  it.each([
+    `CREATE TEMP TABLE "${historyTable}"${historySchema}`,
+    `create temporary table if not exists temp.[${historyTable.toUpperCase()}] ${historySchema.toLowerCase()};`,
+    `CREATE /*gap*/ TEMP TABLE "temp" . \`${historyTable}\` ("doc" INTEGER PRIMARY KEY, [source_id] UNIQUE, \`body\`, canonical INTEGER, payload BLOB)`,
+    `CREATE TEMP TABLE "${metadataTable}"${metadataSchema}`,
+    `CREATE TEMPORARY TABLE IF NOT EXISTS [temp].[${metadataTable.toUpperCase()}]${metadataSchema.toLowerCase()};`,
+    `CREATE INDEX "${parentsIndex}" ON "${metadataTable}"(doc,parent,key,kind)`,
+    `create index "temp" . [${parentsIndex.toUpperCase()}] on \`${metadataTable}\` ("doc",[parent],\`key\`,kind);`,
+    `DROP TABLE IF EXISTS temp."${metadataTable}"`,
+    `INSERT INTO temp."${metadataTable}"(doc,node) SELECT doc,1 FROM temp."${historyTable}"`,
+    `REPLACE INTO temp."${metadataTable}"(doc,node) VALUES (1,2)`,
+    `UPDATE temp."${metadataTable}" SET prefix=? WHERE doc=?`,
+    `DELETE FROM temp."${metadataTable}" WHERE doc=?`,
+    `DROP TABLE temp."${historyTable}"`,
+    `DROP TABLE IF EXISTS [temp] /*gap*/ . [${historyTable}];`,
+    `INSERT INTO temp."${historyTable}"(source_id,body,canonical) SELECT id,name,0 FROM parents`,
+    `INSERT OR IGNORE INTO "temp".[${historyTable}](body) VALUES (?)`,
+    `REPLACE INTO temp.\`${historyTable}\`(doc,body) VALUES (1,?)`,
+    `UPDATE OR REPLACE temp."${historyTable}" SET body=json_set(body,?,?),payload=CAST(json_extract(body,?) AS BLOB) WHERE doc=?`,
+    `DELETE FROM TEMP.[${historyTable}] WHERE doc=?`,
+    `SELECT coalesce((SELECT body FROM temp."${historyTable}" WHERE source_id=parents.id),parents.name) FROM parents`,
+    `WITH x AS (SELECT body FROM temp."${historyTable}") SELECT * FROM x`,
+    `EXPLAIN QUERY PLAN SELECT body FROM temp."${historyTable}"`,
+    'PRAGMA table_info(parents)',
+    "INSERT INTO parents VALUES('p','load_extension(')",
+    "UPDATE items SET alias='new' WHERE id=20",
+    'DELETE FROM parents WHERE id=?'
+  ])('allows only the scoped exception or existing entity/read rules: %s', sql => {
+    expect(() => guardOverlaySql(sql, entities)).not.toThrow()
+  })
+
+  it.each([
+    `CREATE TABLE ${historyTable}${historySchema}`,
+    `CREATE TABLE temp.${historyTable}${historySchema}`,
+    `CREATE TEMP TABLE main.${historyTable}${historySchema}`,
+    `CREATE TEMP TABLE overlay_source_0.${historyTable}${historySchema}`,
+    `CREATE TEMP TABLE other${historySchema}`,
+    `CREATE TEMP TABLE pi_history_images_${'a'.repeat(31)}${historySchema}`,
+    `CREATE TEMP TABLE pi_history_images_${'a'.repeat(33)}${historySchema}`,
+    `CREATE TEMP TABLE pi_history_images_${'g'.repeat(32)}${historySchema}`,
+    `CREATE TEMP TABLE ${historyTable} AS SELECT * FROM parents`,
+    `CREATE TEMP TABLE ${historyTable}${historySchema} STRICT`,
+    `CREATE TEMP TABLE ${historyTable}${historySchema} WITHOUT ROWID`,
+    `CREATE TEMP TABLE ${historyTable}${historySchema}; SELECT 1`,
+    ...[
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, canonical INTEGER)',
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, canonical INTEGER, payload BLOB, extra)',
+      '(doc INTEGER PRIMARY KEY AUTOINCREMENT, source_id UNIQUE, body, canonical INTEGER, payload BLOB)',
+      '(doc INTEGER PRIMARY KEY, source_id, body, canonical INTEGER, payload BLOB)',
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body TEXT, canonical INTEGER, payload BLOB)',
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body DEFAULT (readfile(\'bad\')), canonical INTEGER, payload BLOB)',
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE REFERENCES parents(id), body, canonical INTEGER, payload BLOB)',
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, canonical INTEGER, payload TEXT)',
+      '(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, payload BLOB, canonical INTEGER)'
+    ].map(schema => `CREATE TEMP TABLE ${historyTable}${schema}`),
+    `CREATE TEMP VIEW ${historyTable} AS SELECT 1`,
+    `CREATE VIRTUAL TABLE temp.${historyTable} USING fts5(body)`,
+    `CREATE INDEX temp.bad ON ${historyTable}(body)`,
+    `CREATE TEMP TRIGGER bad AFTER INSERT ON temp.${historyTable} BEGIN DELETE FROM parents; END`,
+    `ALTER TABLE temp.${historyTable} ADD COLUMN extra`,
+    `CREATE TABLE ${metadataTable}${metadataSchema}`,
+    `CREATE TABLE temp.${metadataTable}${metadataSchema}`,
+    `CREATE TEMP TABLE main.${metadataTable}${metadataSchema}`,
+    `CREATE TEMP TABLE ${metadataTable}${historySchema}`,
+    `CREATE TEMP TABLE ${historyTable}${metadataSchema}`,
+    `CREATE TEMP TABLE ${historyTable}_metadata${metadataSchema}`,
+    `CREATE TEMP TABLE ${metadataTable}${metadataSchema} WITHOUT ROWID`,
+    ...[
+      metadataSchema.replace('node INTEGER', 'node TEXT'),
+      metadataSchema.replace('parentPath TEXT, ', ''),
+      metadataSchema.replace('PRIMARY KEY(doc,node)', 'PRIMARY KEY(node,doc)'),
+      metadataSchema.replace('PRIMARY KEY(doc,node)', 'UNIQUE(doc,node)'),
+      metadataSchema.replace('prefix TEXT', 'prefix TEXT DEFAULT (eval(\'bad\'))'),
+      metadataSchema.replace('nested INTEGER', 'nested INTEGER, extra BLOB')
+    ].map(schema => `CREATE TEMP TABLE ${metadataTable}${schema}`),
+    ...[
+      `main.${parentsIndex}`, `overlay_source_0.${parentsIndex}`, 'temp.other', `${historyTable}_other`
+    ].map(index => `CREATE INDEX ${index} ON ${metadataTable}(doc,parent,key,kind)`),
+    ...[
+      historyTable, `main.${metadataTable}`, `temp.${metadataTable}`, 'parents', `${historyTable.replace('0123', 'abcd')}_leaves`
+    ].map(table => `CREATE INDEX ${parentsIndex} ON ${table}(doc,parent,key,kind)`),
+    ...['doc,key,parent,kind', 'doc,parent,key', 'doc,parent,key,kind,prefix', 'doc,parent,key,kind DESC', 'doc,parent,key COLLATE NOCASE,kind', 'doc,parent,key,eval(\'bad\')'].map(columns =>
+      `CREATE INDEX ${parentsIndex} ON ${metadataTable}(${columns})`),
+    `CREATE UNIQUE INDEX ${parentsIndex} ON ${metadataTable}(doc,parent,key,kind)`,
+    `CREATE INDEX ${parentsIndex} ON ${metadataTable}(doc,parent,key,kind) WHERE doc>0`,
+    `CREATE INDEX ${parentsIndex} ON ${metadataTable}(doc,parent,key,kind); SELECT 1`,
+    `DROP INDEX temp.${parentsIndex}`,
+    ...[metadataTable, `main.${metadataTable}`, `overlay_source_0.${metadataTable}`, `temp.${parentsIndex}`, `temp.${historyTable}_metadata`].flatMap(target => [
+      `DROP TABLE IF EXISTS ${target}`,
+      `INSERT INTO ${target}(doc,node) VALUES (1,2)`,
+      `UPDATE ${target} SET prefix=?`,
+      `DELETE FROM ${target}`
+    ]),
+    ...[historyTable, `main.${historyTable}`, `overlay_source_0.${historyTable}`, 'temp.other', `temp.pi_history_images_${'a'.repeat(31)}`, `temp.${historyTable}.other`].flatMap(target => [
+      `DROP TABLE IF EXISTS ${target}`,
+      `INSERT INTO ${target}(body) VALUES (?)`,
+      `REPLACE INTO ${target}(doc,body) VALUES (1,?)`,
+      `UPDATE ${target} SET body=?`,
+      `DELETE FROM ${target}`
+    ]),
+    `DROP VIEW temp.${historyTable}`,
+    `DROP TABLE temp.${historyTable} CASCADE`,
+    `DROP TABLE temp.${historyTable}; DELETE FROM parents`,
+    `WITH x AS (SELECT 1) DELETE FROM temp.${historyTable}`,
+    `EXPLAIN UPDATE temp.${historyTable} SET body=?`,
+    ...['load_extension', 'writefile', 'readfile', 'eval'].flatMap(fn => [
+      `INSERT INTO temp.${historyTable}(body) SELECT "${fn}"(?)`,
+      `UPDATE temp.${historyTable} SET body=[${fn}](?)`,
+      `DELETE FROM temp.${historyTable} WHERE \`${fn}\`(?)`,
+      `SELECT ${fn}(?) FROM temp.${historyTable}`,
+      `INSERT INTO temp.${metadataTable}(prefix) SELECT "${fn}"(?)`,
+      `UPDATE temp.${metadataTable} SET prefix=${fn}(?)`,
+      `DELETE FROM temp.${metadataTable} WHERE ${fn}(?)`
+    ])
+  ])('rejects broader TEMP, persistent or unsafe SQL: %s', sql => {
+    expect(() => guardOverlaySql(sql, entities)).toThrow('unqualified')
+  })
+})
+
 describe('record overlay', () => {
+  it('keeps the history-image projection lifecycle entirely in TEMP without changing stored facts', async () => {
+    const f = fixture(), before = readFileSync(f.legacy), store = await open(f)
+    const facts = store.execute('SELECT * FROM entity_records').rows
+    store.execute(`CREATE TEMP TABLE "${historyTable}"${historySchema}`)
+    store.execute(`CREATE TEMP TABLE "${metadataTable}"${metadataSchema}`)
+    store.execute(`CREATE INDEX "${parentsIndex}" ON "${metadataTable}"(doc,parent,key,kind)`)
+    store.execute(`INSERT INTO temp."${metadataTable}"(doc,node,parent,key,kind) VALUES(1,2,0,'type','text')`)
+    store.execute(`UPDATE temp."${metadataTable}" SET prefix='image' WHERE doc=1`)
+    expect(store.execute(`SELECT prefix FROM temp."${metadataTable}" WHERE doc=1`).rows).toEqual([['image']])
+    expect(store.execute(`PRAGMA temp.index_info("${parentsIndex}")`).rows.map(row => row[2])).toEqual(['doc', 'parent', 'key', 'kind'])
+    expect(store.execute(`SELECT count(*) FROM main.sqlite_master WHERE name IN ('${metadataTable}','${parentsIndex}')`).rows).toEqual([[0n]])
+    store.execute(`DELETE FROM temp."${metadataTable}" WHERE doc=1`)
+    store.execute(`DROP TABLE IF EXISTS temp."${metadataTable}"`)
+    expect(store.execute(`SELECT count(*) FROM sqlite_temp_master WHERE name='${parentsIndex}'`).rows).toEqual([[0n]])
+    store.execute(`INSERT INTO temp."${historyTable}"(source_id,body,canonical) SELECT id,name,0 FROM parents`)
+    store.execute(`UPDATE temp."${historyTable}" SET body=json_object('name',body),payload=x'ff00' WHERE doc=1`)
+    store.execute(`INSERT INTO temp."${historyTable}"(body) SELECT body FROM temp."${historyTable}" WHERE doc=1`)
+    expect(store.execute(`SELECT body FROM temp."${historyTable}" ORDER BY doc`).rows).toEqual([['{"name":"old"}'], ['{"name":"old"}']])
+    store.execute(`DELETE FROM temp."${historyTable}" WHERE source_id IS NULL`)
+    expect(store.execute(`SELECT count(*) FROM main.sqlite_master WHERE name='${historyTable}'`).rows).toEqual([[0n]])
+    store.execute(`DROP TABLE IF EXISTS temp."${historyTable}"`)
+    store.execute(`DROP TABLE IF EXISTS temp."${historyTable}"`)
+    expect(store.execute(`SELECT count(*) FROM sqlite_temp_master WHERE name='${historyTable}'`).rows).toEqual([[0n]])
+    expect(store.execute('SELECT * FROM entity_records').rows).toEqual(facts)
+    expect(store.execute('SELECT name FROM parents').rows).toEqual([['old']])
+    store.close()
+    expect(readFileSync(f.legacy)).toEqual(before)
+  })
+
+  it('accepts the optimized helper SQL and disposes its TEMP metadata and parent index', async () => {
+    const f = fixture(), store = await open(f), dialect = new SQLiteSyncDialect()
+    const body = JSON.stringify({ content: [{ type: 'image', mimeType: 'image/png', data: Buffer.from('image bytes').toString('base64') }] })
+    store.execute('UPDATE parents SET name=? WHERE id=?', [body, 'p'])
+    const facts = store.execute('SELECT * FROM entity_records').rows
+    const execute = (query: SQL) => {
+      const compiled = dialect.sqlToQuery(query)
+      return store.execute(compiled.sql, compiled.params)
+    }
+    const projection = await prepareHistoryImageProjection({
+      all: <T>(query: SQL) => {
+        const result = execute(query)
+        return result.rows.map(row => Object.fromEntries(result.columns.map((column, index) => [column,
+          typeof row[index] === 'bigint' ? Number(row[index]) : row[index]]))) as T[]
+      },
+      run: execute
+    }, 'parents', 'name', sql`id='p'`, 'id', f.directory)
+    const objects = store.execute("SELECT type,name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%' AND type IN ('table','index')").rows
+    expect(objects.filter(row => row[0] === 'table')).toHaveLength(2)
+    expect(objects.filter(row => row[0] === 'index').map(row => row[1])).toEqual([expect.stringMatching(/_parents$/)])
+    const projected = execute(sql`SELECT ${projection.expression} FROM parents WHERE id='p'`).rows[0][0]
+    expect(projected).toContain('Previously loaded image:')
+    expect(projected).not.toContain(Buffer.from('image bytes').toString('base64'))
+    await projection.dispose()
+    expect(store.execute("SELECT name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%'").rows).toEqual([])
+    expect(store.execute("SELECT name FROM main.sqlite_master WHERE name LIKE 'pi_history_images_%'").rows).toEqual([])
+    expect(store.execute('SELECT * FROM entity_records').rows).toEqual(facts)
+    expect(store.execute("SELECT name FROM parents WHERE id='p'").rows).toEqual([[body]])
+  })
+
   it('opens the exact new path, creates no imported facts and leaves the source byte-identical', async () => {
     const f = fixture(), before = readFileSync(f.legacy), progress = vi.fn()
     const store = await PersistentRecordStore.openOverlay(f.filename, 'bigint', progress, { legacyPaths: [f.legacy], migrationDir: f.migrationDir })

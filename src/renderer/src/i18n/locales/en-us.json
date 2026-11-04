@@ -2768,6 +2768,10 @@
           "koubo_template": {
             "submit_koubo_template_task": "Submit Talking Head Template Task"
           },
+          "media_search": {
+            "search_images": "Image Search",
+            "search_videos": "Video Search"
+          },
           "materials": {
             "folder_links": "View Folder"
           },

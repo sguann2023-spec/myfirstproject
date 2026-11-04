@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { realpath } from 'node:fs/promises'
 
 import type {
   SessionEntryCursorOptions,
@@ -18,6 +19,7 @@ import { resolveMessageProjectionTables } from '../messageEventStore'
 import { AgentTranscriptRepository } from './agentTranscriptRepository'
 import type { AgentMessagePart, AgentMessageWithParts } from './agentTranscript.types'
 import { captureOverlayBoundary, isPiOverlay, readOverlayPrefix, type OverlayContextBoundary } from './piOverlayContext'
+import { prepareHistoryImageProjection, relocateHistoryImageReferences } from './piHistoryImages'
 
 export interface DurablePiSessionMetadata extends SessionMetadata {
   topicId: string
@@ -162,9 +164,19 @@ export function canonicalMessageToPi(entry: AgentMessageWithParts, includeProvid
     for (const part of parts) {
       if (part.type === 'text') content.push({ type: 'text', text: partText(part) })
       if (part.type === 'image') {
+        const file = part.data.file && typeof part.data.file === 'object' ? part.data.file as { path?: unknown } : undefined
+        const source = part.data.source ?? part.data.sourcePath ?? file?.path ?? part.data.url
         const data = String(part.data.data ?? '')
+        if (!data && typeof source === 'string' && /^(?:\/|[a-z]:[\\/]|https?:\/\/)/i.test(source)) {
+          content.push({ type: 'text', text: `Previously loaded image: ${JSON.stringify(source)}. Use ReadImageAsContent with this file_path or URL if visual inspection is needed again.` })
+          continue
+        }
         const mimeType = String(part.data.mediaType ?? part.data.mimeType ?? 'image/png')
         if (data) content.push({ type: 'image', data, mimeType })
+        else if (typeof part.data.url === 'string') {
+          const match = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(part.data.url)
+          if (match) content.push({ type: 'image', data: match[2], mimeType: match[1] })
+        }
       }
     }
     const normalized = content.filter((item) => item.type !== 'text' || item.text)
@@ -289,6 +301,7 @@ function sessionsFor(db: AgentDatabase): DatabaseSessions {
 /** Database recovery happens once per database/topic. PI only sees memory thereafter. */
 export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMetadata> {
   private invocationId?: string
+  private workspacePath?: string
   private state!: PiMemoryState
   private recoveryWrites: Array<{ operation: () => Promise<void>; bytes: number }> | undefined = []
 
@@ -367,6 +380,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
   static async hasDurableConversation(input: {
     topicId: string
     excludeMessageIds?: string[]
+    workspacePath?: string
     database?: AgentDatabase
   }): Promise<boolean> {
     const db = await this.database(input.database)
@@ -385,7 +399,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     const excluded = new Set(input.excludeMessageIds ?? [])
     if (await isPiOverlay(db)) {
       const boundary = await captureOverlayBoundary(db, input.topicId)
-      const prefix = await readOverlayPrefix(db, input.topicId, boundary, messageId => messageId)
+      const prefix = await readOverlayPrefix(db, input.topicId, boundary, messageId => messageId, input.workspacePath)
       return prefix.some(item => !excluded.has(item.id) && !(item as any).__providerHidden)
     }
     return (await new AgentTranscriptRepository(db).listMessages(input.topicId)).some(message => !excluded.has(message.id))
@@ -460,13 +474,31 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
         throw await sessionError('invalid_session', `PI session id ${sessionId} already belongs to topic ${owner ?? collision!.topicId}`)
       }
     }
-    const stored = await this.getStoredEntries()
+    const persistedMetadata = structuredClone(row?.metadata_json ?? metadata ?? {})
+    const previousWorkspaces = new Set<string>(Array.isArray(persistedMetadata.__historyImageWorkspaces)
+      ? persistedMetadata.__historyImageWorkspaces.filter((value): value is string => typeof value === 'string') : [])
+    if (typeof persistedMetadata.workspacePath === 'string') previousWorkspaces.add(persistedMetadata.workspacePath)
+    const workspacePath = metadata?.workspacePath ?? persistedMetadata.workspacePath
+    this.workspacePath = typeof workspacePath === 'string' ? workspacePath : undefined
+    if (this.workspacePath) {
+      try { this.workspacePath = await realpath(this.workspacePath) } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
+      }
+    }
+    const workspaceChanged = Boolean(this.workspacePath && persistedMetadata.workspacePath !== this.workspacePath)
+    if (this.workspacePath) persistedMetadata.workspacePath = this.workspacePath
+    if (workspaceChanged) persistedMetadata.__historyImageWorkspaces = [...previousWorkspaces]
+    let stored = await this.getStoredEntries()
+    if (this.workspacePath) {
+      for (const previous of previousWorkspaces) {
+        stored = await relocateHistoryImageReferences(stored, previous, this.workspacePath)
+      }
+    }
     const claims = await db.select().from(piInvocationEntriesTable).where(eq(piInvocationEntriesTable.topic_id, this.topicId))
     const overlay = await isPiOverlay(db)
-    const persistedMetadata = structuredClone(row?.metadata_json ?? metadata ?? {})
     this.state = {
       metadata: { id: sessionId, topicId: this.topicId, createdAt: row?.created_at ?? new Date().toISOString(),
-        metadata: Object.fromEntries(Object.entries(persistedMetadata).filter(([key]) => !['__canonicalHydration', '__overlayContext'].includes(key))) },
+        metadata: Object.fromEntries(Object.entries(persistedMetadata).filter(([key]) => !['__canonicalHydration', '__overlayContext', '__historyImageWorkspaces'].includes(key))) },
       entries: [], byId: new Map(), leafId: row?.active_leaf_id ?? null,
       claims: new Map(claims.filter(claim => claim.entry_kind === 'user_message').map(claim => [claim.invocation_id, claim.entry_id])),
       hiddenIds: await this.getProviderHiddenCanonicalEntryIds(db), overlay,
@@ -477,13 +509,15 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
       const values = { topic_id: this.topicId, pi_session_id: sessionId, created_at: this.state.metadata.createdAt,
         active_leaf_id: null, metadata_json: structuredClone(persistedMetadata), updated_at: this.state.metadata.createdAt }
       this.enqueue(values, async () => { await db.insert(piSessionsTable).values(values) })
+    } else if (workspaceChanged) {
+      this.saveRecoveryMetadata(persistedMetadata)
     }
     if (overlay) {
       let boundary = persistedMetadata.__overlayContext as OverlayContextBoundary | undefined
       if (boundary || !stored.length) {
         boundary ??= await captureOverlayBoundary(db, this.topicId, this.invocationId)
         const prefix = await readOverlayPrefix(db, this.topicId, boundary,
-          (messageId, index) => stableEntryId('canonical', this.topicId, messageId, index))
+          (messageId, index) => stableEntryId('canonical', this.topicId, messageId, index), this.workspacePath)
         const treeDigest = createHash('sha256').update(JSON.stringify(prefix.map(entry => [entry.id, entry.parentId]))).digest('hex')
         if (boundary.treeDigest && boundary.treeDigest !== treeDigest) {
           throw await sessionError('invalid_session', 'PI overlay source context changed or is unavailable; cannot restore its parent tree without migration')
@@ -507,32 +541,49 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
       const marker = persistedMetadata.__canonicalHydration as { complete?: boolean; excludeMessageId?: string } | undefined
       if (!marker?.complete && (!stored.length || marker)) {
         const excluded = marker ? marker.excludeMessageId : this.invocationId
-        const transcript = (await new AgentTranscriptRepository(db).listTranscript(this.topicId)).filter(item =>
-          !excluded || (item.message.id !== excluded && item.message.parentMessageId !== excluded))
-        if (transcript.length) {
-          persistedMetadata.__canonicalHydration = { complete: false, excludeMessageId: excluded }
-          this.saveRecoveryMetadata(persistedMetadata)
-          let parentId: string | null = null
-          const messageLeaves = new Map<string, string | null>()
-          for (const item of transcript) {
-            if (item.message.parentMessageId) {
-              if (!messageLeaves.has(item.message.parentMessageId)) {
-                throw await sessionError('invalid_session', `Canonical parent ${item.message.parentMessageId} is unavailable`)
-              }
-              parentId = messageLeaves.get(item.message.parentMessageId) ?? null
-            }
-            const messages = canonicalMessageToPi(item)
-            for (const [index, message] of messages.entries()) {
-              const entry: SessionTreeEntry = { type: 'message', id: stableEntryId('canonical', this.topicId, item.message.id, index),
-                parentId, timestamp: item.message.createdAt, message }
-              if (!this.state.byId.has(entry.id)) this.commitEntry(entry)
-              parentId = entry.id
-            }
-            messageLeaves.set(item.message.id, parentId)
+        if (this.workspacePath) {
+          const boundary = await captureOverlayBoundary(db, this.topicId, excluded)
+          // Canonical hydration has no legacy fallback, but must use the same
+          // pre-transfer image projection as an overlay prefix.
+          boundary.legacyId = -1
+          const prefix = await readOverlayPrefix(db, this.topicId, boundary,
+            (messageId, index) => stableEntryId('canonical', this.topicId, messageId, index), this.workspacePath)
+          if (prefix.length) {
+            persistedMetadata.__canonicalHydration = { complete: false, excludeMessageId: excluded }
+            this.saveRecoveryMetadata(persistedMetadata)
+            for (const entry of prefix) if (!this.state.byId.has(entry.id)) this.commitEntry(entry)
+            this.state.leafId = prefix[prefix.length - 1].id
+            persistedMetadata.__canonicalHydration = { complete: true, excludeMessageId: excluded }
+            this.saveRecoveryMetadata(persistedMetadata)
           }
-          this.state.leafId = parentId
-          persistedMetadata.__canonicalHydration = { complete: true, excludeMessageId: excluded }
-          this.saveRecoveryMetadata(persistedMetadata)
+        } else {
+          const transcript = (await new AgentTranscriptRepository(db).listTranscript(this.topicId)).filter(item =>
+            !excluded || (item.message.id !== excluded && item.message.parentMessageId !== excluded))
+          if (transcript.length) {
+            persistedMetadata.__canonicalHydration = { complete: false, excludeMessageId: excluded }
+            this.saveRecoveryMetadata(persistedMetadata)
+            let parentId: string | null = null
+            const messageLeaves = new Map<string, string | null>()
+            for (const item of transcript) {
+              if (item.message.parentMessageId) {
+                if (!messageLeaves.has(item.message.parentMessageId)) {
+                  throw await sessionError('invalid_session', `Canonical parent ${item.message.parentMessageId} is unavailable`)
+                }
+                parentId = messageLeaves.get(item.message.parentMessageId) ?? null
+              }
+              const messages = canonicalMessageToPi(item)
+              for (const [index, message] of messages.entries()) {
+                const entry: SessionTreeEntry = { type: 'message', id: stableEntryId('canonical', this.topicId, item.message.id, index),
+                  parentId, timestamp: item.message.createdAt, message }
+                if (!this.state.byId.has(entry.id)) this.commitEntry(entry)
+                parentId = entry.id
+              }
+              messageLeaves.set(item.message.id, parentId)
+            }
+            this.state.leafId = parentId
+            persistedMetadata.__canonicalHydration = { complete: true, excludeMessageId: excluded }
+            this.saveRecoveryMetadata(persistedMetadata)
+          }
         }
       }
     }
@@ -804,7 +855,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
       ))) ELSE entry_json END`
   }
 
-  private async readBoundedEntries(db: DatabaseExecutor, metadata: EntryMetadata[]): Promise<SessionTreeEntry[]> {
+  private async readBoundedEntries(db: DatabaseExecutor, metadata: EntryMetadata[], projectedJson = this.restoredEntryJson()): Promise<SessionTreeEntry[]> {
     const entries: SessionTreeEntry[] = []
     let total = 0
     for (let offset = 0; offset < metadata.length;) {
@@ -821,7 +872,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
       // record changed between metadata and body reads. Oversize bodies are NULL.
       const rows = await db.all<{ id: string; bytes: number; entry: string | null }>(sql`
         WITH projected AS MATERIALIZED (
-          SELECT entry_id AS id, ${this.restoredEntryJson()} AS entry FROM pi_session_entries
+          SELECT entry_id AS id, ${projectedJson} AS entry FROM pi_session_entries
           WHERE topic_id = ${this.topicId} AND entry_id IN (${ids})
         ), sizes AS (
           SELECT id, octet_length(entry) AS bytes FROM projected
@@ -850,28 +901,34 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
 
   private async getStoredEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
     const db = this.db
-    const limit = options?.limit ?? PI_HISTORY_LIMITS.entries + 1
-    if (!Number.isSafeInteger(limit) || limit < 0) throw historyLimitError()
-    const metadata: EntryMetadata[] = []
-    let sequence = (options?.afterEntrySeq ?? 0) - 1
-    let total = 0
-    while (metadata.length < limit) {
-      const count = Math.min(PI_HISTORY_LIMITS.metadataBatch, limit - metadata.length)
-      const rows = await db.all<EntryMetadata & { sequence: number }>(sql`
-        SELECT substr(entry_id, 1, 1025) AS id, octet_length(${this.restoredEntryJson()}) AS bytes, sequence
-        FROM pi_session_entries WHERE topic_id = ${this.topicId} AND sequence > ${sequence}
-        ORDER BY sequence LIMIT ${count}
-      `)
-      for (const row of rows) {
-        if (Buffer.byteLength(row.id) > 1024) throw historyLimitError()
-        total = this.checkHistoryMetadata(metadata, row, total)
-        metadata.push({ id: row.id, bytes: Number(row.bytes) })
-        sequence = Number(row.sequence)
+    const projection = await prepareHistoryImageProjection(db, 'pi_session_entries', 'entry_json',
+      sql`topic_id=${this.topicId}`, 'entry_id', this.workspacePath, this.restoredEntryJson())
+    try {
+      const projectedJson = projection.expression
+      const limit = options?.limit ?? PI_HISTORY_LIMITS.entries + 1
+      if (!Number.isSafeInteger(limit) || limit < 0) throw historyLimitError()
+      const metadata: EntryMetadata[] = []
+      let sequence = (options?.afterEntrySeq ?? 0) - 1
+      let total = 0
+      while (metadata.length < limit) {
+        const count = Math.min(PI_HISTORY_LIMITS.metadataBatch, limit - metadata.length)
+        const rows = await db.all<EntryMetadata & { sequence: number }>(sql`
+          SELECT substr(entry_id, 1, 1025) AS id, octet_length(${projectedJson}) AS bytes, sequence
+          FROM pi_session_entries WHERE topic_id = ${this.topicId} AND sequence > ${sequence}
+          ORDER BY sequence LIMIT ${count}
+        `)
+        for (const row of rows) {
+          if (Buffer.byteLength(row.id) > 1024) throw historyLimitError()
+          total = this.checkHistoryMetadata(metadata, row, total)
+          metadata.push({ id: row.id, bytes: Number(row.bytes) })
+          sequence = Number(row.sequence)
+        }
+        if (rows.length < count) break
       }
-      if (rows.length < count) break
+      return await this.readBoundedEntries(db, metadata, projectedJson)
+    } finally {
+      await projection.dispose()
     }
-    const entries = await this.readBoundedEntries(db, metadata)
-    return entries
   }
 
 }

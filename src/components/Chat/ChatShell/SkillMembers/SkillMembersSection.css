@@ -5,6 +5,38 @@
   color: #000;
 }
 
+.chat-panel__members-title--skills {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-panel__members-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-panel__members-toggle-all {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chat-panel__members-toggle-all:hover {
+  color: #333;
+  background: #e2e2e2;
+}
+
 .chat-panel__members-count {
   margin-left: 4px;
   color: #000;
