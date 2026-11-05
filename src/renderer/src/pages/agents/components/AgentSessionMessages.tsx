@@ -5,6 +5,7 @@ import { useAgent } from '@renderer/hooks/agents/useAgent'
 import { useSession } from '@renderer/hooks/agents/useSession'
 import { useTopicMessages } from '@renderer/hooks/useMessageOperations'
 import useScrollPosition from '@renderer/hooks/useScrollPosition'
+import useStickToBottom from '@renderer/hooks/useStickToBottom'
 import { useSettings } from '@renderer/hooks/useSettings'
 import { useTimer } from '@renderer/hooks/useTimer'
 import MessageAnchorLine from '@renderer/pages/home/Messages/MessageAnchorLine'
@@ -25,6 +26,7 @@ import { type Topic, TopicType } from '@renderer/types'
 import type { Message } from '@renderer/types/newMessage'
 import { addAbortController } from '@renderer/utils/abortController'
 import { buildAgentSessionTopicId } from '@renderer/utils/agentSession'
+import { isMessageProcessing } from '@renderer/utils/messageUtils/is'
 import { Spin } from 'antd'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import InfiniteScroll from 'react-infinite-scroll-component'
@@ -209,6 +211,9 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
   const { containerRef: scrollContainerRef, handleScroll: handleScrollPosition } = useScrollPosition(
     `agent-session-${sessionId}`
   )
+  // 是否有消息正在生成(流式输出), 仅在生成时对不在底部的视口做滚动补偿
+  const isStreaming = useMemo(() => messages.some((message) => isMessageProcessing(message)), [messages])
+  const { handleScroll: handleStickToBottom } = useStickToBottom(scrollContainerRef, isStreaming, sessionId)
 
   const { setTimeoutTimer } = useTimer()
 
@@ -306,7 +311,10 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
       id="messages"
       className="messages-container"
       ref={scrollContainerRef}
-      onScroll={handleScrollPosition}>
+      onScroll={() => {
+        handleScrollPosition()
+        handleStickToBottom()
+      }}>
       <NarrowLayout style={{ display: 'flex', flexDirection: 'column-reverse' }}>
         <InfiniteScroll
           dataLength={displayMessages.length}

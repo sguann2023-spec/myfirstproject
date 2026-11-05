@@ -1,5 +1,6 @@
 import type { McpHttpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { loggerService } from '@logger'
+import AiLibraryServer from '@main/mcpServers/ai-library'
 import AssistantServer from '@main/mcpServers/assistant'
 import AudioUnderstandServer from '@main/mcpServers/audio-understand'
 import type BrowserServer from '@main/mcpServers/browser/server'
@@ -13,17 +14,21 @@ import DraftRenderServer from '@main/mcpServers/draft-render'
 import FfmpegMediaServer from '@main/mcpServers/ffmpeg-media'
 import FileSystemServer from '@main/mcpServers/filesystem'
 import FileUploadServer from '@main/mcpServers/file-upload'
+import FigureSearchServer from '@main/mcpServers/figure-search'
+import FootageSearchServer from '@main/mcpServers/footage-search'
 import type ImageGenerateServer from '@main/mcpServers/image-generate'
 import ImageUnderstandServer from '@main/mcpServers/image-understand'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
 import MediaSearchServer from '@main/mcpServers/media-search'
+import PhotoSearchServer from '@main/mcpServers/photo-search'
 import RemoveBgServer from '@main/mcpServers/remove-bg'
 import ScraptToolServer from '@main/mcpServers/scrapt-tool'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
 import SpeechGenerateServer from '@main/mcpServers/speech-generate'
+import StockSearchServer from '@main/mcpServers/stock-search'
 import StoryboardEditorServer from '@main/mcpServers/storyboard-editor'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
@@ -149,6 +154,38 @@ export async function mountRuntimeMcpServers(input: {
     allowMcpPattern(vp('materials'))
     mountMcpServer('media-search', { type: 'sdk', name: 'media-search', instance: new MediaSearchServer().mcpServer })
     allowMcpTools([vt('media-search', 'search_images'), vt('media-search', 'search_videos')])
+    mountMcpServer('photo-search', { type: 'sdk', name: 'photo-search', instance: new PhotoSearchServer().mcpServer })
+    // Download tracking requires approval; do not allow the whole server pattern.
+    allowMcpTools([vt('photo-search', 'search_images'), vt('photo-search', 'get_image')])
+    mountMcpServer('stock-search', { type: 'sdk', name: 'stock-search', instance: new StockSearchServer().mcpServer })
+    allowMcpTools([
+      vt('stock-search', 'search_videos'),
+      vt('stock-search', 'get_video'),
+      vt('stock-search', 'search_audios'),
+      vt('stock-search', 'get_audio')
+    ])
+    mountMcpServer('footage-search', {
+      type: 'sdk',
+      name: 'footage-search',
+      instance: new FootageSearchServer().mcpServer,
+      timeout: 195000
+    })
+    mountMcpServer('ai-library', {
+      type: 'sdk',
+      name: 'ai-library',
+      instance: new AiLibraryServer().mcpServer,
+      timeout: 195000
+    })
+    for (const serverName of ['footage-search', 'ai-library']) {
+      allowMcpTools(['search_images', 'get_image', 'search_videos', 'get_video'].map((tool) => vt(serverName, tool)))
+    }
+    // Figure searches require approval, including when a custom server has the same name.
+    mountMcpServer('figure-search', {
+      type: 'sdk',
+      name: 'figure-search',
+      instance: new FigureSearchServer().mcpServer,
+      timeout: 195000
+    })
   }
 
   if (hasWebDomain) {
@@ -600,6 +637,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   for (const serverKey of customMcpServerKeys) {
+    if (serverKey === 'photo-search' || serverKey === 'figure-search') continue
     allowMcpPattern(vp(serverKey === 'filesystem' ? 'filesystem-server' : serverKey))
   }
 

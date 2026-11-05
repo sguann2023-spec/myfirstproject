@@ -76,6 +76,19 @@ describe('Bundled social-media tools', () => {
     expect(new URL(built.url).searchParams.get('count')).toBe('25')
   })
 
+  it('offers YouTube video discovery without changing its schema or executing a download', () => {
+    const tool = SCRAPT_TOOLS.find((item) => item.name === 'youtube_web_search_video')!
+    expect(tool.description).toContain('Search YouTube videos using search_query')
+    expect(tool.description).toContain('this does not download, trim or insert videos')
+    expect(tool.description).not.toMatch(/license|permission|authorization/i)
+    expect(tool.inputSchema).toMatchObject({ required: ['search_query'] })
+    const request = buildScraptRequest(tool.name, { search_query: 'mountain hiking tutorial' })
+    expect(new URL(request.url).pathname).toBe('/scrapt/proxy/api/v1/youtube/web/search_video')
+    expect(new URL(request.url).searchParams.get('search_query')).toBe('mountain hiking tutorial')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(tokenMock).not.toHaveBeenCalled()
+  })
+
   it('preserves case-sensitive algorithm route names', () => {
     const entry = catalog.entries.find((item) => item.tool.name === 'tiktok_web_generate_real_mstoken')!
     expect(entry.route.path).toBe('/api/v1/tiktok/web/generate_real_msToken')

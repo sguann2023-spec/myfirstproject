@@ -6,6 +6,7 @@ import { useAssistant } from '@renderer/hooks/useAssistant'
 import { useChatContext } from '@renderer/hooks/useChatContext'
 import { useMessageOperations, useTopicMessages } from '@renderer/hooks/useMessageOperations'
 import useScrollPosition from '@renderer/hooks/useScrollPosition'
+import useStickToBottom from '@renderer/hooks/useStickToBottom'
 import { useSettings } from '@renderer/hooks/useSettings'
 import { useShortcut } from '@renderer/hooks/useShortcuts'
 import { useTimer } from '@renderer/hooks/useTimer'
@@ -30,7 +31,7 @@ import {
 } from '@renderer/utils'
 import { updateCodeBlock } from '@renderer/utils/markdown'
 import { getMainTextContent } from '@renderer/utils/messageUtils/find'
-import { isTextLikeBlock } from '@renderer/utils/messageUtils/is'
+import { isMessageProcessing, isTextLikeBlock } from '@renderer/utils/messageUtils/is'
 import { last } from 'lodash'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -69,6 +70,10 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
   const messages = useTopicMessages(topic.id)
   const { displayCount, clearTopicMessages, deleteMessage, createTopicBranch } = useMessageOperations(topic)
   const { setTimeoutTimer } = useTimer()
+
+  // 是否有消息正在生成(流式输出), 仅在生成时对不在底部的视口做滚动补偿
+  const isStreaming = useMemo(() => messages.some((message) => isMessageProcessing(message)), [messages])
+  const { handleScroll: handleStickToBottom } = useStickToBottom(scrollContainerRef, isStreaming, assistant.id)
 
   const { isMultiSelectMode, handleSelectMessage } = useChatContext(topic)
 
@@ -306,7 +311,10 @@ const Messages: React.FC<MessagesProps> = ({ assistant, topic, setActiveTopic, o
       className="messages-container"
       ref={scrollContainerRef}
       key={assistant.id}
-      onScroll={handleScrollPosition}>
+      onScroll={() => {
+        handleScrollPosition()
+        handleStickToBottom()
+      }}>
       <NarrowLayout style={{ display: 'flex', flexDirection: 'column-reverse' }}>
         <InfiniteScroll
           dataLength={displayMessages.length}

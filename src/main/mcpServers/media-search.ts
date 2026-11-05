@@ -5,13 +5,16 @@ import { net } from 'electron'
 import Store from 'electron-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
+import { ASSET_SEARCH_ROUTING } from './asset-search-routing'
 import { getStoredVectcutApiKey, requestWithVectcutAuth } from './vectcut-auth'
 
 const LANGUAGES = ['cs', 'da', 'de', 'en', 'es', 'fr', 'id', 'it', 'hu', 'nl', 'no', 'pl', 'pt', 'ro', 'sk', 'fi', 'sv', 'tr', 'vi', 'th', 'bg', 'ru', 'el', 'ja', 'ko', 'zh']
 const CATEGORIES = ['backgrounds', 'fashion', 'nature', 'science', 'education', 'feelings', 'health', 'people', 'religion', 'places', 'animals', 'industry', 'computer', 'food', 'sports', 'transportation', 'travel', 'buildings', 'business', 'music']
 const COLORS = ['grayscale', 'transparent', 'red', 'orange', 'yellow', 'green', 'turquoise', 'blue', 'lilac', 'pink', 'white', 'gray', 'black', 'brown']
 const SEARCH_GUIDANCE =
-  'Search existing visual assets as a potentially cheaper alternative to AI generation. When a user needs an image, background, B-roll, overlay or sticker, you can also consider searching existing assets first, or try a search before generating a custom asset. This is a recommendation, not a requirement; honor explicit requests for AI generation. Search only, no automatic download or timeline insertion. Download selected images before permanent use and respect the license, attribution requirements and third-party rights of the returned source page. This service does not support music, sound effects or GIF search. '
+  'You can also consider existing assets as a potentially cheaper alternative to AI generation. This search call returns asset metadata and URLs; downstream tools handle downloads and editing. This service does not support music, sound effects or GIF search. '
+const VIDEO_USAGE_GUIDANCE =
+  'For an editing task, prefer automatically downloading the selected video into the workspace using filesystem.download(url, file_path), rather than returning only a link. Do not download every search hit. When only a segment is needed, use ffmpeg-media.trim_media_segment with the local source and verified start/end or duration. For a selected YouTube result, obtain a direct media URL using scrapt.youtube_web_v2_get_video_streams with video_id or video_url before downloading; never save a watch page as a video. If the user explicitly asks only to search or preview, return candidates without downloading. '
 
 const COMMON_PROPERTIES = {
   q: { type: 'string', minLength: 1, maxLength: 100, description: 'Search keywords, not a long AI prompt. English keywords usually work well; set lang for other languages.' },
@@ -31,7 +34,7 @@ const TOOLS: Tool[] = [
   {
     name: 'search_images',
     title: '\u56fe\u7247\u641c\u7d22',
-    description: 'Image search: find photos, illustrations, backgrounds and vector images. ' + SEARCH_GUIDANCE + 'For sticker or cutout candidates, try image_type="illustration" and colors="transparent"; transparency is not guaranteed. For SVG/vector candidates, try image_type="vector"; use vectorURL when available to download the vector file. Never label a raster preview as SVG.',
+    description: 'Mixed visual library: prefer for illustrations, vector candidates, sticker/cutout candidates, or category and exact minimum-dimension filters. For ordinary real-world photos prefer footage-search.search_images. Use image_type="illustration" with colors="transparent" for cutout candidates; transparency is not guaranteed. Use image_type="vector" for vectors; only vectorURL identifies a downloadable vector file. Never label a raster preview as SVG. Start with per_page=3-5. For a known ID from this library use id instead of repeating keywords. ' + ASSET_SEARCH_ROUTING + SEARCH_GUIDANCE,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
       type: 'object',
@@ -48,7 +51,7 @@ const TOOLS: Tool[] = [
   {
     name: 'search_videos',
     title: '\u89c6\u9891\u641c\u7d22',
-    description: 'Video search: find footage, B-roll, animated backgrounds and video overlays. ' + SEARCH_GUIDANCE + 'Returns available MP4 versions with dimensions, size, thumbnails and duration. Animation videos are not GIF files.',
+    description: 'Mixed video library: prefer for animated backgrounds and overlays using video_type="animation", or footage needing category and exact minimum-dimension filters. For ordinary filmed B-roll prefer footage-search.search_videos first. Consider scrapt.youtube_web_search_video with search_query for actual scene/event recordings, specific identifiable locations, tutorials/demonstrations or explicit YouTube requests. YouTube is also a suitable fallback for real-world filmed B-roll, establishing shots, scenic backgrounds and lifestyle clips when stock results are empty or unsuitable. Continue with refined keywords or relevant result pages as needed rather than stopping after one unsuccessful YouTube search; stop when suitable footage is found. Never use YouTube as an animation, vector or AI-only asset fallback. This tool searches its own video library, not YouTube. Search results already contain duration and MP4 versions with dimensions and sizes; no separate detail call is needed. Start with per_page=3-5. For a known ID from this library use id. Animation videos are not GIF files. ' + ASSET_SEARCH_ROUTING + SEARCH_GUIDANCE + VIDEO_USAGE_GUIDANCE,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
       type: 'object',
@@ -168,10 +171,17 @@ export default class MediaSearchServer {
           title: kind === 'video' ? '\u89c6\u9891\u641c\u7d22' : '\u56fe\u7247\u641c\u7d22',
           mediaType: kind,
           licenseURL: 'https://pixabay.com/service/license-summary/',
-          usage: 'Download selected images before permanent use. Respect the license, attribution requirements and third-party rights of the returned source page. vectorURL, when present, is the vector download; raster previews are not SVG.',
+          usage: kind === 'video' ? VIDEO_USAGE_GUIDANCE : 'Use returned media URLs, dimensions and metadata to select assets. vectorURL, when present, identifies the vector file; raster previews are not SVG.',
           page: Number(params.get('page')),
           per_page: Number(params.get('per_page')),
-          ...payload
+          ...payload,
+          ...(kind === 'video' && payload.hits.length === 0 && params.get('page') === '1' && params.has('q') && !params.has('id') && params.get('video_type') !== 'animation' ? {
+            suggestedNextSearch: {
+              tool: 'scrapt.youtube_web_search_video',
+              arguments: { search_query: params.get('q') },
+              guidance: 'No matching videos were found. For real-world filmed footage, B-roll, establishing shots, scenic backgrounds, locations, events or tutorials, search YouTube next instead of stopping. If results are still unsuitable, refine keywords, try relevant synonyms or another result page; this fallback is not limited to one call. Avoid repeating identical failed searches and stop when suitable footage is found. Skip it for animation or AI-only requests. When editing, download the selected result using the video workflow above.'
+            }
+          } : {})
         }
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result }
       } catch (error) {

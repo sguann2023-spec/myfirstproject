@@ -113,10 +113,11 @@ describe('mcpToolDisplay', () => {
     ).toBe('Custom Tools: Generate Or Edit Image')
   })
 
-  it.each(['media-search', 'pixabay'])('uses standalone search titles for %s in all primary locales', (server) => {
+  it.each(['media-search', 'pixabay'])('uses one web search title for %s in all primary locales', (server) => {
     for (const [tool, simplified, traditional, english] of [
-      ['search_images', '图片搜索', '圖片搜尋', 'Image Search'],
-      ['search_videos', '视频搜索', '影片搜尋', 'Video Search']
+      ['search_images', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+      ['search_videos', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+      ['unknown_tool', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search']
     ]) {
       for (const name of [`mcp__vectcut__${server}__${tool}`, `mcp__${server}__${tool}`, `${server}:${tool}`]) {
         for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
@@ -133,30 +134,131 @@ describe('mcpToolDisplay', () => {
 
   it.each(['media-search', 'pixabay'])('uses English search fallbacks for %s when translations are missing', (serverName) => {
     const translate = ((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key) as any
-    expect(getMcpToolDisplayName({ serverName, toolName: 'search_images', t: translate })).toBe('Image Search')
-    expect(getMcpToolDisplayName({ serverName, toolName: 'search_videos', t: translate })).toBe('Video Search')
+    expect(getMcpToolDisplayName({ serverName, toolName: 'search_images', t: translate })).toBe('Web Search: Web Search')
+    expect(getMcpToolDisplayName({ serverName, toolName: 'search_videos', t: translate })).toBe('Web Search: Web Search')
+  })
+
+  it.each([
+    ['search_videos', '视频素材搜索', '影片素材搜尋', 'Stock Video Search'],
+    ['get_video', '获取视频素材', '取得影片素材', 'Get Stock Video'],
+    ['search_audios', '音频素材搜索', '音訊素材搜尋', 'Stock Audio Search'],
+    ['get_audio', '获取音频素材', '取得音訊素材', 'Get Stock Audio']
+  ])('uses standalone stock titles for %s in all primary locales', (tool, simplified, traditional, english) => {
+    for (const name of [`mcp__vectcut__stock-search__${tool}`, `mcp__stock-search__${tool}`, `stock-search:${tool}`]) {
+      for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
+        const translate = ((key: string, options?: { defaultValue?: string }) =>
+          key.split('.').reduce<unknown>(
+            (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
+            locale
+          ) ?? options?.defaultValue ?? key) as any
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(expected)
+      }
+    }
+    const translate = ((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key) as any
+    expect(getMcpToolDisplayName({ serverName: 'stock-search', toolName: tool, t: translate })).toBe(english)
+  })
+
+  it.each([
+    ['search_images', '照片搜索', '照片搜尋', 'Photo Search'],
+    ['get_image', '获取照片', '取得照片', 'Get Photo'],
+    ['track_download', '记录照片下载', '記錄照片下載', 'Track Photo Download']
+  ])('uses standalone photo titles for %s in all primary locales', (tool, simplified, traditional, english) => {
+    for (const name of [`mcp__vectcut__photo-search__${tool}`, `mcp__photo-search__${tool}`, `photo-search:${tool}`]) {
+      for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
+        const translate = ((key: string, options?: { defaultValue?: string }) =>
+          key.split('.').reduce<unknown>(
+            (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
+            locale
+          ) ?? options?.defaultValue ?? key) as any
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(expected)
+      }
+    }
+    const translate = ((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key) as any
+    expect(getMcpToolDisplayName({ serverName: 'photo-search', toolName: tool, t: translate })).toBe(english)
+  })
+
+  it('has exactly three photo tool translations in each primary locale', () => {
+    for (const locale of [zhCn, zhTw, enUs]) {
+      expect(Object.keys(locale.message.tools.mcp.tools.photo_search).sort()).toEqual([
+        'get_image', 'search_images', 'track_download'
+      ])
+      expect(locale.message.tools.mcp.servers.photo_search).toBeTruthy()
+    }
+  })
+
+  it.each([
+    ['footage-search', 'search_images', '图片素材搜索', '圖片素材搜尋', 'Image Footage Search'],
+    ['footage-search', 'get_image', '图片素材详情', '圖片素材詳情', 'Image Footage Details'],
+    ['footage-search', 'search_videos', '视频素材搜索', '影片素材搜尋', 'Video Footage Search'],
+    ['footage-search', 'get_video', '视频素材详情', '影片素材詳情', 'Video Footage Details'],
+    ['ai-library', 'search_images', 'AI图片素材搜索', 'AI圖片素材搜尋', 'AI Image Search'],
+    ['ai-library', 'get_image', 'AI图片素材详情', 'AI圖片素材詳情', 'AI Image Details'],
+    ['ai-library', 'search_videos', 'AI视频素材搜索', 'AI影片素材搜尋', 'AI Video Search'],
+    ['ai-library', 'get_video', 'AI视频素材详情', 'AI影片素材詳情', 'AI Video Details'],
+    ['figure-search', 'search_images', '火柴人素材搜索', '火柴人素材搜尋', 'Stick Figure Search']
+  ])('uses standalone material titles for %s/%s', (server, tool, simplified, traditional, english) => {
+    for (const name of [`mcp__vectcut__${server}__${tool}`, `mcp__${server}__${tool}`, `${server}:${tool}`]) {
+      for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
+        const translate = ((key: string, options?: { defaultValue?: string }) =>
+          key.split('.').reduce<unknown>(
+            (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
+            locale
+          ) ?? options?.defaultValue ?? key) as any
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(expected)
+      }
+      const translate = ((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key) as any
+      expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(english)
+    }
+  })
+
+  it('has exactly the supported material search translations in every primary locale', () => {
+    for (const locale of [zhCn, zhTw, enUs]) {
+      for (const server of ['footage_search', 'ai_library'] as const) {
+        expect(Object.keys(locale.message.tools.mcp.tools[server]).sort()).toEqual([
+          'get_image', 'get_video', 'search_images', 'search_videos'
+        ])
+        expect(locale.message.tools.mcp.servers[server]).toBeTruthy()
+      }
+      expect(Object.keys(locale.message.tools.mcp.tools.figure_search)).toEqual(['search_images'])
+      expect(locale.message.tools.mcp.servers.figure_search).toBeTruthy()
+    }
+  })
+
+  it.each([
+    ['footage-search', 'unknown_tool', 'Footage Search: Unknown Tool'],
+    ['ai-library', 'unknown_tool', 'AI Library: Unknown Tool'],
+    ['figure-search', 'get_image', 'Figure Search: Get Image'],
+    ['figure-search', 'search_videos', 'Figure Search: Search Videos'],
+    ['figure-search', 'constructor', 'Figure Search: Constructor'],
+    ['custom-tools', 'get_video', 'Custom Tools: Get Video']
+  ])('does not apply standalone material titles to %s/%s', (serverName, toolName, expected) => {
+    expect(getMcpToolDisplayName({ serverName, toolName, t })).toBe(expected)
   })
 
   it('preserves server prefixes for unrelated search tools and unknown media tools', () => {
     expect(getMcpToolDisplayName({ serverName: 'custom-tools', toolName: 'search_images', t })).toBe('Custom Tools: Search Images')
-    expect(getMcpToolDisplayName({ serverName: 'media-search', toolName: 'unknown_tool', t })).toBe('Media Search: Unknown Tool')
-    expect(getMcpToolDisplayName({ serverName: 'pixabay', toolName: 'unknown_tool', t })).toBe('Media Search: Unknown Tool')
+    expect(getMcpToolDisplayName({ serverName: 'stock-search', toolName: 'unknown_tool', t })).toBe('Stock Search: Unknown Tool')
+    expect(getMcpToolDisplayName({ serverName: 'photo-search', toolName: 'unknown_tool', t })).toBe('Photo Search: Unknown Tool')
+    expect(getMcpToolDisplayName({ serverName: 'custom-tools', toolName: 'get_image', t })).toBe('Custom Tools: Get Image')
+    expect(getMcpToolDisplayName({ serverName: 'custom-tools', toolName: 'track_download', t })).toBe('Custom Tools: Track Download')
+    expect(getMcpToolDisplayName({ serverName: 'custom-tools', toolName: 'get_audio', t })).toBe('Custom Tools: Get Audio')
   })
 
   it.each([
-    [zhCn, 'TikTok：搜索视频'],
-    [zhTw, 'TikTok：搜索視頻'],
-    [enUs, 'TikTok: Search video']
-  ])('uses readable localized media titles without the proxy name', (locale, expected) => {
+    [zhCn, '联网搜索：联网搜索PRO'],
+    [zhTw, '聯網搜尋：聯網搜尋PRO'],
+    [enUs, 'Web Search: Web Search PRO']
+  ])('uses one localized title for all scrapt tools', (locale, expected) => {
     const translate = ((key: string, options?: { defaultValue?: string }) =>
       key.split('.').reduce<unknown>(
         (value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined,
         locale
       ) ?? options?.defaultValue ?? key) as any
-    expect(getMcpToolDisplayName({
-      ...parseMcpToolName('mcp__vectcut__scrapt__tiktok_web_fetch_search_video'),
-      t: translate
-    })).toBe(expected)
+    for (const tool of Object.keys(zhCn.message.tools.mcp.tools.scrapt)) {
+      for (const name of [`mcp__vectcut__scrapt__${tool}`, `mcp__scrapt__${tool}`, `scrapt:${tool}`]) {
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(expected)
+      }
+    }
   })
 
   it('has matching title coverage for all media tools in each supported primary locale', () => {

@@ -22,6 +22,9 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
   initializePromise = (async () => {
     const workspacePath = getLocalAggregateWorkspacePath()
     const [
+      { default: AiLibraryServer },
+      { default: FigureSearchServer },
+      { default: FootageSearchServer },
       { default: AssistantServer },
       { default: AudioUnderstandServer },
       { default: BrowserServer },
@@ -39,12 +42,14 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: KouboTemplateServer },
       { default: MaterialsServer },
       { default: MediaSearchServer },
+      { default: PhotoSearchServer },
       { default: RemoveBgServer },
       { default: ScraptToolServer },
       { default: SeedAudioServer },
       { default: SocialCopywritingServer },
       { default: SkillsServer },
       { default: SpeechGenerateServer },
+      { default: StockSearchServer },
       { default: StoryboardEditorServer },
       { default: SubtitleRecognitionServer },
       { default: SubtitleTemplateServer },
@@ -57,6 +62,9 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: ClawServer },
       { default: ZhipuSearchServer }
     ] = await Promise.all([
+      import('@main/mcpServers/ai-library'),
+      import('@main/mcpServers/figure-search'),
+      import('@main/mcpServers/footage-search'),
       import('@main/mcpServers/assistant'),
       import('@main/mcpServers/audio-understand'),
       import('@main/mcpServers/browser/server'),
@@ -74,12 +82,14 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/koubo-template'),
       import('@main/mcpServers/materials'),
       import('@main/mcpServers/media-search'),
+      import('@main/mcpServers/photo-search'),
       import('@main/mcpServers/remove-bg'),
       import('@main/mcpServers/scrapt-tool'),
       import('@main/mcpServers/seed-audio'),
       import('@main/mcpServers/social-copywriting'),
       import('@main/mcpServers/skills'),
       import('@main/mcpServers/speech-generate'),
+      import('@main/mcpServers/stock-search'),
       import('@main/mcpServers/storyboard-editor'),
       import('@main/mcpServers/subtitle-recognition'),
       import('@main/mcpServers/subtitle-template'),
@@ -114,6 +124,31 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'media-search',
         serverName: 'media-search',
         createInstance: () => new MediaSearchServer().mcpServer
+      },
+      {
+        serverId: 'photo-search',
+        serverName: 'photo-search',
+        createInstance: () => new PhotoSearchServer().mcpServer
+      },
+      {
+        serverId: 'stock-search',
+        serverName: 'stock-search',
+        createInstance: () => new StockSearchServer().mcpServer
+      },
+      {
+        serverId: 'footage-search',
+        serverName: 'footage-search',
+        createInstance: () => new FootageSearchServer().mcpServer
+      },
+      {
+        serverId: 'ai-library',
+        serverName: 'ai-library',
+        createInstance: () => new AiLibraryServer().mcpServer
+      },
+      {
+        serverId: 'figure-search',
+        serverName: 'figure-search',
+        createInstance: () => new FigureSearchServer().mcpServer
       },
       {
         serverId: 'browser',

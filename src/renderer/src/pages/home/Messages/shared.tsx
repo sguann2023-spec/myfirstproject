@@ -20,4 +20,6 @@ export const MessagesContainer = styled(Scrollbar)<ContainerProps>`
   overflow-x: hidden;
   z-index: 1;
   position: relative;
+  /* 浏览器对 column-reverse 容器的滚动锚定不可靠, 关闭后由 useStickToBottom 统一处理流式输出时的滚动位置 */
+  overflow-anchor: none;
 `

@@ -47,6 +47,7 @@ import { WebSearchTool } from './WebSearchTool'
 import { WriteTool } from './WriteTool'
 import { getDisplayToolHasError, getDisplayToolStatus } from '../shared/toolDisplayState'
 import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
+import { parseMcpToolName } from '../shared/mcpToolDisplay'
 
 type ToolRenderer = (props: {
   input?: any
@@ -139,6 +140,9 @@ function ToolContent({
   progress?: number
   progressMessage?: string
 }) {
+  const hideDetails = ['scrapt', 'search', 'media-search', 'pixabay'].includes(
+    parseMcpToolName(toolName).serverName ?? ''
+  )
   const renderedItem = isValidAgentToolsType(toolName)
     ? renderTool(toolName, (input ?? {}) as Record<string, unknown>, output)
     : isAgentMcpToolName(toolName ?? '')
@@ -154,6 +158,7 @@ function ToolContent({
 
   const toolContentItem: NonNullable<CollapseProps['items']>[number] = {
     ...renderedItem,
+    ...(hideDetails ? { children: undefined, showArrow: false, collapsible: 'disabled' as const } : {}),
     label: (
       <div className="flex w-full items-start justify-between gap-2">
         <div className="min-w-0">{renderedItem.label}</div>

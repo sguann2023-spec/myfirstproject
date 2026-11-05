@@ -2596,6 +2596,8 @@
         "write": "写入"
       },
       "mcp": {
+        "webSearchPro": "联网搜索：联网搜索PRO",
+        "webSearch": "联网搜索：联网搜索",
         "servers": {
           "agent_memory": "工作区记忆",
           "assistant": "助手",
@@ -2617,6 +2619,10 @@
           "koubo_template": "口播模板",
           "materials": "素材库",
           "remove_bg": "人物抠像",
+          "photo_search": "照片搜索",
+          "footage_search": "素材搜索",
+          "ai_library": "AI素材库",
+          "figure_search": "火柴人素材搜索",
           "search": "联网搜索",
           "seed_audio": "AI生成音频",
           "speech": "语音",
@@ -2771,6 +2777,32 @@
           "media_search": {
             "search_images": "图片搜索",
             "search_videos": "视频搜索"
+          },
+          "photo_search": {
+            "search_images": "照片搜索",
+            "get_image": "获取照片",
+            "track_download": "记录照片下载"
+          },
+          "footage_search": {
+            "search_images": "图片素材搜索",
+            "get_image": "图片素材详情",
+            "search_videos": "视频素材搜索",
+            "get_video": "视频素材详情"
+          },
+          "ai_library": {
+            "search_images": "AI图片素材搜索",
+            "get_image": "AI图片素材详情",
+            "search_videos": "AI视频素材搜索",
+            "get_video": "AI视频素材详情"
+          },
+          "figure_search": {
+            "search_images": "火柴人素材搜索"
+          },
+          "stock_search": {
+            "search_videos": "视频素材搜索",
+            "get_video": "获取视频素材",
+            "search_audios": "音频素材搜索",
+            "get_audio": "获取音频素材"
           },
           "materials": {
             "folder_links": "查看文件夹"

@@ -2596,6 +2596,8 @@
         "write": "Write"
       },
       "mcp": {
+        "webSearchPro": "Web Search: Web Search PRO",
+        "webSearch": "Web Search: Web Search",
         "servers": {
           "agent_memory": "Workspace Memory",
           "assistant": "Assistant",
@@ -2617,6 +2619,10 @@
           "koubo_template": "Talking Head Template",
           "materials": "Materials",
           "remove_bg": "Portrait Cutout",
+          "photo_search": "Photo Search",
+          "footage_search": "Footage Search",
+          "ai_library": "AI Library",
+          "figure_search": "Stick Figure Search",
           "search": "Web Search",
           "seed_audio": "AI Audio",
           "speech": "Speech",
@@ -2771,6 +2777,32 @@
           "media_search": {
             "search_images": "Image Search",
             "search_videos": "Video Search"
+          },
+          "photo_search": {
+            "search_images": "Photo Search",
+            "get_image": "Get Photo",
+            "track_download": "Track Photo Download"
+          },
+          "footage_search": {
+            "search_images": "Image Footage Search",
+            "get_image": "Image Footage Details",
+            "search_videos": "Video Footage Search",
+            "get_video": "Video Footage Details"
+          },
+          "ai_library": {
+            "search_images": "AI Image Search",
+            "get_image": "AI Image Details",
+            "search_videos": "AI Video Search",
+            "get_video": "AI Video Details"
+          },
+          "figure_search": {
+            "search_images": "Stick Figure Search"
+          },
+          "stock_search": {
+            "search_videos": "Stock Video Search",
+            "get_video": "Get Stock Video",
+            "search_audios": "Stock Audio Search",
+            "get_audio": "Get Stock Audio"
           },
           "materials": {
             "folder_links": "View Folder"

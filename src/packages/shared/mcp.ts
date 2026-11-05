@@ -118,6 +118,7 @@ export function buildFunctionCallToolName(serverName: string, toolName: string):
 export const VECTCUT_MCP_NAMESPACE = 'vectcut'
 
 export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
+  'ai-library',
   'agent-memory',
   'assistant',
   'browser',
@@ -131,16 +132,20 @@ export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
   'ffmpeg-media',
   'file-upload',
   'filesystem-server',
+  'figure-search',
+  'footage-search',
   'image',
   'image-understand',
   'audio-understand',
   'koubo-template',
   'materials',
   'media-search',
+  'photo-search',
   'search',
   'seed-audio',
   'skills',
   'speech',
+  'stock-search',
   'storyboard-editor',
   'subtitle-recognition',
   'subtitle-template',

@@ -47,6 +47,16 @@ describe('Media Search MCP', () => {
     expect(tools[0].description).toContain('honor explicit requests for AI generation')
     expect(tools[0].description).toContain('does not support music, sound effects or GIF search')
     expect(tools[0].description).toContain('Never label a raster preview as SVG')
+    expect(tools[1].description).toContain('scrapt.youtube_web_search_video with search_query')
+    expect(tools[1].description).toContain('establishing shots, scenic backgrounds')
+    expect(tools[1].description).toContain('YouTube fallback is not limited to one call')
+    expect(tools[1].description).toContain('Never use YouTube as an animation, vector or AI-only asset fallback')
+    expect(tools[1].description).toContain('automatically downloading the selected video')
+    expect(tools[1].description).toContain('filesystem.download(url, file_path)')
+    expect(tools[1].description).toContain('ffmpeg-media.trim_media_segment')
+    expect(tools[1].description).toContain('scrapt.youtube_web_v2_get_video_streams')
+    expect(tools[1].description).toContain('only to search or preview')
+    expect(tools.map((tool) => tool.description).join(' ')).not.toMatch(/license|third-party rights|permission|authorization/i)
     expect(tools.map((tool) => tool.title)).toEqual(['\u56fe\u7247\u641c\u7d22', '\u89c6\u9891\u641c\u7d22'])
     expect(JSON.stringify(tools)).not.toMatch(/pixabay|proxy|public API|full API access/i)
     expect(normalizeVectcutMcpToolName('mcp__media-search__search_images')).toBe('mcp__vectcut__media-search__search_images')
@@ -81,6 +91,38 @@ describe('Media Search MCP', () => {
     expect(url.searchParams.get('id')).toBe('21')
     expect(url.searchParams.get('safesearch')).toBe('true')
     expect(result.structuredContent).toMatchObject({ mediaType: 'video', hits: [hit] })
+    expect(result.structuredContent).not.toHaveProperty('suggestedNextSearch')
+  })
+
+  it('suggests a conditional YouTube fallback for an empty initial video keyword search without calling it', async () => {
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ total: 0, totalHits: 0, hits: [] })))
+    const result = await client.callTool({ name: 'search_videos', arguments: { q: 'Kyoto street walking', video_type: 'film', per_page: 3 } })
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      hits: [],
+      suggestedNextSearch: {
+        tool: 'scrapt.youtube_web_search_video',
+        arguments: { search_query: 'Kyoto street walking' },
+        guidance: expect.stringContaining('Skip it for animation or AI-only requests')
+      }
+    })
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(result.structuredContent).toMatchObject({
+      suggestedNextSearch: { guidance: expect.stringContaining('this fallback is not limited to one call') }
+    })
+  })
+
+  it.each([
+    { name: 'search_images', arguments: { q: 'empty photo' } },
+    { name: 'search_videos', arguments: { q: 'empty animation', video_type: 'animation' } },
+    { name: 'search_videos', arguments: { id: '999' } },
+    { name: 'search_videos', arguments: { q: 'empty mixed lookup', id: '999' } },
+    { name: 'search_videos', arguments: { q: 'empty last page', page: 2 } }
+  ])('does not suggest YouTube for unrelated empty searches: %j', async (request) => {
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ total: 0, totalHits: 0, hits: [] })))
+    const result = await client.callTool(request)
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).not.toHaveProperty('suggestedNextSearch')
   })
 
   async function callCloudTool(q: string) {

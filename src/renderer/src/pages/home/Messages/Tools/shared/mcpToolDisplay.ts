@@ -6,6 +6,34 @@ type McpToolNameParts = {
 }
 
 const ACRONYM_WORDS = new Set(['ai', 'api', 'asr', 'http', 'https', 'id', 'json', 'mcp', 'ocr', 'sql', 'url'])
+const MATERIAL_SEARCH_TITLES: Record<string, Record<string, string>> = {
+  footage_search: {
+    search_images: 'Image Footage Search',
+    get_image: 'Image Footage Details',
+    search_videos: 'Video Footage Search',
+    get_video: 'Video Footage Details'
+  },
+  ai_library: {
+    search_images: 'AI Image Search',
+    get_image: 'AI Image Details',
+    search_videos: 'AI Video Search',
+    get_video: 'AI Video Details'
+  },
+  figure_search: {
+    search_images: 'Stick Figure Search'
+  }
+}
+const PHOTO_SEARCH_TITLES: Record<string, string> = {
+  search_images: 'Photo Search',
+  get_image: 'Get Photo',
+  track_download: 'Track Photo Download'
+}
+const STOCK_SEARCH_TITLES: Record<string, string> = {
+  search_videos: 'Stock Video Search',
+  get_video: 'Get Stock Video',
+  search_audios: 'Stock Audio Search',
+  get_audio: 'Get Stock Audio'
+}
 
 function normalizeKeyPart(value?: string): string {
   return String(value || '')
@@ -80,16 +108,36 @@ export function getMcpToolDisplayName(
   const fallbackServer = rawServerKey === 'pixabay' ? 'Media Search' : humanizeName(args.serverName)
   const fallbackTool = humanizeName(args.toolName) || args.toolName
 
-  // Historical calls share the provider-neutral search titles.
-  if (serverKey === 'media_search' &&
-    (toolKey === 'search_images' || toolKey === 'search_videos')) {
-    return args.t(`message.tools.mcp.tools.media_search.${toolKey}`, {
-      defaultValue: toolKey === 'search_images' ? 'Image Search' : 'Video Search'
+  if (serverKey === 'scrapt') {
+    return args.t('message.tools.mcp.webSearchPro', { defaultValue: 'Web Search: Web Search PRO' })
+  }
+
+  if (Object.prototype.hasOwnProperty.call(MATERIAL_SEARCH_TITLES, serverKey) &&
+    Object.prototype.hasOwnProperty.call(MATERIAL_SEARCH_TITLES[serverKey], toolKey)) {
+    return args.t(`message.tools.mcp.tools.${serverKey}.${toolKey}`, {
+      defaultValue: MATERIAL_SEARCH_TITLES[serverKey][toolKey]
     })
   }
 
+  if (serverKey === 'photo_search' && Object.prototype.hasOwnProperty.call(PHOTO_SEARCH_TITLES, toolKey)) {
+    return args.t(`message.tools.mcp.tools.photo_search.${toolKey}`, {
+      defaultValue: PHOTO_SEARCH_TITLES[toolKey]
+    })
+  }
+
+  if (serverKey === 'stock_search' && Object.prototype.hasOwnProperty.call(STOCK_SEARCH_TITLES, toolKey)) {
+    return args.t(`message.tools.mcp.tools.stock_search.${toolKey}`, {
+      defaultValue: STOCK_SEARCH_TITLES[toolKey]
+    })
+  }
+
+  // Historical calls share the same provider-neutral title.
+  if (serverKey === 'media_search') {
+    return args.t('message.tools.mcp.webSearch', { defaultValue: 'Web Search: Web Search' })
+  }
+
   // Standalone titles do not need the internal server name.
-  if (serverKey === 'scrapt' || serverKey === 'audio_understand' || serverKey === 'draft_render') {
+  if (serverKey === 'audio_understand' || serverKey === 'draft_render') {
     return args.t(`message.tools.mcp.tools.${serverKey}.${toolKey}`, { defaultValue: fallbackTool })
   }
 
