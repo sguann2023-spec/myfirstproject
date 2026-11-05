@@ -2784,25 +2784,25 @@
             "track_download": "Track Photo Download"
           },
           "footage_search": {
-            "search_images": "Image Footage Search",
-            "get_image": "Image Footage Details",
-            "search_videos": "Video Footage Search",
-            "get_video": "Video Footage Details"
+            "search_images": "Web Search: Web Search",
+            "get_image": "Web Search: Web Search",
+            "search_videos": "Web Search: Web Search",
+            "get_video": "Web Search: Web Search"
           },
           "ai_library": {
-            "search_images": "AI Image Search",
-            "get_image": "AI Image Details",
-            "search_videos": "AI Video Search",
-            "get_video": "AI Video Details"
+            "search_images": "Web Search: Web Search",
+            "get_image": "Web Search: Web Search",
+            "search_videos": "Web Search: Web Search",
+            "get_video": "Web Search: Web Search"
           },
           "figure_search": {
             "search_images": "Stick Figure Search"
           },
           "stock_search": {
-            "search_videos": "Stock Video Search",
-            "get_video": "Get Stock Video",
-            "search_audios": "Stock Audio Search",
-            "get_audio": "Get Stock Audio"
+            "search_videos": "Web Search: Web Search",
+            "get_video": "Web Search: Web Search",
+            "search_audios": "Web Search: Web Search",
+            "get_audio": "Web Search: Web Search"
           },
           "materials": {
             "folder_links": "View Folder"

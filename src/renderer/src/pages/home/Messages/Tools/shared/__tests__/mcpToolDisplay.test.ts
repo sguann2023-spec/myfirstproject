@@ -4,9 +4,36 @@ import enUs from '../../../../../../i18n/locales/en-us.json'
 import zhCn from '../../../../../../i18n/locales/zh-cn.json'
 import zhTw from '../../../../../../i18n/locales/zh-tw.json'
 
-import { getMcpToolDisplayName, parseMcpToolName } from '../mcpToolDisplay'
+import { getMcpToolDisplayName, parseMcpToolName, shouldHideSearchToolDetails } from '../mcpToolDisplay'
 
 describe('mcpToolDisplay', () => {
+  it.each([
+    ['scrapt', 'douyin_search_fetch_music_search'],
+    ['search', 'web_search'],
+    ['media-search', 'search_images'],
+    ['pixabay', 'search_videos'],
+    ['footage-search', 'get_image'],
+    ['footage-search', 'get_video'],
+    ['ai-library', 'search_images'],
+    ['ai-library', 'get_video'],
+    ['stock-search', 'search_audios'],
+    ['stock-search', 'get_audio']
+  ])('disables details for every search name format: %s/%s', (server, tool) => {
+    for (const name of [`mcp__vectcut__${server}__${tool}`, `mcp__${server}__${tool}`, `${server}:${tool}`]) {
+      expect(shouldHideSearchToolDetails(name)).toBe(true)
+    }
+    expect(shouldHideSearchToolDetails(tool, server)).toBe(true)
+    expect(shouldHideSearchToolDetails(tool, server.replaceAll('-', '_'))).toBe(true)
+  })
+
+  it('disables Agent web search without hiding unrelated tools', () => {
+    expect(shouldHideSearchToolDetails('WebSearch')).toBe(true)
+    for (const name of ['Search', 'Grep', 'Glob', 'ToolSearch', 'WebFetch', 'mcp__photo-search__search_images',
+      'mcp__figure-search__search_images', 'mcp__custom-tools__search_images', 'mcp__footage-search__unknown_tool']) {
+      expect(shouldHideSearchToolDetails(name)).toBe(false)
+    }
+  })
+
   const t = ((key: string) =>
     (
       {
@@ -139,10 +166,10 @@ describe('mcpToolDisplay', () => {
   })
 
   it.each([
-    ['search_videos', '视频素材搜索', '影片素材搜尋', 'Stock Video Search'],
-    ['get_video', '获取视频素材', '取得影片素材', 'Get Stock Video'],
-    ['search_audios', '音频素材搜索', '音訊素材搜尋', 'Stock Audio Search'],
-    ['get_audio', '获取音频素材', '取得音訊素材', 'Get Stock Audio']
+    ['search_videos', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['get_video', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['search_audios', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['get_audio', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search']
   ])('uses standalone stock titles for %s in all primary locales', (tool, simplified, traditional, english) => {
     for (const name of [`mcp__vectcut__stock-search__${tool}`, `mcp__stock-search__${tool}`, `stock-search:${tool}`]) {
       for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
@@ -187,14 +214,14 @@ describe('mcpToolDisplay', () => {
   })
 
   it.each([
-    ['footage-search', 'search_images', '图片素材搜索', '圖片素材搜尋', 'Image Footage Search'],
-    ['footage-search', 'get_image', '图片素材详情', '圖片素材詳情', 'Image Footage Details'],
-    ['footage-search', 'search_videos', '视频素材搜索', '影片素材搜尋', 'Video Footage Search'],
-    ['footage-search', 'get_video', '视频素材详情', '影片素材詳情', 'Video Footage Details'],
-    ['ai-library', 'search_images', 'AI图片素材搜索', 'AI圖片素材搜尋', 'AI Image Search'],
-    ['ai-library', 'get_image', 'AI图片素材详情', 'AI圖片素材詳情', 'AI Image Details'],
-    ['ai-library', 'search_videos', 'AI视频素材搜索', 'AI影片素材搜尋', 'AI Video Search'],
-    ['ai-library', 'get_video', 'AI视频素材详情', 'AI影片素材詳情', 'AI Video Details'],
+    ['footage-search', 'search_images', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['footage-search', 'get_image', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['footage-search', 'search_videos', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['footage-search', 'get_video', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['ai-library', 'search_images', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['ai-library', 'get_image', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['ai-library', 'search_videos', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
+    ['ai-library', 'get_video', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
     ['figure-search', 'search_images', '火柴人素材搜索', '火柴人素材搜尋', 'Stick Figure Search']
   ])('uses standalone material titles for %s/%s', (server, tool, simplified, traditional, english) => {
     for (const name of [`mcp__vectcut__${server}__${tool}`, `mcp__${server}__${tool}`, `${server}:${tool}`]) {

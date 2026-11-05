@@ -293,7 +293,11 @@ type VideoSpeechResult = {
   billing?: Record<string, unknown>
 }
 
+type RecognitionGap = { video_index: number; start_seconds: number; end_seconds: number; reason: string }
+class RecognitionRequestFailure extends Error {}
+
 type VideoAnalysisResult = {
+  missingRanges: RecognitionGap[]
   videoIndex: number
   originalInput: string
   absolutePath: string | null
@@ -306,6 +310,7 @@ type VideoAnalysisResult = {
   speech?: VideoSpeechResult
   billing: {
     total_consumed_points: number
+    complete: boolean
   }
   batches: BatchAnalysisResult[]
 }
@@ -593,9 +598,6 @@ function parseChatCompletionPayload(responseText: string): ChatCompletionRespons
         ]
       }
     }
-    if (!ssePayload.choices || ssePayload.choices.length === 0) {
-      throw new Error(`Unexpected token in video understand response: ${responseText.slice(0, 120)}`)
-    }
     return ssePayload
   }
 }
@@ -870,9 +872,10 @@ class VideoUnderstandServer {
       response = JSON.parse(result.content[0].text)
       // The tool's aggregate vision billing is already represented by its frame batches.
       if (!stages.some((stage) => stage.stage === 'video_understand')) {
-        stages.push({ stage: 'video_understand', points_consumed: Number(response.billing?.total_consumed_points) || 0 })
+        const points = asFiniteNumber(response.billing?.total_consumed_points)
+        stages.push({ stage: 'video_understand', ...(points !== null ? { points_consumed: points } : {}) })
       }
-      return this.formatJsonResult({ ...response, billing: snapshot(true) })
+      return this.formatJsonResult({ ...response, billing: snapshot(response.billing?.complete !== false) })
     } catch (error) {
       return {
         ...this.formatJsonResult({ ...response, error: toErrorMessage(error), billing: snapshot(false) }),
@@ -1355,6 +1358,8 @@ class VideoUnderstandServer {
     batchCount: number
     totalFrames: number
     fps: number
+    signal?: AbortSignal
+    onBilling?: ToolExecutionExtra['onBilling']
   }): Promise<{ completion: ChatCompletionResponse; answer: string; retryCount: number }> {
     const slices = buildTimeSlicesForFrames(options.frames)
     const content: Array<Record<string, unknown>> = [
@@ -1400,18 +1405,26 @@ class VideoUnderstandServer {
 
     let lastError: unknown
     for (let attempt = 1; attempt <= GPT_REQUEST_MAX_RETRIES; attempt += 1) {
+      let billingRecorded = false
       try {
+        options.signal?.throwIfAborted()
         const response = await this.requestWithAuth(CHAT_COMPLETIONS_ENDPOINT, {
           body: requestBody
         })
 
         if (!response.ok) {
           const body = await response.text().catch(() => '')
+          if (response.status === 400 || response.status === 422) {
+            throw new McpError(ErrorCode.InvalidParams, `Video understand invalid request (${response.status}): ${body}`)
+          }
           throw new Error(`Video understand request failed (${response.status}): ${body || 'unknown error'}`)
         }
 
         const responseText = await response.text()
         const completion = parseChatCompletionPayload(responseText)
+        options.onBilling?.(completion.billing || null)
+        billingRecorded = true
+        options.signal?.throwIfAborted()
         const rawAnswer = extractCompletionText(completion)
         if (!rawAnswer) {
           throw new Error('Video understand returned an empty response')
@@ -1424,8 +1437,10 @@ class VideoUnderstandServer {
           retryCount: attempt - 1
         }
       } catch (error) {
+        options.signal?.throwIfAborted()
+        if (!billingRecorded) options.onBilling?.(null)
         lastError = error
-        if (toErrorMessage(error) === AUTH_EXPIRED_MESSAGE) {
+        if (error instanceof McpError || toErrorMessage(error) === AUTH_EXPIRED_MESSAGE) {
           throw error
         }
         logger.warn('Video understand batch request failed, will retry if possible', {
@@ -1439,7 +1454,7 @@ class VideoUnderstandServer {
       }
     }
 
-    throw new Error(`Video understand failed after ${GPT_REQUEST_MAX_RETRIES} attempts: ${toErrorMessage(lastError)}`)
+    throw new RecognitionRequestFailure(`Video understand failed after ${GPT_REQUEST_MAX_RETRIES} attempts: ${toErrorMessage(lastError)}`)
   }
 
   private sumBillingPoints(values: Array<Record<string, unknown> | null>) {
@@ -1542,6 +1557,7 @@ class VideoUnderstandServer {
         const batchCount = Math.ceil(compressedFrames.length / MAX_IMAGES_PER_BATCH)
         const batches: BatchAnalysisResult[] = []
         const batchBillings: Array<Record<string, unknown> | null> = []
+        const missingRanges: RecognitionGap[] = []
 
         for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
           if (options.signal?.aborted) throw new Error('任务已取消')
@@ -1549,24 +1565,32 @@ class VideoUnderstandServer {
           const batchProgressBase = 0.45 + (batchIndex / Math.max(batchCount, 1)) * 0.5
           await options.report(options.videoIndex, batchProgressBase, '进度')
 
-          const { completion, answer, retryCount } = await this.analyzeFrameBatch({
-            frames: batchFrames,
-            prompt: options.prompt,
-            videoIndex: options.videoIndex,
-            videoCount: options.videoCount,
-            batchIndex: batchIndex + 1,
-            batchCount,
-            totalFrames: compressedFrames.length,
-            fps: options.fps
-          })
-
+          let result: Awaited<ReturnType<VideoUnderstandServer['analyzeFrameBatch']>>
+          try {
+            result = await this.analyzeFrameBatch({
+              frames: batchFrames,
+              prompt: options.prompt,
+              videoIndex: options.videoIndex,
+              videoCount: options.videoCount,
+              batchIndex: batchIndex + 1,
+              batchCount,
+              totalFrames: compressedFrames.length,
+              fps: options.fps,
+              signal: options.signal,
+              onBilling: (billing) => { batchBillings.push(billing); options.onBilling?.(billing) }
+            })
+          } catch (error) {
+            if (!(error instanceof RecognitionRequestFailure)) throw error
+            missingRanges.push({ video_index: options.videoIndex, start_seconds: batchFrames[0]?.timestampStart ?? 0,
+              end_seconds: durationSeconds, reason: error.message })
+            break
+          }
+          const { completion, answer, retryCount } = result
           const billing =
             completion.billing && typeof completion.billing === 'object' && !Array.isArray(completion.billing)
               ? (completion.billing as Record<string, unknown>)
               : null
 
-          batchBillings.push(billing)
-          options.onBilling?.(billing)
           batches.push({
             batchIndex: batchIndex + 1,
             frameCount: batchFrames.length,
@@ -1586,8 +1610,9 @@ class VideoUnderstandServer {
           await options.report(options.videoIndex, 0.45 + ((batchIndex + 1) / Math.max(batchCount, 1)) * 0.5, '进度')
         }
 
-        const details = batches.map((batch) => batch.answer).filter(Boolean).join('\n\n').trim()
+        const details = batches.map((batch) => batch.answer).filter(Boolean).join('\n\n').trim() + (missingRanges.length ? `\n\n未完全识别：${missingRanges.map((gap) => `${gap.start_seconds}-${gap.end_seconds} 秒：${gap.reason}`).join('; ')}` : '')
         const analysis = buildStructuredVideoAnalysis(details)
+        if (missingRanges.length) analysis.summary = `未完全识别。${analysis.summary}`
         await options.report(options.videoIndex, 0.96, '正在识别语音字幕')
         const speech: VideoSpeechResult = probe.streams?.some((stream) => stream.codec_type === 'audio')
           ? await this.recognizeVideoSpeech(preparedSource.localPath, options.signal, options.onBilling)
@@ -1606,8 +1631,11 @@ class VideoUnderstandServer {
           analysis,
           speech,
           billing: {
-            total_consumed_points: this.sumBillingPoints([...batchBillings, speech.billing || null])
+            total_consumed_points: this.sumBillingPoints([...batchBillings, speech.billing || null]),
+            complete: batchBillings.every((billing) => asFiniteNumber(billing?.total_consumed_points) !== null)
+              && (speech.status === 'no_audio' || asFiniteNumber(speech.billing?.total_consumed_points) !== null)
           },
+          missingRanges,
           batches
         }
       } finally {
@@ -1642,7 +1670,7 @@ class VideoUnderstandServer {
       lines.push(`- 时长：${formatSeconds(video.durationSeconds)}秒`)
       lines.push(`- 抽帧数：${video.totalFrames}`)
       lines.push(`- 批次数：${video.totalBatches}`)
-      lines.push(`- 总消耗点数：${video.billing.total_consumed_points.toFixed(2)}`)
+      lines.push(`- ${video.billing.complete ? '总消耗点数' : '已知消耗点数（账单不完整）'}：${video.billing.total_consumed_points.toFixed(2)}`)
       lines.push('', '### 标题', '', video.analysis.title || '未产出结果')
       lines.push('', '### 描述', '', video.analysis.summary || '未产出视频理解结果。')
       lines.push(`- 语音字幕：${this.speechStatusLabel(video.speech)}`)
@@ -1665,7 +1693,7 @@ class VideoUnderstandServer {
     lines.push(`- 时长：${formatSeconds(video.durationSeconds)}秒`)
     lines.push(`- 抽帧数：${video.totalFrames}`)
     lines.push(`- 批次数：${video.totalBatches}`)
-    lines.push(`- 总消耗点数：${video.billing.total_consumed_points.toFixed(2)}`)
+    lines.push(`- ${video.billing.complete ? '总消耗点数' : '已知消耗点数（账单不完整）'}：${video.billing.total_consumed_points.toFixed(2)}`)
     lines.push('', '## 标题', '', video.analysis.title || '未产出结果')
     lines.push('', '## 描述', '', video.analysis.summary || '未产出视频理解结果。')
     lines.push('', '## 时间线详情', '', video.analysis.details || '未产出理解结果')
@@ -1694,7 +1722,7 @@ class VideoUnderstandServer {
     }
 
     lines.push(`- 视频数量：${options.totalVideos}`)
-    lines.push(`- 总消耗点数：${options.totalConsumedPoints.toFixed(2)}`)
+    lines.push(`- ${options.videos.every((video) => video.billing.complete) ? '总消耗点数' : '已知消耗点数（账单不完整）'}：${options.totalConsumedPoints.toFixed(2)}`)
     if (options.aggregateFile) {
       lines.push(`- 聚合结果文件：${options.aggregateFile.relativePath}`)
     }
@@ -1781,6 +1809,10 @@ class VideoUnderstandServer {
     if (failedVideo?.status === 'rejected') throw failedVideo.reason
     const videos = settledVideos.flatMap((video) => video.status === 'fulfilled' ? [video.value] : [])
     const totalConsumedPoints = videos.reduce((sum, video) => sum + video.billing.total_consumed_points, 0)
+    const missingRanges = videos.flatMap((video) => video.missingRanges)
+    const recognitionStatus = missingRanges.length === 0 ? 'complete' : videos.some((video) => video.batches.length > 0) ? 'partial' : 'unrecognized'
+    const recognition = { recognition_status: recognitionStatus, recognition_complete: recognitionStatus === 'complete',
+      message: recognitionStatus === 'complete' ? '视频已完全识别' : '视频未完全识别，请根据缺失范围自行决定重试或其他策略', missing_ranges: missingRanges }
     const aggregateMarkdownText = this.renderMarkdownResult(videos, jobConfig.prompt)
     const aggregateResultFile = await this.persistWorkspaceTextArtifact({
       toolName: 'video-understand',
@@ -1854,6 +1886,7 @@ class VideoUnderstandServer {
     ]
 
     const artifactPayload = {
+      ...recognition,
       provider: 'vectcut',
       action: 'inspect_video',
       mode: 'video_understand',
@@ -1863,10 +1896,14 @@ class VideoUnderstandServer {
       max_images_per_batch: MAX_IMAGES_PER_BATCH,
       max_concurrent_videos: MAX_CONCURRENT_VIDEOS,
       billing: {
-        total_consumed_points: totalConsumedPoints
+        total_consumed_points: totalConsumedPoints,
+        complete: videos.every((video) => video.billing.complete)
       },
       result_files: resultFilesForPayload,
       videos: videos.map((video) => ({
+        recognition_status: video.missingRanges.length === 0 ? 'complete' : video.batches.length ? 'partial' : 'unrecognized',
+        recognition_complete: video.missingRanges.length === 0,
+        missing_ranges: video.missingRanges,
         video_index: video.videoIndex,
         original_input: video.originalInput,
         absolute_video_path: video.absolutePath,
@@ -1916,6 +1953,7 @@ class VideoUnderstandServer {
     const totalDurationSeconds = videos.reduce((sum, video) => sum + (video.durationSeconds || 0), 0)
 
     return this.formatJsonResult({
+      ...recognition,
       provider: 'vectcut',
       action: 'inspect_video',
       mode: 'video_understand',
@@ -1931,12 +1969,16 @@ class VideoUnderstandServer {
           video_index: video.videoIndex,
           title: video.analysis.title.slice(0, 100),
           summary: video.analysis.summary.slice(0, 300),
+          recognition_status: video.missingRanges.length === 0 ? 'complete' : video.batches.length ? 'partial' : 'unrecognized',
+          recognition_complete: video.missingRanges.length === 0,
+          missing_ranges: video.missingRanges,
           speech_status: video.speech?.status,
           speech_message: this.speechStatusLabel(video.speech),
         })),
       } : {}),
       billing: {
-        total_consumed_points: totalConsumedPoints
+        total_consumed_points: totalConsumedPoints,
+        complete: videos.every((video) => video.billing.complete)
       },
       result_files: resultFilesForPayload,
       ...(artifact

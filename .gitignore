@@ -32,6 +32,7 @@ dist-main/
 .claw/
 .sandbox
 ZCode-main/
+.zcode/
 
 resources/ffmpeg
 resources/python/*/python/

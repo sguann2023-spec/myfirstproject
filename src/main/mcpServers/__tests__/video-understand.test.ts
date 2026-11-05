@@ -255,8 +255,9 @@ describe('VideoUnderstandServer', () => {
           billing: { total_consumed_points: 0.25 },
         },
         billing: {
-          total_consumed_points: videoIndex === 1 ? 1.25 : 2.5
+          total_consumed_points: videoIndex === 1 ? 1.25 : 2.5, complete: true
         },
+        missingRanges: [],
         batches: [
           {
             batchIndex: 1,
@@ -331,7 +332,7 @@ describe('VideoUnderstandServer', () => {
     const artifactText = await fs.readFile(payload.artifact.file_path, 'utf8')
     const artifactPayload = JSON.parse(artifactText)
     expect(artifactPayload.billing).toEqual({
-      total_consumed_points: 3.75
+      total_consumed_points: 3.75, complete: true
     })
     expect(artifactPayload.videos).toHaveLength(2)
     expect(artifactPayload.videos[0]).toMatchObject({
@@ -394,7 +395,9 @@ describe('VideoUnderstandServer', () => {
 
     const analyzeBatchSpy = vi.spyOn(server as any, 'analyzeFrameBatch')
     analyzeBatchSpy
-      .mockResolvedValueOnce({
+      .mockImplementationOnce(async (options: any) => {
+        options.onBilling({ total_consumed_points: 1.1 })
+        return {
         completion: {
           id: 'batch-1',
           model: 'gpt-5.6-luna',
@@ -403,8 +406,10 @@ describe('VideoUnderstandServer', () => {
         },
         answer: '0~20秒的内容：第一批结果',
         retryCount: 0
-      })
-      .mockResolvedValueOnce({
+      } })
+      .mockImplementationOnce(async (options: any) => {
+        options.onBilling({ total_consumed_points: 2.2 })
+        return {
         completion: {
           id: 'batch-2',
           model: 'gpt-5.6-luna',
@@ -413,8 +418,10 @@ describe('VideoUnderstandServer', () => {
         },
         answer: '20~40秒的内容：第二批结果',
         retryCount: 1
-      })
-      .mockResolvedValueOnce({
+      } })
+      .mockImplementationOnce(async (options: any) => {
+        options.onBilling({ total_consumed_points: 0.3 })
+        return {
         completion: {
           id: 'batch-3',
           model: 'gpt-5.6-luna',
@@ -423,7 +430,7 @@ describe('VideoUnderstandServer', () => {
         },
         answer: '40~41秒的内容：第三批结果',
         retryCount: 0
-      })
+      } })
 
     const result = await (server as any).analyzeSingleVideo({
       videoIndex: 1,
@@ -458,7 +465,7 @@ describe('VideoUnderstandServer', () => {
     })
     expect(recognizeSpeech.mock.calls[0][0]).toEqual({ url: '/tmp/sample.mp4', effectMode: 'basic' })
     expect(result.billing).toEqual({
-      total_consumed_points: 3.85
+      total_consumed_points: 3.85, complete: true
     })
     expect(result.batches[1].retryCount).toBe(1)
   })
@@ -695,6 +702,29 @@ describe('VideoUnderstandServer', () => {
     })
 
     expect(response.ok).toBe(true)
+  })
+
+  it.each([[0, true], [1, true], [1, false]] as const)('retains %s successful batches and billed empty retries (known=%s) without requesting later batches', async (successfulBatches, knownBilling) => {
+    const server = createServer(workspaceRoot)
+    vi.spyOn(server as any, 'prepareVideoSource').mockResolvedValue({ originalInput: '/tmp/v.mp4', localPath: '/tmp/v.mp4', sourceKind: 'local_video' })
+    vi.spyOn(server as any, 'probeMedia').mockResolvedValue({ probe: { format: { duration: 90 }, streams: [{ codec_type: 'video' }] } })
+    vi.spyOn(server as any, 'extractFrames').mockResolvedValue([])
+    vi.spyOn(server as any, 'compressFrames').mockResolvedValue(Array.from({ length: 90 }, (_, i) => ({ frameIndex: i, timestampStart: i, timestampEnd: i + 1 })))
+    vi.spyOn(server as any, 'encodeFrameAsDataUrl').mockImplementation(async (frame) => ({ frame, dataUrl: 'data:image/jpeg;base64,AA==' }))
+    vi.spyOn(server as any, 'sleep').mockResolvedValue(undefined)
+    let call = 0
+    const request = vi.spyOn(server as any, 'requestWithAuth').mockImplementation(async () => ({ ok: true, text: async () => `data: ${JSON.stringify({ ...(knownBilling ? { billing: { total_consumed_points: 0.2 } } : {}), choices: [{ delta: { content: call++ < successfulBatches ? '画面内容' : '' } }] })}\n\ndata: [DONE]` }))
+    const result = await callTool(server, 'submit_video_detail_task', { video_urls: ['/tmp/v.mp4'] })
+    expect(result.isError).toBeUndefined()
+    const payload = JSON.parse(result.content[0].text)
+    expect(payload).toMatchObject({ recognition_status: successfulBatches ? 'partial' : 'unrecognized', recognition_complete: false, billing: { total_consumed_points: knownBilling ? (successfulBatches + 3) * 0.2 : 0, complete: knownBilling } })
+    expect(payload.error).toBeUndefined()
+    expect(payload.success).toBeUndefined()
+    expect(request).toHaveBeenCalledTimes(successfulBatches + 3)
+    expect(payload.missing_ranges[0]).toMatchObject({ start_seconds: successfulBatches * 30, end_seconds: 90 })
+    const artifact = JSON.parse(await fs.readFile(payload.artifact.file_path, 'utf8'))
+    expect(artifact.videos[0].frame_summary).toHaveLength(successfulBatches)
+    expect(await fs.readFile(payload.result_files[1].file_path, 'utf8')).toContain('未完全识别')
   })
 
   it('should stop retrying immediately when auth has expired', async () => {

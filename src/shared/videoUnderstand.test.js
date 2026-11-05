@@ -32,6 +32,16 @@ describe('逐帧拉片请求', () => {
     expect(block.toolId).toBe('video_understand_request_r');
     expect(block.metadata.rawMcpToolResponse.tool.name).toBe(VIDEO_UNDERSTAND_TOOL);
   });
+  it.each(['partial', 'unrecognized'])('未完全识别 %s 作为正常业务结果保留缺失范围和费用', (status) => {
+    const response = { recognition_status: status, recognition_complete: false, total_video_count: 2,
+      billing: { total_consumed_points: 0.6, complete: false },
+      missing_ranges: [{ video_index: 2, start_seconds: 30, end_seconds: 90, reason: '请求失败' }] };
+    const parsed = parseVideoUnderstandResult({ content: [{ type: 'text', text: JSON.stringify(response) }] });
+    expect(parsed.assistantText).toContain('未完全识别');
+    expect(parsed.assistantText).toContain('30-90 秒：请求失败');
+    expect(parsed.assistantText).not.toContain('完整内容已保存');
+    expect(parsed.response).toEqual(response);
+  });
   it('仅输出摘要和文件路径，不展开时间线详情', () => {
     const response = { billing: { total_consumed_points: 1.2 },
       result_files: [{ kind: 'aggregate_result', file_path: '/workspace/all.md' }], videos: [

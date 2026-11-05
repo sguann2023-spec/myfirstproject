@@ -897,7 +897,6 @@ const MessageItem = ({
         model={model}
         modelOptions={modelOptions}
         formatModelDisplayName={formatModelDisplayName}
-        formatMessageTime={formatMessageTime}
         userName={userName}
         userAvatar={userAvatar}
       />
@@ -928,6 +927,7 @@ const MessageItem = ({
                 <RefreshCw size={15} className="chat-panel__message-action-icon" />
               </button>
             </Tooltip>
+            <div className="chat-panel__message-time">{formatMessageTime(message?.updatedAt || message?.createdAt)}</div>
             <div className="chat-panel__message-tokens">
               {canUseLiveAssistantTokens ? (
                 <Provider store={appStore}>
@@ -1000,6 +1000,7 @@ const MessageItem = ({
               ) : null}
             </>
           ) : null}
+          <div className="chat-panel__message-time">{formatMessageTime(message?.updatedAt || message?.createdAt)}</div>
           <Tooltip title="复制" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
             <button
               type="button"

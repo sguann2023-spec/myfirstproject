@@ -333,6 +333,24 @@ describe('SqlitePiSessionStorage', () => {
     expect(await readFile(overlay.legacyPath)).toEqual(overlay.before)
   })
 
+  it('budgets only eligible overlay records before projecting oversized superseded and excluded bodies', async () => {
+    const huge = 'x'.repeat(PI_HISTORY_LIMITS.entryBytes)
+    await addCanonical('kept', 'keep this')
+    await addLegacy(1, 'kept', huge)
+    await addCanonical('current', huge)
+    await addCanonical('current-child', huge, 'current')
+    await addLegacy(2, 'current', huge)
+    await addLegacy(3, 'legacy-child', huge, 'success', 'current')
+    await addLegacy(4, 'metadata-child', huge)
+    await client.execute(`UPDATE session_messages SET metadata='{"parentMessageId":"current"}' WHERE id=4`)
+    const overlay = await useOverlay()
+    const storage = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', invocationId: 'current', database })
+    expect((await new Session(storage).buildContext()).messages.map((message: any) => message.content)).toEqual(['keep this'])
+    await overlay.restart()
+    expect((await new Session(await open()).buildContext()).messages.map((message: any) => message.content)).toEqual(['keep this'])
+    expect((await readFile(overlay.legacyPath)).equals(overlay.before)).toBe(true)
+  }, 30000)
+
   it.each(['canonical', 'legacy'])('overlay rejects oversized %s context before transferring message bodies', async (source) => {
     if (source === 'legacy') await addLegacy(1, 'huge', 'x'.repeat(PI_HISTORY_LIMITS.entryBytes))
     else await addCanonical('huge', 'x'.repeat(PI_HISTORY_LIMITS.entryBytes))

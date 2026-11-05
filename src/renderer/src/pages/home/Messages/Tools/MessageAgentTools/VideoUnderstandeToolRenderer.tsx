@@ -50,9 +50,9 @@ function renderBillingBadge(summary: VideoUnderstandeBillingSummary | null): Rea
   if (!summary) return undefined
 
   return (
-    <span className="video-understand-tool-billing-badge" title={`总消耗 ${summary.displayText}`}>
+    <span className="video-understand-tool-billing-badge" title={`${summary.billingComplete ? '总消耗' : '已知消耗（账单不完整）'} ${summary.displayText}`}>
       <img className="video-understand-tool-billing-icon" src={getVideoUnderstandePointIconUrl()} alt="" aria-hidden="true" />
-      <span className="video-understand-tool-billing-text">{summary.displayText}</span>
+      <span className="video-understand-tool-billing-text">{summary.billingComplete ? '' : '已知 '}{summary.displayText}</span>
     </span>
   )
 }
@@ -93,6 +93,7 @@ export function VideoUnderstandeTool({
             <Wrench size={14} />
           </span>
           <span className="video-understand-tool-header-title">{toolDisplayName}</span>
+          {outputSummary && !outputSummary.recognitionComplete && <span>未完全识别</span>}
           {renderBillingBadge(billingSummary)}
         </div>
         {normalizedProgressMessage && <span className="video-understand-tool-header-message">{normalizedProgressMessage}</span>}
@@ -102,6 +103,10 @@ export function VideoUnderstandeTool({
       <div className="video-understand-tool-body">
         {outputSummary ? (
           <>
+            {!outputSummary.recognitionComplete && <div role="status">
+              <div>未完全识别：{outputSummary.message}</div>
+              {outputSummary.missingRanges.map((range, index) => <div key={index}>{range}</div>)}
+            </div>}
             <div className="video-understand-tool-summary-grid">
               <div className="video-understand-tool-summary-card">
                 <div className="video-understand-tool-summary-label">视频数量</div>

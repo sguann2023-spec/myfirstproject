@@ -96,7 +96,13 @@ export async function readOverlayPrefix(
       for (const projection of projections.values()) await projection.dispose()
     }
   }
-  const canonicalPredicate = sql`session_id=${topicId} AND sequence<=${boundary.canonicalSequence}`
+  // Keep the complete bounded identity set for legacy suppression, even when a
+  // canonical message is excluded from this invocation's context.
+  const canonicalBoundary = sql`session_id=${topicId} AND sequence<=${boundary.canonicalSequence}`
+  const canonicalPredicate = boundary.excludeMessageId
+    ? sql`${canonicalBoundary} AND id<>${boundary.excludeMessageId}
+        AND (parent_message_id IS NULL OR parent_message_id<>${boundary.excludeMessageId})`
+    : canonicalBoundary
   const messages = await read(tables.agent_messages, canonicalPredicate)
   const parts = await read(tables.agent_message_parts, sql`session_id=${topicId} AND message_id IN (
     SELECT id FROM ${sql.identifier(tables.agent_messages)} WHERE ${canonicalPredicate})`)
@@ -118,7 +124,19 @@ export async function readOverlayPrefix(
       data: part.data_json, createdAt: part.created_at, updatedAt: part.updated_at
     }))
   }))
-  const legacy = await read(tables.session_messages, sql`session_id=${topicId} AND id<=${boundary.legacyId}`)
+  const legacyTable = sql.identifier(tables.session_messages)
+  // Invalid payloads still reach the existing validation path. Extract only
+  // identities in SQLite so discarded duplicate bodies never cross the worker.
+  const legacyId = sql`json_extract(CASE WHEN json_valid(${legacyTable}.content) THEN ${legacyTable}.content ELSE '{}' END,'$.message.id')`
+  const legacyParent = sql`coalesce(
+    json_extract(CASE WHEN json_valid(${legacyTable}.content) THEN ${legacyTable}.content ELSE '{}' END,'$.message.askId'),
+    json_extract(CASE WHEN json_valid(${legacyTable}.metadata) THEN ${legacyTable}.metadata ELSE '{}' END,'$.parentMessageId'))`
+  const legacyPredicate = sql`session_id=${topicId} AND id<=${boundary.legacyId}
+    AND NOT EXISTS (SELECT 1 FROM ${sql.identifier(tables.agent_messages)}
+      WHERE ${canonicalBoundary} AND id=CAST(${legacyId} AS TEXT))
+    ${boundary.excludeMessageId ? sql`AND (${legacyId} IS NULL OR trim(CAST(${legacyId} AS TEXT))<>${boundary.excludeMessageId})
+      AND (${legacyParent} IS NULL OR trim(CAST(${legacyParent} AS TEXT))<>${boundary.excludeMessageId})` : sql``}`
+  const legacy = await read(tables.session_messages, legacyPredicate)
   const candidates = new Map<string, { entry: AgentMessageWithParts; score: number }>()
   for (const row of legacy) {
     const payload = typeof row.content === 'string' ? JSON.parse(row.content) : row.content

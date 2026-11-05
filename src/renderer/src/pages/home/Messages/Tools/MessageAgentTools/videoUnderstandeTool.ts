@@ -6,6 +6,7 @@ type GenericRecord = Record<string, unknown>
 
 export type VideoUnderstandeBillingSummary = {
   totalConsumedPoints: number
+  billingComplete: boolean
   displayText: string
 }
 
@@ -18,6 +19,9 @@ export type VideoUnderstandeResultFile = {
 }
 
 export type VideoUnderstandeOutputSummary = {
+  recognitionComplete: boolean
+  message: string
+  missingRanges: string[]
   totalVideoCount: number | null
   defaultFps: number | null
   totalDurationSeconds: number | null
@@ -198,9 +202,11 @@ function extractTruncatedPayloadFromText(value: unknown): GenericRecord | null {
     }
 
     return {
+      ...(extractStringField(candidate, 'recognition_status') ? { recognition_status: extractStringField(candidate, 'recognition_status') } : {}),
+      ...(/"recognition_complete"\s*:\s*false/.test(candidate) ? { recognition_complete: false } : {}),
       ...(totalVideoCount !== null ? { total_video_count: totalVideoCount } : {}),
       ...(defaultFps !== null ? { default_fps: defaultFps } : {}),
-      ...(totalConsumedPoints !== null ? { billing: { total_consumed_points: totalConsumedPoints } } : {}),
+      ...(totalConsumedPoints !== null ? { billing: { total_consumed_points: totalConsumedPoints, ...(/"complete"\s*:\s*false/.test(candidate) ? { complete: false } : {}) } } : {}),
       ...(videos.length > 0 ? { videos } : {}),
       ...(resultFiles.length > 0 ? { result_files: resultFiles } : {}),
       ...(artifactFilePath
@@ -236,6 +242,7 @@ function extractNestedPayload(value: unknown, depth = 0): GenericRecord | null {
   const record = asRecord(value)
   if (record) {
     if (
+      'recognition_status' in record ||
       'billing' in record ||
       'result_files' in record ||
       'total_video_count' in record ||
@@ -385,6 +392,7 @@ export function extractVideoUnderstandeBillingSummary(output: unknown): VideoUnd
 
   return {
     totalConsumedPoints,
+    billingComplete: billing?.complete !== false,
     displayText: formatConsumedPoints(totalConsumedPoints)
   }
 }
@@ -398,6 +406,12 @@ export function extractVideoUnderstandeOutputSummary(output: unknown): VideoUnde
   const artifactRelativePath = typeof artifactRecord?.relative_path === 'string' ? artifactRecord.relative_path.trim() : ''
 
   return {
+    recognitionComplete: parsed.recognition_complete !== false && !['partial', 'unrecognized'].includes(String(parsed.recognition_status)),
+    message: typeof parsed.message === 'string' ? parsed.message : '',
+    missingRanges: (Array.isArray(parsed.missing_ranges) ? parsed.missing_ranges : []).map((gap) => {
+      const record = asRecord(gap)
+      return `视频 ${record?.video_index}：${record?.start_seconds}-${record?.end_seconds} 秒，${record?.reason}`
+    }),
     totalVideoCount: asFiniteNumber(parsed.total_video_count),
     defaultFps: asFiniteNumber(parsed.default_fps),
     totalDurationSeconds: extractTotalDurationSeconds(parsed),

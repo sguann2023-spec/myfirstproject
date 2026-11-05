@@ -2784,25 +2784,25 @@
             "track_download": "记录照片下载"
           },
           "footage_search": {
-            "search_images": "图片素材搜索",
-            "get_image": "图片素材详情",
-            "search_videos": "视频素材搜索",
-            "get_video": "视频素材详情"
+            "search_images": "联网搜索：联网搜索",
+            "get_image": "联网搜索：联网搜索",
+            "search_videos": "联网搜索：联网搜索",
+            "get_video": "联网搜索：联网搜索"
           },
           "ai_library": {
-            "search_images": "AI图片素材搜索",
-            "get_image": "AI图片素材详情",
-            "search_videos": "AI视频素材搜索",
-            "get_video": "AI视频素材详情"
+            "search_images": "联网搜索：联网搜索",
+            "get_image": "联网搜索：联网搜索",
+            "search_videos": "联网搜索：联网搜索",
+            "get_video": "联网搜索：联网搜索"
           },
           "figure_search": {
             "search_images": "火柴人素材搜索"
           },
           "stock_search": {
-            "search_videos": "视频素材搜索",
-            "get_video": "获取视频素材",
-            "search_audios": "音频素材搜索",
-            "get_audio": "获取音频素材"
+            "search_videos": "联网搜索：联网搜索",
+            "get_video": "联网搜索：联网搜索",
+            "search_audios": "联网搜索：联网搜索",
+            "get_audio": "联网搜索：联网搜索"
           },
           "materials": {
             "folder_links": "查看文件夹"

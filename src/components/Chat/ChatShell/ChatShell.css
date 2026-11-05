@@ -37,6 +37,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* 作为浮动草稿面板（.pinned-draft-floating-anchor）的定位基准 */
+  position: relative;
 }
 
 .chat-panel__members {

@@ -42,6 +42,18 @@ describe('relocateHistoryImageReferences', () => {
     expect(await relocateHistoryImageReferences(result, oldWorkspace, newWorkspace)).toEqual(result)
   })
 
+  it('relocates managed media URL references inside serialized results', async () => {
+    const mediaName = `media-${createHash('sha256').update('abc').digest('hex')}.mp4`
+    const oldFile = path.join(oldWorkspace, '.tool-results', 'history-images', mediaName)
+    const newFile = path.join(newWorkspace, '.tool-results', 'history-images', mediaName)
+    await writeFile(newFile, 'abc')
+    const input = { output: JSON.stringify({ video_url: oldFile }), source: oldFile }
+    const result = await relocateHistoryImageReferences(input, oldWorkspace, newWorkspace)
+    expect(JSON.parse(result.output).video_url).toBe(newFile)
+    expect(result.source).toBe(newFile)
+    expect(input.source).toBe(oldFile)
+  })
+
   it('preserves JSON-in-text wrappers and only interprets known result fields or text blocks', async () => {
     const oldFile = imagePath(oldWorkspace), newFile = imagePath(newWorkspace)
     const encoded = JSON.stringify(JSON.stringify({ source: oldFile, content: [{ type: 'text', text: referenceText(oldFile) }] }))
@@ -209,6 +221,31 @@ describe('prepareHistoryImageProjection', () => {
     expect(await readFile(reference(projected.content[0].text))).toEqual(Buffer.from('nested image'))
     expect(result.other).toBe('not JSON')
     await projection.dispose()
+  })
+
+  it('externalizes explicit audio/video URLs inside nested results without reinterpreting encoded data or prose', async () => {
+    const bytes = Buffer.alloc(100000, 0x71)
+    const data = bytes.toString('base64')
+    const url = `data:video/mp4;base64,${data}`
+    const inner = { video_url: url, content: [{ type: 'audio_url', audio_url: { url: `data:audio/wav;base64,${data}` } }] }
+    const body = { output: JSON.stringify(JSON.stringify(inner)), description: url,
+      data: url, content: [{ type: 'audio', mimeType: 'audio/wav', data }], url: 'data:video/unknown;base64,YWJj' }
+    insert('one', body)
+    const projection = await prepare()
+    const result = await read(projection.expression)
+    const projected = JSON.parse(JSON.parse(result.output))
+    for (const file of [projected.video_url, projected.content[0].audio_url.url]) {
+      expect(path.basename(file)).toMatch(/^media-/)
+      expect(await readFile(file)).toEqual(bytes)
+    }
+    expect(projected.content[0].type).toBe('audio_url')
+    for (const key of ['description', 'data', 'content', 'url']) expect(result[key]).toEqual(body[key])
+    expect(JSON.parse(sqlite.prepare('SELECT data_json FROM history').get()!.data_json as string)).toEqual(body)
+    await projection.dispose()
+    const second = await prepare()
+    expect(await read(second.expression)).toEqual(result)
+    expect(await files()).toHaveLength(2)
+    await second.dispose()
   })
 
   it('keeps raw values and performs no database or filesystem work without a workspace', async () => {

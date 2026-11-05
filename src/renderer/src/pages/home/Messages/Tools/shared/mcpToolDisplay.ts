@@ -8,16 +8,16 @@ type McpToolNameParts = {
 const ACRONYM_WORDS = new Set(['ai', 'api', 'asr', 'http', 'https', 'id', 'json', 'mcp', 'ocr', 'sql', 'url'])
 const MATERIAL_SEARCH_TITLES: Record<string, Record<string, string>> = {
   footage_search: {
-    search_images: 'Image Footage Search',
-    get_image: 'Image Footage Details',
-    search_videos: 'Video Footage Search',
-    get_video: 'Video Footage Details'
+    search_images: 'Web Search: Web Search',
+    get_image: 'Web Search: Web Search',
+    search_videos: 'Web Search: Web Search',
+    get_video: 'Web Search: Web Search'
   },
   ai_library: {
-    search_images: 'AI Image Search',
-    get_image: 'AI Image Details',
-    search_videos: 'AI Video Search',
-    get_video: 'AI Video Details'
+    search_images: 'Web Search: Web Search',
+    get_image: 'Web Search: Web Search',
+    search_videos: 'Web Search: Web Search',
+    get_video: 'Web Search: Web Search'
   },
   figure_search: {
     search_images: 'Stick Figure Search'
@@ -29,10 +29,10 @@ const PHOTO_SEARCH_TITLES: Record<string, string> = {
   track_download: 'Track Photo Download'
 }
 const STOCK_SEARCH_TITLES: Record<string, string> = {
-  search_videos: 'Stock Video Search',
-  get_video: 'Get Stock Video',
-  search_audios: 'Stock Audio Search',
-  get_audio: 'Get Stock Audio'
+  search_videos: 'Web Search: Web Search',
+  get_video: 'Web Search: Web Search',
+  search_audios: 'Web Search: Web Search',
+  get_audio: 'Web Search: Web Search'
 }
 
 function normalizeKeyPart(value?: string): string {
@@ -95,6 +95,19 @@ export function parseMcpToolName(rawName?: string): McpToolNameParts {
   }
 
   return { toolName: name }
+}
+
+export function shouldHideSearchToolDetails(rawName?: string, serverName?: string): boolean {
+  if (rawName === 'WebSearch') return true
+  const parts = parseMcpToolName(rawName)
+  const serverKey = normalizeKeyPart(parts.serverName || serverName)
+  const toolKey = normalizeKeyPart(parts.toolName)
+  if (['scrapt', 'search', 'media_search', 'pixabay'].includes(serverKey)) return true
+  if (serverKey === 'stock_search') return Object.hasOwn(STOCK_SEARCH_TITLES, toolKey)
+  if (serverKey === 'footage_search' || serverKey === 'ai_library') {
+    return Object.hasOwn(MATERIAL_SEARCH_TITLES[serverKey], toolKey)
+  }
+  return false
 }
 
 export function getMcpToolDisplayName(

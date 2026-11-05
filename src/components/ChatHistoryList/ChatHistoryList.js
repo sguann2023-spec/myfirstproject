@@ -23,14 +23,14 @@ const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-// 会话行的相对时间：刚刚 / xx分 / xx时 / xx天 / xx月（月按30天估算）。
+// 会话行的相对时间：刚刚 / xx分 / xx小时 / xx天 / xx月（月按30天估算）。
 export const formatChatSessionTime = (timestamp, now = Date.now()) => {
   const time = Number(timestamp);
   if (!Number.isFinite(time) || time <= 0) return '';
   const elapsed = Math.max(0, now - time);
   if (elapsed < 3 * MINUTE_MS) return '刚刚';
   if (elapsed < HOUR_MS) return `${Math.floor(elapsed / MINUTE_MS)}分`;
-  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}时`;
+  if (elapsed < DAY_MS) return `${Math.floor(elapsed / HOUR_MS)}小时`;
   if (elapsed < 30 * DAY_MS) return `${Math.floor(elapsed / DAY_MS)}天`;
   return `${Math.floor(elapsed / (30 * DAY_MS))}月`;
 };

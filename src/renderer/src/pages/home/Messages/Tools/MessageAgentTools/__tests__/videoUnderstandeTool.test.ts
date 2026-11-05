@@ -1,4 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('../ClickableFilePath', () => ({ ClickableFilePath: () => null }))
+
+import { VideoUnderstandeTool } from '../VideoUnderstandeToolRenderer'
 
 import {
   extractVideoUnderstandeBillingSummary,
@@ -9,6 +16,25 @@ import {
 } from '../videoUnderstandeTool'
 
 describe('videoUnderstandeTool', () => {
+  it('exposes incomplete recognition and known billing without requiring result files', () => {
+    const output = { recognition_status: 'partial', recognition_complete: false, message: '保留已识别内容', missing_ranges: [{ video_index: 2, start_seconds: 30, end_seconds: 90, reason: '请求失败' }], billing: { total_consumed_points: 0.6, complete: false } }
+    expect(extractVideoUnderstandeOutputSummary(output)).toMatchObject({ recognitionComplete: false, message: '保留已识别内容', missingRanges: ['视频 2：30-90 秒，请求失败'] })
+    expect(extractVideoUnderstandeBillingSummary(output)).toMatchObject({ totalConsumedPoints: 0.6, billingComplete: false })
+  })
+
+  it('renders incomplete recognition, missing ranges and known charges in the tool card', () => {
+    const item = VideoUnderstandeTool({ toolName: VIDEO_UNDERSTANDE_TOOL_NAME, output: {
+      recognition_status: 'unrecognized', recognition_complete: false, message: '请求失败',
+      missing_ranges: [{ video_index: 1, start_seconds: 0, end_seconds: 90, reason: '三次尝试失败' }],
+      billing: { total_consumed_points: 0.6, complete: false },
+    } })
+    const header = renderToStaticMarkup(createElement('div', null, item.label))
+    const body = renderToStaticMarkup(createElement('div', null, item.children))
+    expect(header).toContain('未完全识别')
+    expect(header).toContain('已知消耗（账单不完整）')
+    expect(body).toContain('0-90 秒，三次尝试失败')
+  })
+
   it('recognizes the video understand MCP tool name', () => {
     expect(isVideoUnderstandeToolName(VIDEO_UNDERSTANDE_TOOL_NAME)).toBe(true)
     expect(isVideoUnderstandeToolName('mcp__other__tool')).toBe(false)
@@ -32,6 +58,7 @@ describe('videoUnderstandeTool', () => {
 
     expect(summary).toEqual({
       totalConsumedPoints: 3.6,
+      billingComplete: true,
       displayText: '3.60'
     })
   })
@@ -79,6 +106,7 @@ describe('videoUnderstandeTool', () => {
     })
 
     expect(summary).toEqual({
+      recognitionComplete: true, message: '', missingRanges: [],
       totalVideoCount: 2,
       defaultFps: 3,
       totalDurationSeconds: 20,
@@ -131,10 +159,12 @@ describe('videoUnderstandeTool', () => {
 
     expect(extractVideoUnderstandeBillingSummary(output)).toEqual({
       totalConsumedPoints: 1.98,
+      billingComplete: true,
       displayText: '1.98'
     })
 
     expect(extractVideoUnderstandeOutputSummary(output)).toEqual({
+      recognitionComplete: true, message: '', missingRanges: [],
       totalVideoCount: 2,
       defaultFps: 3,
       totalDurationSeconds: 20,
@@ -175,6 +205,7 @@ describe('videoUnderstandeTool', () => {
 
     expect(summary).toEqual({
       totalConsumedPoints: 5.25,
+      billingComplete: true,
       displayText: '5.25'
     })
   })
@@ -219,10 +250,12 @@ describe('videoUnderstandeTool', () => {
 
     expect(extractVideoUnderstandeBillingSummary(output)).toEqual({
       totalConsumedPoints: 7.035063999999998,
+      billingComplete: true,
       displayText: '7.04'
     })
 
     expect(extractVideoUnderstandeOutputSummary(output)).toEqual({
+      recognitionComplete: true, message: '', missingRanges: [],
       totalVideoCount: 10,
       defaultFps: 3,
       totalDurationSeconds: 15.5,
@@ -276,10 +309,12 @@ describe('videoUnderstandeTool', () => {
 
     expect(extractVideoUnderstandeBillingSummary(output)).toEqual({
       totalConsumedPoints: 2.04,
+      billingComplete: true,
       displayText: '2.04'
     })
 
     expect(extractVideoUnderstandeOutputSummary(output)).toEqual({
+      recognitionComplete: true, message: '', missingRanges: [],
       totalVideoCount: 1,
       defaultFps: 3,
       totalDurationSeconds: 32.295,
@@ -305,10 +340,12 @@ describe('videoUnderstandeTool', () => {
 
     expect(extractVideoUnderstandeBillingSummary(output)).toEqual({
       totalConsumedPoints: 2.22,
+      billingComplete: true,
       displayText: '2.22'
     })
 
     expect(extractVideoUnderstandeOutputSummary(output)).toEqual({
+      recognitionComplete: true, message: '', missingRanges: [],
       totalVideoCount: 1,
       defaultFps: 3,
       totalDurationSeconds: 32.295,

@@ -30,10 +30,11 @@ const COMMON_PROPERTIES = {
   per_page: { type: 'integer', minimum: 3, maximum: 200, default: 20 }
 }
 
+const MEDIA_SEARCH_TITLE = '\u8054\u7f51\u641c\u7d22\uff1a\u8054\u7f51\u641c\u7d22'
 const TOOLS: Tool[] = [
   {
     name: 'search_images',
-    title: '\u56fe\u7247\u641c\u7d22',
+    title: MEDIA_SEARCH_TITLE,
     description: 'Mixed visual library: prefer for illustrations, vector candidates, sticker/cutout candidates, or category and exact minimum-dimension filters. For ordinary real-world photos prefer footage-search.search_images. Use image_type="illustration" with colors="transparent" for cutout candidates; transparency is not guaranteed. Use image_type="vector" for vectors; only vectorURL identifies a downloadable vector file. Never label a raster preview as SVG. Start with per_page=3-5. For a known ID from this library use id instead of repeating keywords. ' + ASSET_SEARCH_ROUTING + SEARCH_GUIDANCE,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
@@ -50,7 +51,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'search_videos',
-    title: '\u89c6\u9891\u641c\u7d22',
+    title: MEDIA_SEARCH_TITLE,
     description: 'Mixed video library: prefer for animated backgrounds and overlays using video_type="animation", or footage needing category and exact minimum-dimension filters. For ordinary filmed B-roll prefer footage-search.search_videos first. Consider scrapt.youtube_web_search_video with search_query for actual scene/event recordings, specific identifiable locations, tutorials/demonstrations or explicit YouTube requests. YouTube is also a suitable fallback for real-world filmed B-roll, establishing shots, scenic backgrounds and lifestyle clips when stock results are empty or unsuitable. Continue with refined keywords or relevant result pages as needed rather than stopping after one unsuccessful YouTube search; stop when suitable footage is found. Never use YouTube as an animation, vector or AI-only asset fallback. This tool searches its own video library, not YouTube. Search results already contain duration and MP4 versions with dimensions and sizes; no separate detail call is needed. Start with per_page=3-5. For a known ID from this library use id. Animation videos are not GIF files. ' + ASSET_SEARCH_ROUTING + SEARCH_GUIDANCE + VIDEO_USAGE_GUIDANCE,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
@@ -168,7 +169,7 @@ export default class MediaSearchServer {
         const endpoint = kind === 'video' ? '/pixabay/videos/search' : '/pixabay/search'
         const payload = await this.fetchSearch(`${this.baseUrl}${endpoint}?${params}`)
         const result = {
-          title: kind === 'video' ? '\u89c6\u9891\u641c\u7d22' : '\u56fe\u7247\u641c\u7d22',
+          title: MEDIA_SEARCH_TITLE,
           mediaType: kind,
           licenseURL: 'https://pixabay.com/service/license-summary/',
           usage: kind === 'video' ? VIDEO_USAGE_GUIDANCE : 'Use returned media URLs, dimensions and metadata to select assets. vectorURL, when present, identifies the vector file; raster previews are not SVG.',

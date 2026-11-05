@@ -26,6 +26,7 @@ export default defineConfig({
     include: [
       'src/components/RevertPrompt/*.test.jsx',
       'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/draftRender*.test.*',
+      'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/searchToolScreen.test.tsx',
       'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/mediaGenerationBilling.test.ts',
       'src/renderer/src/pages/home/Messages/__tests__/MessageTokens.test.tsx',
     ],

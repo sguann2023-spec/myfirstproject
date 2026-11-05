@@ -25,11 +25,16 @@ const MessageHeader = ({
   model,
   modelOptions,
   formatModelDisplayName,
-  formatMessageTime,
   userName,
   userAvatar,
 }) => {
   const isAssistant = role === 'assistant';
+
+  // 用户消息不再显示头像和昵称
+  if (!isAssistant) {
+    return null;
+  }
+
   const rawMessageModel = message?.model;
   const messageModel = String(
     (rawMessageModel && typeof rawMessageModel === 'object'
@@ -59,18 +64,8 @@ const MessageHeader = ({
         )}
       </div>
       <div className="chat-message-header__meta">
-        <div className={`chat-message-header__name-row chat-message-header__name-row--${isAssistant ? 'assistant' : 'user'}`}>
-          {isAssistant ? (
-            <>
-              <div className="chat-message-header__title">{displayName}</div>
-              <div className="chat-message-header__time">{formatMessageTime(message?.updatedAt || message?.createdAt)}</div>
-            </>
-          ) : (
-            <>
-              <div className="chat-message-header__time">{formatMessageTime(message?.updatedAt || message?.createdAt)}</div>
-              <div className="chat-message-header__title">{displayName}</div>
-            </>
-          )}
+        <div className="chat-message-header__name-row chat-message-header__name-row--assistant">
+          <div className="chat-message-header__title">{displayName}</div>
         </div>
       </div>
     </div>
@@ -109,7 +104,6 @@ export default React.memo(MessageHeader, (prevProps, nextProps) => {
     prevProps.role === nextProps.role
     && areModelOptionsEqual(prevProps.modelOptions, nextProps.modelOptions)
     && prevProps.formatModelDisplayName === nextProps.formatModelDisplayName
-    && prevProps.formatMessageTime === nextProps.formatMessageTime
     && prevProps.userName === nextProps.userName
     && prevProps.userAvatar === nextProps.userAvatar
     && prevMessage.createdAt === nextMessage.createdAt

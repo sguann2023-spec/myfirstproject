@@ -49,7 +49,7 @@ import {
   extractMediaGenerationBillingSummary,
   getMediaGenerationPointIconUrl
 } from './MessageAgentTools/mediaGenerationBilling'
-import { getMcpToolDisplayName } from './shared/mcpToolDisplay'
+import { getMcpToolDisplayName, shouldHideSearchToolDetails } from './shared/mcpToolDisplay'
 import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
@@ -253,6 +253,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   })
 
   const { id, tool, status, response, partialArguments } = toolResponse
+  const hideDetails = shouldHideSearchToolDetails(tool?.name, tool?.serverName)
   const isKouboTemplate = isKouboTemplateToolName(tool?.name)
   const isMediaGeneration = isMediaGenerationToolName(tool?.name)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(tool?.name)
@@ -314,7 +315,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
 
   // Auto-expand when streaming, auto-collapse when done
   useEffect(() => {
-    if (isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isSubtitleTemplate) {
+    if (hideDetails || isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isSubtitleTemplate) {
       return
     }
 
@@ -325,7 +326,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
       // Collapse when streaming ends
       setActiveKeys((prev) => prev.filter((key) => key !== id))
     }
-  }, [isStreaming, isDone, isError, id, isKouboTemplate, isMediaGeneration, isSubtitleRecognition, isSubtitleTemplate])
+  }, [isStreaming, isDone, isError, id, hideDetails, isKouboTemplate, isMediaGeneration, isSubtitleRecognition, isSubtitleTemplate])
 
   if (!toolResponse) {
     return null
@@ -339,6 +340,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
   }
 
   const handleCollapseChange = (keys: string | string[]) => {
+    if (hideDetails) return
     setActiveKeys(Array.isArray(keys) ? keys : [keys])
   }
 
@@ -431,7 +433,9 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
           </ActionButtonsContainer>
         </MessageTitleLabel>
       ),
-      children: (
+      showArrow: !hideDetails,
+      collapsible: hideDetails ? 'disabled' : undefined,
+      children: hideDetails ? undefined : (
         <ToolResponseContainer
           style={{
             fontFamily: messageFont === 'serif' ? 'var(--font-family-serif)' : 'var(--font-family)',
@@ -473,7 +477,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
           <ToolContentWrapper className={isPending || approval.isWaiting ? 'pending' : status}>
             <CollapseContainer
               ghost
-              activeKey={activeKeys}
+              activeKey={hideDetails ? [] : activeKeys}
               size="small"
               onChange={handleCollapseChange}
               className="message-tools-container"

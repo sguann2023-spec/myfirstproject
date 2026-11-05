@@ -604,15 +604,7 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
 
   const pinnedContent = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-      {showMockDraftPanel && (
-        <PinnedDraftPannel
-          drafts={MOCK_PINNED_DRAFTS}
-          sessionActive
-          title="草稿处理中"
-          defaultCollapsed={false}
-          onClose={() => setShowMockDraftPanel(false)}
-        />
-      )}
+      {showMockDraftPanel && <PinnedDraftPannel drafts={MOCK_PINNED_DRAFTS} />}
       <PinnedTodoPanel topicId={pinnedTodoTopicId} sessionActive={pinnedTodoSessionActive} />
     </div>
   )

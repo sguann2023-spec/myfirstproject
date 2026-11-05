@@ -5,9 +5,7 @@ import PinnedDraftPannel from '@renderer/pages/home/Inputbar/components/PinnedDr
 import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
 import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
 import { IpcChannel } from '@shared/IpcChannel';
-import { queryScript, searchDraft } from '../../api/capcut';
-import { DownloadController } from '../../shared/DownloadController.js';
-import { applyPinnedDraftMetadata, normalizePinnedDraftFromEvent } from './pinnedDraftMetadata';
+import { normalizePinnedDraftFromEvent } from './pinnedDraftMetadata';
 import ChatShell from './ChatShell/ChatShell';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
@@ -73,10 +71,18 @@ const formatMessageTime = (value) => {
   if (!value) return '';
   try {
     const date = new Date(value);
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    if (Number.isNaN(date.getTime())) return '';
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
+    const now = new Date();
+    const isToday =
+      date.getFullYear() === now.getFullYear()
+      && date.getMonth() === now.getMonth()
+      && date.getDate() === now.getDate();
+    // 当天的消息只展示 hh:mm，更早的展示 mm/dd hh:mm
+    if (isToday) return `${hours}:${minutes}`;
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
     return `${month}/${day} ${hours}:${minutes}`;
   } catch (error) {
     return '';
@@ -122,59 +128,16 @@ const hasRegisteredExternalAgent = (agents = []) => (
   Array.isArray(agents) && agents.some((agent) => agent?.registrationStatus === 'registered')
 );
 
-const buildPinnedDraftKey = (draft, index = 0) => draft?.id || draft?.draftId || `${draft?.title || draft?.name || 'draft'}-${index}`;
-
-const parseQueryScriptOutput = (response) => {
-  const output = response?.output || response?.data?.output || response?.result?.output;
-  return typeof output === 'string' ? JSON.parse(output) : output;
-};
-
-const enqueuePinnedDraftDownload = (draft) => {
-  const draftId = String(draft?.id || draft?.draftId || '').trim();
-  if (!draftId) return;
-
-  try {
-    DownloadController.enqueue({
-      draft_id: draftId,
-      draft_name: String(draft?.title || draft?.name || draftId).trim(),
-      cover: draft?.cover,
-      createdAt: draft?.created_at || draft?.createdAt
-    });
-    logger.info('[Chat] enqueued draft download from pinned draft panel', { draftId });
-  } catch (error) {
-    logger.warn('[Chat] failed to enqueue draft download from pinned draft panel', {
-      draftId,
-      error: error?.message || String(error || '')
-    });
-  }
-};
-
-const handleMockDraftDownloadAll = (drafts = []) => {
-  drafts.forEach((draft) => enqueuePinnedDraftDownload(draft));
-};
-
-const handleMockDraftDownloadItem = (draft) => {
-  enqueuePinnedDraftDownload(draft);
-};
-
 const ChatPinnedDraftPanel = () => {
   const [drafts, setDrafts] = React.useState(PINNED_DRAFTS);
-  const [visible, setVisible] = React.useState(true);
-  const [previewLoadingKey, setPreviewLoadingKey] = React.useState(null);
-  const [previewErrorKey, setPreviewErrorKey] = React.useState(null);
-  const [previewErrorMessage, setPreviewErrorMessage] = React.useState('');
-  const previewCacheRef = React.useRef(new Map());
-  const pendingPreviewRequestRef = React.useRef(new Set());
 
   React.useEffect(() => {
-    let disposed = false;
     const offDraftCreated = window.ipc?.on(IpcChannel.App_DraftCreated, (payload) => {
       const nextDraft = normalizePinnedDraftFromEvent(payload);
       if (!nextDraft) {
         return;
       }
 
-      setVisible(true);
       setDrafts((currentDrafts) => {
         const pendingIndex = nextDraft.clientRequestId
           ? currentDrafts.findIndex((item) => String(item?.clientRequestId || '').trim() === nextDraft.clientRequestId)
@@ -186,131 +149,20 @@ const ChatPinnedDraftPanel = () => {
         }
         return [nextDraft, ...currentDrafts];
       });
-
-      if (nextDraft.status === 'completed' && (!nextDraft.title || nextDraft.title === nextDraft.draftId)) {
-        searchDraft({ draft_id: nextDraft.draftId }).then((response) => {
-          if (disposed || !response?.draft) return;
-          setDrafts((currentDrafts) => currentDrafts.map((item) => (
-            String(item?.draftId || item?.id || '').trim() === nextDraft.draftId
-              ? applyPinnedDraftMetadata(item, response.draft)
-              : item
-          )));
-        }).catch((error) => {
-          logger.warn('[Chat] failed to resolve pinned draft name', {
-            draftId: nextDraft.draftId,
-            error: error?.message || String(error || '')
-          });
-        });
-      }
     });
 
     return () => {
-      disposed = true;
       offDraftCreated?.();
     };
   }, []);
 
-  const handlePreviewItem = React.useCallback(async (draft) => {
-    const draftId = String(draft?.id || draft?.draftId || '').trim();
-    logger.info('[ChatPinnedDraftPanel] handle preview item', {
-      draftId,
-      draftKey: buildPinnedDraftKey(draft),
-      title: String(draft?.title || draft?.name || '').trim(),
-      hasTrackPreview: Boolean(draft?.trackPreview)
-    });
-    if (!draftId) {
-      logger.warn('[ChatPinnedDraftPanel] skip preview because draftId is empty');
-      return;
-    }
-
-    const targetKey = buildPinnedDraftKey(draft);
-    setPreviewErrorKey(null);
-    setPreviewErrorMessage('');
-
-    const cachedPreview = previewCacheRef.current.get(draftId);
-    if (cachedPreview) {
-      logger.info('[ChatPinnedDraftPanel] apply cached preview before refresh', { draftId, targetKey });
-      setDrafts((currentDrafts) => currentDrafts.map((item, index) => (
-        buildPinnedDraftKey(item, index) === targetKey
-          ? { ...item, trackPreview: cachedPreview }
-          : item
-      )));
-    }
-
-    if (pendingPreviewRequestRef.current.has(targetKey)) {
-      logger.info('[ChatPinnedDraftPanel] skip duplicate preview request', { draftId, targetKey });
-      return;
-    }
-
-    logger.info('[ChatPinnedDraftPanel] start queryScript for preview', { draftId, targetKey });
-    pendingPreviewRequestRef.current.add(targetKey);
-    setPreviewLoadingKey(targetKey);
-
-    try {
-      const response = await queryScript({ draft_id: draftId, force_update: false });
-      const ok = response && (response.success === true || response.code === 200);
-      logger.info('[ChatPinnedDraftPanel] queryScript finished', {
-        draftId,
-        targetKey,
-        ok,
-        code: response?.code,
-        success: response?.success
-      });
-      if (!ok) {
-        throw new Error(response?.error || '查询草稿轨道失败');
-      }
-
-      const script = parseQueryScriptOutput(response);
-      const preview = script;
-      previewCacheRef.current.set(draftId, preview);
-      logger.info('[ChatPinnedDraftPanel] preview loaded successfully', {
-        draftId,
-        targetKey,
-        trackCount: Array.isArray(preview?.tracks)
-          ? preview.tracks.length
-          : (preview?.tracks && typeof preview.tracks === 'object' ? Object.keys(preview.tracks).length : 0)
-      });
-      setDrafts((currentDrafts) => currentDrafts.map((item) => (
-        String(item?.id || item?.draftId || '').trim() === draftId
-          ? { ...item, trackPreview: preview }
-          : item
-      )));
-    } catch (error) {
-      logger.warn('[Chat] failed to load draft track preview', {
-        draftId,
-        error: error?.message || String(error || '')
-      });
-      setPreviewErrorKey(targetKey);
-      setPreviewErrorMessage(error?.message || '轨道预览加载失败');
-    } finally {
-      pendingPreviewRequestRef.current.delete(targetKey);
-      logger.info('[ChatPinnedDraftPanel] finish preview request', { draftId, targetKey });
-      setPreviewLoadingKey((currentKey) => (currentKey === targetKey ? null : currentKey));
-    }
-  }, []);
-
-  if (!visible) {
+  if (drafts.length === 0) {
     return null;
   }
 
-  const hasInProgressDraft = drafts.some((draft) => draft?.status === 'in_progress');
-
   return (
-    <div style={{ padding: '1px 24px 8px 16px' }}>
-      <PinnedDraftPannel
-        drafts={drafts}
-        sessionActive={hasInProgressDraft}
-        sessionFulfilled={!hasInProgressDraft && drafts.length > 0}
-        title={hasInProgressDraft ? '草稿处理中' : '草稿处理完成'}
-        defaultCollapsed={false}
-        onDownloadAll={handleMockDraftDownloadAll}
-        onDownloadItem={handleMockDraftDownloadItem}
-        onPreviewItem={handlePreviewItem}
-        onClose={() => setVisible(false)}
-        previewLoadingKey={previewLoadingKey}
-        previewErrorKey={previewErrorKey}
-        previewErrorMessage={previewErrorMessage}
-      />
+    <div className="pinned-draft-floating-anchor">
+      <PinnedDraftPannel drafts={drafts} />
     </div>
   );
 };

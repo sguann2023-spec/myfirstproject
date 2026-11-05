@@ -18,23 +18,23 @@
 }
 
 .chat-panel__message-body {
-  margin-top: -12px;
-  margin-left: 45px;
-  max-width: calc(100% - 90px);
+  margin-top: 0;
+  margin-left: 0;
+  max-width: 100%;
 }
 
 .chat-panel__message-body.user {
-  margin-left: 45px;
-  margin-right: 45px;
+  margin-left: 0;
+  margin-right: 0;
   min-width: 0;
-  background: #ccebff;
+  background: #e8e8e8;
   border-radius: 8px;
   padding: 6px 10px;
   color: #222;
 }
 
 .chat-panel__message-body.assistant {
-  width: calc(100% - 90px);
+  width: 100%;
   min-width: 0;
   color: #111;
 }
@@ -44,6 +44,18 @@
   line-height: 18px;
   color: #666666;
   margin-right: auto;
+  white-space: nowrap;
+}
+
+.chat-panel__message-time {
+  /* 与操作按钮同高（26px）并垂直居中，保证时间文字与图标对齐 */
+  display: flex;
+  align-items: center;
+  height: 26px;
+  /* 补偿按钮自身的内边距，让图标与文字之间的视觉间距一致 */
+  margin: 0 5px;
+  font-size: 14px;
+  color: #666;
   white-space: nowrap;
 }
 
@@ -126,26 +138,13 @@
   cursor: not-allowed;
 }
 
-.chat-panel__message.user .chat-message-header {
-  flex-direction: row-reverse;
-}
-
 .chat-panel__message.user .chat-panel__message-actions {
   justify-content: flex-end;
 }
 
 .chat-panel__message-actions--user {
   margin-top: 8px;
-  margin-right: 45px;
+  margin-right: 0;
   align-self: flex-end;
-  width: calc(100% - 90px);
-}
-
-.chat-panel__message.user .chat-message-header__meta {
-  align-items: flex-end;
-}
-
-.chat-panel__message.user .chat-message-header__title,
-.chat-panel__message.user .chat-message-header__time {
-  text-align: right;
+  width: 100%;
 }

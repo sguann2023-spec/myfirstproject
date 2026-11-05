@@ -12,6 +12,7 @@ import { isAgentMcpToolName, McpServerToolRenderer } from './MessageAgentTools/M
 import { isValidAgentToolsType, renderTool } from './MessageAgentTools/index'
 import { UnknownToolRenderer } from './MessageAgentTools/UnknownToolRenderer'
 import ToolApprovalActionsComponent from './ToolApprovalActions'
+import { shouldHideSearchToolDetails } from './shared/mcpToolDisplay'
 
 interface Props {
   toolResponse: NormalToolResponse
@@ -35,6 +36,7 @@ export function ToolPermissionRequestCard({ toolResponse }: Props) {
 
   const renderToolContent = useCallback((): React.ReactNode => {
     const toolName = toolResponse.tool?.name ?? ''
+    const hideDetails = shouldHideSearchToolDetails(toolName, toolResponse.tool?.serverName)
     const input = (approval.input ?? toolResponse.arguments) as Record<string, unknown> | undefined
 
     const renderedItem = isValidAgentToolsType(toolName)
@@ -52,6 +54,7 @@ export function ToolPermissionRequestCard({ toolResponse }: Props) {
 
     const toolContentItem: NonNullable<CollapseProps['items']>[number] = {
       ...renderedItem,
+      ...(hideDetails ? { children: undefined, showArrow: false, collapsible: 'disabled' as const } : {}),
       label: (
         <div className="flex w-full items-start justify-between gap-2">
           <div className="min-w-0 flex-1">{renderedItem.label}</div>
@@ -69,12 +72,13 @@ export function ToolPermissionRequestCard({ toolResponse }: Props) {
           className="w-full"
           expandIconPosition="end"
           size="small"
-          defaultActiveKey={[String(renderedItem.key ?? toolName)]}
+          activeKey={hideDetails ? [] : undefined}
+          defaultActiveKey={hideDetails ? [] : [String(renderedItem.key ?? toolName)]}
           items={[toolContentItem]}
         />
       </StreamingContext>
     )
-  }, [toolResponse.tool?.name, approval.input, toolResponse.arguments, statusInfo])
+  }, [toolResponse.tool?.name, toolResponse.tool?.serverName, approval.input, toolResponse.arguments, statusInfo])
 
   return (
     <Container>

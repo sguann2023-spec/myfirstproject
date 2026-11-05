@@ -55,6 +55,18 @@ describe('逐帧拉片直连计费', () => {
     })
     await server.mcpServer.close()
   })
+  it('未完全识别保留正常业务结果且未知账单不标为完整', async () => {
+    const server = new VideoUnderstandServer()
+    vi.spyOn(server as any, 'submitVideoDetailTask').mockImplementation(async (_args: any, extra: any) => {
+      extra.onBilling({ total_consumed_points: 0.2 })
+      extra.onBilling(null)
+      return { content: [{ type: 'text', text: JSON.stringify({ recognition_status: 'partial', recognition_complete: false, billing: { total_consumed_points: 0.2, complete: false } }) }] }
+    })
+    const result = await server.executeDirectRequest({ videoUrls: ['https://cdn.example.com/video.mp4'] }, { requestId: 'r' })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ recognition_status: 'partial', recognition_complete: false, billing: { total_consumed_points: 0.2, complete: false } })
+    await server.mcpServer.close()
+  })
   it('直接视频 URL 不产生分享解析费', async () => {
     const server = new VideoUnderstandServer()
     vi.spyOn(server as any, 'submitVideoDetailTask').mockImplementation(async (_args: any, extra: any) => {

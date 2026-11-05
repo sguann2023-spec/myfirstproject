@@ -47,7 +47,7 @@ import { WebSearchTool } from './WebSearchTool'
 import { WriteTool } from './WriteTool'
 import { getDisplayToolHasError, getDisplayToolStatus } from '../shared/toolDisplayState'
 import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
-import { parseMcpToolName } from '../shared/mcpToolDisplay'
+import { shouldHideSearchToolDetails } from '../shared/mcpToolDisplay'
 
 type ToolRenderer = (props: {
   input?: any
@@ -123,6 +123,7 @@ export function isValidAgentToolsType(toolName: unknown): toolName is AgentTools
 
 function ToolContent({
   toolName,
+  serverName,
   input,
   output,
   isStreaming = false,
@@ -132,6 +133,7 @@ function ToolContent({
   progressMessage
 }: {
   toolName?: string
+  serverName?: string
   input?: ToolInput | Record<string, unknown>
   output?: ToolOutput | unknown
   isStreaming?: boolean
@@ -140,9 +142,7 @@ function ToolContent({
   progress?: number
   progressMessage?: string
 }) {
-  const hideDetails = ['scrapt', 'search', 'media-search', 'pixabay'].includes(
-    parseMcpToolName(toolName).serverName ?? ''
-  )
+  const hideDetails = shouldHideSearchToolDetails(toolName, serverName)
   const renderedItem = isValidAgentToolsType(toolName)
     ? renderTool(toolName, (input ?? {}) as Record<string, unknown>, output)
     : isAgentMcpToolName(toolName ?? '')
@@ -180,6 +180,7 @@ function ToolContent({
         className="w-max max-w-full has-[.ant-collapse-item-active]:w-full"
         expandIconPosition="end"
         size="small"
+        activeKey={hideDetails ? [] : undefined}
         defaultActiveKey={toolName === AgentToolsType.TodoWrite ? [AgentToolsType.TodoWrite] : []}
         items={[toolContentItem]}
       />
@@ -305,6 +306,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   return (
     <ToolContent
       toolName={toolName}
+      serverName={tool?.serverName}
       input={args ?? parsedPartialArgs}
       output={resolvedOutput}
       isStreaming={isLoading}

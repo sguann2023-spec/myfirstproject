@@ -23,7 +23,11 @@ export const PI_HISTORY_IMAGE_LIMITS = {
 
 const extensions: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
-  'image/webp': 'webp', 'image/avif': 'avif', 'image/svg+xml': 'svg'
+  'image/webp': 'webp', 'image/avif': 'avif', 'image/svg+xml': 'svg',
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+  'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav',
+  'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/flac': 'flac',
+  'audio/mp4': 'm4a', 'audio/webm': 'webm'
 }
 
 // JSON stored as text is meaningful only in known tool-result fields. Ordinary
@@ -42,7 +46,7 @@ export async function relocateHistoryImageReferences<T>(value: T, oldWorkspace: 
   if (!oldWorkspace.trim() || !newWorkspace.trim()) return value
   const oldRoot = path.resolve(oldWorkspace, '.tool-results', 'history-images')
   if (path.resolve(oldWorkspace) === path.resolve(newWorkspace)) return value
-  const filenames = /^image-[0-9a-f]{64}\.(?:png|jpg|gif|webp|avif|svg)$/
+  const filenames = /^(?:image-[0-9a-f]{64}\.(?:png|jpg|gif|webp|avif|svg)|media-[0-9a-f]{64}\.(?:mp4|webm|mov|mp3|wav|ogg|flac|m4a))$/
   const reference = /^Previously loaded image: ("(?:[^"\\]|\\.)*")(\. Raw image omitted when restoring history\. Use ReadImageAsContent with this file_path if visual inspection is needed again\.|\. Use ReadImageAsContent with this file_path or URL if visual inspection is needed again\.)$/
   const targets = new Map<string, Promise<string>>()
   const copies = new WeakMap<object, object>()
@@ -238,7 +242,7 @@ export async function prepareHistoryImageProjection(
         await handle.close()
       }
       const digest = hash.digest('hex')
-      const file = path.join(root, `image-${digest}.${extensions[mime]}`)
+      const file = path.join(root, `${mime.startsWith('image/') ? 'image' : 'media'}-${digest}.${extensions[mime]}`)
       try {
         // No overwrite: a concurrent recovery can publish the same complete
         // inode, but no reader can ever observe a partially written final file.
@@ -300,7 +304,13 @@ export async function prepareHistoryImageProjection(
         if (++visits > PI_HISTORY_IMAGE_LIMITS.nodes) throw limitError()
         if (!leaf.location || !leaf.parentPath) throw limitError()
         cursor = Number(leaf.node)
-        const dataUrl = /^data:(image\/[a-z0-9.+-]+);base64,/i.exec(leaf.prefix)
+        // Audio/video are supported only as explicit data URLs in URL/source
+        // fields. Never infer media from arbitrary base64 strings or rewrite
+        // encoded-data fields as paths while retaining a base64 discriminator.
+        const imageUrl = /^data:(image\/[a-z0-9.+-]+);base64,/i.exec(leaf.prefix)
+        const mediaUrl = ['url', 'source', 'audio_url', 'video_url'].includes(leaf.key ?? '')
+          ? /^data:((?:audio|video)\/[a-z0-9.+-]+);base64,/i.exec(leaf.prefix) : null
+        const dataUrl = imageUrl ?? mediaUrl
         const typed = leaf.key === 'data' && (leaf.parentType === 'image' ||
           (leaf.parentType === 'base64' && leaf.mime?.startsWith('image/')))
         const rootImage = canonical && leaf.parentPath === '$' && ['data', 'base64', 'image_base64'].includes(leaf.key ?? '')
@@ -313,11 +323,13 @@ export async function prepareHistoryImageProjection(
             json_type(body,${leaf.location})='text' AS present FROM ${tempDocs} WHERE doc=${doc}`)
           if (!current?.present) continue
         }
-        if ((dataUrl || typed || rootImage || namedImage) && Object.prototype.hasOwnProperty.call(extensions, mime)) {
+        if ((mediaUrl || ((imageUrl || typed || rootImage || namedImage) && mime.startsWith('image/'))) && Object.prototype.hasOwnProperty.call(extensions, mime)) {
           const file = await saveImage(doc, leaf, mime, dataUrl ? dataUrl[0].length + 1 : 1)
           if (!file) continue
           const text = `Previously loaded image: ${JSON.stringify(file)}. Raw image omitted when restoring history. Use ReadImageAsContent with this file_path if visual inspection is needed again.`
-          if (leaf.parentType === 'image' && leaf.key === 'data' && !rootImage) {
+          if (mediaUrl) {
+            await db.run(sql`UPDATE ${tempDocs} SET body=json_set(body,${leaf.location},${file}) WHERE doc=${doc}`)
+          } else if (leaf.parentType === 'image' && leaf.key === 'data' && !rootImage) {
             await db.run(sql`UPDATE ${tempDocs} SET body=json_set(body,${leaf.parentPath},
               json_object('type','text','text',${text})) WHERE doc=${doc}`)
           } else if (rootImage) {

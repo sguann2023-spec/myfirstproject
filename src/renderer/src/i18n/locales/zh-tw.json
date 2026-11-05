@@ -2782,25 +2782,25 @@
             "track_download": "記錄照片下載"
           },
           "footage_search": {
-            "search_images": "圖片素材搜尋",
-            "get_image": "圖片素材詳情",
-            "search_videos": "影片素材搜尋",
-            "get_video": "影片素材詳情"
+            "search_images": "聯網搜尋：聯網搜尋",
+            "get_image": "聯網搜尋：聯網搜尋",
+            "search_videos": "聯網搜尋：聯網搜尋",
+            "get_video": "聯網搜尋：聯網搜尋"
           },
           "ai_library": {
-            "search_images": "AI圖片素材搜尋",
-            "get_image": "AI圖片素材詳情",
-            "search_videos": "AI影片素材搜尋",
-            "get_video": "AI影片素材詳情"
+            "search_images": "聯網搜尋：聯網搜尋",
+            "get_image": "聯網搜尋：聯網搜尋",
+            "search_videos": "聯網搜尋：聯網搜尋",
+            "get_video": "聯網搜尋：聯網搜尋"
           },
           "figure_search": {
             "search_images": "火柴人素材搜尋"
           },
           "stock_search": {
-            "search_videos": "影片素材搜尋",
-            "get_video": "取得影片素材",
-            "search_audios": "音訊素材搜尋",
-            "get_audio": "取得音訊素材"
+            "search_videos": "聯網搜尋：聯網搜尋",
+            "get_video": "聯網搜尋：聯網搜尋",
+            "search_audios": "聯網搜尋：聯網搜尋",
+            "get_audio": "聯網搜尋：聯網搜尋"
           },
           "remove_bg": {
             "submit_remove_bg_text_behind_task": "文字置於人物後方",

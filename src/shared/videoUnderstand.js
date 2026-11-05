@@ -74,7 +74,9 @@ export const parseVideoUnderstandResult = (result) => {
   const aggregateFile = files.find((file) => file.kind === 'aggregate_result');
   const selectedFiles = [indexFile, aggregateFile].filter(Boolean);
   if (!selectedFiles.length) selectedFiles.push(...files.slice(0, 5));
-  const lines = [`已完成 ${count} 个视频的逐帧拉片，完整内容已保存到结果文件。`];
+  const incomplete = response.recognition_complete === false || ['partial', 'unrecognized'].includes(response.recognition_status);
+  const lines = [incomplete ? `未完全识别 ${count} 个视频。${response.message || '已保留已识别内容，请查看缺失范围。'}` : `已完成 ${count} 个视频的逐帧拉片，完整内容已保存到结果文件。`];
+  for (const gap of response.missing_ranges || []) lines.push(`视频 ${gap.video_index} 缺失 ${gap.start_seconds}-${gap.end_seconds} 秒：${gap.reason}`);
   const shortText = (text, length) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, length);
   for (const video of summaries.slice(0, 5)) {
     lines.push(`视频 ${video.video_index}：${shortText(video.title, 100) || '逐帧拉片'}`,
@@ -86,7 +88,7 @@ export const parseVideoUnderstandResult = (result) => {
     lines.push(`${file.kind === 'result_index' ? '文件索引' : file.kind === 'aggregate_result' ? '分析汇总' : '结果文件'}：\`${file.file_path || file.relative_path}\``);
   }
   if (response.artifact?.file_path) lines.push(`结构化结果：\`${response.artifact.file_path}\``);
-  if (!selectedFiles.length && !response.artifact?.file_path) {
+  if (!selectedFiles.length && !response.artifact?.file_path && !incomplete) {
     const error = new Error('未获取到逐帧拉片结果');
     error.toolResponse = { ...response, isError: true };
     throw error;
