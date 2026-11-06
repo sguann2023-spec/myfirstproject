@@ -146,7 +146,7 @@ export function getMcpToolDisplayName(
 
   // Historical calls share the same provider-neutral title.
   if (serverKey === 'media_search') {
-    return args.t('message.tools.mcp.webSearch', { defaultValue: 'Web Search: Web Search' })
+    return args.t('message.tools.mcp.assetSearch', { defaultValue: 'Web Search: Asset Search' })
   }
 
   // Standalone titles do not need the internal server name.

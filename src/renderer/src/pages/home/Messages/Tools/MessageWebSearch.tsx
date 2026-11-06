@@ -1,10 +1,11 @@
 import type { WebSearchToolInput, WebSearchToolOutput } from '@renderer/aiCore/tools/WebSearchTool'
-import Spinner from '@renderer/components/Spinner'
 import type { NormalToolResponse } from '@renderer/types'
 import { Typography } from 'antd'
 import { Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
+
+import { toolRunningShimmerCss } from './shared/toolShimmer'
 
 const { Text } = Typography
 
@@ -14,14 +15,11 @@ export const MessageWebSearchToolTitle = ({ toolResponse }: { toolResponse: Norm
   const toolOutput = toolResponse.response as WebSearchToolOutput
 
   return toolResponse.status !== 'done' ? (
-    <Spinner
-      text={
-        <PrepareToolWrapper>
-          {t('message.searching')}
-          <span>{toolInput?.additionalContext ?? ''}</span>
-        </PrepareToolWrapper>
-      }
-    />
+    <PrepareToolWrapper $running>
+      <Search size={16} style={{ color: 'unset' }} />
+      <span>{t('message.searching')}</span>
+      <span>{toolInput?.additionalContext ?? ''}</span>
+    </PrepareToolWrapper>
   ) : (
     <MessageWebSearchToolTitleTextWrapper type="secondary">
       <Search size={16} style={{ color: 'unset' }} />
@@ -48,13 +46,14 @@ export const MessageWebSearchToolTitle = ({ toolResponse }: { toolResponse: Norm
 //     : null
 // }
 
-const PrepareToolWrapper = styled.span`
+const PrepareToolWrapper = styled.span<{ $running?: boolean }>`
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 14px;
   padding: 5px;
   padding-left: 0;
+  ${(props) => (props.$running ? toolRunningShimmerCss : '')}
 `
 
 const MessageWebSearchToolTitleTextWrapper = styled(Text)`

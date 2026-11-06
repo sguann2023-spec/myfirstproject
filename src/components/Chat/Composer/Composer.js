@@ -1,6 +1,7 @@
 import { useAgent } from '@renderer/hooks/agents/useAgent';
 import { CloseOutlined } from '@ant-design/icons';
 import React from 'react';
+import { mergeRestoredQueueOptions, restoreQueueComposerDraft } from '../sendQueue';
 import { buildTextStyleRanges } from '../../../shared/textTypography';
 import { buildTextEffectParams } from '../../../shared/textEffects';
 import { buildTextPlacementParams } from '../../../shared/textPlacement';
@@ -2200,6 +2201,7 @@ const Composer = ({
   beginnerGuideModelPickerRef = null,
   beginnerGuideInputAreaRef = null,
   inputRef,
+  restoreQueuedDraftRef,
   input,
   setInput,
   handleSend,
@@ -2215,6 +2217,9 @@ const Composer = ({
   const { agent } = useAgent(agentId || null);
   const [runtimeSession, setRuntimeSession] = React.useState(null);
   const session = runtimeSession || sessionProp;
+  const restoredQueueOptionsRef = React.useRef(null);
+  const [hasRestoredQueueDraft, setHasRestoredQueueDraft] = React.useState(false);
+  const restoredQueueOwnerRef = React.useRef(null);
   const [uploadFileList, setUploadFileList] = React.useState([]);
   const [uploadedFileMeta, setUploadedFileMeta] = React.useState([]);
   const [skillExampleGroups, setSkillExampleGroups] = React.useState([]);
@@ -2254,7 +2259,7 @@ const Composer = ({
   const [subtitleSettings, setSubtitleSettings] = React.useState(DEFAULT_SUBTITLE_SETTINGS);
   const [partSplitDialogOpen, setPartSplitDialogOpen] = React.useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = React.useState(false);
-  const { openSubtitleStoryboard, openAttachmentPreview } = React.useContext(ChatTaskContext);
+  const { openSubtitleStoryboard } = React.useContext(ChatTaskContext);
   React.useEffect(() => {
     if (!partSplitDialogOpen || !openSubtitleStoryboard) return;
     openSubtitleStoryboard('');
@@ -3090,6 +3095,7 @@ const Composer = ({
           }
         }
 
+        if (event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229) return false;
         if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault();
           handleSendWithAttachmentsRef.current();
@@ -3188,6 +3194,11 @@ const Composer = ({
     if (!inputRef) return undefined;
 
     const controller = {
+      insertLocalFileReference: (entry) => {
+        if (!editor || editor.isDestroyed || !entry?.rootPath || !entry?.node) return false;
+        const { from, to } = editor.state.selection;
+        return insertFileReferenceAtView(editor.view, { start: from, end: to }, createLocalReferenceFile(entry));
+      },
       focus: () => {
         if (!editor || editor.isDestroyed) return;
         editor.commands.focus();
@@ -3984,7 +3995,6 @@ const Composer = ({
   }, []);
 
   const queueFilesForUpload = React.useCallback(async (files = []) => {
-    if (sessionSending) return;
     if (skillExampleLoading) return;
     const normalizedFiles = files.filter((item) => isFileLike(item));
     if (normalizedFiles.length === 0) return;
@@ -4256,7 +4266,7 @@ const Composer = ({
   }, []);
 
   const handleInputDragEnter = React.useCallback((event) => {
-    if (sessionSending || !hasDraggedFiles(event)) return;
+    if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     event.stopPropagation();
     dragCounterRef.current += 1;
@@ -4264,7 +4274,7 @@ const Composer = ({
   }, [hasDraggedFiles, sessionSending]);
 
   const handleInputDragOver = React.useCallback((event) => {
-    if (sessionSending || !hasDraggedFiles(event)) return;
+    if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.dataTransfer) {
@@ -4276,7 +4286,7 @@ const Composer = ({
   }, [hasDraggedFiles, isDragActive, sessionSending]);
 
   const handleInputDragLeave = React.useCallback((event) => {
-    if (sessionSending || !hasDraggedFiles(event)) return;
+    if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     event.stopPropagation();
     dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
@@ -4286,7 +4296,7 @@ const Composer = ({
   }, [hasDraggedFiles, sessionSending]);
 
   const handleInputDrop = React.useCallback((event) => {
-    if (sessionSending || !hasDraggedFiles(event)) return;
+    if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     event.stopPropagation();
     const droppedFiles = Array.from(event.dataTransfer?.files || []).filter(Boolean);
@@ -4328,19 +4338,54 @@ const Composer = ({
     return payloads.filter(Boolean);
   }, [selectedModelSupportsReadImage, uploadFileList, uploadedFileMeta]);
 
+  React.useLayoutEffect(() => {
+    if (!restoreQueuedDraftRef) return;
+    restoreQueuedDraftRef.current = item => {
+      if (sendAdmissionRef.current || input.trim() || uploadFileList.length || uploadedFileMeta.length
+        || activeUploadPlaceholders.length || activeTool || skillExample || restoredQueueOptionsRef.current) {
+        message.warning('请先发送或清空当前草稿（包括附件和工具），再修改队列消息');
+        return false;
+      }
+      if (!editor || editor.isDestroyed) return false;
+      const draft = restoreQueueComposerDraft(item, buildEditorDocument, createFileReferenceAttrs);
+      editor.commands.setContent(draft.document, { emitUpdate: false });
+      const restoredText = getEditorPlainText(editor);
+      pendingSkillExamplePromptRef.current = restoredText;
+      setUploadedFileMeta(draft.files);
+      setUploadFileList(draft.uploads);
+      restoredQueueOptionsRef.current = item.options || {};
+      restoredQueueOwnerRef.current = { runtimeSessionId, agentId };
+      setHasRestoredQueueDraft(true);
+      setInput(restoredText);
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return true;
+    };
+    return () => { restoreQueuedDraftRef.current = null; };
+  });
+
   const handleSendWithAttachments = async () => {
     if (isSendDisabled) return;
+    if (restoredQueueOptionsRef.current && (restoredQueueOwnerRef.current?.runtimeSessionId !== runtimeSessionId
+      || restoredQueueOwnerRef.current?.agentId !== agentId)) {
+      message.warning('恢复的队列任务属于其他会话，请返回原会话或清除恢复的任务参数');
+      return;
+    }
+    if (restoredQueueOptionsRef.current && activeTool) {
+      message.warning('请先退出当前工具，或清除恢复的任务参数后再发送');
+      return;
+    }
     if (activeTool === 'recognize-subtitle') {
-      if (sessionSending || subtitleSendingRef.current || !handleSend) return;
+      if (subtitleSendingRef.current || !handleSend) return;
       subtitleSendingRef.current = true;
       try {
         // Subtitle media/settings are independent of the chat editor and its attachments.
-        await handleSend(buildRecognizationSubtitlePrompt(subtitleSettings), {
+        const accepted = await handleSend(buildRecognizationSubtitlePrompt(subtitleSettings), {
           subtitleRecognitionRequest: buildSubtitleRecognitionRequest(subtitleSettings),
           images: [],
           imageAttachmentPreviews: [],
           pendingLocalAttachments: [],
         });
+        if (!accepted) return;
         setActiveTool(null);
         setSubtitleSettings(DEFAULT_SUBTITLE_SETTINGS);
       } catch {
@@ -4600,7 +4645,15 @@ const Composer = ({
         : combined;
     closeMentionPanel();
     if (skillExample?.fromHomepage) trackEvent('quick_skill_send_click', { title: skillExample.title || skillExample.skillName });
-    handleSend && handleSend(nextMessage, {
+    const restoredOptions = restoredQueueOptionsRef.current;
+    const composerDraft = { document: editor.getJSON(), files: uploadedFileMeta, uploads: uploadFileList };
+    const accepted = handleSend && handleSend(nextMessage, restoredOptions ? mergeRestoredQueueOptions(restoredOptions, {
+      composerDraft,
+      images: imagePayloads.map(({ data, media_type }) => ({ data, media_type })),
+      imageAttachmentPreviews,
+      pendingLocalAttachments,
+    }) : {
+      composerDraft,
       skillTemplateSource: skillExample?.quickSource || null,
       videoUnderstandRequest: activeTool === 'video-understand'
         ? buildVideoUnderstandRequest({ input: text, uploadedFiles: uploadedFileMeta })
@@ -4728,6 +4781,9 @@ const Composer = ({
       imageAttachmentPreviews,
       pendingLocalAttachments
     });
+    if (!accepted) return;
+    restoredQueueOptionsRef.current = null;
+    setHasRestoredQueueDraft(false);
     if (skillExample) {
       ++skillExampleGenerationRef.current;
       skillExampleUploadReservationsRef.current.clear();
@@ -4770,19 +4826,19 @@ const Composer = ({
     });
   };
 
+  const sendAdmissionRef = React.useRef(false);
   const attemptSendWithAttachments = React.useCallback(() => {
-    if (sessionSending) {
-      handleStop && handleStop();
-      return;
-    }
+    if (sendAdmissionRef.current) return;
+    if (sessionSending && !canSend) return;
     if (isSendDisabled) {
       if (sendDisabledReason) {
         message.warning(sendDisabledReason);
       }
       return;
     }
-    void handleSendWithAttachments();
-  }, [handleSendWithAttachments, handleStop, isSendDisabled, sendDisabledReason, sessionSending]);
+    sendAdmissionRef.current = true;
+    Promise.resolve(handleSendWithAttachments()).catch(() => { message.error('发送失败，请重试'); }).finally(() => { sendAdmissionRef.current = false; });
+  }, [handleSendWithAttachments, handleStop, isSendDisabled, sendDisabledReason, sessionSending, canSend]);
 
   React.useEffect(() => {
     handleSendWithAttachmentsRef.current = attemptSendWithAttachments;
@@ -5269,7 +5325,6 @@ const Composer = ({
         {skillExampleError ? <div role="alert">{skillExampleError}<button onClick={() => void applySkillExampleDetail(skillExample)}>重试</button></div> : null}
         <LocalFilePreviewList
           files={nonSkillExampleFileMeta}
-          openAttachmentPreview={openAttachmentPreview}
           placeholders={activeUploadPlaceholders}
           slotOrder={activePreviewSlotOrder}
           fileGroups={skillExampleFileGroups}
@@ -5292,7 +5347,6 @@ const Composer = ({
                 accept={uploadAccept}
                 beforeUpload={handleBeforeUpload}
                 showUploadList={false}
-                disabled={sessionSending}
               >
                 <span
                   ref={toolbarUploadTriggerRef}
@@ -5352,13 +5406,13 @@ const Composer = ({
 
                   {activeTool === 'recognize-subtitle' ? (
                     <RecognizationSubtitleToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       onSettingsChange={setSubtitleSettings}
                     />
                   ) : activeTool === 'text-add' ? (
                     <TextAddDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       inputText={textAddInput}
                       onInputTextChange={setTextAddInput}
@@ -5368,7 +5422,7 @@ const Composer = ({
                     />
                   ) : activeTool === 'preset-add' ? (
                     <PresetAddDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedDraftIds={selectedPresetAddDraftIds}
                       onSelectedDraftIdsChange={setSelectedPresetAddDraftIds}
@@ -5378,7 +5432,7 @@ const Composer = ({
                     />
                   ) : activeTool === 'audio-add' ? (
                     <AudioAddToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedDraftIds={selectedAudioAddDraftIds}
                       onSelectedDraftIdsChange={setSelectedAudioAddDraftIds}
@@ -5386,54 +5440,54 @@ const Composer = ({
                     />
                   ) : activeTool === 'image-add' ? (
                     <ImageAddDetailTool
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedDraftIds={selectedImageAddDraftIds}
                       onSelectedDraftIdsChange={setSelectedImageAddDraftIds}
                       onSettingsChange={setImageAddSettings}
                     />
                   ) : activeTool === 'reverse-prompt' ? (
-                    <RevertPrompt disabled={sessionSending} onBack={handleToolDetailBack} />
+                    <RevertPrompt disabled={false} onBack={handleToolDetailBack} />
                   ) : activeTool === 'video-understand' ? (
-                    <VideoDetailTool disabled={sessionSending} onBack={handleToolDetailBack} />
+                    <VideoDetailTool disabled={false} onBack={handleToolDetailBack} />
                   ) : activeTool === 'ai-write' ? (
                     <AiWriteToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedPresetId={selectedAiWritePresetId}
                       onPresetSelect={handleAiWritePresetSelect}
                     />
                   ) : activeTool === 'draft' ? (
                     <DraftToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedResolution={selectedDraftResolution}
                       onResolutionChange={setSelectedDraftResolution}
                     />
                   ) : activeTool === 'draft-export' ? (
                     <DraftDownloadToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedDraftIds={selectedDraftDownloadIds}
                       onSelectedDraftIdsChange={setSelectedDraftDownloadIds}
                     />
                   ) : activeTool === 'draft-inspect' ? (
                     <DraftInspectToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedDraftIds={selectedDraftInspectIds}
                       onSelectedDraftIdsChange={setSelectedDraftInspectIds}
                     />
                   ) : activeTool === 'draft-modify' ? (
                     <DraftModifyToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedDraftIds={selectedDraftModifyIds}
                       onSelectedDraftIdsChange={setSelectedDraftModifyIds}
                     />
                   ) : activeTool === 'voice-square' ? (
                     <TTSToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
                       selectedModel={selectedSpeechModel}
@@ -5442,7 +5496,7 @@ const Composer = ({
                     />
                   ) : activeTool === 'music-generate' ? (
                     <MusicGenerateToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       onPromptChange={handleImageTemplateApply}
                       onTemplateMediaChange={handleMusicGenerateTemplateMediaApply}
@@ -5450,20 +5504,20 @@ const Composer = ({
                     />
                   ) : activeTool === 'voice-conversion' ? (
                     <VoiceConversationTool
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       priceState={voiceConversionPriceState}
                     />
                   ) : activeTool === 'voice-clone' ? (
                     <VoiceSquareToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       onSelectedVoiceChange={setSelectedVoiceLibraryItem}
                       cloneOnly
                     />
                   ) : activeTool === 'digital-human' ? (
                     <DigitalHumanToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       onModeChange={setSelectedDigitalHumanMode}
                       onSelectedAvatarChange={setSelectedDigitalHumanAvatar}
@@ -5474,7 +5528,7 @@ const Composer = ({
                     />
                   ) : activeTool === 'image-pan' ? (
                     <ImagePanToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedModel={selectedImagePanModel}
                       selectedResolution={selectedImagePanResolution}
@@ -5485,7 +5539,7 @@ const Composer = ({
                     />
                   ) : activeTool === 'ai-video' ? (
                     <VideoToolDetail
-                      disabled={sessionSending}
+                      disabled={false}
                       onBack={handleToolDetailBack}
                       selectedModel={selectedVideoModel}
                       selectedGenerationMode={selectedVideoGenerationMode}
@@ -5508,7 +5562,7 @@ const Composer = ({
                   ) : (
                     <ToolArea
                       toolAreaRef={beginnerGuideAiToolAreaRef}
-                      disabled={sessionSending}
+                      disabled={false}
                       onSelect={handleToolSelect}
                     />
                   )}
@@ -5597,13 +5651,13 @@ const Composer = ({
               <span>
                 <button
                   type="button"
-                  className={`chat-panel__send-btn ${isSendDisabled && !sessionSending ? 'disabled' : ''} ${sessionSending ? 'stopping' : ''}`}
-                  onClick={attemptSendWithAttachments}
+                  className={`chat-panel__send-btn ${isSendDisabled && !(sessionSending && !canSend) ? 'disabled' : ''} ${sessionSending && !canSend ? 'stopping' : ''}`}
+                  onClick={sessionSending && !canSend ? handleStop : attemptSendWithAttachments}
                   disabled={modelListLoading && !sessionSending}
-                  aria-label={sessionSending ? '停止生成' : '发送消息'}
+                  aria-label={sessionSending && !canSend ? '停止生成' : sessionSending ? '加入待发送队列' : '发送消息'}
                   aria-disabled={sessionSending ? false : isSendDisabled}
                 >
-                  {sessionSending ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
+                  {sessionSending && !canSend ? <CirclePause className="chat-panel__send-icon stop" /> : <ArrowUp className="chat-panel__send-icon" />}
                 </button>
               </span>
             </Tooltip>
@@ -5724,7 +5778,7 @@ const Composer = ({
                           accept={uploadAccept}
                           beforeUpload={handleBeforeUpload}
                           showUploadList={false}
-                          disabled={sessionSending}
+                          disabled={false}
                         >
                           <Button
                             type="default"
@@ -5795,7 +5849,7 @@ const Composer = ({
                     key={template.label}
                     type="button"
                     className="chat-panel__voice-template-chip"
-                    disabled={sessionSending}
+                    disabled={false}
                     title={template.content}
                     onMouseDown={(event) => {
                       event.preventDefault();

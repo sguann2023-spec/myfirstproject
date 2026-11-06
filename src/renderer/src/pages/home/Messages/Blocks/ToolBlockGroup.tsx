@@ -1,31 +1,28 @@
 import { ErrorBoundary } from '@renderer/components/ErrorBoundary'
-import { loggerService } from '@logger'
-import { useAppSelector } from '@renderer/store'
-import type { ToolPermissionEntry } from '@renderer/store/toolPermissions'
 import type { MCPToolResponseStatus } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
-import { isToolPending } from '@renderer/utils/userConfirmation'
 import { Collapse, type CollapseProps } from 'antd'
-import { Wrench } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { ChevronDown } from 'lucide-react'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { css } from 'styled-components'
 import styled from 'styled-components'
 
-import { useToolApproval } from '../Tools/hooks/useToolApproval'
-import { getEffectiveStatus, type ToolStatus } from '../Tools/MessageAgentTools/GenericTools'
 import MessageTools from '../Tools/MessageTools'
-import ToolApprovalActionsComponent from '../Tools/ToolApprovalActions'
-import ToolHeader from '../Tools/ToolHeader'
+import { getAgentToolIcon } from '../Tools/ToolHeader'
+import { useTranslation } from 'react-i18next'
+import { getToolDisplayName } from '../Tools/shared/toolDisplay'
 import { isDraftRenderToolName } from '../Tools/MessageAgentTools/draftRenderTool'
 import { DraftRenderBillingBadge } from '../Tools/MessageAgentTools/DraftRenderToolRenderer'
+import { isMediaGenerationBillingToolName, MediaGenBillingBadge } from '../Tools/MessageAgentTools/billingTools'
+import { sumMediaGenerationBillingSummaries } from '../Tools/MessageAgentTools/mediaGenerationBilling'
+import { toolCompletedDimCss, toolHeaderCursorDefaultCss, toolRunningShimmerCss } from '../Tools/shared/toolShimmer'
 import BlockErrorFallback from './BlockErrorFallback'
 
-const logger = loggerService.withContext('NewBlocks/ToolBlockGroup')
+import { getToolGroupSummary } from './toolGrouping'
 
 // ============ Styled Components ============
 
-const Container = styled.div`
+const Container = styled.div<{ $running?: boolean; $completed?: boolean }>`
   width: fit-content;
   max-width: 100%;
 
@@ -38,18 +35,13 @@ const Container = styled.div`
       border: none !important;
 
       > .ant-collapse-header {
-        padding: 8px 12px !important;
+        padding: 4px 0 !important;
         background: transparent;
-        border: 1px solid var(--color-border);
-        border-radius: 0.75rem !important;
+        border: none;
+        border-radius: 0.5rem;
         display: flex;
         align-items: center;
-
-        .ant-collapse-expand-icon {
-          padding: 0 !important;
-          margin-left: 8px;
-          height: auto !important;
-        }
+        ${toolHeaderCursorDefaultCss}
       }
 
       > .ant-collapse-content {
@@ -57,7 +49,9 @@ const Container = styled.div`
         background: transparent;
 
         > .ant-collapse-content-box {
-          padding: 4px 0 0 0 !important;
+          padding: 4px 0 0 12px !important;
+          margin-left: 5px;
+          border-left: 1px solid var(--color-border);
           display: flex;
           flex-direction: column;
           gap: 4px;
@@ -65,21 +59,51 @@ const Container = styled.div`
       }
     }
   }
+
+  /* 正在执行的工具组：头部统一用斜方向扫光表示 */
+  ${(props) =>
+    props.$running
+      ? css`
+          > .ant-collapse > .ant-collapse-item > .ant-collapse-header {
+            ${toolRunningShimmerCss}
+          }
+        `
+      : ''}
+
+  /* 全部执行完成的工具组：头部置灰 */
+  ${(props) =>
+    props.$completed
+      ? css`
+          > .ant-collapse > .ant-collapse-item > .ant-collapse-header {
+            ${toolCompletedDimCss}
+          }
+        `
+      : ''}
 `
 
 const GroupHeader = styled.div`
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 500;
 
   .tool-icon {
-    color: var(--color-primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
+    color: inherit;
+    line-height: 0;
+
+    svg { display: block; }
   }
 
   .tool-count {
-    color: var(--color-text-1);
+    color: inherit;
   }
 `
 
@@ -91,22 +115,7 @@ const ScrollableToolList = styled.div`
   gap: 4px;
 `
 
-const ToolItem = styled.div<{ $isCompleted: boolean }>`
-  opacity: ${(props) => (props.$isCompleted ? 0.7 : 1)};
-  transition: opacity 0.2s;
-`
-
-const AnimatedHeaderWrapper = styled(motion.div)`
-  display: inline-block;
-`
-
-const HeaderWithActions = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  justify-content: space-between;
-`
+const ToolItem = styled.div``
 
 // ============ Types & Helpers ============
 
@@ -118,133 +127,57 @@ function isCompletedStatus(status: MCPToolResponseStatus | undefined): boolean {
   return status === 'done' || status === 'error' || status === 'cancelled'
 }
 
-// Calculate actual waiting state for a block (not depending on hooks)
-function getBlockIsWaiting(block: ToolMessageBlock, agentPermissions: Record<string, ToolPermissionEntry>): boolean {
-  const toolResponse = block.metadata?.rawMcpToolResponse
-  if (!toolResponse || toolResponse.status !== 'pending') return false
-
-  const tool = toolResponse.tool
-  if (tool?.type === 'mcp') {
-    // MCP tools: check the global confirmation queue
-    return isToolPending(toolResponse.id)
-  } else {
-    // Agent tools: check Redux store for pending permission
-    const permission = Object.values(agentPermissions).find((p) => p.toolCallId === toolResponse.toolCallId)
-    return permission?.status === 'pending'
-  }
-}
-
-// Get effective UI status for a block
-function getBlockEffectiveStatus(
-  block: ToolMessageBlock,
-  agentPermissions: Record<string, ToolPermissionEntry>
-): ToolStatus {
-  const toolResponse = block.metadata?.rawMcpToolResponse
-  const isWaiting = getBlockIsWaiting(block, agentPermissions)
-  return getEffectiveStatus(toolResponse?.status, isWaiting)
-}
-
-// Animation variants for smooth header transitions
-const headerVariants = {
-  enter: { x: 20, opacity: 0 },
-  center: { x: 0, opacity: 1, transition: { duration: 0.2, ease: 'easeOut' as const } },
-  exit: { x: -20, opacity: 0, transition: { duration: 0.15 } }
-}
-
-// ============ Sub-Components ============
-
-// Component for rendering a block with approval actions
-interface WaitingToolHeaderProps {
-  block: ToolMessageBlock
-}
-
-const WaitingToolHeader = React.memo(({ block }: WaitingToolHeaderProps) => {
-  const approval = useToolApproval(block)
-  const toolResponse = block.metadata?.rawMcpToolResponse
-  const effectiveStatus = getEffectiveStatus(toolResponse?.status, approval.isWaiting)
-
-  return (
-    <HeaderWithActions>
-      <ToolHeader block={block} variant="collapse-label" status={effectiveStatus} />
-      {(approval.isWaiting || approval.isExecuting) && <ToolApprovalActionsComponent {...approval} compact />}
-    </HeaderWithActions>
-  )
-})
-WaitingToolHeader.displayName = 'WaitingToolHeader'
-
 interface GroupHeaderContentProps {
   blocks: ToolMessageBlock[]
   allCompleted: boolean
+  expanded: boolean
 }
 
-const GroupHeaderContent = React.memo(({ blocks, allCompleted }: GroupHeaderContentProps) => {
+const GroupHeaderContent = React.memo(({ blocks, expanded }: GroupHeaderContentProps) => {
   const { t } = useTranslation()
-  const agentPermissions = useAppSelector((state) => state.toolPermissions.requests)
+  const tool = blocks[0]?.metadata?.rawMcpToolResponse?.tool
+  const toolName = tool?.name || blocks[0]?.toolName || ''
+  const displayName = tool ? getToolDisplayName(tool, t) : toolName
 
-  if (allCompleted) {
-    return (
-      <GroupHeader>
-        <Wrench size={14} className="tool-icon" />
-        <span className="tool-count">{t('message.tools.groupHeader', { count: blocks.length })}</span>
-        {blocks.map((block) => {
-          const result = block.metadata?.rawMcpToolResponse
-          const serverName = (result?.tool as { serverName?: string } | undefined)?.serverName
-          return isDraftRenderToolName(result?.tool?.name || '', serverName)
-            ? <DraftRenderBillingBadge key={block.id} output={{ response: result?.response, responseRaw: result?.responseRaw }} />
-            : null
-        })}
-      </GroupHeader>
-    )
-  }
+  // One combined badge summing the media-generation billing of every billed
+  // child (e.g. 联网搜索PRO children each showing ✦ 2.00 → header shows ✦ 4.00).
+  // Draft-render blocks keep their own per-block badges below.
+  const billedPointsSummary = useMemo(() => {
+    const billedOutputs = blocks.flatMap((block) => {
+      const result = block.metadata?.rawMcpToolResponse
+      const childToolName = result?.tool?.name || ''
+      const childServerName = (result?.tool as { serverName?: string } | undefined)?.serverName
+      if (!childToolName || isDraftRenderToolName(childToolName, childServerName)) return []
+      if (!isMediaGenerationBillingToolName(childToolName, childServerName)) return []
+      return [{ response: result?.response, responseRaw: result?.responseRaw }]
+    })
+    if (billedOutputs.length === 0) return null
+    const summary = sumMediaGenerationBillingSummaries(billedOutputs)
+    return summary && summary.totalConsumedPoints > 0 ? summary : null
+  }, [blocks])
 
-  // Find blocks actually waiting for approval (using effective status)
-  const waitingBlocks = blocks.filter((block) => getBlockEffectiveStatus(block, agentPermissions) === 'waiting')
-
-  // Prioritize showing waiting blocks that need approval
-  const lastWaitingBlock = waitingBlocks[waitingBlocks.length - 1]
-  if (lastWaitingBlock) {
-    return (
-      <AnimatePresence mode="wait">
-        <AnimatedHeaderWrapper
-          key={lastWaitingBlock.id}
-          variants={headerVariants}
-          initial="enter"
-          animate="center"
-          exit="exit">
-          <WaitingToolHeader block={lastWaitingBlock} />
-        </AnimatedHeaderWrapper>
-      </AnimatePresence>
-    )
-  }
-
-  // Find running blocks (invoking or streaming)
-  const runningBlocks = blocks.filter((block) => {
-    const status = getBlockEffectiveStatus(block, agentPermissions)
-    return status === 'invoking' || status === 'streaming'
-  })
-
-  // Get the last running block (most recent) and render with animation
-  const lastRunningBlock = runningBlocks[runningBlocks.length - 1]
-  if (lastRunningBlock) {
-    return (
-      <AnimatePresence mode="wait">
-        <AnimatedHeaderWrapper
-          key={lastRunningBlock.id}
-          variants={headerVariants}
-          initial="enter"
-          animate="center"
-          exit="exit">
-          <ToolHeader block={lastRunningBlock} variant="collapse-label" />
-        </AnimatedHeaderWrapper>
-      </AnimatePresence>
-    )
-  }
-
-  // Fallback
   return (
     <GroupHeader>
-      <Wrench size={14} className="tool-icon" />
-      <span className="tool-count">{t('message.tools.groupHeader', { count: blocks.length })}</span>
+      <span className="tool-icon">{getAgentToolIcon(toolName)}</span>
+      <span className="tool-count">
+        <span style={{ fontSize: 14, fontWeight: 400 }}>{getToolGroupSummary(blocks, displayName, t)}</span>
+        {expanded && blocks.length > 1 && (
+          <ChevronDown size={12} style={{ marginLeft: 4, verticalAlign: 'middle' }} />
+        )}
+      </span>
+      {blocks.map((block) => {
+        const result = block.metadata?.rawMcpToolResponse
+        const serverName = (result?.tool as { serverName?: string } | undefined)?.serverName
+        return isDraftRenderToolName(result?.tool?.name || '', serverName) ? (
+          <DraftRenderBillingBadge key={block.id} output={{ response: result?.response, responseRaw: result?.responseRaw }} />
+        ) : null
+      })}
+      {billedPointsSummary && (
+        <MediaGenBillingBadge
+          displayText={billedPointsSummary.totalConsumedPoints.toFixed(2)}
+          title={`总消耗 ${billedPointsSummary.totalConsumedPoints.toFixed(2)} 点`}
+        />
+      )}
     </GroupHeader>
   )
 })
@@ -259,10 +192,8 @@ interface ToolListContentProps {
 const ToolListContent = React.memo(({ blocks, scrollRef }: ToolListContentProps) => (
   <ScrollableToolList ref={scrollRef}>
     {blocks.map((block) => {
-      const status = block.metadata?.rawMcpToolResponse?.status
-      const isCompleted = isCompletedStatus(status)
       return (
-        <ToolItem key={block.id} data-block-id={block.id} $isCompleted={isCompleted}>
+        <ToolItem key={block.id} data-block-id={block.id}>
           <ErrorBoundary fallbackComponent={BlockErrorFallback}>
             <MessageTools block={block} />
           </ErrorBoundary>
@@ -278,7 +209,6 @@ ToolListContent.displayName = 'ToolListContent'
 const ToolBlockGroup: React.FC<Props> = ({ blocks }) => {
   const [activeKey, setActiveKey] = useState<string[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const userExpandedRef = useRef(false)
 
   const allCompleted = useMemo(() => {
     return blocks.every((block) => {
@@ -287,19 +217,14 @@ const ToolBlockGroup: React.FC<Props> = ({ blocks }) => {
     })
   }, [blocks])
 
+  // 组内任意子任务未完成（执行中/待确认）时，聚合标题显示扫光
+  const groupRunning = !allCompleted
+
   const currentRunningBlock = useMemo(() => {
     return blocks.find((block) => {
       const status = block.metadata?.rawMcpToolResponse?.status
       return !isCompletedStatus(status)
     })
-  }, [blocks])
-
-  useEffect(() => {
-    // logger.info({
-    //   blockCount: blocks.length,
-    //   blockIds: blocks.map((block) => block.id),
-    //   statuses: blocks.map((block) => block?.metadata?.rawMcpToolResponse?.status || 'unknown')
-    // })
   }, [blocks])
 
   useEffect(() => {
@@ -311,8 +236,6 @@ const ToolBlockGroup: React.FC<Props> = ({ blocks }) => {
 
   const handleChange = (keys: string | string[]) => {
     const keyArray = Array.isArray(keys) ? keys : [keys]
-    const isExpanding = keyArray.includes('tool-group')
-    userExpandedRef.current = isExpanding
     setActiveKey(keyArray)
   }
 
@@ -320,18 +243,18 @@ const ToolBlockGroup: React.FC<Props> = ({ blocks }) => {
     return [
       {
         key: 'tool-group',
-        label: <GroupHeaderContent blocks={blocks} allCompleted={allCompleted} />,
+        showArrow: false,
+        label: <GroupHeaderContent blocks={blocks} allCompleted={allCompleted} expanded={activeKey.includes('tool-group')} />,
         children: <ToolListContent blocks={blocks} scrollRef={scrollRef} />
       }
     ]
-  }, [blocks, allCompleted])
+  }, [blocks, allCompleted, activeKey])
 
   return (
-    <Container>
+    <Container $running={groupRunning} $completed={allCompleted}>
       <Collapse
         ghost
         size="small"
-        expandIconPosition="end"
         activeKey={activeKey}
         onChange={handleChange}
         items={items}

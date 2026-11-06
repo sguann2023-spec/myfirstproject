@@ -2597,6 +2597,7 @@
       },
       "mcp": {
         "webSearchPro": "联网搜索：联网搜索PRO",
+        "assetSearch": "联网搜索：素材搜索",
         "webSearch": "联网搜索：联网搜索",
         "servers": {
           "agent_memory": "工作区记忆",
@@ -7413,5 +7414,11 @@
     "quit": "退出",
     "show_window": "显示窗口",
     "visualization": "可视化"
+  },
+  "workspaceFileMenu": {
+    "open": "打开",
+    "revealMac": "在 Finder 中打开",
+    "revealWindows": "在文件资源管理器中打开",
+    "addToChat": "添加到聊天"
   }
 }

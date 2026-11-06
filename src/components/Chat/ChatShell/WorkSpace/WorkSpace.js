@@ -15,6 +15,7 @@ import {
   writeWorkspaceParentDirForAgent
 } from '../../../../shared/workspaceParentDir';
 import './WorkSpace.css';
+import WorkspaceFileContextMenu from './WorkspaceFileContextMenu';
 
 const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
 const isAbsoluteEntryPath = (value) => (
@@ -422,11 +423,14 @@ const WorkSpace = ({
   hasLockedWorkspace = false,
   workspaceStatus = '',
   onBindWorkspace,
+  onAddWorkspaceFile,
   renderTreeNodes,
   beginnerGuideCreateWorkspaceButtonRef = null,
   beginnerGuideWorkspaceDialogRef = null,
   beginnerGuideWorkspaceNameInputRef = null,
 }) => {
+  const [fileContextMenu, setFileContextMenu] = React.useState(null);
+  const closeFileContextMenu = React.useCallback(() => setFileContextMenu(null), []);
   const [workspaceStore, setWorkspaceStore] = React.useState(() => readWorkspaceStore());
   const [workspaceTrees, setWorkspaceTrees] = React.useState({});
   const [workspaceTreeLoading, setWorkspaceTreeLoading] = React.useState({});
@@ -1077,6 +1081,11 @@ const WorkSpace = ({
                 )}
                 {!workspaceTreeLoading[currentWorkspacePath] && (workspaceTrees[currentWorkspacePath] || []).length > 0 && (
                   renderTreeNodes(`workspace:${currentWorkspacePath}`, currentWorkspacePath, workspaceTrees[currentWorkspacePath], 0, {
+                    onContextMenu: (event, entry) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setFileContextMenu({ ...entry, x: event.clientX, y: event.clientY });
+                    },
                     showDeleteAction: true,
                     onDeleteNode: handleDeleteWorkspaceNode,
                   })
@@ -1086,6 +1095,7 @@ const WorkSpace = ({
           )}
         </div>
       )}
+      <WorkspaceFileContextMenu state={fileContextMenu} onClose={closeFileContextMenu} onAddToChat={onAddWorkspaceFile} />
       <WorkspaceCreateDialog
         open={createWorkspaceDialogOpen}
         parentDir={createWorkspaceParentDir}

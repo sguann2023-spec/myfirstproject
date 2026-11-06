@@ -399,7 +399,12 @@ export class SessionService extends BaseService {
     }
 
     if (Object.keys(modelUpdates).length > 0) {
-      await this.validateAgentModels(existing.agent_type, modelUpdates)
+      const effectiveConfiguration = normalizedUpdates.configuration ?? existing.configuration
+      await this.validateAgentModels(existing.agent_type, modelUpdates, {
+        runtimeApiKey: String(
+          (effectiveConfiguration as Record<string, any> | undefined)?.env_vars?.VECTCUT_API_KEY || ''
+        ).trim()
+      })
     }
 
     const serializedUpdates = this.serializeJsonFields(normalizedUpdates)

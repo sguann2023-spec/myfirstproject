@@ -281,8 +281,8 @@ function parseDraftResultText(result: any): Record<string, any> {
   }
 }
 
-async function callDraftManagementTool(toolName: string, args: Record<string, unknown>) {
-  const server = new DraftManagementServer(getDefaultAgentWorkspacePath(DEFAULT_RUNTIME_AGENT_ID))
+async function callDraftManagementTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
+  const server = new DraftManagementServer(getDefaultAgentWorkspacePath(DEFAULT_RUNTIME_AGENT_ID), runtimeSessionId)
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -319,8 +319,8 @@ async function callDraftDownloadTool(toolName: string, args: Record<string, unkn
   )
 }
 
-async function callDraftElementsTool(toolName: string, args: Record<string, unknown>) {
-  const server = new DraftElementsServer()
+async function callDraftElementsTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
+  const server = new DraftElementsServer(undefined, runtimeSessionId)
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -2695,7 +2695,7 @@ export function registerSessionStreamIpc(): void {
       }
       const session = await sessionService.updateSession(existing.agent_id, sessionId, updates)
       if (!session) return { ok: false, error: 'session not found' }
-      broadcastSessionChanged(existing.agent_id, sessionId, true)
+      broadcastSessionChanged(existing.agent_id, sessionId, true, { reason: 'metadata' })
       return { ok: true, session }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -2961,7 +2961,7 @@ export function registerSessionStreamIpc(): void {
               return
             }
             // Only refresh history when a persisted message was returned.
-            broadcastSessionChanged(session.agent_id, sessionId, true)
+            broadcastSessionChanged(session.agent_id, sessionId, true, { reason: 'turn-completed', requestId, outcome: 'success' })
           }).catch((error) => {
             logger.error('[SessionStreamIpc] Background history persistence failed', {
               sessionId,
@@ -3046,7 +3046,7 @@ export function registerSessionStreamIpc(): void {
       }
 
       const toolCallId = `draft_request_${requestId}`
-      const toolResult = await callDraftManagementTool('create_draft', toolArgs)
+      const toolResult = await callDraftManagementTool('create_draft', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const assistantText = buildDirectDraftAssistantText({
         action,
@@ -3132,7 +3132,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -3255,7 +3255,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
       return {
         ok: true,
         assistantText,
@@ -3377,7 +3377,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -3425,7 +3425,7 @@ export function registerSessionStreamIpc(): void {
         ...(cover ? { cover } : {})
       }
 
-      const toolResult = await callDraftManagementTool('modify_draft', toolArgs)
+      const toolResult = await callDraftManagementTool('modify_draft', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const assistantText = buildDirectDraftModifyAssistantText({
         draftId,
@@ -3508,7 +3508,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -3554,7 +3554,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `text_add_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedTextAddRequest }
 
-      const toolResult = await callDraftElementsTool('add_text', toolArgs)
+      const toolResult = await callDraftElementsTool('add_text', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || '').trim()
       const errorMessage = String(toolResponse?.error || '').trim()
@@ -3648,7 +3648,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -3691,7 +3691,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `preset_add_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedPresetAddRequest }
 
-      const toolResult = await callDraftElementsTool('add_preset', toolArgs)
+      const toolResult = await callDraftElementsTool('add_preset', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || '').trim()
       const responseSuccess = toolResponse?.success !== false && !errorCode
@@ -3777,7 +3777,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -3821,7 +3821,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `audio_add_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedAudioAddRequest }
 
-      const toolResult = await callDraftElementsTool('add_audio', toolArgs)
+      const toolResult = await callDraftElementsTool('add_audio', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || '').trim()
       const responseSuccess = toolResponse?.success !== false && !errorCode
@@ -3903,7 +3903,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -3946,7 +3946,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `image_add_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedImageAddRequest }
 
-      const toolResult = await callDraftElementsTool('add_image', toolArgs)
+      const toolResult = await callDraftElementsTool('add_image', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || '').trim()
       const responseSuccess = toolResponse?.success !== false && !errorCode
@@ -4028,7 +4028,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -4155,7 +4155,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -4280,7 +4280,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -4404,7 +4404,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -4528,7 +4528,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -4656,7 +4656,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -4977,7 +4977,7 @@ export function registerSessionStreamIpc(): void {
         }
       })
 
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: 'success' })
 
       return {
         ok: true,
@@ -5118,7 +5118,7 @@ export function registerSessionStreamIpc(): void {
           } as any
         }
       })
-      broadcastSessionChanged(session.agent_id, session.id, true)
+      broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'turn-completed', requestId, outcome: failure ? 'error' : 'success' })
       return { ok: !failure, ...(failure ? { error: failure } : {}), assistantText, assistantBlocks }
     } catch (error) {
       return { ok: false, aborted: controller.signal.aborted, error: error instanceof Error ? error.message : String(error) }
@@ -5191,7 +5191,7 @@ export function registerSessionStreamIpc(): void {
     workspaceActivity.renaming = true
     try {
       const result = await sessionService.renameWorkspace(payload.source, payload.name, isBusy)
-      for (const session of result.sessions) broadcastSessionChanged(session.agent_id, session.id, true)
+      for (const session of result.sessions) broadcastSessionChanged(session.agent_id, session.id, true, { reason: 'metadata' })
       return { ok: true, ...result }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -5230,10 +5230,15 @@ export function registerSessionStreamIpc(): void {
   logger.info('[SessionStreamIpc] IPC registration completed')
 }
 
-export function broadcastSessionChanged(agentId: string, sessionId: string, headless?: boolean): void {
+export function broadcastSessionChanged(
+  agentId: string,
+  sessionId: string,
+  headless?: boolean,
+  change?: { reason: 'metadata' | 'turn-completed'; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }
+): void {
   const mainWindow = windowService.getMainWindow()
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IpcChannel.AgentSession_Changed, { agentId, sessionId, headless: !!headless })
+    mainWindow.webContents.send(IpcChannel.AgentSession_Changed, { agentId, sessionId, headless: !!headless, ...change })
   } else {
     logger.warn('[SessionStreamIpc] Skipped AgentSession_Changed broadcast: main window unavailable', {
       agentId,

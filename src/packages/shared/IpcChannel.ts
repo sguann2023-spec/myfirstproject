@@ -60,6 +60,7 @@ export enum IpcChannel {
   App_BootstrapBuiltinSkills = 'app:bootstrap-builtin-skills',
 
   Notification_Send = 'notification:send',
+  Notification_SetBadgeCount = 'notification:set-badge-count',
   Notification_OnClick = 'notification:on-click',
 
   Webview_SetOpenLinkExternal = 'webview:set-open-link-external',

@@ -46,6 +46,7 @@ export default defineConfig({
       'src/main/services/agents/services/cherryclaw/__tests__/prompt.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/provider-payload-summary.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/codemode-search.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/build-runtime.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/create-harness.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/event-adapter.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/mcp-result-storage.test.ts',

@@ -12,6 +12,7 @@ import path from 'path'
 import { DatabaseManager } from './database/DatabaseManager'
 import type { AgentModelField } from './errors'
 import { AgentModelValidationError } from './errors'
+import { isVectcutGatewayUrl } from './gatewayAuth'
 import { builtinSlashCommands } from './services/claudecode/commands'
 import { builtinTools } from './services/claudecode/tools'
 
@@ -323,10 +324,14 @@ export abstract class BaseService {
         const runtimeApiKey = String(
           opts.runtimeApiKey || process.env.VECTCUT_API_KEY || process.env.VECTCUT_APIKEY || ''
         ).trim()
-        if (requiresApiKey && runtimeApiKey) {
-          // Allow session-scoped auth token (e.g. VECTCUT_API_KEY from login state)
-          // to satisfy provider validation during session creation.
-          validation.provider.apiKey = runtimeApiKey
+        // Match runtime transport selection: only Anthropic providers use
+        // anthropicApiHost. Never authorize a custom endpoint with login auth.
+        const provider = validation.provider
+        const effectiveHost = provider.type === 'anthropic'
+          ? provider.anthropicApiHost?.trim() || provider.apiHost
+          : provider.apiHost
+        if (requiresApiKey && runtimeApiKey && isVectcutGatewayUrl(effectiveHost || '')) {
+          // Validate availability only; session credentials must not enter shared provider state.
           continue
         }
         if (requiresApiKey) {

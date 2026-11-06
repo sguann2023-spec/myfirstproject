@@ -22,6 +22,7 @@ import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import { SqlitePiSessionStorage } from '../../../database/repositories/piSessionStorage'
 import { windowService } from '@main/services/WindowService'
 import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
+import { isVectcutGatewayUrl } from '../../../gatewayAuth'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
 import { searchCodemodeTools, type CodemodeSearchEntry } from './codemode-search'
@@ -1365,6 +1366,13 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
   }
 }
 
+export function resolvePiRuntimeApiKey(runtimeEnvironment: ClaudeRuntimeEnvironment, baseUrl: string): string {
+  // Login credentials may only follow the actual request destination to our gateway.
+  return isVectcutGatewayUrl(baseUrl)
+    ? String(runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
+    : String(runtimeEnvironment.modelInfo.provider?.apiKey || '').trim()
+}
+
 async function buildPiRuntimeBridge(input: {
   packageBridge: PiPackageBridge
   invokeContext: ClaudeCodeInvokeContext
@@ -1383,10 +1391,7 @@ async function buildPiRuntimeBridge(input: {
     providerApiType === 'openai-completions'
       ? ensureOpenAiApiVersionBaseUrl(providerApiHost)
       : String(providerAnthropicHost || providerApiHost || '').trim()
-  const runtimeGatewayToken =
-    providerApiType === 'anthropic-messages'
-      ? String(runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
-      : String(runtimeEnvironment.modelInfo.provider?.apiKey || runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
+  const runtimeGatewayToken = resolvePiRuntimeApiKey(runtimeEnvironment, baseUrl)
   const contextWindowTokens = runtimeEnvironment.modelTokenLimits?.contextWindowTokens ?? 200_000
   const maxOutputTokens = Math.min(runtimeEnvironment.modelTokenLimits?.maxOutputTokens ?? 32_000, 32_000)
 

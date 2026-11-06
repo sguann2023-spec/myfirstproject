@@ -147,7 +147,7 @@
 }
 
 .tw-scope .bubble:not(.multi-select-mode) .message-thought-container {
-  margin-top: 8px;
+  margin-top: 0;
 }
 
 .tw-scope .bubble:not(.multi-select-mode) .message-user .message-header {

@@ -334,7 +334,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasCutDomain) {
-    const draftManagementServer = new DraftManagementServer(cwd)
+    const draftManagementServer = new DraftManagementServer(cwd, session.id)
     mountMcpServer('draft-management', {
       type: 'sdk',
       name: 'draft-management',
@@ -359,7 +359,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasCutDomain) {
-    const draftElementsServer = new DraftElementsServer(cwd)
+    const draftElementsServer = new DraftElementsServer(cwd, session.id)
     mountMcpServer('draft-elements', {
       type: 'sdk',
       name: 'draft-elements',

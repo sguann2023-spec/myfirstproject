@@ -258,8 +258,8 @@
   flex-shrink: 0;
   padding: 2px 7px;
   border-radius: 16px;
-  background: #e5f5e9;
-  color: #278545;
+  background: #eaf7ee;
+  color: #166b32;
   font-size: 11px;
   line-height: 18px;
   white-space: nowrap;
@@ -281,6 +281,10 @@
   border-radius: 50%;
 }
 
+.chat-history-list__status-dot.is-awaiting-confirmation {
+  background-color: #249347;
+}
+
 .chat-history-list__status-dot.is-pending {
   background-color: var(--color-status-warning, #faad14);
   animation: chat-history-pulse 1.5s infinite;
@@ -291,8 +295,9 @@
   background-color: #f5c542;
 }
 
+/* Unread is an attention indicator, not a task failure state. */
 .chat-history-list__status-dot.is-fulfilled {
-  background-color: var(--color-status-success, #52c41a);
+  background-color: var(--color-primary, #1677ff);
 }
 
 .chat-history-list__item-time {

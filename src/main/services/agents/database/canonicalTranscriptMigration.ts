@@ -82,10 +82,10 @@ const normalizeRole = (role: unknown): LegacyCandidate['role'] | null => {
 
 const normalizeStatus = (message: Record<string, unknown>): LegacyCandidate['status'] => {
   const status = String(message.status ?? '').toLowerCase()
-  if (message.aborted === true || status === 'cancelled' || status === 'canceled') return 'cancelled'
+  if (message.aborted === true || status === 'cancelled' || status === 'canceled' || status === 'paused') return 'cancelled'
   if (status === 'failed' || status === 'error') return 'failed'
   if (status === 'interrupted') return 'interrupted'
-  if (status === 'streaming' || status === 'running') return 'streaming'
+  if (status === 'streaming' || status === 'running' || status === 'processing' || status === 'searching') return 'streaming'
   if (status === 'pending') return 'pending'
   return 'completed'
 }

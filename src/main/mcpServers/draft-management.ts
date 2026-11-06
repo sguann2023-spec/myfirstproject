@@ -156,7 +156,7 @@ class DraftManagementServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(workspacePath?: string) {
+  constructor(workspacePath?: string, private readonly runtimeSessionId?: string) {
     this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
@@ -338,6 +338,7 @@ class DraftManagementServer {
       width: payload.width,
       height: payload.height,
       status: payload.status,
+      runtimeSessionId: this.runtimeSessionId,
       createdAt: Date.now()
     })
   }

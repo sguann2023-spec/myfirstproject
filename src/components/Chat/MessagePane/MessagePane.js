@@ -421,6 +421,7 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
     if (
       prev.id !== next.id
       || prev.role !== next.role
+      || ['askId', 'turnId', 'topicId', 'assistantId', 'model', 'modelId', 'groupId', 'attachments', 'files'].some(key => prev[key] !== next[key])
       || prev.content !== next.content
       || prev.blocks !== next.blocks
       || prev.error !== next.error

@@ -12,17 +12,29 @@ export interface PinnedDraftPanelItem {
 
 interface PinnedDraftPanelProps {
   drafts?: PinnedDraftPanelItem[]
+  onClick?: () => void
 }
 
-// 消息区右上角的草稿概要胶囊：仅展示「生成 xx 个草稿」，
-// 不再提供展开列表 / 轨道预览 / 导出 / 关闭等入口。
-export default function PinnedDraftPannel({ drafts = [] }: PinnedDraftPanelProps) {
+// 消息区右上角的草稿概要胶囊：仅展示「生成 xx 草稿」，
+// 点击后由宿主打开 ArtifactPreview 预览窗格查看草稿列表。
+export default function PinnedDraftPannel({ drafts = [], onClick }: PinnedDraftPanelProps) {
   if (!Array.isArray(drafts) || drafts.length === 0) {
     return null
   }
 
   return (
-    <div className="pinned-draft-panel">
+    <div
+      className="pinned-draft-panel"
+      role="button"
+      tabIndex={0}
+      aria-label={`查看生成的 ${drafts.length} 个草稿`}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onClick?.()
+        }
+      }}>
       <div className="pinned-draft-panel__body">
         <div className="pinned-draft-panel__header">
           <Text className="pinned-draft-panel__header-title">

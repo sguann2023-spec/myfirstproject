@@ -58,8 +58,8 @@ describe('Media Search MCP', () => {
     expect(tools[1].description).toContain('only to search or preview')
     expect(tools.map((tool) => tool.description).join(' ')).not.toMatch(/license|third-party rights|permission|authorization/i)
     expect(tools.map((tool) => tool.title)).toEqual([
-      '\u8054\u7f51\u641c\u7d22\uff1a\u8054\u7f51\u641c\u7d22',
-      '\u8054\u7f51\u641c\u7d22\uff1a\u8054\u7f51\u641c\u7d22'
+      '\u8054\u7f51\u641c\u7d22\uff1a\u7d20\u6750\u641c\u7d22',
+      '\u8054\u7f51\u641c\u7d22\uff1a\u7d20\u6750\u641c\u7d22'
     ])
     expect(JSON.stringify(tools)).not.toMatch(/pixabay|proxy|public API|full API access/i)
     expect(normalizeVectcutMcpToolName('mcp__media-search__search_images')).toBe('mcp__vectcut__media-search__search_images')
@@ -80,7 +80,7 @@ describe('Media Search MCP', () => {
     expect(url.searchParams.get('image_type')).toBe('vector')
     expect(url.searchParams.has('key')).toBe(false)
     expect(mockFetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal)
-    expect(result.structuredContent).toMatchObject({ title: '\u8054\u7f51\u641c\u7d22\uff1a\u8054\u7f51\u641c\u7d22', mediaType: 'image', hits: [hit], page: 1, per_page: 20 })
+    expect(result.structuredContent).toMatchObject({ title: '\u8054\u7f51\u641c\u7d22\uff1a\u7d20\u6750\u641c\u7d22', mediaType: 'image', hits: [hit], page: 1, per_page: 20 })
     expect(result.structuredContent).not.toHaveProperty('source')
     expect((result.structuredContent as Record<string, unknown> | undefined)?.usage).not.toMatch(/pixabay|proxy/i)
   })

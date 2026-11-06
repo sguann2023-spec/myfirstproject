@@ -140,11 +140,11 @@ describe('mcpToolDisplay', () => {
     ).toBe('Custom Tools: Generate Or Edit Image')
   })
 
-  it.each(['media-search', 'pixabay'])('uses one web search title for %s in all primary locales', (server) => {
+  it.each(['media-search', 'pixabay'])('uses one asset search title for %s in all primary locales', (server) => {
     for (const [tool, simplified, traditional, english] of [
-      ['search_images', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
-      ['search_videos', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search'],
-      ['unknown_tool', '联网搜索：联网搜索', '聯網搜尋：聯網搜尋', 'Web Search: Web Search']
+      ['search_images', '联网搜索：素材搜索', '聯網搜尋：素材搜尋', 'Web Search: Asset Search'],
+      ['search_videos', '联网搜索：素材搜索', '聯網搜尋：素材搜尋', 'Web Search: Asset Search'],
+      ['unknown_tool', '联网搜索：素材搜索', '聯網搜尋：素材搜尋', 'Web Search: Asset Search']
     ]) {
       for (const name of [`mcp__vectcut__${server}__${tool}`, `mcp__${server}__${tool}`, `${server}:${tool}`]) {
         for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {
@@ -161,8 +161,8 @@ describe('mcpToolDisplay', () => {
 
   it.each(['media-search', 'pixabay'])('uses English search fallbacks for %s when translations are missing', (serverName) => {
     const translate = ((key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key) as any
-    expect(getMcpToolDisplayName({ serverName, toolName: 'search_images', t: translate })).toBe('Web Search: Web Search')
-    expect(getMcpToolDisplayName({ serverName, toolName: 'search_videos', t: translate })).toBe('Web Search: Web Search')
+    expect(getMcpToolDisplayName({ serverName, toolName: 'search_images', t: translate })).toBe('Web Search: Asset Search')
+    expect(getMcpToolDisplayName({ serverName, toolName: 'search_videos', t: translate })).toBe('Web Search: Asset Search')
   })
 
   it.each([

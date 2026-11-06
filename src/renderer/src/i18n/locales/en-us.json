@@ -2597,6 +2597,7 @@
       },
       "mcp": {
         "webSearchPro": "Web Search: Web Search PRO",
+        "assetSearch": "Web Search: Asset Search",
         "webSearch": "Web Search: Web Search",
         "servers": {
           "agent_memory": "Workspace Memory",
@@ -7413,5 +7414,11 @@
     "quit": "Quit",
     "show_window": "Show Window",
     "visualization": "Visualization"
+  },
+  "workspaceFileMenu": {
+    "open": "Open",
+    "revealMac": "Show in Finder",
+    "revealWindows": "Show in File Explorer",
+    "addToChat": "Add to chat"
   }
 }

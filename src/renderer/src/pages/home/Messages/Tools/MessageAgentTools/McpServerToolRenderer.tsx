@@ -4,20 +4,20 @@ import { Wrench } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { ToolArgsTable } from '../shared/ArgsTable'
-import { parseMcpToolName } from '../shared/mcpToolDisplay'
 import { ToolHeader } from './GenericTools'
 import { ImageUnderstandeTool } from './ImageUnderstandeToolRenderer'
 import { VideoUnderstandeTool } from './VideoUnderstandeToolRenderer'
 import { DraftRenderToolRenderer } from './DraftRenderToolRenderer'
 import { isDraftRenderToolName } from './draftRenderTool'
 import { isKouboTemplateToolName, KouboTemplateToolBody } from './KouboTemplateTool'
-import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl } from './mediaGenerationBilling'
+import { extractMediaGenerationBillingSummary } from './mediaGenerationBilling'
+import { MediaGenBillingBadge } from './billingTools'
+import { isMediaGenerationBillingToolName } from './billingTools'
 import { isMediaGenerationToolName, MediaGenerationToolBody } from './MediaGenerationTool'
 import { isSubtitleRecognitionToolName, SubtitleRecognitionToolBody } from './SubtitleRecognitionTool'
 import { isSubtitleTemplateToolName, SubtitleTemplateToolBody } from './SubtitleTemplateTool'
 import { isImageUnderstandeToolName } from './imageUnderstandeTool'
 import { isVideoUnderstandeToolName } from './videoUnderstandeTool'
-import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
 
 interface McpServerToolProps {
   toolName: string
@@ -78,17 +78,10 @@ export function McpServerToolRenderer({
   const isKouboTemplate = isKouboTemplateToolName(toolName)
   const isMediaGeneration = isMediaGenerationToolName(toolName)
   const isSubtitleRecognition = isSubtitleRecognitionToolName(toolName)
-  const isRemoveBg = [
-    'submit_remove_bg_text_behind_task',
-    'submit_remove_bg_pip_task',
-    'submit_remove_bg_task'
-  ].some((name) => toolName === name || toolName.endsWith(`__remove-bg__${name}`))
   const isSubtitleTemplate = isSubtitleTemplateToolName(toolName)
   const isImageUnderstande = isImageUnderstandeToolName(toolName)
   const isVideoUnderstande = isVideoUnderstandeToolName(toolName)
-  const isScrapt = parseMcpToolName(toolName).serverName === 'scrapt'
-  const isAudioUnderstanding = parseMcpToolName(toolName).serverName === 'audio-understand'
-  const mediaGenerationBillingSummary = isAudioUnderstanding || isScrapt || isKouboTemplate || isMediaGeneration || isSubtitleRecognition || isRemoveBg || isReversePromptToolName(toolName)
+  const mediaGenerationBillingSummary = isMediaGenerationBillingToolName(toolName)
     ? extractMediaGenerationBillingSummary(output)
     : null
 
@@ -100,46 +93,15 @@ export function McpServerToolRenderer({
     lineHeight: 1
   }
 
-  const mediaGenerationHeaderBillingBadgeStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 2,
-    paddingLeft: 4,
-    paddingRight: 4,
-    color: '#000000',
-    fontSize: 14,
-    fontWeight: 'normal',
-    flex: '0 0 auto',
-    whiteSpace: 'nowrap' as const,
-    lineHeight: 1,
-    transform: 'translateY(2px)'
-  }
-
-  const mediaGenerationHeaderBillingIconStyle = {
-    width: 14,
-    height: 14,
-    display: 'block',
-    flexShrink: 0,
-    transform: 'translateY(0.5px)'
-  }
-
-  const mediaGenerationHeaderBillingTextStyle = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    fontSize: 12,
-    fontWeight: 'normal',
-    lineHeight: 1,
-    transform: 'translateY(0.5px)'
-  }
   const headerStats =
     mediaGenerationBillingSummary || (typeof progress === 'number' && progress > 0)
       ? (
           <span style={mediaGenerationHeaderStatsStyle}>
             {mediaGenerationBillingSummary ? (
-              <span style={mediaGenerationHeaderBillingBadgeStyle} title={`总消耗 ${mediaGenerationBillingSummary.displayText}`}>
-                <img src={getMediaGenerationPointIconUrl()} style={mediaGenerationHeaderBillingIconStyle} alt="" aria-hidden="true" />
-                <span style={mediaGenerationHeaderBillingTextStyle}>{mediaGenerationBillingSummary.displayText}</span>
-              </span>
+              <MediaGenBillingBadge
+                displayText={mediaGenerationBillingSummary.displayText}
+                title={`总消耗 ${mediaGenerationBillingSummary.displayText}`}
+              />
             ) : null}
             {typeof progress === 'number' && progress > 0 ? <span>{Math.round(progress * 100)}%</span> : null}
           </span>
@@ -176,7 +138,7 @@ export function McpServerToolRenderer({
       <ToolHeader
         toolName={toolName}
         icon={<Wrench size={14} />}
-        params={headerProgressMessage || t('message.tools.labels.mcpServerTool')}
+        params={headerProgressMessage}
         stats={headerStats}
         variant="collapse-label"
         showStatus={false}

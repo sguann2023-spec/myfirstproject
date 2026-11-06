@@ -284,7 +284,9 @@ class SchedulerService {
       await completion
 
       // Notify renderer so the session list refreshes and messages can be loaded
-      broadcastSessionChanged(task.agent_id, sessionId, true)
+      broadcastSessionChanged(task.agent_id, sessionId, true, {
+        reason: 'turn-completed', requestId: `scheduled-${logId}`, outcome: abortController.signal.aborted ? 'cancelled' : 'success'
+      })
 
       // Check if the task was aborted (e.g. by timeout)
       if (abortController.signal.aborted) {
@@ -296,6 +298,10 @@ class SchedulerService {
       this.consecutiveErrors.delete(task.id)
       logger.info('Task completed', { taskId: task.id, durationMs: Date.now() - startTime })
     } catch (err) {
+      if (sessionId) broadcastSessionChanged(task.agent_id, sessionId, true, {
+        reason: 'turn-completed', requestId: `scheduled-${logId}`,
+        outcome: abortController.signal.aborted ? 'cancelled' : 'error'
+      })
       error = err instanceof Error ? err.message : String(err)
       logger.error('Task failed', { taskId: task.id, error })
 

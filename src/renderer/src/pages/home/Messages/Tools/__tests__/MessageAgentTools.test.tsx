@@ -281,7 +281,7 @@ describe('MessageAgentTools', () => {
         partialArguments: '{"file_path": "/test/partial'
       })
 
-      const { rerender } = render(<MessageAgentTools toolResponse={initialResponse} />)
+      const { container, rerender } = render(<MessageAgentTools toolResponse={initialResponse} />)
 
       // Should use dedicated renderer even with partial path
       expect(screen.getByText('Read File')).toBeInTheDocument()
@@ -295,8 +295,8 @@ describe('MessageAgentTools', () => {
 
       rerender(<MessageAgentTools toolResponse={updatedResponse} />)
 
-      // When pending with no permission, shows ToolStatusIndicator with loading icon
-      expect(screen.getByTestId('loading-icon')).toBeInTheDocument()
+      // When pending with no permission, the running tool is marked with the shimmer sweep class
+      expect(container.querySelector('.tool-call-running')).toBeInTheDocument()
     })
   })
 
@@ -403,10 +403,10 @@ describe('MessageAgentTools', () => {
         partialArguments: undefined
       })
 
-      render(<MessageAgentTools toolResponse={toolResponse} />)
+      const { container } = render(<MessageAgentTools toolResponse={toolResponse} />)
 
-      // Should show the ToolStatusIndicator with loading icon
-      expect(screen.getByTestId('loading-icon')).toBeInTheDocument()
+      // Running tools are marked with the shimmer sweep class (no status text anymore)
+      expect(container.querySelector('.tool-call-running')).toBeInTheDocument()
     })
   })
 

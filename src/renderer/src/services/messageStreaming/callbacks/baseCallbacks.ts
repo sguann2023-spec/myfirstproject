@@ -68,6 +68,9 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
   } = deps
 
   const startTime = Date.now()
+  // Transport finish chunks can follow an error/abort. They must not turn a
+  // terminal interrupted reply (or its last block) back into a successful one.
+  let terminalErrorStatus: AssistantMessageStatus | undefined
   const notificationService = NotificationService.getInstance()
 
   // 通用的 block 查找函数
@@ -170,6 +173,7 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
         return
       }
       const isErrorTypeAbort = isAbortError(error)
+      terminalErrorStatus = isErrorTypeAbort ? AssistantMessageStatus.PAUSED : AssistantMessageStatus.ERROR
       const isErrorTypeTimeout = isTimeoutError(error)
       const serializableError = serializeError(error)
       if (isErrorTypeAbort) {
@@ -294,14 +298,14 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       const todoCleanupIds = cleanupInProgressTodos()
       updatedBlockIds.push(...todoCleanupIds)
 
-      // Stopping is a successful pause, not a recoverable failure. Keep partial
-      // content and cleanup above, but do not persist an error banner for it.
+      // Stopping is a pause, not a recoverable failure. Persist it at message
+      // level even when no block is active (for example, between tool calls).
       if (!isErrorTypeAbort) {
         const errorBlock = createErrorBlock(assistantMsgId, serializableError, { status: MessageBlockStatus.SUCCESS })
         await blockManager.handleBlockTransition(errorBlock, MessageBlockType.ERROR)
       }
       const messageErrorUpdate = {
-        status: isErrorTypeAbort ? AssistantMessageStatus.SUCCESS : AssistantMessageStatus.ERROR,
+        status: terminalErrorStatus,
         usage: currentMessage?.usage,
         usageSteps: currentMessage?.usageSteps,
         metrics: currentMessage?.metrics
@@ -329,6 +333,8 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
     },
 
     onComplete: async (status: AssistantMessageStatus, response?: Response) => {
+      if (terminalErrorStatus) return
+
       const finalStateOnComplete = getState()
       const finalAssistantMsg = finalStateOnComplete.messages.entities[assistantMsgId]
 
@@ -396,6 +402,10 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
           response.usage = usage
         }
       }
+
+      // Completion may have yielded to notifications or usage estimation while
+      // the user stopped the request. Recheck before committing success.
+      if (terminalErrorStatus) return
 
       if (response && response.metrics) {
         if (response.metrics.completion_tokens === 0 && response.usage?.completion_tokens) {

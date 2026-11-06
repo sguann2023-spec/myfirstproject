@@ -2597,6 +2597,7 @@
       },
       "mcp": {
         "webSearchPro": "聯網搜尋：聯網搜尋PRO",
+        "assetSearch": "聯網搜尋：素材搜尋",
         "webSearch": "聯網搜尋：聯網搜尋",
         "servers": {
           "agent_memory": "工作區記憶",
@@ -7404,5 +7405,11 @@
     "quit": "結束",
     "show_window": "顯示視窗",
     "visualization": "視覺化"
+  },
+  "workspaceFileMenu": {
+    "open": "開啟",
+    "revealMac": "在 Finder 中開啟",
+    "revealWindows": "在檔案總管中開啟",
+    "addToChat": "新增至聊天"
   }
 }

@@ -150,7 +150,7 @@ describe('ChannelMessageHandler', () => {
       expect(historySettled).not.toHaveBeenCalled()
       expect(response).toBe('Hello world!\n\nDone.')
       expect(sessionStreamBus.publish).toHaveBeenLastCalledWith('session-1', {
-        sessionId: 'session-1', agentId: 'agent-1', type: 'complete'
+        sessionId: 'session-1', agentId: 'agent-1', requestId: expect.any(String), type: 'complete'
       })
       expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'complete')).toHaveLength(1)
       expect(broadcastSessionChanged).not.toHaveBeenCalled()
@@ -208,8 +208,12 @@ describe('ChannelMessageHandler', () => {
     resolveHistoryPersisted({ assistantMessage: { id: 'saved-assistant' } })
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(broadcastSessionChanged).toHaveBeenCalledExactlyOnceWith('agent-1', 'session-1', !rendererIsWatching)
+    expect(broadcastSessionChanged).toHaveBeenCalledExactlyOnceWith('agent-1', 'session-1', !rendererIsWatching, { reason: 'turn-completed', outcome: 'success', requestId: expect.any(String) })
     expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'complete')).toHaveLength(rendererIsWatching ? 1 : 0)
+    if (rendererIsWatching) {
+      const complete = vi.mocked(sessionStreamBus.publish).mock.calls.find(([, event]) => event.type === 'complete')![1]
+      expect(vi.mocked(broadcastSessionChanged).mock.calls[0][3]?.requestId).toBe(complete.requestId)
+    }
     expect(vi.mocked(sessionStreamBus.publish).mock.calls.filter(([, event]) => event.type === 'error')).toHaveLength(0)
     expect(adapter.onStreamError).not.toHaveBeenCalled()
     expect(loggerError).not.toHaveBeenCalled()

@@ -30,7 +30,7 @@ const COMMON_PROPERTIES = {
   per_page: { type: 'integer', minimum: 3, maximum: 200, default: 20 }
 }
 
-const MEDIA_SEARCH_TITLE = '\u8054\u7f51\u641c\u7d22\uff1a\u8054\u7f51\u641c\u7d22'
+const MEDIA_SEARCH_TITLE = '\u8054\u7f51\u641c\u7d22\uff1a\u7d20\u6750\u641c\u7d22'
 const TOOLS: Tool[] = [
   {
     name: 'search_images',

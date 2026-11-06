@@ -193,7 +193,7 @@ const getPreviewKind = (file) => isVoiceIdFile(file) ? 'file' : getFileKindFromT
 const getMediaPreviewUrl = (file) => getPreviewKind(file) === 'image' ? getPreviewUrl(file) : getMediaUrl(file);
 
 const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], fileGroups = null, activeGroupKey,
-  onActiveGroupChange, onRemove, onAddFile, openAttachmentPreview }) => {
+  onActiveGroupChange, onRemove, onAddFile }) => {
   const [localGroupKey, setLocalGroupKey] = React.useState('');
   const [modalFile, setModalFile] = React.useState(null);
   const [previewAspectRatio, setPreviewAspectRatio] = React.useState(1);
@@ -220,26 +220,11 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
     if (kind === 'audio') return <audio src={src} controls preload="metadata" />;
     return null;
   };
-  // Opened sidebar tabs are independent of the composer's attachment list.
+  // Toolbar attachments and template slots share the same centered media modal;
+  // the open-preview button only renders for image/video/audio with a URL.
   const selectFile = (file) => {
-    if (resolvedFileGroups) {
-      setPreviewAspectRatio(1);
-      setModalFile(file);
-      return;
-    }
-    const key = `chat-attachment:${getFileKey(file)}`;
-    const name = getFileDisplayName(file);
-    openAttachmentPreview?.({
-      key,
-      tabId: key,
-      previewType: 'file',
-      activate: true,
-      title: name,
-      name,
-      kind: getPreviewKind(file),
-      status: 'ready',
-      src: getMediaPreviewUrl(file),
-    });
+    setPreviewAspectRatio(1);
+    setModalFile(file);
   };
   if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0 && (resolvedFileGroups?.length || 0) === 0) return null;
 

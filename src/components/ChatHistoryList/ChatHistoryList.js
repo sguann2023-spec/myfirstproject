@@ -92,6 +92,7 @@ const applyManualOrder = (items, manualKeys, keyOf, fallbackCompare) => {
 const sameVisibleSession = (a, b) => (
   a.id === b.id && a.title === b.title && a.isPending === b.isPending
   && a.isCompleted === b.isCompleted && a.isAwaitingConfirmation === b.isAwaitingConfirmation
+  && a.isUnseen === b.isUnseen
   && a.lastUserMessageAt === b.lastUserMessageAt
 );
 const sameSession = (a, b) => (
@@ -107,6 +108,7 @@ const projectSession = (session) => ({
   isCompleted: typeof session.isCompleted === 'boolean'
     ? session.isCompleted : isChatSessionCompleted(session),
   isAwaitingConfirmation: Boolean(session.isAwaitingConfirmation),
+  isUnseen: Boolean(session.isUnseen),
   workspacePath: getSessionWorkspacePath(session),
   lastUserMessageAt: getChatSessionOrderTime(session),
   createdAt: getChatSessionOrderTime({ lastUserMessageAt: 0, createdAt: session.createdAt }),
@@ -181,7 +183,6 @@ const useLatestCallback = (callback) => {
 };
 
 const SessionRow = memo(function SessionRow({ session, isActive, isDragging, dnd, onSelectSession, onDeleteSession }) {
-  const isCompleted = session.isCompleted;
   const timeLabel = formatChatSessionTime(session.lastUserMessageAt);
   return (
     <div
@@ -196,14 +197,17 @@ const SessionRow = memo(function SessionRow({ session, isActive, isDragging, dnd
     >
       <div className="chat-history-list__item-top">
         <span className="chat-history-list__status-slot">
-          {session.isPending && (
+          {session.isAwaitingConfirmation && (
+            <span className="chat-history-list__status-dot is-awaiting-confirmation" aria-label="等待确认" />
+          )}
+          {!session.isAwaitingConfirmation && session.isPending && (
             <span
               className={`chat-history-list__status-dot is-pending ${isActive ? 'is-active-session' : ''}`}
               aria-label="对话中"
             />
           )}
-          {isCompleted && !isActive && (
-            <span className="chat-history-list__status-dot is-fulfilled" aria-label="已完成" />
+          {!session.isAwaitingConfirmation && !session.isPending && session.isUnseen && (
+            <span className="chat-history-list__status-dot is-fulfilled" aria-label="未读任务结果" />
           )}
         </span>
         <div className="chat-history-list__item-title">
@@ -315,6 +319,11 @@ const WorkspaceGroup = memo(function WorkspaceGroup({
           ) : (
             <div className="chat-history-list__item-title chat-history-list__group-title">
               {entry.label}
+              {collapsed && entry.sessions.some((session) => session.isAwaitingConfirmation) ? (
+                <span className="chat-history-list__confirmation-badge">等待确认</span>
+              ) : collapsed && entry.sessions.some((session) => session.isUnseen) && (
+                <span className="chat-history-list__status-dot is-fulfilled" aria-label="分组有未读任务结果" />
+              )}
             </div>
           )}
           <div className="chat-history-list__group-actions">

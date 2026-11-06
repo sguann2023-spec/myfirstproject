@@ -1,8 +1,9 @@
+import { useTranslation } from 'react-i18next'
 import { loggerService } from '@logger'
 import { ErrorBoundary } from '@renderer/components/ErrorBoundary'
 import type { RootState } from '@renderer/store'
 import { messageBlocksSelectors } from '@renderer/store/messageBlock'
-import type { ImageMessageBlock, Message, MessageBlock } from '@renderer/types/newMessage'
+import type { ImageMessageBlock, Message, MessageBlock, ThinkingMessageBlock, ToolMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
 import { isMainTextBlock, isMessageProcessing, isVideoBlock } from '@renderer/utils/messageUtils/is'
 import { ChevronRight } from 'lucide-react'
@@ -16,11 +17,14 @@ import CitationBlock from './CitationBlock'
 import CompactBlock from './CompactBlock'
 import ErrorBlock from './ErrorBlock'
 import FileBlock from './FileBlock'
+import { hasAbnormalTermination } from './foldState'
 import ImageBlock from './ImageBlock'
 import MainTextBlock from './MainTextBlock'
 import PlaceholderBlock from './PlaceholderBlock'
 import ThinkingBlock from './ThinkingBlock'
 import ToolBlock from './ToolBlock'
+import ToolBlockGroup from './ToolBlockGroup'
+import { groupSimilarBlocks, type GroupedBlock } from './blockGrouping'
 import TranslationBlock from './TranslationBlock'
 import VideoBlock from './VideoBlock'
 
@@ -65,49 +69,6 @@ interface Props {
   fallbackBlockEntities?: Record<string, MessageBlock>
   messageStatus?: Message['status']
   message: Message
-}
-
-type GroupedBlock = MessageBlock[] | MessageBlock
-
-const groupSimilarBlocks = (blocks: MessageBlock[]): GroupedBlock[] => {
-  return blocks.reduce((acc: GroupedBlock[], currentBlock) => {
-    if (currentBlock.type === MessageBlockType.IMAGE) {
-      // 对于IMAGE类型，按连续分组
-      const prevGroup = acc[acc.length - 1]
-      if (Array.isArray(prevGroup) && prevGroup[0].type === MessageBlockType.IMAGE) {
-        prevGroup.push(currentBlock)
-      } else {
-        acc.push([currentBlock])
-      }
-    } else if (currentBlock.type === MessageBlockType.VIDEO) {
-      // 对于VIDEO类型，按相同filePath分组
-      if (!isVideoBlock(currentBlock)) {
-        logger.warn('Block type is VIDEO but failed type guard check', currentBlock)
-        acc.push(currentBlock)
-        return acc
-      }
-      const videoBlock = currentBlock
-      const existingGroup = acc.find(
-        (group) =>
-          Array.isArray(group) &&
-          group[0].type === MessageBlockType.VIDEO &&
-          isVideoBlock(group[0]) &&
-          group[0].filePath === videoBlock.filePath
-      ) as MessageBlock[] | undefined
-
-      if (existingGroup) {
-        existingGroup.push(currentBlock)
-      } else {
-        acc.push([currentBlock])
-      }
-    } else if (currentBlock.type === MessageBlockType.TOOL) {
-      // TOOL 类型不聚合，按消息顺序逐条渲染。
-      acc.push(currentBlock)
-    } else {
-      acc.push(currentBlock)
-    }
-    return acc
-  }, [])
 }
 
 function getBlockTimestamp(block: MessageBlock | undefined): number {
@@ -215,7 +176,8 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
   // 根据blocks类型处理渲染数据
   // History snapshots can render before their blocks have been added to Redux.
   const renderedBlocks = blocks.map((blockId) => blockEntities[blockId] ?? fallbackBlockEntities?.[blockId]).filter(Boolean)
-  const groupedBlocks = useMemo(() => groupSimilarBlocks(renderedBlocks), [renderedBlocks])
+  const { t } = useTranslation()
+  const groupedBlocks = useMemo(() => groupSimilarBlocks(renderedBlocks, t), [renderedBlocks, t])
 
   // Check if message is still processing
   const isProcessing = isMessageProcessing(message)
@@ -248,14 +210,14 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
     if (message.role !== 'assistant' || isProcessing || resultAnchorIndex <= 0) {
       return [] as GroupedBlock[]
     }
-    // 异常终止（存在 ERROR 块，即"回答了一半"）时不折叠，
-    // 让用户看到完整的思考/工具产出上下文，而不是仅剩最后一个块 + 错误 banner。
-    const hasErrorBlock = renderedBlocks.some((b) => b?.type === MessageBlockType.ERROR)
-    if (hasErrorBlock) {
+    // 异常收尾（出错、异常中断、用户主动中断）时不折叠，
+    // 让用户看到完整的思考/工具产出上下文，而不是仅剩最后一个块 + 错误 banner，
+    // 也不再把这类消息折叠显示成「已完成」。
+    if (hasAbnormalTermination(message, renderedBlocks)) {
       return [] as GroupedBlock[]
     }
     return groupedBlocks.slice(0, resultAnchorIndex)
-  }, [groupedBlocks, isProcessing, message.role, renderedBlocks, resultAnchorIndex])
+  }, [groupedBlocks, isProcessing, message, renderedBlocks, resultAnchorIndex])
 
   const visibleGroupedBlocks = useMemo(() => {
     if (hiddenGroupedBlocks.length === 0) {
@@ -294,7 +256,23 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
 
   const renderGroupedBlock = (block: GroupedBlock): React.ReactNode => {
     if (Array.isArray(block)) {
-      const groupKey = block.map((b) => b.id).join('-')
+      const groupKey = [MessageBlockType.TOOL, MessageBlockType.THINKING].includes(block[0].type) ? block[0].id : block.map((b) => b.id).join('-')
+
+      if (block[0].type === MessageBlockType.THINKING) {
+        return (
+          <AnimatedBlockWrapper key={groupKey} enableAnimation={message.status.includes('ing')}>
+            <ThinkingBlock block={block[0] as ThinkingMessageBlock} blocks={block as ThinkingMessageBlock[]} />
+          </AnimatedBlockWrapper>
+        )
+      }
+
+      if (block[0].type === MessageBlockType.TOOL) {
+        return (
+          <AnimatedBlockWrapper key={groupKey} enableAnimation={message.status.includes('ing')}>
+            <ToolBlockGroup blocks={block as ToolMessageBlock[]} />
+          </AnimatedBlockWrapper>
+        )
+      }
 
       if (block[0].type === MessageBlockType.IMAGE) {
         if (block.length === 1) {

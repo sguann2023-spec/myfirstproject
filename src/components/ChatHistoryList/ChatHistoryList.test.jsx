@@ -47,8 +47,10 @@ describe('waiting for AskUserQuestion confirmation', () => {
     const store = configureStore({ reducer: { toolPermissions: permissionsReducer } });
     // Run the actual HomePage hooks/projection rather than a parallel test implementation.
     const home = fs.readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
-    const projection = home.slice(home.indexOf('  const toolPermissionRequests = useSyncExternalStore('), home.indexOf('\n\n  useEffect(() => {\n    chatSessionsRef.current = chatSessions;', home.indexOf('  const toolPermissionRequests = useSyncExternalStore(')));
-    const derive = new Function('useSyncExternalStore', 'useMemo', 'appStore', 'chatSessions', 'chatSessionInFlightMap', 'chatSessionFulfilledMap', 'isChatSessionAwaitingConfirmation', 'isChatSessionCompleted', `${projection}; return chatSessionsWithStatus;`);
+    const hookStart = home.indexOf('  const toolPermissionRequests = useSyncExternalStore(');
+    const projection = home.slice(hookStart, home.indexOf('  const deferActiveChatHistoryHydration', hookStart))
+      + home.slice(home.indexOf('  const chatSessionsWithStatus ='), home.indexOf('\n\n  useEffect(() => {\n    chatSessionsRef.current = chatSessions;', hookStart));
+    const derive = new Function('useSyncExternalStore', 'useMemo', 'appStore', 'chatSessions', 'chatSessionInFlightMap', 'chatSessionFulfilledMap', 'isChatSessionAwaitingConfirmation', 'isChatSessionCompleted', 'chatSessionUnreadMap', `${projection}; return chatSessionsWithStatus;`);
     const chats = [
       { ...session, runtimeSessionId: 'runtime-1' },
       { id: 's2', title: '另一个会话', runtimeSessionId: 'runtime-10' }
@@ -57,7 +59,7 @@ describe('waiting for AskUserQuestion confirmation', () => {
     let activeId = 's2';
     const select = vi.fn(), remove = vi.fn();
     function ConnectedList() {
-      const sessions = derive(useSyncExternalStore, useMemo, store, chats, busy, {}, isChatSessionAwaitingConfirmation, isChatSessionCompleted);
+      const sessions = derive(useSyncExternalStore, useMemo, store, chats, busy, {}, isChatSessionAwaitingConfirmation, isChatSessionCompleted, {});
       return <ChatHistoryList sessions={sessions} activeSessionId={activeId} onSelectSession={select} onDeleteSession={remove} />;
     }
     const render = () => act(async () => root.render(<ConnectedList />));
@@ -68,7 +70,8 @@ describe('waiting for AskUserQuestion confirmation', () => {
     expect(badge().textContent).toBe('等待确认');
     expect(badge().previousElementSibling.textContent).toBe('会话');
     expect(container.querySelectorAll('.chat-history-list__confirmation-badge')).toHaveLength(1);
-    expect(container.querySelectorAll('[aria-label="对话中"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[aria-label="对话中"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-label="等待确认"]')).toHaveLength(1);
     activeId = 's1'; await render(); expect(badge()).not.toBeNull();
     await click(badge()); expect(select).toHaveBeenLastCalledWith('s1');
     await click(badge().parentElement.querySelector('[aria-label="删除会话"]'));
@@ -119,6 +122,26 @@ afterEach(async () => {
   workspaceActivity.runPaths.clear(); workspaceActivity.runs = 0; workspaceActivity.renaming = false;
 });
 
+describe('confirmation indicators', () => {
+  it('prioritizes waiting over pending and unread, then restores the original indicators', async () => {
+    const render = async (flags) => act(async () => root.render(<ChatHistoryList sessions={[{ ...session, isUnseen: true, ...flags }]} />));
+    await render({ isPending: true, isAwaitingConfirmation: true });
+    expect(container.querySelectorAll('.chat-history-list__status-dot')).toHaveLength(1);
+    expect(container.querySelector('[aria-label="等待确认"]')).not.toBeNull();
+    await click(container.querySelector('.chat-history-list__group-toggle'));
+    expect(container.querySelector('.chat-history-list__confirmation-badge').textContent).toBe('等待确认');
+    expect(container.querySelector('[aria-label="分组有未读任务结果"]')).toBeNull();
+    await render({ isPending: true });
+    expect(container.querySelector('.chat-history-list__confirmation-badge')).toBeNull();
+    expect(container.querySelector('[aria-label="分组有未读任务结果"]')).not.toBeNull();
+    await click(container.querySelector('.chat-history-list__group-toggle'));
+    expect(container.querySelector('[aria-label="对话中"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="未读任务结果"]')).toBeNull();
+    await render({ isPending: false });
+    expect(container.querySelector('[aria-label="未读任务结果"]')).not.toBeNull();
+  });
+});
+
 describe('history render isolation', () => {
   const makeSessions = () => Array.from({ length: 100 }, (_, index) => ({
     id: `perf-${index}`, title: `Chat ${index}`, createdAt: index + 1,
@@ -149,11 +172,33 @@ describe('history render isolation', () => {
     const sessions = makeSessions();
     await act(async () => root.render(<ChatHistoryList sessions={sessions.map(item => ({ ...item, isPending: item.id === 'perf-50' }))} />));
     resetCounts();
-    await act(async () => root.render(<ChatHistoryList sessions={sessions.map(item => ({ ...item, isFulfilled: item.id === 'perf-50' }))} />));
+    await act(async () => root.render(<ChatHistoryList sessions={sessions.map(item => ({ ...item, isFulfilled: item.id === 'perf-50', isUnseen: item.id === 'perf-50' }))} />));
     expect(renderCounts.group).toHaveBeenCalledTimes(1);
     expect(renderCounts.row).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[aria-label="对话中"]')).toBeNull();
-    expect(container.querySelectorAll('[aria-label="已完成"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[aria-label="未读任务结果"]')).toHaveLength(1);
+  });
+
+  it('shows the completed dot only for unseen background completions', async () => {
+    const completed = makeSessions().slice(0, 2).map(item => ({ ...item, isFulfilled: true }));
+    // 刚在眼前看完的会话（fulfilled 但未标 unseen）切走后不应显示待查看圆点。
+    await act(async () => root.render(<ChatHistoryList sessions={completed} />));
+    expect(container.querySelectorAll('[aria-label="未读任务结果"]')).toHaveLength(0);
+    // 后台完成的会话标为 unseen 后显示圆点；查看后 unseen 清除则圆点消失。
+    await act(async () => root.render(<ChatHistoryList sessions={completed.map((item, index) => ({ ...item, isUnseen: index === 0 }))} />));
+    expect(container.querySelectorAll('[aria-label="未读任务结果"]')).toHaveLength(1);
+    await act(async () => root.render(<ChatHistoryList sessions={completed} />));
+    expect(container.querySelectorAll('[aria-label="未读任务结果"]')).toHaveLength(0);
+  });
+
+  it('shows unread failures on the active row and aggregates collapsed groups', async () => {
+    const unread = [{ ...session, isUnseen: true, isFulfilled: false }];
+    await act(async () => root.render(<ChatHistoryList sessions={unread} activeSessionId="s1" />));
+    expect(container.querySelectorAll('[aria-label="未读任务结果"]')).toHaveLength(1);
+    await click(container.querySelector('.chat-history-list__group-toggle'));
+    expect(container.querySelector('[aria-label="分组有未读任务结果"]')).not.toBeNull();
+    await act(async () => root.render(<ChatHistoryList sessions={[{ ...unread[0], isUnseen: false }]} activeSessionId="s1" />));
+    expect(container.querySelector('[aria-label="分组有未读任务结果"]')).toBeNull();
   });
 
   it('does not rerender session rows while editing a workspace name', async () => {
@@ -357,8 +402,19 @@ function realRenameChain() {
     setChatSessions: (update) => { state.sessions = update(state.sessions); },
     readWorkspaceStore: () => ({ library: ['/work/old'], recent: [], accessTimes: {} }), writeWorkspaceStore: vi.fn()
   });
-  return { handle, service, activity, map, inFlightMap, state, version, handlers, requestHandler, resolveSession };
+  return { handle, service, activity, map, inFlightMap, state, version, handlers, requestHandler, resolveSession, broadcast: context.broadcastSessionChanged };
 }
+it('broadcasts workspace rename as metadata for every affected session', async () => {
+  const chain = realRenameChain();
+  chain.service.renameWorkspace.mockResolvedValueOnce({ source: '/work/old', target: '/work/new',
+    sessions: [{ id: 'runtime-1', agent_id: 'agent-1' }, { id: 'runtime-2', agent_id: 'agent-1' }] });
+  await chain.handle('/work/old', 'new');
+  expect(chain.broadcast.mock.calls).toEqual([
+    ['agent-1', 'runtime-1', true, { reason: 'metadata' }],
+    ['agent-1', 'runtime-2', true, { reason: 'metadata' }]
+  ]);
+  delete window.electronAPI;
+});
 it('submits through real HomePage/preload/IPC and remaps the frontend session', async () => {
   const chain = realRenameChain();
   await act(async () => root.render(<ChatHistoryList sessions={[session]} onRenameWorkspace={chain.handle} />));

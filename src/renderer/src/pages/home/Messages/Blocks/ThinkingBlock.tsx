@@ -1,204 +1,151 @@
-import { CheckOutlined } from '@ant-design/icons'
-import { loggerService } from '@logger'
-import ThinkingEffect from '@renderer/components/ThinkingEffect'
-import { useSettings } from '@renderer/hooks/useSettings'
-import { useTemporaryValue } from '@renderer/hooks/useTemporaryValue'
 import { MessageBlockStatus, type ThinkingMessageBlock } from '@renderer/types/newMessage'
-import { Collapse, Tooltip } from 'antd'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Lightbulb } from 'lucide-react'
+import { memo, useMemo, useState } from 'react'
 import styled from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
+import { toolRunningShimmerCss } from '../Tools/shared/toolShimmer'
 
-const logger = loggerService.withContext('ThinkingBlock')
 interface Props {
   block: ThinkingMessageBlock
+  blocks?: ThinkingMessageBlock[]
 }
 
-const ThinkingBlock: React.FC<Props> = ({ block }) => {
-  const [copied, setCopied] = useTemporaryValue(false, 2000)
-  const { t } = useTranslation()
-  const { messageFont, fontSize, thoughtAutoCollapse } = useSettings()
-  const [activeKey, setActiveKey] = useState<'thought' | ''>(thoughtAutoCollapse ? '' : 'thought')
+const isActive = (block: ThinkingMessageBlock) =>
+  block.status === MessageBlockStatus.STREAMING || block.status === MessageBlockStatus.PROCESSING
 
-  const isThinking = useMemo(() => block.status === MessageBlockStatus.STREAMING, [block.status])
+const ThinkingBlock: React.FC<Props> = ({ block, blocks }) => {
+  const [expanded, setExpanded] = useState(false)
+  const reasoningBlocks = blocks?.length ? blocks : [block]
+  const isThinking = reasoningBlocks.some(isActive)
+  const latestFirst = [...reasoningBlocks].reverse()
+  const previewBlock = latestFirst.find((item) => isActive(item) && item.content?.trim())
+    ?? latestFirst.find((item) => item.content?.trim())
+  const duration = reasoningBlocks.reduce((sum, item) => sum + Math.max(0, item.thinking_millsec || 0), 0)
+  // Only normalize the preview; the stored reasoning and its Markdown remain untouched.
+  const lines = useMemo(() => (previewBlock?.content || '').split(/\r\n|\r|\n/).map((line) => line.trim()).filter(Boolean), [previewBlock?.content])
+  const latestLine = lines.at(-1)
 
-  useEffect(() => {
-    if (thoughtAutoCollapse) {
-      setActiveKey('')
-    } else {
-      setActiveKey('thought')
-    }
-  }, [isThinking, thoughtAutoCollapse])
-
-  const copyThought = useCallback(() => {
-    if (block.content) {
-      navigator.clipboard
-        .writeText(block.content)
-        .then(() => {
-          window.toast.success({ title: t('message.copied'), key: 'copy-message' })
-          setCopied(true)
-        })
-        .catch((error) => {
-          logger.error('Failed to copy text:', error)
-          window.toast.error({ title: t('message.copy.failed'), key: 'copy-message-error' })
-        })
-    }
-  }, [block.content, setCopied, t])
-
-  if (!block.content) {
-    return null
-  }
+  if (!latestLine) return null
 
   return (
-    <CollapseContainer
-      activeKey={activeKey}
-      size="small"
-      onChange={() => setActiveKey((key) => (key ? '' : 'thought'))}
-      className="message-thought-container"
-      ghost
-      items={[
-        {
-          key: 'thought',
-          label: (
-            <ThinkingEffect
-              expanded={activeKey === 'thought'}
-              isThinking={isThinking}
-              thinkingTimeText={
-                <ThinkingTimeSeconds blockThinkingTime={block.thinking_millsec} isThinking={isThinking} />
-              }
-              content={block.content}
-            />
-          ),
-          children: (
-            //  FIXME: 临时兼容
-            <ThinkingContent
-              style={{
-                fontFamily: messageFont === 'serif' ? 'var(--font-family-serif)' : 'var(--font-family)',
-                fontSize
-              }}>
-              {!isThinking && (
-                <Tooltip title={t('common.copy')} mouseEnterDelay={0.8}>
-                  <ActionButton
-                    className="message-action-button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      copyThought()
-                    }}
-                    aria-label={t('common.copy')}>
-                    {!copied && <i className="iconfont icon-copy"></i>}
-                    {copied && <CheckOutlined style={{ color: 'var(--color-primary)' }} />}
-                  </ActionButton>
-                </Tooltip>
-              )}
-              <Markdown block={block} />
-            </ThinkingContent>
-          ),
-          showArrow: false
-        }
-      ]}
-    />
+    <div className="message-thought-container" data-thinking={isThinking}>
+    <ThinkingRow
+      type="button"
+      aria-expanded={expanded}
+      aria-controls={`thinking-content-${block.id}`}
+      onClick={() => setExpanded((value) => !value)}>
+      <span className="tool-icon"><Lightbulb size={14} aria-hidden="true" /></span>
+      <ThinkingLabel $running={isThinking}><span>深度思考{reasoningBlocks.length > 1 ? ` · ${reasoningBlocks.length} 次` : ''}</span></ThinkingLabel>
+      {isThinking ? (
+        <Preview>
+          <AccessiblePreview>{latestLine}</AccessiblePreview>
+          <PreviewTrack aria-hidden="true" style={{ transform: `translateY(-${(lines.length - 1) * 20}px)` }}>
+            {lines.map((line, index) => <PreviewLine key={index}>{line}</PreviewLine>)}
+          </PreviewTrack>
+        </Preview>
+      ) : (
+        <span style={{ fontSize: 14, fontWeight: 400 }}>用时 {Math.round(duration / 100) / 10} 秒</span>
+      )}
+    </ThinkingRow>
+    {expanded && (
+      <ThinkingContent id={`thinking-content-${block.id}`}>
+        {reasoningBlocks.map((item) => <Markdown key={item.id} block={item} />)}
+      </ThinkingContent>
+    )}
+    </div>
   )
 }
 
-const normalizeThinkingTime = (value?: number) => (typeof value === 'number' && Number.isFinite(value) ? value : 0)
-
-const ThinkingTimeSeconds = memo(
-  ({ blockThinkingTime, isThinking }: { blockThinkingTime: number; isThinking: boolean }) => {
-    const { t } = useTranslation()
-    // Initialize to 0 so the local timer always starts fresh when thinking begins.
-    // The actual blockThinkingTime is only applied once thinking completes (isThinking = false),
-    // which prevents a race condition from inflating the initial display value.
-    const [displayTime, setDisplayTime] = useState(isThinking ? 0 : normalizeThinkingTime(blockThinkingTime))
-
-    const timer = useRef<NodeJS.Timeout | null>(null)
-
-    useEffect(() => {
-      if (isThinking) {
-        if (!timer.current) {
-          timer.current = setInterval(() => {
-            setDisplayTime((prev) => prev + 100)
-          }, 100)
-        }
-      } else {
-        if (timer.current) {
-          clearInterval(timer.current)
-          timer.current = null
-        }
-        setDisplayTime(normalizeThinkingTime(blockThinkingTime))
-      }
-
-      return () => {
-        if (timer.current) {
-          clearInterval(timer.current)
-          timer.current = null
-        }
-      }
-    }, [isThinking, blockThinkingTime])
-
-    const thinkingTimeSeconds = useMemo(() => {
-      const safeTime = normalizeThinkingTime(displayTime)
-      return ((safeTime < 1000 ? 100 : safeTime) / 1000).toFixed(1)
-    }, [displayTime])
-
-    return isThinking
-      ? t('chat.thinking', {
-          seconds: thinkingTimeSeconds
-        })
-      : t('chat.deeply_thought', {
-          seconds: thinkingTimeSeconds
-        })
-  }
-)
-
-const CollapseContainer = styled(Collapse)`
-  margin-bottom: 15px;
-  .ant-collapse-header {
-    padding: 0 !important;
-  }
-  .ant-collapse-content-box {
-    padding: 16px !important;
-    border-width: 0 1px 1px 1px;
-    border-style: solid;
-    border-color: var(--color-border);
-    border-radius: 0 0 12px 12px;
-  }
-`
-
 const ThinkingContent = styled.div`
-  position: relative;
+  padding: 0 0 15px 24px;
+  color: #888;
+  overflow-wrap: anywhere;
 `
 
-const ActionButton = styled.button`
-  background: none;
-  border: none;
-  color: var(--color-text-2);
-  cursor: pointer;
-  padding: 4px;
+const ThinkingRow = styled.button`
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-left: auto;
-  opacity: 0.6;
-  transition: all 0.3s;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  padding: 4px 0;
+  text-align: left;
+  font-family: inherit;
+  box-sizing: border-box;
+  min-height: 28px;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: #888;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: default;
+
+  .tool-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 0;
+
+    svg { display: block; }
+  }
+`
+
+const ThinkingLabel = styled.span<{ $running: boolean }>`
+  flex-shrink: 0;
+  white-space: nowrap;
+  ${({ $running }) => $running && toolRunningShimmerCss}
+
+  @media (prefers-reduced-motion: reduce) {
+    span:not(:has(*)):not([class*='billing']):not([class*='billing'] *) {
+      animation: none;
+      background-image: none;
+      -webkit-text-fill-color: currentColor;
+    }
+  }
+`
+
+const Preview = styled.span`
+  display: block;
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 400;
+`
+
+const AccessiblePreview = styled.span`
   position: absolute;
-  right: -12px;
-  top: -12px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+`
 
-  &:hover {
-    opacity: 1;
-    color: var(--color-text);
-  }
+const PreviewTrack = styled.span`
+  display: block;
+  transition: transform 180ms ease-out;
 
-  &:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
   }
+`
 
-  .iconfont {
-    font-size: 14px;
-  }
+const PreviewLine = styled.span`
+  display: block;
+  height: 20px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 `
 
 export default memo(ThinkingBlock)

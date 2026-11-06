@@ -53,7 +53,7 @@ type ListedTool = {
 }
 
 function createServer() {
-  return new DraftElementsServer()
+  return new DraftElementsServer(undefined, 'runtime-elements-owner')
 }
 
 async function callTool(server: DraftElementsServerInstance, toolName: string, args: Record<string, unknown>) {
@@ -456,7 +456,7 @@ describe('DraftElementsServer', () => {
         expect(mockWebContentsSend).toHaveBeenCalledExactlyOnceWith(
           'app:draft-created',
           expect.objectContaining({
-            action: 'modify', draftId: 'draft-1', clientRequestId: 'request-1', status: 'in_progress'
+            action: 'modify', draftId: 'draft-1', clientRequestId: 'request-1', runtimeSessionId: 'runtime-elements-owner', status: 'in_progress'
           })
         )
         return mockJsonResponse({ success: true, output: { material_id: 'text-1' } })
@@ -469,7 +469,7 @@ describe('DraftElementsServer', () => {
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body)).not.toHaveProperty('clientRequestId')
     expect(mockWebContentsSend).toHaveBeenCalledTimes(2)
     expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
-      action: 'modify', draftId: 'draft-1', clientRequestId: 'request-1', status: 'completed'
+      action: 'modify', draftId: 'draft-1', clientRequestId: 'request-1', runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 
@@ -482,12 +482,12 @@ describe('DraftElementsServer', () => {
 
     const pending = mockWebContentsSend.mock.calls[0][1]
     expect(pending).toEqual(expect.objectContaining({
-      action: 'create', draftId: `pending:${pending.clientRequestId}`, status: 'in_progress',
+      action: 'create', draftId: `pending:${pending.clientRequestId}`, runtimeSessionId: 'runtime-elements-owner', status: 'in_progress',
       width: 1920, height: 1080, createdAt: expect.any(Number)
     }))
     expect(pending.clientRequestId).toEqual(expect.any(String))
     expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
-      action: 'create', draftId: 'new-draft', clientRequestId: pending.clientRequestId, status: 'completed'
+      action: 'create', draftId: 'new-draft', clientRequestId: pending.clientRequestId, runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 
@@ -590,10 +590,10 @@ describe('DraftElementsServer', () => {
     })
     expect(mockWebContentsSend).toHaveBeenCalledTimes(2)
     expect(mockWebContentsSend).toHaveBeenNthCalledWith(1, 'app:draft-created', expect.objectContaining({
-      action: 'modify', draftId: 'dfd_image_1', status: 'in_progress'
+      action: 'modify', draftId: 'dfd_image_1', runtimeSessionId: 'runtime-elements-owner', status: 'in_progress'
     }))
     expect(mockWebContentsSend).toHaveBeenNthCalledWith(2, 'app:draft-created', expect.objectContaining({
-      action: 'modify', draftId: 'dfd_image_1', status: 'completed'
+      action: 'modify', draftId: 'dfd_image_1', runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 
@@ -1004,7 +1004,7 @@ describe('DraftElementsServer', () => {
         expect(mockWebContentsSend).toHaveBeenCalledExactlyOnceWith(
           'app:draft-created',
           expect.objectContaining({
-            action: 'modify', draftId: 'draft-audio-1', clientRequestId: 'audio-request-1', status: 'in_progress'
+            action: 'modify', draftId: 'draft-audio-1', clientRequestId: 'audio-request-1', runtimeSessionId: 'runtime-elements-owner', status: 'in_progress'
           })
         )
         return mockJsonResponse({ success: true, output: { material_id: 'audio-1' } })
@@ -1017,7 +1017,7 @@ describe('DraftElementsServer', () => {
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body as string)).not.toHaveProperty('clientRequestId')
     expect(mockWebContentsSend).toHaveBeenCalledTimes(2)
     expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
-      action: 'modify', draftId: 'draft-audio-1', clientRequestId: 'audio-request-1', status: 'completed'
+      action: 'modify', draftId: 'draft-audio-1', clientRequestId: 'audio-request-1', runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 
@@ -1030,12 +1030,12 @@ describe('DraftElementsServer', () => {
 
     const pending = mockWebContentsSend.mock.calls[0][1]
     expect(pending).toEqual(expect.objectContaining({
-      action: 'create', draftId: `pending:${pending.clientRequestId}`, status: 'in_progress',
+      action: 'create', draftId: `pending:${pending.clientRequestId}`, runtimeSessionId: 'runtime-elements-owner', status: 'in_progress',
       width: 1920, height: 1080, createdAt: expect.any(Number)
     }))
     expect(pending.clientRequestId).toEqual(expect.any(String))
     expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
-      action: 'create', draftId: 'new-audio-draft', clientRequestId: pending.clientRequestId, status: 'completed'
+      action: 'create', draftId: 'new-audio-draft', clientRequestId: pending.clientRequestId, runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 
@@ -1046,7 +1046,7 @@ describe('DraftElementsServer', () => {
         expect(mockWebContentsSend).toHaveBeenCalledExactlyOnceWith(
           'app:draft-created',
           expect.objectContaining({
-            action: 'modify', draftId: 'draft-image-1', clientRequestId: 'image-request-1', status: 'in_progress'
+            action: 'modify', draftId: 'draft-image-1', clientRequestId: 'image-request-1', runtimeSessionId: 'runtime-elements-owner', status: 'in_progress'
           })
         )
         return mockJsonResponse({ success: true, output: { material_id: 'image-1' } })
@@ -1059,7 +1059,7 @@ describe('DraftElementsServer', () => {
     expect(JSON.parse(mockNetFetch.mock.calls[1][1].body)).not.toHaveProperty('clientRequestId')
     expect(mockWebContentsSend).toHaveBeenCalledTimes(2)
     expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
-      action: 'modify', draftId: 'draft-image-1', clientRequestId: 'image-request-1', status: 'completed'
+      action: 'modify', draftId: 'draft-image-1', clientRequestId: 'image-request-1', runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 
@@ -1072,12 +1072,12 @@ describe('DraftElementsServer', () => {
 
     const pending = mockWebContentsSend.mock.calls[0][1]
     expect(pending).toEqual(expect.objectContaining({
-      action: 'create', draftId: `pending:${pending.clientRequestId}`, status: 'in_progress',
+      action: 'create', draftId: `pending:${pending.clientRequestId}`, runtimeSessionId: 'runtime-elements-owner', status: 'in_progress',
       width: 1080, height: 1920, createdAt: expect.any(Number)
     }))
     expect(pending.clientRequestId).toEqual(expect.any(String))
     expect(mockWebContentsSend).toHaveBeenLastCalledWith('app:draft-created', expect.objectContaining({
-      action: 'create', draftId: 'new-image-draft', clientRequestId: pending.clientRequestId, status: 'completed'
+      action: 'create', draftId: 'new-image-draft', clientRequestId: pending.clientRequestId, runtimeSessionId: 'runtime-elements-owner', status: 'completed'
     }))
   })
 })

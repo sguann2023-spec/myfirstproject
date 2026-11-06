@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl } from '../mediaGenerationBilling'
+import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl, sumMediaGenerationBillingSummaries } from '../mediaGenerationBilling'
 
 describe('mediaGenerationBilling', () => {
   it('extracts billing.consume from MCP text output', () => {
@@ -154,5 +154,29 @@ describe('mediaGenerationBilling', () => {
         totalConsumedPoints: 2.5, displayText: '2.50'
       })
     }
+  })
+
+  it('sums billed tool results and skips unbilled ones', () => {
+    expect(
+      sumMediaGenerationBillingSummaries([
+        { content: [{ type: 'text', text: JSON.stringify({ billing: { consume: 2 } }) }] },
+        { content: [{ type: 'text', text: JSON.stringify({ billing: { consume: 2 } }) }] }
+      ])
+    ).toEqual({ totalConsumedPoints: 4, displayText: '4.00' })
+    expect(
+      sumMediaGenerationBillingSummaries([
+        { content: [{ type: 'text', text: JSON.stringify({ answer: 'ok' }) }] },
+        { content: [{ type: 'text', text: JSON.stringify({ billing: { consume: 1.98 } }) }] }
+      ])
+    ).toEqual({ totalConsumedPoints: 1.98, displayText: '1.98' })
+  })
+
+  it('returns null when no result carries billing', () => {
+    expect(sumMediaGenerationBillingSummaries([])).toBeNull()
+    expect(
+      sumMediaGenerationBillingSummaries([
+        { content: [{ type: 'text', text: JSON.stringify({ answer: 'ok' }) }] }
+      ])
+    ).toBeNull()
   })
 })

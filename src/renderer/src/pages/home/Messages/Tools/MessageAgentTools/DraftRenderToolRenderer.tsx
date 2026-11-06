@@ -16,17 +16,23 @@ type DraftRenderToolProps = {
   isRunning?: boolean
 }
 
-// Shared by dedicated cards and generic/group headers so collapsed tools retain billing.
-export function DraftRenderBillingBadge({ output }: { output?: unknown }) {
-  const points = extractDraftRenderSummary(output).totalConsumedPoints
-  if (points === null) return null
+// Shared points badge used by dedicated cards and aggregate group headers.
+export function BillingPointsBadge({ points, title }: { points: number; title: string }) {
+  if (!Number.isFinite(points)) return null
   const display = points.toFixed(2)
   return (
-    <span className="video-understand-tool-billing-badge" title={`本次渲染消耗 ${display} 点`}>
+    <span className="video-understand-tool-billing-badge" title={title}>
       <img className="video-understand-tool-billing-icon" src={point2IconUrl} alt="" aria-hidden="true" />
       <span className="video-understand-tool-billing-text">{display}</span>
     </span>
   )
+}
+
+// Shared by dedicated cards and generic/group headers so collapsed tools retain billing.
+export function DraftRenderBillingBadge({ output }: { output?: unknown }) {
+  const points = extractDraftRenderSummary(output).totalConsumedPoints
+  if (points === null) return null
+  return <BillingPointsBadge points={points} title={`本次渲染消耗 ${points.toFixed(2)} 点`} />
 }
 
 export function DraftRenderToolRenderer({

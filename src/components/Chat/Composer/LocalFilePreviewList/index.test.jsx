@@ -28,6 +28,15 @@ const open = (name) => click(container.querySelector(`[aria-label="预览 ${name
 const expectNoModal = () => {
   expect(document.querySelector('.ant-modal, [role="dialog"], .chat-panel__attachment-preview-modal')).toBeNull();
 };
+const expectModalViewer = (kind, src, name) => {
+  const modal = document.querySelector(`.chat-panel__media-click-modal--${kind}`);
+  expect(modal).not.toBeNull();
+  expect(modal.querySelector('.ant-modal-close')).not.toBeNull();
+  expect(modal.querySelector('.ant-modal-header, .ant-modal-footer')).toBeNull();
+  expect(modal.querySelector(kind === 'image' ? 'img' : kind).getAttribute('src')).toBe(src);
+  if (kind === 'video') expect(modal.querySelector('.chat-panel__media-click-title').textContent).toBe(name);
+  return modal;
+};
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,38 +53,31 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('toolbar attachment sidebar previews', () => {
-  it.each(files)('opens $name through the ready file preview callback without a Modal', async (file) => {
+describe('toolbar attachment media previews', () => {
+  it.each(files)('opens $name in the centered skill-example style modal', async (file) => {
     await render();
     await open(file.name);
-    expect(openAttachmentPreview).toHaveBeenCalledExactlyOnceWith({
-      key: `chat-attachment:${file.uid}`, tabId: `chat-attachment:${file.uid}`,
-      previewType: 'file', activate: true, title: file.name, name: file.name,
-      kind: file.fileType.split('/')[0], status: 'ready',
-      src: file.localPreviewUrl || file.previewUrl || file.url,
-    });
-    expectNoModal();
+    expectModalViewer(file.fileType.split('/')[0], file.localPreviewUrl || file.previewUrl || file.url, file.name);
+    expect(openAttachmentPreview).not.toHaveBeenCalled();
     expect(document.querySelector('.chat-file-preview')).toBeNull();
   });
 
   it.each(['image/png', 'video/mp4', 'audio/mpeg'])('supports HTTP media URLs for %s', async (fileType) => {
     await render({ files: [{ uid: 'http-media', name: 'remote', fileType, url: 'http://example.com/media' }] });
     await open('remote');
-    expect(openAttachmentPreview).toHaveBeenCalledWith(expect.objectContaining({
-      kind: fileType.split('/')[0], src: 'http://example.com/media', status: 'ready', previewType: 'file',
-    }));
-    expectNoModal();
+    expectModalViewer(fileType.split('/')[0], 'http://example.com/media', 'remote');
+    expect(openAttachmentPreview).not.toHaveBeenCalled();
   });
 
-  it('reuses a stable attachment tab identity when clicked again or its URL changes', async () => {
+  it('reopens the modal with the refreshed URL after the attachment changes', async () => {
     await render();
     await open('clip.mp4');
-    const first = openAttachmentPreview.mock.calls[0][0];
-    await open('clip.mp4');
-    expect(openAttachmentPreview.mock.calls[1][0]).toEqual(first);
+    expect(document.querySelector('.chat-panel__media-click-modal video').getAttribute('src')).toBe('blob:video');
+    await click(document.querySelector('.chat-panel__media-click-modal .ant-modal-close'));
+    expectNoModal();
     await render({ files: [{ ...files[1], localPreviewUrl: 'blob:replacement' }] });
     await open('clip.mp4');
-    expect(openAttachmentPreview.mock.calls[2][0]).toEqual({ ...first, src: 'blob:replacement' });
+    expect(document.querySelector('.chat-panel__media-click-modal video').getAttribute('src')).toBe('blob:replacement');
   });
 
   it('switches template add icons when material counts are insufficient', async () => {
@@ -244,20 +246,22 @@ describe('toolbar attachment sidebar previews', () => {
     expect(onRemove).toHaveBeenCalledExactlyOnceWith(files[0]);
     expect(openAttachmentPreview).not.toHaveBeenCalled();
     await open('sound.mp3');
+    expectModalViewer('audio', 'blob:audio', 'sound.mp3');
+    await click(document.querySelector('.chat-panel__media-click-modal .ant-modal-close'));
     await click(container.querySelector('[aria-label="移除 sound.mp3"]'));
     expect(onRemove).toHaveBeenLastCalledWith(files[2]);
     await render({ files: files.filter((file) => file.uid !== 'audio') });
     await render({ files: [] });
     expect(container.innerHTML).toBe('');
     await act(async () => root.render(null));
-    expect(openAttachmentPreview).toHaveBeenCalledTimes(1);
+    expect(openAttachmentPreview).not.toHaveBeenCalled();
     expectNoModal();
   });
 
-  it('safely handles a missing sidebar callback without falling back to a Modal', async () => {
+  it('still opens the centered modal when no sidebar callback is provided', async () => {
     await render({ openAttachmentPreview: null });
     await open('first.png');
-    expectNoModal();
+    expectModalViewer('image', 'blob:first', 'first.png');
   });
 
   it('keeps upload slots and order, and excludes ordinary files, voice IDs and missing media URLs', async () => {
@@ -283,12 +287,13 @@ describe('toolbar attachment sidebar previews', () => {
     expect(container.querySelector('.chat-panel__local-file-preview-open').tagName).toBe('BUTTON');
   });
 
-  it('wires the explicitly named context callback from Shell through Composer', () => {
+  it('keeps composer media previews on the modal, decoupled from the sidebar pane', () => {
     const source = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
     expect(source('../../ChatShell/ChatTaskContext.js')).toContain('openAttachmentPreview: null');
     expect(source('../../ChatShell/ChatShell.js')).toContain('openAttachmentPreview: openInlinePreviewPane');
-    expect(source('../Composer.js')).toContain('openAttachmentPreview={openAttachmentPreview}');
+    expect(source('../Composer.js')).not.toContain('openAttachmentPreview={openAttachmentPreview}');
     const list = source('./index.js');
+    expect(list).not.toContain('openAttachmentPreview');
     expect(list).not.toMatch(/\bselection\b|TextFilePreview/);
     expect(source('./index.css')).not.toContain('attachment-preview-modal');
   });

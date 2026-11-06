@@ -1,7 +1,15 @@
 import path from 'node:path'
 
 import type { AgentType, Tool } from '@types'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('fs', () => ({ default: { existsSync: () => true, statSync: () => ({ isFile: () => false }) } }))
+vi.mock('@logger', () => ({ loggerService: { withContext: () => ({}) } }))
+vi.mock('@shared/mcp', () => ({ buildFunctionCallToolName: vi.fn(), normalizeVectcutMcpToolName: (name: string) => name }))
+vi.mock('@types', () => ({ objectKeys: Object.keys }))
+vi.mock('../database/DatabaseManager', () => ({ DatabaseManager: {} }))
+vi.mock('../services/claudecode/commands', () => ({ builtinSlashCommands: [] }))
+vi.mock('../services/claudecode/tools', () => ({ builtinTools: [] }))
 
 import type { AgentModelField } from '../errors'
 
@@ -34,9 +42,10 @@ class TestBaseService extends BaseService {
 
   public async validateModels(
     agentType: AgentType,
-    models: Partial<Record<AgentModelField, string | undefined>>
+    models: Partial<Record<AgentModelField, string | undefined>>,
+    opts: { runtimeApiKey?: string } = {}
   ): Promise<void> {
-    return this.validateAgentModels(agentType, models)
+    return this.validateAgentModels(agentType, models, opts)
   }
 
   public resolve(paths: string[] | undefined, id: string): string[] {
@@ -113,6 +122,50 @@ describe('BaseService.normalizeAllowedTools', () => {
 
 describe('BaseService.validateAgentModels', () => {
   const service = new TestBaseService()
+
+  beforeEach(() => {
+    vi.stubEnv('VECTCUT_API_KEY', '')
+    vi.stubEnv('VECTCUT_APIKEY', '')
+  })
+  afterEach(() => vi.unstubAllEnvs())
+
+  it.each([
+    ['anthropic', 'https://custom.example', 'https://open.vectcut.com/v1', true],
+    ['openai', 'https://custom.example', 'https://open.vectcut.com/anthropic', false],
+    ['anthropic', 'https://open.vectcut.com', 'https://custom.example', false],
+    ['openai', 'https://open.vectcut.com', 'https://custom.example', true],
+    ['azure-openai', 'https://custom.example', 'https://open.vectcut.com', false],
+    ['azure-openai', 'https://open.vectcut.com', 'https://custom.example', true],
+    ['anthropic', 'https://open.vectcut.com/v1', '', true],
+    ['openai', 'https://open.vectcut.com/v1', '   ', true],
+    ['anthropic', 'http://open.vectcut.com', '', false],
+    ['anthropic', 'https://open.vectcut.com.evil.test', '', false],
+    ['anthropic', 'not-a-url/open.vectcut.com', '', false],
+    ['anthropic', '', '', false]
+  ])('scopes login auth for %s apiHost=%s anthropicApiHost=%s', async (type, apiHost, anthropicApiHost, allowed) => {
+    const provider = { id: 'remote', type, apiHost, anthropicApiHost, apiKey: '' }
+    mockValidateModelId.mockResolvedValue({ valid: true, provider })
+    const result = service.validateModels('claude-code', { model: 'remote:model' }, { runtimeApiKey: 'session-token' })
+    if (allowed) await expect(result).resolves.toBeUndefined()
+    else await expect(result).rejects.toThrow(AgentModelValidationError)
+    expect(provider.apiKey).toBe('')
+  })
+
+  it.each(['VECTCUT_API_KEY', 'VECTCUT_APIKEY'])('scopes process %s fallback to gateway without caching', async (key) => {
+    vi.stubEnv(key, 'process-token')
+    const provider = { id: 'remote', type: 'anthropic', apiHost: 'https://open.vectcut.com', apiKey: '' }
+    mockValidateModelId.mockResolvedValue({ valid: true, provider })
+    await expect(service.validateModels('claude-code', { model: 'remote:model' })).resolves.toBeUndefined()
+    expect(provider.apiKey).toBe('')
+    provider.apiHost = 'https://custom.example'
+    await expect(service.validateModels('claude-code', { model: 'remote:model' })).rejects.toThrow(AgentModelValidationError)
+    expect(provider.apiKey).toBe('')
+  })
+
+  it('requires credentials for gateway too', async () => {
+    mockValidateModelId.mockResolvedValue({ valid: true, provider: { id: 'remote', apiHost: 'https://open.vectcut.com', apiKey: '' } })
+    await expect(service.validateModels('claude-code', { model: 'remote:model' })).rejects.toThrow(AgentModelValidationError)
+  })
 
   it('throws error when regular provider is missing API key', async () => {
     mockValidateModelId.mockResolvedValue({

@@ -308,6 +308,20 @@ describe('canonical transcript migration and crash reconciliation', () => {
     })
   })
 
+  it.each(['processing', 'searching', 'pending', 'streaming', 'paused'])('preserves legacy %s across backfill and restart reconciliation', async (status) => {
+    await client.execute({
+      sql: 'INSERT INTO session_messages(session_id, role, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      args: ['session-a', 'assistant', payload('partial', 'assistant', 'unfinished', status), '2026-01-01', '2026-01-01']
+    })
+    await backfillCanonicalTranscript(db as any)
+    await reconcileInterruptedAgentWork(db as any)
+    const rows = await client.execute("SELECT status FROM agent_messages WHERE id = 'partial'")
+    expect(rows.rows[0].status).toBe(status === 'paused' ? 'cancelled' : 'interrupted')
+    await backfillCanonicalTranscript(db as any)
+    await reconcileInterruptedAgentWork(db as any)
+    expect((await client.execute("SELECT status FROM agent_messages WHERE id = 'partial'")).rows).toEqual(rows.rows)
+  })
+
   it('never settles live rows created after the beforeTimestamp watermark', async () => {
     await client.executeMultiple(`
       INSERT INTO agent_conversation_segments(id, topic_id, system_prompt_version, system_prompt_hash, status, created_at, updated_at)

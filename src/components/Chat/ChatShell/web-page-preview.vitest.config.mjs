@@ -20,6 +20,6 @@ export default defineConfig({
   }],
   test: {
     environment: 'jsdom',
-    include: ['src/components/Chat/ChatShell/WebPagePreview.test.jsx']
+    include: ['src/components/Chat/ChatShell/WorkSpace/WorkspaceFileContextMenu.test.jsx', 'src/components/Chat/ChatShell/WebPagePreview.test.jsx', 'src/components/Chat/pinnedDraftMetadata.test.js']
   }
 });

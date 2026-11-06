@@ -63,7 +63,7 @@ import DraftManagementServer from '../draft-management'
 type DraftManagementServerInstance = InstanceType<typeof DraftManagementServer>
 
 function createServer(workspacePath?: string) {
-  return new DraftManagementServer(workspacePath)
+  return new DraftManagementServer(workspacePath, 'runtime-owner-A')
 }
 
 async function callTool(server: DraftManagementServerInstance, toolName: string, args: Record<string, unknown>) {
@@ -178,6 +178,7 @@ describe('DraftManagementServer', () => {
         cover: 'https://example.com/cover.png',
         width: 1080,
         height: 1920,
+        runtimeSessionId: 'runtime-owner-A',
         status: 'in_progress'
       })
     )
@@ -191,6 +192,7 @@ describe('DraftManagementServer', () => {
         cover: 'https://example.com/cover.png',
         width: 1080,
         height: 1920,
+        runtimeSessionId: 'runtime-owner-A',
         status: 'completed'
       })
     )
@@ -253,6 +255,7 @@ describe('DraftManagementServer', () => {
         draftId: 'dfd_meta_1',
         name: '新草稿名',
         cover: 'https://example.com/new-cover.png',
+        runtimeSessionId: 'runtime-owner-A',
         status: 'in_progress'
       })
     )
@@ -264,6 +267,7 @@ describe('DraftManagementServer', () => {
         draftId: 'dfd_meta_1',
         name: '新草稿名',
         cover: 'https://example.com/new-cover.png',
+        runtimeSessionId: 'runtime-owner-A',
         status: 'completed'
       })
     )

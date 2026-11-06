@@ -573,6 +573,7 @@ export class ChannelMessageHandler {
     //   stream chunks and events are forwarded to the renderer via the bus.
     // When renderer is NOT watching: persist=true (main persists via persistHeadlessExchange),
     //   stream events are NOT forwarded (no subscriber or subscriber arrived late).
+    const requestId = randomUUID()
     const { stream, historyPersisted } = await sessionMessageService.createSessionMessage(
       session,
       { content },
@@ -596,6 +597,7 @@ export class ChannelMessageHandler {
           sessionStreamBus.publish(session.id, {
             sessionId: session.id,
             agentId: session.agent_id,
+            requestId,
             type: 'chunk',
             chunk: value
           })
@@ -630,22 +632,27 @@ export class ChannelMessageHandler {
         sessionStreamBus.publish(session.id, {
           sessionId: session.id,
           agentId: session.agent_id,
+            requestId,
           type: 'complete'
         })
       }
       void historyPersisted?.then((result) => {
         if (result?.assistantMessage) {
-          broadcastSessionChanged(session.agent_id, session.id, !rendererIsWatching)
+          broadcastSessionChanged(session.agent_id, session.id, !rendererIsWatching, { reason: 'turn-completed', requestId, outcome: abortController.signal.aborted ? 'cancelled' : 'success' })
         }
       }).catch((error) => logger.error('Background channel history persistence failed', error as Error))
 
       // Trim trailing separator
       return (completedText + currentBlockText).replace(/\n+$/, '')
     } catch (error) {
+      broadcastSessionChanged(session.agent_id, session.id, !rendererIsWatching, {
+        reason: 'turn-completed', requestId, outcome: abortController.signal.aborted ? 'cancelled' : 'error'
+      })
       if (rendererIsWatching) {
         sessionStreamBus.publish(session.id, {
           sessionId: session.id,
           agentId: session.agent_id,
+            requestId,
           type: 'error',
           error: { message: error instanceof Error ? error.message : String(error) }
         })

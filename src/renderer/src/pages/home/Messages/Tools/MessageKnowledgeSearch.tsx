@@ -1,10 +1,11 @@
 import type { KnowledgeSearchToolInput, KnowledgeSearchToolOutput } from '@renderer/aiCore/tools/KnowledgeSearchTool'
-import Spinner from '@renderer/components/Spinner'
 import i18n from '@renderer/i18n'
 import type { NormalToolResponse } from '@renderer/types'
 import { Typography } from 'antd'
 import { FileSearch } from 'lucide-react'
 import styled from 'styled-components'
+
+import { toolRunningShimmerCss } from './shared/toolShimmer'
 
 const { Text } = Typography
 export function MessageKnowledgeSearchToolTitle({ toolResponse }: { toolResponse: NormalToolResponse }) {
@@ -12,14 +13,11 @@ export function MessageKnowledgeSearchToolTitle({ toolResponse }: { toolResponse
   const toolOutput = toolResponse.response as KnowledgeSearchToolOutput
 
   return toolResponse.status !== 'done' ? (
-    <Spinner
-      text={
-        <PrepareToolWrapper>
-          {i18n.t('message.searching')}
-          <span>{toolInput?.additionalContext ?? ''}</span>
-        </PrepareToolWrapper>
-      }
-    />
+    <PrepareToolWrapper $running>
+      <FileSearch size={16} style={{ color: 'unset' }} />
+      <span>{i18n.t('message.searching')}</span>
+      <span>{toolInput?.additionalContext ?? ''}</span>
+    </PrepareToolWrapper>
   ) : (
     <MessageWebSearchToolTitleTextWrapper type="secondary">
       <FileSearch size={16} style={{ color: 'unset' }} />
@@ -43,12 +41,13 @@ export function MessageKnowledgeSearchToolBody({ toolResponse }: { toolResponse:
   ) : null
 }
 
-const PrepareToolWrapper = styled.span`
+const PrepareToolWrapper = styled.span<{ $running?: boolean }>`
   display: flex;
   align-items: center;
   gap: 4px;
   font-size: 14px;
   padding-left: 0;
+  ${(props) => (props.$running ? toolRunningShimmerCss : '')}
 `
 const MessageWebSearchToolTitleTextWrapper = styled(Text)`
   display: flex;

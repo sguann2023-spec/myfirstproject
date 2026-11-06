@@ -28,10 +28,10 @@ import styled from 'styled-components'
 import { DraftRenderBillingBadge } from './MessageAgentTools/DraftRenderToolRenderer'
 import { isDraftRenderToolName } from './MessageAgentTools/draftRenderTool'
 import { renderToolChangeStats } from './MessageAgentTools/changeStats'
-import { type ToolStatus, ToolStatusIndicator } from './MessageAgentTools/GenericTools'
+import { type ToolStatus } from './MessageAgentTools/GenericTools'
 import { AgentToolsType } from './MessageAgentTools/types'
-import { getMcpToolDisplayName, parseMcpToolName } from './shared/mcpToolDisplay'
-import { getDisplayToolHasError, getDisplayToolStatus } from './shared/toolDisplayState'
+import { getToolDisplayName } from './shared/toolDisplay'
+export { getAgentToolLabel } from './shared/toolDisplay'
 
 export interface ToolHeaderProps {
   block?: ToolMessageBlock
@@ -42,15 +42,16 @@ export interface ToolHeaderProps {
   stats?: ReactNode
 
   // Common config
+  // @deprecated 不再展示“执行中/已完成/错误”等状态提示，仅保留类型兼容
   status?: ToolStatus
   hasError?: boolean
-  showStatus?: boolean // default true
+  showStatus?: boolean
 
   // Style variant
   variant?: 'standalone' | 'collapse-label'
 }
 
-const getAgentToolIcon = (toolName: string): ReactNode => {
+export const getAgentToolIcon = (toolName: string): ReactNode => {
   switch (toolName) {
     case AgentToolsType.Read:
       return <FileText size={14} />
@@ -90,55 +91,6 @@ const getAgentToolIcon = (toolName: string): ReactNode => {
   }
 }
 
-const getAgentToolLabel = (toolName: string, t: (key: string) => string): string => {
-  if (toolName.startsWith('mcp__')) {
-    const parts = parseMcpToolName(toolName)
-    return getMcpToolDisplayName({ ...parts, t })
-  }
-
-  switch (toolName) {
-    case AgentToolsType.Read:
-      return t('message.tools.labels.readFile')
-    case AgentToolsType.Task:
-      return t('message.tools.labels.task')
-    case AgentToolsType.TaskOutput: {
-      const translated = t('message.tools.labels.taskOutput')
-      return translated === 'message.tools.labels.taskOutput' ? 'Task Output' : translated
-    }
-    case AgentToolsType.Bash:
-      return t('message.tools.labels.bash')
-    case AgentToolsType.BashOutput:
-      return t('message.tools.labels.bashOutput')
-    case AgentToolsType.Search:
-      return t('message.tools.labels.search')
-    case AgentToolsType.Glob:
-      return t('message.tools.labels.glob')
-    case AgentToolsType.Grep:
-      return t('message.tools.labels.grep')
-    case AgentToolsType.InspectImage:
-      return '图片理解'
-    case AgentToolsType.Write:
-      return t('message.tools.labels.write')
-    case AgentToolsType.Edit:
-      return t('message.tools.labels.edit')
-    case AgentToolsType.MultiEdit:
-      return t('message.tools.labels.multiEdit')
-    case AgentToolsType.WebSearch:
-      return t('message.tools.labels.webSearch')
-    case AgentToolsType.WebFetch:
-      return t('message.tools.labels.webFetch')
-    case AgentToolsType.NotebookEdit:
-      return t('message.tools.labels.notebookEdit')
-    case AgentToolsType.TodoWrite:
-      return t('message.tools.labels.todoWrite')
-    case AgentToolsType.ExitPlanMode:
-      return t('message.tools.labels.exitPlanMode')
-    case AgentToolsType.Skill:
-      return t('message.tools.labels.skill')
-    default:
-      return toolName
-  }
-}
 
 const getToolDescription = (toolResponse?: MCPToolResponse | NormalToolResponse): string | undefined => {
   if (!toolResponse) return undefined
@@ -155,11 +107,12 @@ const HeaderContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 20px;
+  padding: 4px 0;
   background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
+  border: none;
+  border-radius: 0.5rem;
   min-width: 0;
 `
 
@@ -168,6 +121,7 @@ const LabelContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 4px;
+  line-height: 20px;
   font-size: 14px;
   min-width: 0;
 `
@@ -183,7 +137,9 @@ const ToolName = styled(Flex)`
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
+    flex: 0 0 14px;
+    width: 14px;
+    height: 14px;
     line-height: 0;
   }
 
@@ -204,7 +160,6 @@ const Description = styled.span`
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  flex: 1;
   max-width: 300px;
   display: inline-flex;
   align-items: center;
@@ -213,16 +168,9 @@ const Description = styled.span`
 const Stats = styled.span`
   color: var(--color-text-2);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
   flex-shrink: 0;
-`
-
-const StatusWrapper = styled.div`
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  margin-left: auto;
 `
 
 // ============ Main Component ============
@@ -233,9 +181,6 @@ const ToolHeader: FC<ToolHeaderProps> = ({
   icon: propIcon,
   params,
   stats,
-  status: propStatus,
-  hasError: propHasError,
-  showStatus = true,
   variant = 'standalone'
 }) => {
   const { t } = useTranslation()
@@ -244,9 +189,6 @@ const ToolHeader: FC<ToolHeaderProps> = ({
   const tool = toolResponse?.tool
 
   const toolName = propToolName || tool?.name || 'Tool'
-
-  const status = (propStatus || getDisplayToolStatus(toolResponse)) as ToolStatus
-  const hasError = getDisplayToolHasError(toolResponse, propHasError)
 
   const description = params ?? getToolDescription(toolResponse)
   const parsedPartialArgs = useMemo(() => {
@@ -273,15 +215,11 @@ const ToolHeader: FC<ToolHeaderProps> = ({
 
   if (block && tool?.type === 'mcp') {
     const mcpTool = tool as MCPTool
-    const displayName = getMcpToolDisplayName({
-      serverName: isDraftRenderToolName(mcpTool.name, mcpTool.serverName) ? 'draft-render' : mcpTool.serverName,
-      toolName: isDraftRenderToolName(mcpTool.name, mcpTool.serverName) ? 'render_draft' : mcpTool.name,
-      t
-    })
+    const displayName = getToolDisplayName(mcpTool, t)
     return (
       <Container>
         <ToolName align="center" gap={6}>
-          <Wrench size={14} className="tool-icon" />
+          <span className="tool-icon"><Wrench size={14} /></span>
           <span className="name">{displayName}</span>
           {isToolAutoApproved(mcpTool) && (
             <Tooltip title={t('message.tools.autoApproveEnabled')} mouseLeaveDelay={0}>
@@ -289,14 +227,9 @@ const ToolHeader: FC<ToolHeaderProps> = ({
             </Tooltip>
           )}
         </ToolName>
+        {derivedStats && <Stats>{derivedStats}</Stats>}
         {description && <Description>{description}</Description>}
         {billingBadge}
-        {derivedStats && <Stats>{derivedStats}</Stats>}
-        {showStatus && status && (
-          <StatusWrapper>
-            <ToolStatusIndicator status={status} hasError={hasError} />
-          </StatusWrapper>
-        )}
       </Container>
     )
   }
@@ -305,16 +238,11 @@ const ToolHeader: FC<ToolHeaderProps> = ({
     <Container>
       <ToolName align="center" gap={6}>
         <span className="tool-icon">{propIcon || getAgentToolIcon(toolName)}</span>
-        <span className="name">{getAgentToolLabel(toolName, t)}</span>
+        <span className="name">{getToolDisplayName({ ...tool, name: toolName }, t)}</span>
       </ToolName>
+      {derivedStats && <Stats>{derivedStats}</Stats>}
       {description && <Description>{description}</Description>}
       {billingBadge}
-      {derivedStats && <Stats>{derivedStats}</Stats>}
-      {showStatus && status && (
-        <StatusWrapper>
-          <ToolStatusIndicator status={status} hasError={hasError} />
-        </StatusWrapper>
-      )}
     </Container>
   )
 }

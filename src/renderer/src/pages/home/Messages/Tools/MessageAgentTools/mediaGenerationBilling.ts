@@ -317,3 +317,21 @@ export function extractMediaGenerationBillingSummary(output: unknown): MediaGene
     displayText: formatConsumedPoints(totalConsumedPoints)
   }
 }
+
+// Aggregates per-tool summaries (one extractor call per tool result, so a
+// payload recovered from both response and responseRaw still counts once).
+export function sumMediaGenerationBillingSummaries(outputs: unknown[]): MediaGenerationBillingSummary | null {
+  let total = 0
+  let found = false
+  for (const output of outputs) {
+    const summary = extractMediaGenerationBillingSummary(output)
+    if (!summary) continue
+    found = true
+    total += summary.totalConsumedPoints
+  }
+  if (!found) return null
+  return {
+    totalConsumedPoints: total,
+    displayText: formatConsumedPoints(total)
+  }
+}

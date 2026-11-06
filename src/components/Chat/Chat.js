@@ -5,10 +5,14 @@ import PinnedDraftPannel from '@renderer/pages/home/Inputbar/components/PinnedDr
 import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
 import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
 import { IpcChannel } from '@shared/IpcChannel';
-import { normalizePinnedDraftFromEvent } from './pinnedDraftMetadata';
+import { queryScript } from '../../api/capcut';
+import { DownloadController } from '../../shared/DownloadController.js';
 import ChatShell from './ChatShell/ChatShell';
+import { ChatTaskContext } from './ChatShell/ChatTaskContext';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
+import { sendQueue } from './sendQueue';
+import SendQueuePanel from './SendQueuePanel';
 import {
   buildSkillExampleApplyDetail,
   dispatchSkillExampleApply,
@@ -128,41 +132,56 @@ const hasRegisteredExternalAgent = (agents = []) => (
   Array.isArray(agents) && agents.some((agent) => agent?.registrationStatus === 'registered')
 );
 
-const ChatPinnedDraftPanel = () => {
-  const [drafts, setDrafts] = React.useState(PINNED_DRAFTS);
+const ARTIFACT_PREVIEW_KEY = 'chat-artifact:pinned-drafts';
 
-  React.useEffect(() => {
-    const offDraftCreated = window.ipc?.on(IpcChannel.App_DraftCreated, (payload) => {
-      const nextDraft = normalizePinnedDraftFromEvent(payload);
-      if (!nextDraft) {
-        return;
-      }
+const buildPinnedDraftKey = (draft, index = 0) => draft?.id || draft?.draftId || `${draft?.title || draft?.name || 'draft'}-${index}`;
 
-      setDrafts((currentDrafts) => {
-        const pendingIndex = nextDraft.clientRequestId
-          ? currentDrafts.findIndex((item) => String(item?.clientRequestId || '').trim() === nextDraft.clientRequestId)
-          : -1;
-        const existingIndex = currentDrafts.findIndex((item) => String(item?.draftId || item?.id || '').trim() === nextDraft.draftId);
-        const targetIndex = pendingIndex >= 0 ? pendingIndex : existingIndex;
-        if (targetIndex >= 0) {
-          return currentDrafts.map((item, index) => (index === targetIndex ? { ...item, ...nextDraft } : item));
-        }
-        return [nextDraft, ...currentDrafts];
-      });
+const parseQueryScriptOutput = (response) => {
+  const output = response?.output || response?.data?.output || response?.result?.output;
+  return typeof output === 'string' ? JSON.parse(output) : output;
+};
+
+const enqueuePinnedDraftDownload = (draft) => {
+  const draftId = String(draft?.id || draft?.draftId || '').trim();
+  if (!draftId) return;
+
+  try {
+    DownloadController.enqueue({
+      draft_id: draftId,
+      draft_name: String(draft?.title || draft?.name || draftId).trim(),
+      cover: draft?.cover,
+      createdAt: draft?.created_at || draft?.createdAt
     });
+    logger.info('[Chat] enqueued draft download from artifact preview', { draftId });
+  } catch (error) {
+    logger.warn('[Chat] failed to enqueue draft download from artifact preview', {
+      draftId,
+      error: error?.message || String(error || '')
+    });
+  }
+};
 
-    return () => {
-      offDraftCreated?.();
-    };
-  }, []);
+// 消息区右上角的草稿概要胶囊：点击后在右侧预览窗格打开 ArtifactPreview
+const ChatPinnedDraftPanel = ({ drafts, sessionId }) => {
+  const taskContext = React.useContext(ChatTaskContext);
 
-  if (drafts.length === 0) {
+  if (!Array.isArray(drafts) || drafts.length === 0) {
     return null;
   }
 
   return (
     <div className="pinned-draft-floating-anchor">
-      <PinnedDraftPannel drafts={drafts} />
+      <PinnedDraftPannel
+        drafts={drafts}
+        onClick={() => taskContext?.openAttachmentPreview?.({
+          key: `${ARTIFACT_PREVIEW_KEY}:${sessionId}:${Date.now()}`,
+          tabId: `${ARTIFACT_PREVIEW_KEY}:${sessionId}`,
+          sessionId,
+          previewType: 'artifact',
+          title: '产物',
+          activate: true
+        })}
+      />
     </div>
   );
 };
@@ -237,12 +256,75 @@ const Chat = ({
 }) => {
   const messageEndRef = React.useRef(null);
   const inputRef = React.useRef(null);
+  const restoreQueuedDraftRef = React.useRef(null);
   const childrensBookQuickPromptRef = React.useRef(null);
   const beginnerGuideQuickSkillsViewportRef = React.useRef(null);
   const beginnerGuideAiToolAreaRef = React.useRef(null);
   const beginnerGuideModelPickerRef = React.useRef(null);
   const beginnerGuideInputAreaRef = React.useRef(null);
   const [hasConnectedExternalAgent, setHasConnectedExternalAgent] = React.useState(false);
+  const ownerId = session?.id;
+  const sourceDrafts = session?.pinnedDrafts || PINNED_DRAFTS;
+  const [previewState, setPreviewState] = React.useState({});
+  const { loading: pinnedDraftPreviewLoadingKey = null, error: pinnedDraftPreviewErrorKey = null,
+    message: pinnedDraftPreviewErrorMessage = '' } = previewState[ownerId] || {};
+  const setPreviewField = (field, value) => setPreviewState((state) => ({ ...state,
+    [ownerId]: { ...state[ownerId], [field]: typeof value === 'function' ? value(state[ownerId]?.[field]) : value } }));
+  const setPinnedDraftPreviewLoadingKey = (value) => setPreviewField('loading', value);
+  const setPinnedDraftPreviewErrorKey = (value) => setPreviewField('error', value);
+  const setPinnedDraftPreviewErrorMessage = (value) => setPreviewField('message', value);
+  const [previewCache, setPreviewCache] = React.useState({});
+  const pinnedDrafts = sourceDrafts.map((draft) => ({ ...draft,
+    trackPreview: previewCache[JSON.stringify([ownerId, String(draft.draftId || draft.id || '').trim()])] }));
+  const pinnedDraftPendingPreviewRef = React.useRef(new Set());
+
+  const handlePinnedDraftPreviewItem = React.useCallback(async (draft) => {
+    const draftId = String(draft?.id || draft?.draftId || '').trim();
+    const targetKey = buildPinnedDraftKey(draft);
+    const cacheKey = JSON.stringify([ownerId, draftId]);
+    if (!draftId) {
+      logger.warn('[Chat] skip pinned draft preview because draftId is empty');
+      return;
+    }
+
+    setPinnedDraftPreviewErrorKey(null);
+    setPinnedDraftPreviewErrorMessage('');
+
+    if (pinnedDraftPendingPreviewRef.current.has(cacheKey)) {
+      logger.info('[Chat] skip duplicate pinned draft preview request', { draftId, targetKey });
+      return;
+    }
+
+    pinnedDraftPendingPreviewRef.current.add(cacheKey);
+    setPinnedDraftPreviewLoadingKey(targetKey);
+
+    try {
+      const response = await queryScript({ draft_id: draftId, force_update: false });
+      const ok = response && (response.success === true || response.code === 200);
+      if (!ok) {
+        throw new Error(response?.error || '查询草稿轨道失败');
+      }
+
+      const preview = parseQueryScriptOutput(response);
+      setPreviewCache((cache) => ({ ...cache, [cacheKey]: preview }));
+    } catch (error) {
+      logger.warn('[Chat] failed to load pinned draft track preview', {
+        draftId,
+        error: error?.message || String(error || '')
+      });
+      setPinnedDraftPreviewErrorKey(targetKey);
+      setPinnedDraftPreviewErrorMessage(error?.message || '轨道预览加载失败');
+    } finally {
+      pinnedDraftPendingPreviewRef.current.delete(cacheKey);
+      setPinnedDraftPreviewLoadingKey((currentKey) => (currentKey === targetKey ? null : currentKey));
+    }
+  }, [ownerId]);
+
+  const handlePinnedDraftDownloadItem = React.useCallback((draft) => {
+    enqueuePinnedDraftDownload(draft);
+  }, []);
+
+  const hasInProgressPinnedDraft = pinnedDrafts.some((draft) => draft?.status === 'in_progress');
   const agentId = agentIdProp || session?.agentId || session?.agent_id;
   const chatTopicId = React.useMemo(() => buildHomeChatTopicId(session?.id), [session?.id]);
   const currentWorkspacePath = React.useMemo(() => getSessionWorkspacePath(session), [session]);
@@ -376,13 +458,35 @@ const Chat = ({
     });
   }, [input, setInput]);
 
+  const [, refreshQueue] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => {
+    sendQueue.listeners.add(refreshQueue);
+    return () => sendQueue.listeners.delete(refreshQueue);
+  }, []);
+  React.useEffect(() => {
+    if (!modelListLoading) {
+      let dispatchSessionId = ownerId;
+      sendQueue.pump(ownerId, (text, options) => onSendMessage(text, {
+        ...options,
+        queueSessionId: dispatchSessionId,
+        onQueueSession: (id) => {
+          sendQueue.relocate(dispatchSessionId, id);
+          dispatchSessionId = id;
+        }
+      }), sessionSending);
+    }
+  });
+  const stopQueuedSession = () => {
+    sendQueue.pause(ownerId);
+    onStopSending?.();
+  };
   const handleSend = (nextText, options = {}) => {
     const rawText = typeof nextText === 'string'
       ? nextText
       : (nextText && typeof nextText === 'object' ? nextText.text : input);
     const text = String(rawText || '').trim();
-    if (!text || sessionSending || modelListLoading) return false;
-    onSendMessage && onSendMessage(text, options);
+    if (!text || modelListLoading || !onSendMessage) return false;
+    sendQueue.submit(ownerId, text, { ...options, queueModel: options.queueModel ?? model });
     setInput('');
     return true;
   };
@@ -440,6 +544,7 @@ const Chat = ({
       onOpenSkillStore={onOpenSkillStore}
       onModifySkill={insertSkillModifyPrompt}
       onCreateSkill={insertCreateSkillPrompt}
+      onAddWorkspaceFile={(file) => inputRef.current?.insertLocalFileReference(file)}
       onSubmitFileComment={handleSubmitFileComment}
       onSubmitToolTask={handleSend}
       sessionSending={sessionSending}
@@ -456,6 +561,14 @@ const Chat = ({
       beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
       beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
       onRefreshCredits={onRefreshCredits}
+      pinnedDrafts={pinnedDrafts}
+      pinnedDraftSessionActive={hasInProgressPinnedDraft}
+      pinnedDraftSessionFulfilled={!hasInProgressPinnedDraft && pinnedDrafts.length > 0}
+      onPinnedDraftPreviewItem={handlePinnedDraftPreviewItem}
+      onPinnedDraftDownloadItem={handlePinnedDraftDownloadItem}
+      pinnedDraftPreviewLoadingKey={pinnedDraftPreviewLoadingKey}
+      pinnedDraftPreviewErrorKey={pinnedDraftPreviewErrorKey}
+      pinnedDraftPreviewErrorMessage={pinnedDraftPreviewErrorMessage}
       beginnerGuideEligible={messages.length === 0 && !sending && !historyLoading}>
       <MessagePane
         messages={messages}
@@ -489,17 +602,22 @@ const Chat = ({
         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
         beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
       />
-      <ChatPinnedDraftPanel />
+      <ChatPinnedDraftPanel drafts={pinnedDrafts} sessionId={ownerId} />
       <ChatPinnedTodoPanel topicId={chatTopicId} sessionFulfilled={sessionFulfilled} />
+      <div className="chat-panel__composer-anchor">
+        <div className="chat-panel__queue-overlay">
+          <SendQueuePanel sessionId={ownerId} stop={onStopSending} busy={sessionSending} onEdit={item => restoreQueuedDraftRef.current?.(item)} />
+        </div>
       <Composer
         agentId={agentId}
         runtimeSessionId={runtimeSessionId}
         session={session}
         inputRef={inputRef}
+        restoreQueuedDraftRef={restoreQueuedDraftRef}
         input={input}
         setInput={setInput}
         handleSend={handleSend}
-        handleStop={onStopSending}
+        handleStop={stopQueuedSession}
         sending={sending}
         sessionSending={sessionSending}
         beginnerGuideAiToolAreaRef={beginnerGuideAiToolAreaRef}
@@ -511,6 +629,7 @@ const Chat = ({
         onModelChange={onModelChange}
         formatModelDisplayName={formatModelDisplayName}
       />
+      </div>
     </ChatShell>
   );
 };

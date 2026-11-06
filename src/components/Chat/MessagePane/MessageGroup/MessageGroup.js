@@ -1,4 +1,49 @@
 import React from 'react';
+import { Provider, useSelector } from 'react-redux';
+import appStore from '../../../../renderer/src/store';
+import { buildAssistantBlockState } from '../MessageContent/MessageContent';
+import { groupConsecutiveTools } from '@renderer/pages/home/Messages/Blocks/toolGrouping';
+
+// This adapter only changes presentation. Never replace persisted messages/blocks.
+export const aggregateToolFragments = (messages, state, loadingMessageId) => {
+  const resolved = messages.map((message) => {
+    const live = state?.messages?.entities?.[message.storeAssistantMessageId];
+    const fallback = buildAssistantBlockState({ message, isLoading: false });
+    const blocks = live
+      ? (live.blocks || []).map(id => state.messageBlocks?.entities?.[id] || { id, type: 'unknown' })
+      : fallback.blockIds.map(id => fallback.entities[id]);
+    return { original: message, metadata: { ...message, ...live }, blocks, members: [message] };
+  });
+  const result = [];
+  const eligible = (entry) => entry.original.role === 'assistant'
+    && !entry.original.error && !entry.original.aborted && !entry.original.digitalHumanRequest
+    && !entry.metadata.error && !entry.metadata.aborted
+    && !['attachments', 'imageAttachments', 'files'].some(key => entry.original[key]?.length || entry.metadata[key]?.length)
+    && entry.blocks.length > 0
+    && entry.blocks.every(block => block.type === 'tool' ||
+      (['thinking', 'main_text'].includes(block.type) && !String(block.content || '').trim()));
+  for (const entry of resolved) {
+    const previous = result[result.length - 1];
+    const sameContext = previous && ['askId', 'turnId', 'topicId', 'assistantId', 'model', 'modelId', 'groupId']
+      .every(key => JSON.stringify(previous.metadata[key] ?? null) === JSON.stringify(entry.metadata[key] ?? null));
+    const tools = previous && [...previous.blocks, ...entry.blocks].filter(block => block.type === 'tool');
+    const groups = tools && groupConsecutiveTools(tools);
+    if (previous && eligible(previous) && eligible(entry) && sameContext
+      && groups.length === 1 && Array.isArray(groups[0])) {
+      previous.blocks = [...previous.blocks, ...entry.blocks];
+      previous.members.push(entry.original);
+    } else result.push(entry);
+  }
+  return result.map(entry => entry.members.length === 1 ? entry.original : {
+    ...entry.original,
+    // A synthetic view has no live message identity; its blocks have already
+    // been resolved from Redux, and the originals remain available to actions.
+    storeAssistantMessageId: undefined,
+    blocks: entry.blocks,
+    presentationMembers: entry.members,
+    presentationLoading: entry.members.some(message => message.id === loadingMessageId),
+  });
+};
 import MessageItem from '../MessageItem/MessageItem';
 import { buildErrorSignature } from '../../../../shared/chatError';
 import './MessageGroup.css';
@@ -14,7 +59,7 @@ const buildImageAttachmentSignature = (attachments = []) => JSON.stringify(
   }))
 );
 
-const MessageGroup = ({
+const LiveMessageGroup = ({
   role,
   messages,
   hasConnectedExternalAgent = false,
@@ -29,22 +74,29 @@ const MessageGroup = ({
   userName,
   userAvatar,
 }) => {
+  const liveMessages = useSelector(state => state?.messages?.entities);
+  const liveBlocks = useSelector(state => state?.messageBlocks?.entities);
+  const displayedMessages = React.useMemo(() => role === 'assistant'
+    ? aggregateToolFragments(messages, { messages: { entities: liveMessages }, messageBlocks: { entities: liveBlocks } }, loadingMessageId)
+    : messages, [role, messages, liveMessages, liveBlocks, loadingMessageId]);
   return (
     <div className={`chat-panel__message-group chat-panel__message-group--${role}`}>
-      {messages.map((message, index) => (
+      {displayedMessages.map((message, index) => (
         <MessageItem
           key={message.id || `${role}-${index}`}
           role={role}
           message={message}
           hasConnectedExternalAgent={hasConnectedExternalAgent}
-          onCopyAssistantMessage={onCopyAssistantMessage}
-          onRetryAssistantMessage={onRetryAssistantMessage}
+          onCopyAssistantMessage={message.presentationMembers && onCopyAssistantMessage
+            ? () => onCopyAssistantMessage(message.presentationMembers[0]) : onCopyAssistantMessage}
+          onRetryAssistantMessage={message.presentationMembers && onRetryAssistantMessage
+            ? () => onRetryAssistantMessage(message.presentationMembers[0]) : onRetryAssistantMessage}
           actionsDisabled={actionsDisabled}
           formatMessageTime={formatMessageTime}
           model={model}
           modelOptions={modelOptions}
           formatModelDisplayName={formatModelDisplayName}
-          isLoading={message.id === loadingMessageId}
+          isLoading={message.presentationLoading || message.id === loadingMessageId}
           userName={userName}
           userAvatar={userAvatar}
         />
@@ -52,6 +104,8 @@ const MessageGroup = ({
     </div>
   );
 };
+
+const MessageGroup = props => <Provider store={appStore}><LiveMessageGroup {...props} /></Provider>;
 
 const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
   if (prevMessages === nextMessages) return true;
@@ -62,6 +116,7 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
     if (
       prev.id !== next.id
       || prev.role !== next.role
+      || ['askId', 'turnId', 'topicId', 'assistantId', 'model', 'modelId', 'groupId', 'attachments', 'files'].some(key => prev[key] !== next[key])
       || prev.content !== next.content
       || prev.blocks !== next.blocks
       || prev.aborted !== next.aborted

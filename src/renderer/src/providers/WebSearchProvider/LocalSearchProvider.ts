@@ -1,6 +1,5 @@
 import { loggerService } from '@logger'
 import { nanoid } from '@reduxjs/toolkit'
-import store from '@renderer/store'
 import type { WebSearchState } from '@renderer/store/websearch'
 import type { WebSearchProvider, WebSearchProviderResponse, WebSearchProviderResult } from '@renderer/types'
 import { createAbortPromise } from '@renderer/utils/abortController'
@@ -29,8 +28,11 @@ export default class LocalSearchProvider extends BaseWebSearchProvider {
     websearch: WebSearchState,
     httpOptions?: RequestInit
   ): Promise<WebSearchProviderResponse> {
-    const uid = nanoid()
-    const language = store.getState().settings.language
+      const uid = nanoid()
+      // 懒加载 store：静态导入会形成 store -> WebSearchService -> 工厂 -> 本类 的循环依赖，
+      // 模块求值/HMR 重执行时会抛 "Cannot access 'LocalSearchProvider' before initialization"
+      const { default: store } = await import('@renderer/store')
+      const language = store.getState().settings.language
     try {
       if (!query.trim()) {
         throw new Error('Search query cannot be empty')

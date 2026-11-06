@@ -13,12 +13,12 @@ export default defineConfig({
     name: 'message-pane-jsx',
     enforce: 'pre',
     transform(code, id) {
-      if (!/\/(MessagePane|MessageContent)\.js$/.test(id.split('?')[0])) return null;
+      if (!/\/(MessagePane|MessageContent|MessageGroup)\.js$/.test(id.split('?')[0])) return null;
       return transformWithEsbuild(code, id, { loader: 'jsx', jsx: 'automatic' });
     },
   }],
   test: {
     environment: 'jsdom',
-    include: ['src/components/Chat/MessagePane/*.test.jsx'],
+    include: ['src/components/Chat/MessagePane/*.test.jsx', 'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/toolGrouping.test.ts', 'src/renderer/src/pages/home/Messages/Tools/MessageAgentTools/__tests__/toolGroupingRenderer.test.tsx'],
   },
 });

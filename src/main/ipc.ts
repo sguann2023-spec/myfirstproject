@@ -151,7 +151,7 @@ type SkillWatcherEntry = {
 
 const SKILL_WATCH_DEBOUNCE_MS = 150
 const skillWatcherEntries = new Map<string, SkillWatcherEntry>()
-const vectcutStore = new Store({ name: 'vectcut' })
+const vectcutStore = new Store({ name: 'vectcut', watch: true })
 
 const JY_MGET_ITEM_URL = [
   'https://lv-api-sinfonlinea.ulikecam.com/artist/v1/effect/mget_item',
@@ -1175,7 +1175,19 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
 
   // notification
   ipcMain.handle(IpcChannel.Notification_Send, async (_, notification: Notification) => {
-    await notificationService.sendNotification(notification)
+    return await notificationService.sendNotification(notification)
+  })
+  let taskBadgeCount = 0
+  const syncTaskBadge = () => {
+    if (isMac) app.setBadgeCount(vectcutStore.get('notification.taskEnabled', true) === false ? 0 : taskBadgeCount)
+  }
+  // Observe writes from the separate settings renderer; restore the latest count on re-enable.
+  const stopWatchingTaskNotifications = vectcutStore.onDidChange('notification.taskEnabled', syncTaskBadge)
+  mainWindow.once('closed', stopWatchingTaskNotifications)
+  ipcMain.on(IpcChannel.Notification_SetBadgeCount, (_, count: unknown) => {
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) return
+    taskBadgeCount = count
+    syncTaskBadge()
   })
   ipcMain.handle(IpcChannel.Notification_OnClick, (_, notification: Notification) => {
     mainWindow.webContents.send('notification-click', notification)

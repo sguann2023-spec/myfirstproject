@@ -1,0 +1,32 @@
+.workspace-file-context-menu {
+  position: fixed;
+  z-index: 3000;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: auto;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.workspace-file-context-menu button {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  color: #1f2937;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.workspace-file-context-menu button:hover,
+.workspace-file-context-menu button:focus-visible {
+  background: rgba(15, 23, 42, 0.06);
+  outline: none;
+}

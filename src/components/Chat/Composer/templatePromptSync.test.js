@@ -65,3 +65,33 @@ describe('switching from template use to skill modification', () => {
     expect(context.closeMentionPanel).toHaveBeenCalledOnce();
   });
 });
+
+
+describe('workspace file reference controller', () => {
+  const start = source.indexOf('      insertLocalFileReference: (entry) => {');
+  const end = source.indexOf('      },', start);
+  const invoke = new Function('editor', 'entry', 'insertFileReferenceAtView', 'createLocalReferenceFile',
+    source.slice(start + '      insertLocalFileReference: (entry) => {'.length, end));
+
+  it('uses the current document selection, never a stale mention range, and only inserts', () => {
+    const editor = { state: { selection: { from: 7, to: 12 } }, view: {} };
+    const entry = { rootPath: '/workspace', node: { path: 'a.txt' } };
+    const file = { uid: 'local:/workspace/a.txt' };
+    const insert = vi.fn(() => true);
+    const create = vi.fn(() => file);
+    expect(invoke(editor, entry, insert, create)).toBe(true);
+    expect(create).toHaveBeenCalledWith(entry);
+    expect(insert).toHaveBeenCalledWith(editor.view, { start: 7, end: 12 }, file);
+    editor.state.selection = { from: 3, to: 3 };
+    invoke(editor, entry, insert, create);
+    expect(insert).toHaveBeenLastCalledWith(editor.view, { start: 3, end: 3 }, file);
+  });
+
+  it('ignores unavailable editors and malformed entries', () => {
+    const insert = vi.fn();
+    for (const editor of [null, { isDestroyed: true }, {}]) {
+      expect(invoke(editor, {}, insert, vi.fn())).toBe(false);
+    }
+    expect(insert).not.toHaveBeenCalled();
+  });
+});

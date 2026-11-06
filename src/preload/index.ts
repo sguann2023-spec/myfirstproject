@@ -641,11 +641,11 @@ const api = {
       return () => ipcRenderer.off(IpcChannel.AgentSessionStream_Chunk, listener)
     },
     onSessionChanged: (
-      callback: (data: { agentId: string; sessionId: string; headless?: boolean }) => void
+      callback: (data: { agentId: string; sessionId: string; headless?: boolean; reason?: 'metadata' | 'turn-completed'; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { agentId: string; sessionId: string; headless?: boolean }
+        data: { agentId: string; sessionId: string; headless?: boolean; reason?: 'metadata' | 'turn-completed'; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }
       ) => {
         callback(data)
       }

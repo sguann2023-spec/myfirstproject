@@ -1,392 +1,153 @@
-import type { ThinkingMessageBlock } from '@renderer/types/newMessage'
-import { MessageBlockStatus, MessageBlockType } from '@renderer/types/newMessage'
-import { render, screen } from '@testing-library/react'
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { MessageBlockStatus, MessageBlockType, type ThinkingMessageBlock } from '@renderer/types/newMessage'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ThinkingBlock from '../ThinkingBlock'
+import LegacyThinkingBlock from '../../../../../../../components/Chat/MessagePane/Blocks/ThinkingBlock'
 
-// Mock dependencies
-const mockUseSettings = vi.fn()
-const mockUseTranslation = vi.fn()
-
-// Mock hooks
-vi.mock('@renderer/hooks/useSettings', () => ({
-  useSettings: () => mockUseSettings()
+vi.mock('../../../Markdown/Markdown', () => ({
+  default: ({ block }: { block: ThinkingMessageBlock }) => <div data-testid="thinking-markdown">{block.content}</div>
 }))
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => mockUseTranslation()
-}))
+const makeBlock = (overrides: Partial<ThinkingMessageBlock> = {}): ThinkingMessageBlock => ({
+  id: 'thinking-1', messageId: 'message-1', type: MessageBlockType.THINKING,
+  status: MessageBlockStatus.STREAMING, createdAt: '2026-11-05T00:00:00Z',
+  content: 'First thought', thinking_millsec: 5000, ...overrides
+})
 
-// Mock antd components
-vi.mock('antd', () => ({
-  Collapse: ({ activeKey, onChange, items, className, size, expandIconPosition }: any) => (
-    <div
-      data-testid="collapse-container"
-      className={className}
-      data-active-key={activeKey}
-      data-size={size}
-      data-expand-icon-position={expandIconPosition}>
-      {items.map((item: any) => (
-        <div key={item.key} data-testid={`collapse-item-${item.key}`}>
-          <div data-testid={`collapse-header-${item.key}`} onClick={() => onChange()}>
-            {item.label}
-          </div>
-          {activeKey === item.key && <div data-testid={`collapse-content-${item.key}`}>{item.children}</div>}
-        </div>
-      ))}
-    </div>
-  ),
-  Tooltip: ({ title, children, mouseEnterDelay }: any) => (
-    <div data-testid="tooltip" title={title} data-mouse-enter-delay={mouseEnterDelay}>
-      {children}
-    </div>
-  ),
-  message: {
-    success: vi.fn(),
-    error: vi.fn()
-  }
-}))
+// Use React DOM directly: this focused suite needs no testing-library installation.
+describe.each([['renderer', ThinkingBlock], ['legacy', LegacyThinkingBlock]] as const)('%s ThinkingBlock', (_, Component) => {
+  let host: HTMLDivElement
+  let root: Root
+  const render = (block: ThinkingMessageBlock) => act(() => root.render(<Component block={block} />))
 
-// Mock icons
-vi.mock('@ant-design/icons', () => ({
-  CheckOutlined: ({ style }: any) => (
-    <span data-testid="check-icon" style={style}>
-      ✓
-    </span>
-  )
-}))
-
-vi.mock('lucide-react', () => ({
-  Lightbulb: ({ size }: any) => (
-    <span data-testid="lightbulb-icon" data-size={size}>
-      💡
-    </span>
-  ),
-  ChevronRight: (props: any) => <svg data-testid="chevron-right-icon" {...props} />
-}))
-
-// Mock motion
-vi.mock('motion/react', () => ({
-  AnimatePresence: ({ children }: any) => <div data-testid="animate-presence">{children}</div>,
-  motion: {
-    div: (props: any) => <div {...props} />,
-    span: ({ children, variants, animate, initial, style }: any) => (
-      <span
-        data-testid="motion-span"
-        data-variants={JSON.stringify(variants)}
-        data-animate={animate}
-        data-initial={initial}
-        style={style}>
-        {children}
-      </span>
-    )
-  }
-}))
-
-// Mock motion variants
-vi.mock('@renderer/utils/motionVariants', () => ({
-  lightbulbVariants: {
-    active: { rotate: 10, scale: 1.1 },
-    idle: { rotate: 0, scale: 1 }
-  }
-}))
-
-// Mock Markdown component
-vi.mock('@renderer/pages/home/Markdown/Markdown', () => ({
-  __esModule: true,
-  default: ({ block }: any) => (
-    <div data-testid="mock-markdown" data-block-id={block.id}>
-      Markdown: {block.content}
-    </div>
-  )
-}))
-
-// Mock ThinkingEffect component
-vi.mock('@renderer/components/ThinkingEffect', () => ({
-  __esModule: true,
-  default: ({ isThinking, thinkingTimeText, content, expanded }: any) => (
-    <div
-      data-testid="mock-marquee-component"
-      data-is-thinking={isThinking}
-      data-expanded={expanded}
-      data-content={content}>
-      <div data-testid="thinking-time-text">{thinkingTimeText}</div>
-    </div>
-  )
-}))
-
-describe('ThinkingBlock', () => {
-  beforeEach(async () => {
-    vi.useFakeTimers()
-
-    // Default mock implementations
-    mockUseSettings.mockReturnValue({
-      messageFont: 'sans-serif',
-      fontSize: 14,
-      thoughtAutoCollapse: false
-    })
-
-    mockUseTranslation.mockReturnValue({
-      t: (key: string, params?: any) => {
-        if (key === 'chat.thinking' && params?.seconds) {
-          return `Thinking... ${params.seconds}s`
-        }
-        if (key === 'chat.deeply_thought' && params?.seconds) {
-          return `Thought for ${params.seconds}s`
-        }
-        if (key === 'message.copied') return 'Copied!'
-        if (key === 'message.copy.failed') return 'Copy failed'
-        if (key === 'common.copy') return 'Copy'
-        return key
-      }
-    })
+  beforeEach(() => {
+    ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
   })
-
   afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
     vi.restoreAllMocks()
-    vi.clearAllMocks()
-    vi.clearAllTimers()
     vi.useRealTimers()
   })
 
-  // Test data factory functions
-  const createThinkingBlock = (overrides: Partial<ThinkingMessageBlock> = {}): ThinkingMessageBlock => ({
-    id: 'test-thinking-block-1',
-    messageId: 'test-message-1',
-    type: MessageBlockType.THINKING,
-    status: MessageBlockStatus.SUCCESS,
-    createdAt: new Date().toISOString(),
-    content: 'I need to think about this carefully...',
-    thinking_millsec: 5000,
-    ...overrides
+  it('keeps the lightbulb and constant label without time or expansion controls', () => {
+    render(makeBlock())
+    expect(host.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(host.textContent).toContain('深度思考')
+    expect(host.textContent).not.toMatch(/已深度思考|用时|秒|5000/)
+    expect(host.querySelector('.ant-collapse, .lucide-chevron-down')).toBeNull()
+    const toggle = host.querySelector('button')!
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    act(() => toggle.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(host.querySelector('[data-testid="thinking-markdown"]')?.textContent).toBe('First thought')
+    act(() => toggle.click())
+    expect(host.querySelector('[data-testid="thinking-markdown"]')).toBeNull()
+    render(makeBlock({ status: MessageBlockStatus.SUCCESS }))
+    expect(host.textContent).toContain('深度思考')
+    expect(host.textContent).toContain('用时 5 秒')
+    expect(host.textContent).not.toContain('First thought')
+    expect(host.firstElementChild?.getAttribute('data-thinking')).toBe('false')
+    expect(getComputedStyle(host.querySelector('button')!).color).toBe('rgb(136, 136, 136)')
   })
 
-  // Helper functions
-  const renderThinkingBlock = (block: ThinkingMessageBlock) => {
-    return render(<ThinkingBlock block={block} />)
-  }
-
-  const getThinkingContent = () => screen.queryByText(/markdown:/i)
-  const getCopyButton = () => screen.queryByRole('button', { name: /copy/i })
-  const getThinkingTimeText = () => screen.getByTestId('thinking-time-text')
-
-  describe('basic rendering', () => {
-    it('should render thinking content when provided', () => {
-      const block = createThinkingBlock({ content: 'Deep thoughts about AI' })
-      renderThinkingBlock(block)
-
-      // User should see the thinking content
-      expect(screen.getByText('Markdown: Deep thoughts about AI')).toBeInTheDocument()
-      expect(screen.getByTestId('mock-marquee-component')).toBeInTheDocument()
-    })
-
-    it('should not render when content is empty', () => {
-      const testCases = ['', undefined]
-
-      testCases.forEach((content) => {
-        const block = createThinkingBlock({ content: content as any })
-        const { container, unmount } = renderThinkingBlock(block)
-        expect(container.firstChild).toBeNull()
-        unmount()
-      })
-    })
-
-    it('should show copy button only when thinking is complete', () => {
-      // When thinking (streaming)
-      const thinkingBlock = createThinkingBlock({ status: MessageBlockStatus.STREAMING })
-      const { rerender } = renderThinkingBlock(thinkingBlock)
-
-      expect(getCopyButton()).not.toBeInTheDocument()
-
-      // When thinking is complete
-      const completedBlock = createThinkingBlock({ status: MessageBlockStatus.SUCCESS })
-      rerender(<ThinkingBlock block={completedBlock} />)
-
-      expect(getCopyButton()).toBeInTheDocument()
-    })
-
-    it('should match snapshot', () => {
-      const block = createThinkingBlock()
-      const { container } = renderThinkingBlock(block)
-      expect(container.firstChild).toMatchSnapshot()
-    })
+  it('uses the renderer tool-row spacing and centered icon slot', () => {
+    if (Component !== ThinkingBlock) return
+    render(makeBlock())
+    const row = getComputedStyle(host.querySelector('button')!)
+    expect(row.paddingTop).toBe('4px')
+    expect(row.paddingBottom).toBe('4px')
+    expect(row.marginBottom).toBe('0px')
+    expect(row.lineHeight).toBe('20px')
+    expect(row.gap).toBe('6px')
+    const icon = getComputedStyle(host.querySelector('.tool-icon')!)
+    expect(icon.width).toBe('14px')
+    expect(icon.height).toBe('14px')
+    expect(icon.justifyContent).toBe('center')
   })
 
-  describe('thinking time display', () => {
-    it('should display appropriate time messages based on status', () => {
-      // Completed thinking
-      const completedBlock = createThinkingBlock({
-        thinking_millsec: 3500,
-        status: MessageBlockStatus.SUCCESS
-      })
-      const { unmount } = renderThinkingBlock(completedBlock)
-
-      const timeText = getThinkingTimeText()
-      expect(timeText).toHaveTextContent('3.5s')
-      expect(timeText).toHaveTextContent('Thought for')
-      unmount()
-
-      // Active thinking
-      const thinkingBlock = createThinkingBlock({
-        thinking_millsec: 1000,
-        status: MessageBlockStatus.STREAMING
-      })
-      renderThinkingBlock(thinkingBlock)
-
-      const activeTimeText = getThinkingTimeText()
-      expect(activeTimeText).toHaveTextContent('Thinking...')
-    })
-
-    it('should handle extreme thinking times correctly', () => {
-      const testCases = [
-        { thinking_millsec: 0, expectedTime: '0.1s' }, // New logic: values < 1000ms display as 0.1s
-        { thinking_millsec: 86400000, expectedTime: '86400.0s' }, // 1 day
-        { thinking_millsec: 259200000, expectedTime: '259200.0s' } // 3 days
-      ]
-
-      testCases.forEach(({ thinking_millsec, expectedTime }) => {
-        const block = createThinkingBlock({
-          thinking_millsec,
-          status: MessageBlockStatus.SUCCESS
-        })
-        const { unmount } = renderThinkingBlock(block)
-        expect(getThinkingTimeText()).toHaveTextContent(expectedTime)
-        unmount()
-      })
-    })
-
-    it('should clamp invalid thinking times to a safe default', () => {
-      const testCases = [undefined, Number.NaN, Number.POSITIVE_INFINITY]
-
-      testCases.forEach((thinking_millsec) => {
-        const block = createThinkingBlock({
-          thinking_millsec: thinking_millsec as any,
-          status: MessageBlockStatus.SUCCESS
-        })
-        const { unmount } = renderThinkingBlock(block)
-        expect(getThinkingTimeText()).toHaveTextContent('0.1s')
-        unmount()
-      })
-    })
+  it('rolls new lines upward and updates the current partial line immediately', () => {
+    render(makeBlock())
+    let track = host.querySelector('[aria-hidden="true"][style]') as HTMLElement
+    expect(track.style.transform).toBe('translateY(-0px)')
+    render(makeBlock({ content: 'First thought\nSecond par' }))
+    track = host.querySelector('[aria-hidden="true"][style]') as HTMLElement
+    expect(track.style.transform).toBe('translateY(-20px)')
+    expect(track.lastElementChild?.textContent).toBe('Second par')
+    render(makeBlock({ content: 'First thought\nSecond partial\nThird' }))
+    expect((host.querySelector('[aria-hidden="true"][style]') as HTMLElement).style.transform).toBe('translateY(-40px)')
+    expect(host.querySelector('button')?.children[2].firstElementChild?.textContent).toBe('Third')
   })
 
-  describe('collapse behavior', () => {
-    it('should respect auto-collapse setting for initial state', () => {
-      // Test expanded by default (auto-collapse disabled)
-      mockUseSettings.mockReturnValue({
-        messageFont: 'sans-serif',
-        fontSize: 14,
-        thoughtAutoCollapse: false
-      })
-
-      const block = createThinkingBlock()
-      const { unmount } = renderThinkingBlock(block)
-
-      // Content should be visible when expanded
-      expect(getThinkingContent()).toBeInTheDocument()
-      unmount()
-
-      // Test collapsed by default (auto-collapse enabled)
-      mockUseSettings.mockReturnValue({
-        messageFont: 'sans-serif',
-        fontSize: 14,
-        thoughtAutoCollapse: true
-      })
-
-      renderThinkingBlock(block)
-
-      // Content should not be visible when collapsed
-      expect(getThinkingContent()).not.toBeInTheDocument()
-    })
-
-    it('should auto-collapse when thinking completes if setting enabled', () => {
-      mockUseSettings.mockReturnValue({
-        messageFont: 'sans-serif',
-        fontSize: 14,
-        thoughtAutoCollapse: true
-      })
-
-      const streamingBlock = createThinkingBlock({ status: MessageBlockStatus.STREAMING })
-      const { rerender } = renderThinkingBlock(streamingBlock)
-
-      // With thoughtAutoCollapse enabled, it should be collapsed even while thinking
-      expect(getThinkingContent()).not.toBeInTheDocument()
-
-      // Stop thinking
-      const completedBlock = createThinkingBlock({ status: MessageBlockStatus.SUCCESS })
-      rerender(<ThinkingBlock block={completedBlock} />)
-
-      // Should remain collapsed after thinking completes
-      expect(getThinkingContent()).not.toBeInTheDocument()
-    })
+  it('renders plain text, ignores blank lines and preserves the original reasoning', () => {
+    const content = '  **First**\r\n\r\n<img src=x onerror=alert(1)>\n '
+    const block = Object.freeze(makeBlock({ content }))
+    render(block)
+    const track = host.querySelector('[aria-hidden="true"][style]')!
+    expect(track.children).toHaveLength(2)
+    expect(track.lastElementChild?.textContent).toBe('<img src=x onerror=alert(1)>')
+    expect(host.querySelector('img, strong, pre')).toBeNull()
+    expect(block.content).toBe(content)
+    render({ ...block, status: MessageBlockStatus.SUCCESS })
+    expect(host.textContent).not.toContain('<img src=x onerror=alert(1)>')
+    expect(host.textContent).toContain('用时 5 秒')
   })
 
-  describe('font and styling', () => {
-    it('should apply font settings to thinking content', () => {
-      const testCases = [
-        {
-          settings: { messageFont: 'serif', fontSize: 16 },
-          expectedFont: 'var(--font-family-serif)',
-          expectedSize: '16px'
-        },
-        {
-          settings: { messageFont: 'sans-serif', fontSize: 14 },
-          expectedFont: 'var(--font-family)',
-          expectedSize: '14px'
-        }
-      ]
-
-      testCases.forEach(({ settings, expectedFont, expectedSize }) => {
-        mockUseSettings.mockReturnValue({
-          ...settings,
-          thoughtAutoCollapse: false
-        })
-
-        const block = createThinkingBlock()
-        const { unmount } = renderThinkingBlock(block)
-
-        // Find the styled content container
-        const contentContainer = screen.getByTestId('collapse-content-thought')
-        const styledDiv = contentContainer.querySelector('div')
-
-        expect(styledDiv).toHaveStyle({
-          fontFamily: expectedFont,
-          fontSize: expectedSize
-        })
-
-        unmount()
-      })
-    })
+  it('renders nothing for empty or whitespace-only reasoning', () => {
+    for (const content of ['', undefined, ' \r\n\t']) {
+      render(makeBlock({ content: content as any }))
+      expect(host.firstChild).toBeNull()
+    }
   })
 
-  describe('integration and edge cases', () => {
-    it('should handle content updates correctly', () => {
-      const block1 = createThinkingBlock({ content: 'Original thought' })
-      const { rerender } = renderThinkingBlock(block1)
+  it('uses CSS-only motion, fixed single-line clipping and reduced-motion overrides', () => {
+    const interval = vi.spyOn(globalThis, 'setInterval')
+    render(makeBlock({ content: 'First\nSecond' }))
+    const styles = [...document.querySelectorAll('style')].map((node) => node.textContent).join('')
+    expect(styles).toContain('height:20px')
+    expect(styles).toContain('white-space:nowrap')
+    expect(styles).toContain('text-overflow:ellipsis')
+    expect(styles).toContain('overflow:hidden')
+    expect(styles).toContain('border:none')
+    expect(styles).toContain('linear-gradient(100deg, #000 30%, #888 50%, #000 70%)')
+    expect(styles).toMatch(/prefers-reduced-motion:\s*reduce/)
+    expect(styles).toContain('animation:none')
+    expect(styles).toContain('transition:none')
+    render(makeBlock({ status: MessageBlockStatus.SUCCESS }))
+    expect(styles).toContain('color:#888')
+    expect(interval).not.toHaveBeenCalled()
+  })
+})
 
-      expect(screen.getByText('Markdown: Original thought')).toBeInTheDocument()
 
-      const block2 = createThinkingBlock({ content: 'Updated thought' })
-      rerender(<ThinkingBlock block={block2} />)
-
-      expect(screen.getByText('Markdown: Updated thought')).toBeInTheDocument()
-      expect(screen.queryByText('Markdown: Original thought')).not.toBeInTheDocument()
-    })
-
-    it('should handle rapid status changes gracefully', () => {
-      const block = createThinkingBlock({ status: MessageBlockStatus.STREAMING })
-      const { rerender } = renderThinkingBlock(block)
-
-      // Rapidly toggle between states
-      for (let i = 0; i < 3; i++) {
-        rerender(<ThinkingBlock block={createThinkingBlock({ status: MessageBlockStatus.STREAMING })} />)
-        rerender(<ThinkingBlock block={createThinkingBlock({ status: MessageBlockStatus.SUCCESS })} />)
-      }
-
-      // Should still render correctly
-      expect(getThinkingContent()).toBeInTheDocument()
-      expect(getCopyButton()).toBeInTheDocument()
-    })
+describe('grouped renderer ThinkingBlock', () => {
+  it('keeps expansion across appended children, previews the latest active child and sums completed durations', () => {
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    const first = Object.freeze(makeBlock({ content: '**Original**\nFirst', thinking_millsec: 1250 }))
+    const second = Object.freeze(makeBlock({ id: 'second', content: 'Second\nLatest', thinking_millsec: 2750 }))
+    const render = (blocks: ThinkingMessageBlock[]) => act(() => root.render(<ThinkingBlock block={first} blocks={blocks} />))
+    try {
+      render([first])
+      act(() => host.querySelector('button')!.click())
+      render([first, second])
+      expect(host.textContent).toContain('深度思考 · 2 次')
+      expect(host.querySelector('button')!.getAttribute('aria-expanded')).toBe('true')
+      expect(host.querySelector('button')!.children[2].firstElementChild?.textContent).toBe('Latest')
+      expect([...host.querySelectorAll('[data-testid="thinking-markdown"]')].map(n => n.textContent)).toEqual([first.content, second.content])
+      // An earlier running child must still animate even if the last child completed.
+      render([first, { ...second, status: MessageBlockStatus.SUCCESS }])
+      expect(host.firstElementChild!.getAttribute('data-thinking')).toBe('true')
+      expect(host.querySelector('button')!.children[2].firstElementChild?.textContent).toBe('First')
+      render([{ ...first, status: MessageBlockStatus.SUCCESS }, { ...second, status: MessageBlockStatus.SUCCESS }])
+      expect(host.firstElementChild!.getAttribute('data-thinking')).toBe('false')
+      expect(host.textContent).toContain('用时 4 秒')
+      expect(host.querySelector('button')!.getAttribute('aria-controls')).toBe('thinking-content-thinking-1')
+    } finally { act(() => root.unmount()) }
   })
 })

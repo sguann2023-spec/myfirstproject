@@ -8,6 +8,13 @@ import PresetFolderImg from '../../../public/preset_folder_setting.png';
 import InfoIcon from '../../../public/info.png';
 import { electronStore } from '../../shared/electronStore';
 import {
+  isTaskNotificationEnabled,
+  isTaskNotificationSoundPreferenceEnabled,
+  persistTaskNotificationEnabled,
+  persistTaskNotificationSoundEnabled,
+  subscribeTaskNotificationPreferences
+} from '../../renderer/src/utils/taskNotificationPreferences';
+import {
   DEFAULT_WORKSPACE_AGENT_ID,
   resolveWorkspaceParentDirForAgent,
   writeWorkspaceParentDirForAgent
@@ -21,6 +28,23 @@ const GeneralSettings = () => {
   const [appDataPath, setAppDataPath] = useState('');
   const [workspaceParentDir, setWorkspaceParentDir] = useState('');
   const [autoOpenEditingAppAfterDownload, setAutoOpenEditingAppAfterDownload] = useState(true);
+  const [taskNotificationEnabled, setTaskNotificationEnabled] = useState(isTaskNotificationEnabled);
+  const [taskSoundEnabled, setTaskSoundEnabled] = useState(isTaskNotificationSoundPreferenceEnabled);
+
+  useEffect(() => subscribeTaskNotificationPreferences(() => {
+    setTaskNotificationEnabled(isTaskNotificationEnabled());
+    setTaskSoundEnabled(isTaskNotificationSoundPreferenceEnabled());
+  }), []);
+
+  const updateTaskNotificationEnabled = (checked) => {
+    setTaskNotificationEnabled(checked);
+    persistTaskNotificationEnabled(checked);
+  };
+  const updateTaskSoundEnabled = (checked) => {
+    setTaskSoundEnabled(checked);
+    persistTaskNotificationSoundEnabled(checked);
+  };
+
   const [cacheDataSize, setCacheDataSize] = useState(0);
   const [totalDataSize, setTotalDataSize] = useState(0);
   const [isChangingStoragePath, setIsChangingStoragePath] = useState(false);
@@ -500,6 +524,31 @@ const GeneralSettings = () => {
             className="gs-download-auto-open-switch"
             checked={autoOpenEditingAppAfterDownload}
             onChange={updateAutoOpenEditingAppAfterDownload}
+          />
+        </div>
+      </div>
+
+      <div className="gs-section">
+        <div className="gs-section-title">任务通知</div>
+        <div className="gs-save-row">
+          <div className="gs-save-desc">
+            <div className="gs-save-text">任务完成或失败时通知</div>
+          </div>
+          <Switch
+            aria-label="任务通知"
+            checked={taskNotificationEnabled}
+            onChange={updateTaskNotificationEnabled}
+          />
+        </div>
+        <div className="gs-save-row">
+          <div className="gs-save-desc">
+            <div className="gs-save-text">通知提示音</div>
+          </div>
+          <Switch
+            aria-label="通知提示音"
+            checked={taskSoundEnabled}
+            disabled={!taskNotificationEnabled}
+            onChange={updateTaskSoundEnabled}
           />
         </div>
       </div>

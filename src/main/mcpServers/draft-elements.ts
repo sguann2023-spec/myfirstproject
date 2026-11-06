@@ -90,12 +90,14 @@ const readonlyTool = (name: string, description: string): Tool => ({
 
 const TEXT_FONT_SIZE_GUIDANCE = 'MANDATORY FONT-SIZE LIMITS FOR add_text, add_batch_text, and add_subtitle: Use VectCut font-size units, NEVER pixel or point sizes. You MUST explicitly pass font_size. The default is 12 for portrait canvases (9:16, height > width) and 5 for landscape canvases (16:9, width > height). Before EVERY call, determine orientation from the actual draft canvas, NOT the vertical text flag; if unknown, inspect the canvas before proceeding, NEVER guess. Without completed pre-render verification, portrait font_size MUST be within [2, 22] inclusive; landscape font_size MUST be >0 and <=15 (baseline +/-10, restricted to positive values). These are mandatory working-draft limits, NOT suggestions. They apply to ALL text, including titles, hooks, calls to action, emphasized words, subtitles, every item in a batch, and every text_styles per-range style.size. A request for large or prominent text, including an explicit user-specified size, does NOT waive verification. NEVER send an out-of-range size to the working draft first and preview afterward. The ONLY exception is: create a separate cloud test draft <=5 seconds matching the actual canvas, text, font, sizes, styles, scales and relevant composition; apply the candidate there; call render_draft (pre-render); inspect the rendered output and confirm the text fits and is readable; ONLY THEN apply those same verified parameters to the working draft. Merely calling render_draft without inspecting its output, a lightweight PNG preview, an intended future render, or verification of different parameters does NOT qualify. If pre-rendering is unavailable, fails, or its output cannot be inspected, use the orientation default or another in-range size; DO NOT proceed with the out-of-range size. Do not bypass these limits through fontSize aliases, text_styles, or oversized scale_x/scale_y. NEVER guess large pixel-like values such as 54. Final pre-call checklist: canvas orientation known, explicit font_size set, all base and rich-text sizes within limits OR the exact candidate already pre-rendered and visually verified.'
 
+const TEXT_STROKE_SHADOW_GUIDANCE = 'MANDATORY STROKE-OR-SHADOW RULE FOR add_text, add_batch_text, and add_subtitle: Every text layer MUST enable exactly one of stroke or shadow; NEVER omit both on the same text. Either one alone is enough to enable it: pass shadow_enabled=true for a shadow, or pass border_width=40 for a stroke. Do not pass both unless the user explicitly asks for combined stroke and shadow. Respect explicit user settings: if the user requests no shadow, no stroke, or supplies their own values, follow the user settings instead of this rule.'
+
 const TEXT_VERIFICATION_GUIDANCE = 'Verification is recommended for pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000, or guessed generic font names such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. For these checks and ordinary in-range font sizes, prefer lightweight previews first; use render_draft (预渲染 / Pre-render) when they cannot verify subtitles, animation timing, track layering, audio effects or volume, font effects, transitions, or combined compositions. This fallback does not waive mandatory pre-rendering for out-of-range font sizes. If the working draft exceeds render limits, or verification must happen before modifying it, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.'
 
 const TOOLS: Tool[] = [
   toolWithArgs(
     'add_text',
-    `Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. ${TEXT_FONT_SIZE_GUIDANCE} For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. Preview uncertain text_styles runs with get_text_style_preview, which accepts the same text_styles shape. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} Enable text shadow by default by passing shadow_enabled=true, unless the user explicitly requests no shadow. Respect explicit user shadow settings.`,
+    `Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. ${TEXT_FONT_SIZE_GUIDANCE} For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. Preview uncertain text_styles runs with get_text_style_preview, which accepts the same text_styles shape. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       text: { type: 'string', description: 'Required text content.' },
       start: { type: 'number', description: 'Required start time in seconds.' },
@@ -119,7 +121,7 @@ const TOOLS: Tool[] = [
       fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
-      border_width: { type: 'number', description: 'Optional border width.' },
+      border_width: { type: 'number', description: 'Set 40 to enable the text stroke. Stroke-or-shadow rule: pass border_width=40 OR shadow_enabled=true; never omit both.' },
       background_color: { type: 'string', description: 'Optional background color.' },
       background_style: { type: 'integer', enum: [1, 2], description: 'Optional background style: 1 for a whole text block, 2 for individual lines.' },
       background_alpha: { type: 'number', description: 'Optional background alpha.' },
@@ -128,7 +130,7 @@ const TOOLS: Tool[] = [
       background_width: { type: 'number', description: 'Optional background width.' },
       background_horizontal_offset: { type: 'number', description: 'Optional background horizontal offset.' },
       background_vertical_offset: { type: 'number', description: 'Optional background vertical offset.' },
-      shadow_enabled: { type: 'boolean', description: 'Enable text shadow by default: pass true unless the user explicitly requests no shadow.' },
+      shadow_enabled: { type: 'boolean', description: 'Set true to enable the text shadow. Stroke-or-shadow rule: pass shadow_enabled=true OR border_width=40; never omit both.' },
       shadow_alpha: { type: 'number', description: 'Optional shadow alpha.' },
       shadow_angle: { type: 'number', description: 'Optional shadow angle.' },
       shadow_color: { type: 'string', description: 'Optional shadow color.' },
@@ -167,7 +169,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_text',
-    `Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview; it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} Enable text shadow by default by passing shadow_enabled=true, unless the user explicitly requests no shadow. Respect explicit user shadow settings.`,
+    `Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview; it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       texts: { type: 'array', items: { type: 'string' }, description: 'Required text contents.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Required start times in seconds.' },
@@ -197,7 +199,7 @@ const TOOLS: Tool[] = [
       fixed_height_px: { type: 'number', description: 'Optional fixed layout height in pixels.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
-      border_width: { type: 'integer', description: 'Optional border width.' },
+      border_width: { type: 'integer', description: 'Set 40 to enable the text stroke. Stroke-or-shadow rule: pass border_width=40 OR shadow_enabled=true; never omit both.' },
       background_color: { type: 'string', description: 'Optional background color.' },
       background_style: { type: 'integer', description: 'Optional background style.' },
       background_alpha: { type: 'number', description: 'Optional background alpha.' },
@@ -206,7 +208,7 @@ const TOOLS: Tool[] = [
       background_width: { type: 'number', description: 'Optional background width.' },
       background_horizontal_offset: { type: 'number', description: 'Optional background horizontal offset.' },
       background_vertical_offset: { type: 'number', description: 'Optional background vertical offset.' },
-      shadow_enabled: { type: 'boolean', description: 'Enable text shadow by default: pass true unless the user explicitly requests no shadow.' },
+      shadow_enabled: { type: 'boolean', description: 'Set true to enable the text shadow. Stroke-or-shadow rule: pass shadow_enabled=true OR border_width=40; never omit both.' },
       shadow_alpha: { type: 'number', description: 'Optional shadow alpha.' },
       shadow_angle: { type: 'number', description: 'Optional shadow angle.' },
       shadow_color: { type: 'string', description: 'Optional shadow color.' },
@@ -313,7 +315,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_subtitle',
-    `Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the subtitle font, size, or position will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. ${TEXT_VERIFICATION_GUIDANCE} Enable text shadow by default by passing shadow_enabled=true, unless the user explicitly requests no shadow. Respect explicit user shadow settings.`,
+    `Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the subtitle font, size, or position will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       srt: { type: 'string', description: 'Required SRT content or URL.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
@@ -328,7 +330,7 @@ const TOOLS: Tool[] = [
       font_color: { type: 'string', description: 'Optional font color.' },
       vertical: { type: 'boolean', description: 'Optional vertical text mode.' },
       alpha: { type: 'number', description: 'Optional subtitle alpha.' },
-      shadow_enabled: { type: 'boolean', description: 'Enable text shadow by default: pass true unless the user explicitly requests no shadow.' },
+      shadow_enabled: { type: 'boolean', description: 'Set true to enable the text shadow. Stroke-or-shadow rule: pass shadow_enabled=true OR border_width=40; never omit both.' },
       shadow_alpha: { type: 'number', description: 'Optional shadow alpha.' },
       shadow_angle: { type: 'number', description: 'Optional shadow angle.' },
       shadow_color: { type: 'string', description: 'Optional shadow color.' },
@@ -336,7 +338,7 @@ const TOOLS: Tool[] = [
       shadow_smoothing: { type: 'number', description: 'Optional shadow smoothing.' },
       border_alpha: { type: 'number', description: 'Optional border alpha.' },
       border_color: { type: 'string', description: 'Optional border color.' },
-      border_width: { type: 'number', description: 'Optional border width.' },
+      border_width: { type: 'number', description: 'Set 40 to enable the text stroke. Stroke-or-shadow rule: pass border_width=40 OR shadow_enabled=true; never omit both.' },
       background_color: { type: 'string', description: 'Optional background color.' },
       background_style: { type: 'string', description: 'Optional background style.' },
       background_alpha: { type: 'number', description: 'Optional background alpha.' },
@@ -1397,7 +1399,7 @@ class DraftElementsServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(workspacePath?: string) {
+  constructor(workspacePath?: string, private readonly runtimeSessionId?: string) {
     this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
       {
@@ -2331,6 +2333,7 @@ class DraftElementsServer {
 
     mainWindow.webContents.send('app:draft-created', {
       ...payload,
+      runtimeSessionId: this.runtimeSessionId,
       createdAt: Date.now()
     })
   }

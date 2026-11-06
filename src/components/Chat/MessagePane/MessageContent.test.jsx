@@ -2,6 +2,9 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import MessageContent from './MessageContent/MessageContent';
+import MessageGroup from './MessageGroup/MessageGroup';
+import i18next from 'i18next';
+vi.mock('./MessageItem/MessageItem', () => ({ default: ({ message, isLoading }) => <MessageContent message={message} isLoading={isLoading} /> }));
 import { readFileSync } from 'node:fs';
 import { shouldSuppressCancelledTurnError } from '../../../shared/chatError';
 
@@ -63,7 +66,8 @@ vi.mock('@renderer/pages/home/Messages/Blocks/FileBlock', () => ({ default: () =
 vi.mock('@renderer/pages/home/Messages/Blocks/ImageBlock', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/PlaceholderBlock', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/ThinkingBlock', () => ({ default: () => null }));
-vi.mock('@renderer/pages/home/Messages/Blocks/ToolBlock', () => ({ default: () => null }));
+vi.mock('@renderer/pages/home/Messages/Blocks/ToolBlock', () => ({ default: () => <div data-testid="single-tool" /> }));
+vi.mock('@renderer/pages/home/Messages/Blocks/ToolBlockGroup', () => ({ default: ({ blocks }) => <div data-testid="tool-group">{blocks.length} calls</div> }));
 vi.mock('@renderer/pages/home/Messages/Blocks/TranslationBlock', () => ({ default: () => null }));
 vi.mock('@renderer/pages/home/Messages/Blocks/VideoBlock', () => ({ default: () => null }));
 
@@ -72,6 +76,18 @@ let root;
 let firstLayouts;
 const block = (id, content) => ({ id, content, type: 'main_text', status: 'success' });
 const message = (id, blocks) => ({ id, role: 'assistant', blocks, content: blocks[0].content });
+it('renders two separate voice-library messages as one two-call group through the actual block adapter', async () => {
+  await i18next.init({ lng: 'zh-cn', resources: {} });
+  const tool = id => ({ id, type: 'tool', status: 'success', metadata: { rawMcpToolResponse: {
+    tool: { name: 'mcp__voice-library__list_voices', type: 'mcp' }
+  } } });
+  const messages = ['one', 'two'].map(id => ({ id, role: 'assistant', content: 'serialized tool fallback', blocks: [tool(id)] }));
+  await act(async () => root.render(<MessageGroup role="assistant" messages={messages} />));
+  expect(container.querySelectorAll('[data-testid="tool-group"]')).toHaveLength(1);
+  expect(container.textContent).toContain('2 calls');
+  expect(container.querySelector('[data-testid="single-tool"]')).toBeNull();
+});
+
 const Probe = ({ value }) => {
   React.useLayoutEffect(() => {
     firstLayouts.push(container.textContent);
@@ -262,6 +278,71 @@ it('keeps stop visible when a late stream-close error replaces the live snapshot
   }} />));
   expect(firstLayouts).toEqual(['用户已取消', '用户已取消']);
   expect(container.textContent).toBe('用户已取消');
+});
+
+it.each(['paused', 'cancelled', 'interrupted', 'error'])('retains persisted %s through history hydration and the embedded renderer', async (status) => {
+  const source = readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
+  const start = source.indexOf('const toPersistedHistoryMessage =');
+  const end = source.indexOf('const finalizeLatestTodoWriteInStore', start);
+  const hydrate = Function('isStructuredBlockObject', 'normalizeStructuredBlocksForPersistence',
+    'hasInterruptedAssistantState', 'buildAssistantDisplayContentFromBlocks', 'buildMessageContentFromBlocks',
+    'normalizeMessageModelMeta', 'resolveMessageModelId', 'limitInlineText',
+    `${source.slice(start, end)}; return toPersistedHistoryMessage;`)(
+    () => true, (blocks) => blocks, (m) => ['paused', 'cancelled', 'interrupted'].includes(m.status),
+    () => 'partial', () => '', () => null, () => '', (value) => value);
+  const persisted = JSON.parse(JSON.stringify({ message: { id: 'reply', role: 'assistant', status },
+    blocks: [block('earlier', 'earlier output'), block('answer', 'partial')] }));
+  const reloaded = hydrate(persisted, 0);
+  expect(reloaded.status).toBe(status);
+  await act(async () => root.render(<Probe value={reloaded} />));
+  expect(container.textContent).not.toContain('已完成');
+});
+
+it.each(['pending', 'processing', 'streaming'])('does not complete a local %s snapshot on restart', (status) => {
+  const source = readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
+  const start = source.indexOf('const normalizePersistedChatMessage =');
+  const end = source.indexOf('const shouldHydrateChatSessionFromHistory', start);
+  const recover = Function('limitInlineText', 'isStructuredBlockObject', 'hasInterruptedAssistantState',
+    'isStreamingLikeBlockStatus', 'normalizeStructuredBlocksForPersistence', 'normalizeMessageModelMeta',
+    'resolveMessageModelId', 'buildComparableModelMeta', `${source.slice(start, end)}; return normalizePersistedChatMessage;`)(
+    (value) => value, () => true, (m) => Boolean(m.aborted),
+    (value) => ['pending', 'processing', 'streaming'].includes(value),
+    (blocks, { aborted }) => blocks.map((b) => ({ ...b, status: aborted ? 'cancelled' : 'success' })),
+    () => null, () => '', () => null);
+  const saved = JSON.parse(JSON.stringify({ id: 'reply', role: 'assistant', status,
+    content: 'partial', blocks: [{ ...block('partial', 'partial'), status }] }));
+  const reloaded = recover(saved, [], { recovering: true });
+  expect(reloaded.aborted).toBe(true);
+  expect(reloaded.blocks[0].status).toBe('cancelled');
+  expect(saved.blocks[0].status).toBe(status);
+});
+
+it.each([
+  ['success', 'success', 'success'],
+  ['success', 'error', 'success'], // A recovered tool error is not a failed turn.
+  ['processing', 'success', 'paused'],
+  ['pending', 'success', 'paused'],
+  ['streaming', 'success', 'paused'],
+  ['error', 'success', 'error'],
+  ['paused', 'success', 'paused'],
+])('maps persisted %s with a %s block to %s, without inventing completion', (status, blockStatus, expected) => {
+  const source = readFileSync(`${process.cwd()}/src/components/Chat/MessagePane/MessageContent/MessageContent.js`, 'utf8');
+  const start = source.indexOf('const buildAssistantMessageStatus =');
+  const end = source.indexOf('const isActiveBlockStatus', start);
+  const mapStatus = Function('visibleTurnError', 'isCancelledTurn', 'MessageBlockStatus',
+    `${source.slice(start, end)}; return buildAssistantMessageStatus;`)(
+    () => null, () => false, { PENDING: 'pending', PROCESSING: 'processing', STREAMING: 'streaming' });
+  expect(mapStatus({ message: { status }, isLoading: false,
+    blockIds: ['tool'], entities: { tool: { status: blockStatus } } })).toBe(expected);
+  expect(mapStatus({ message: { status: 'processing' }, isLoading: true,
+    blockIds: [], entities: {} })).toBe('processing');
+});
+
+it('keeps cancelled block and message states non-success in the embedded renderer', async () => {
+  await act(async () => root.render(<Probe value={{ id: 'reply', role: 'assistant', aborted: true,
+    blocks: [{ ...block('partial', 'partial'), status: 'cancelled' }] }} />));
+  expect(store.getState().messageBlocks.entities.partial.status).toBe('paused');
+  expect(container.textContent).not.toContain('已完成');
 });
 
 it('HomePage snapshots retain completed-step accounting when the turn fails', () => {

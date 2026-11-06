@@ -9,6 +9,7 @@ import { Collapse } from 'antd'
 import { parse as parsePartialJson } from 'partial-json'
 import React from 'react'
 import { useEffect, useMemo, useState } from 'react'
+import { css } from 'styled-components'
 import styled from 'styled-components'
 
 // 导出所有类型
@@ -21,7 +22,7 @@ import { BashOutputTool } from './BashOutputTool'
 import { BashTool } from './BashTool'
 import { EditTool } from './EditTool'
 import { ExitPlanModeTool } from './ExitPlanModeTool'
-import { getEffectiveStatus, StreamingContext, type ToolStatus, ToolStatusIndicator } from './GenericTools'
+import { getEffectiveStatus, StreamingContext } from './GenericTools'
 import { GlobTool } from './GlobTool'
 import { GrepTool } from './GrepTool'
 import { InspectImageTool } from './InspectImageTool'
@@ -45,7 +46,8 @@ import { UnknownToolRenderer } from './UnknownToolRenderer'
 import { WebFetchTool } from './WebFetchTool'
 import { WebSearchTool } from './WebSearchTool'
 import { WriteTool } from './WriteTool'
-import { getDisplayToolHasError, getDisplayToolStatus } from '../shared/toolDisplayState'
+import { getDisplayToolStatus } from '../shared/toolDisplayState'
+import { toolCompletedDimCss, toolHeaderCursorDefaultCss, toolRunningShimmerCss } from '../shared/toolShimmer'
 import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
 import { shouldHideSearchToolDetails } from '../shared/mcpToolDisplay'
 
@@ -79,8 +81,9 @@ export const toolRenderers = {
 
 const logger = loggerService.withContext('MessageAgentTools')
 
-const TransparentCollapse = styled(Collapse)`
+const TransparentCollapse = styled(Collapse)<{ $running?: boolean; $completed?: boolean }>`
   background: transparent !important;
+  border: none !important;
 
   &.ant-collapse,
   > .ant-collapse-item,
@@ -91,7 +94,44 @@ const TransparentCollapse = styled(Collapse)`
   > .ant-collapse-item.ant-collapse-item-active > .ant-collapse-content,
   > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
     background: transparent !important;
+    border: none !important;
   }
+
+  > .ant-collapse-item > .ant-collapse-header {
+    padding: 4px 0 !important;
+    border-radius: 0.5rem;
+    ${toolHeaderCursorDefaultCss}
+  }
+
+  /* 工具标题不显示参数加载的骨架占位条，运行状态仅由文字扫光表达 */
+  > .ant-collapse-item > .ant-collapse-header .ant-skeleton {
+    display: none !important;
+  }
+
+  /* 不再显示右侧展开箭头，点击头部仍可展开 */
+  > .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon {
+    display: none !important;
+  }
+
+  /* 正在执行的工具：统一用斜方向扫光表示 */
+  ${(props) =>
+    props.$running
+      ? css`
+          > .ant-collapse-item > .ant-collapse-header {
+            ${toolRunningShimmerCss}
+          }
+        `
+      : ''}
+
+  /* 执行完成的工具：整行置灰 */
+  ${(props) =>
+    props.$completed
+      ? css`
+          > .ant-collapse-item > .ant-collapse-header {
+            ${toolCompletedDimCss}
+          }
+        `
+      : ''}
 `
 
 /**
@@ -127,8 +167,6 @@ function ToolContent({
   input,
   output,
   isStreaming = false,
-  status,
-  hasError = false,
   progress,
   progressMessage
 }: {
@@ -137,8 +175,6 @@ function ToolContent({
   input?: ToolInput | Record<string, unknown>
   output?: ToolOutput | unknown
   isStreaming?: boolean
-  status?: ToolStatus
-  hasError?: boolean
   progress?: number
   progressMessage?: string
 }) {
@@ -159,17 +195,9 @@ function ToolContent({
   const toolContentItem: NonNullable<CollapseProps['items']>[number] = {
     ...renderedItem,
     ...(hideDetails ? { children: undefined, showArrow: false, collapsible: 'disabled' as const } : {}),
-    label: (
-      <div className="flex w-full items-start justify-between gap-2">
-        <div className="min-w-0">{renderedItem.label}</div>
-        {status && (
-          <div className="shrink-0">
-            <ToolStatusIndicator status={status} hasError={hasError} />
-          </div>
-        )}
-      </div>
-    ),
+    label: renderedItem.label,
     classNames: {
+      header: 'tool-call-header',
       body: 'bg-transparent p-2 text-foreground-900 max-h-96 overflow-scroll'
     }
   }
@@ -177,8 +205,9 @@ function ToolContent({
   return (
     <StreamingContext value={isStreaming}>
       <TransparentCollapse
-        className="w-max max-w-full has-[.ant-collapse-item-active]:w-full"
-        expandIconPosition="end"
+        className={`w-max max-w-full has-[.ant-collapse-item-active]:w-full${isStreaming ? ' tool-call-running' : ''}`}
+        $running={isStreaming}
+        $completed={!isStreaming}
         size="small"
         activeKey={hideDetails ? [] : undefined}
         defaultActiveKey={toolName === AgentToolsType.TodoWrite ? [AgentToolsType.TodoWrite] : []}
@@ -269,7 +298,6 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
 
   const displayStatus = getDisplayToolStatus(toolResponse, status)
   const effectiveStatus = getEffectiveStatus(displayStatus, !!pendingPermission)
-  const hasDisplayError = getDisplayToolHasError(toolResponse, status === 'error')
 
   useEffect(() => {
     if (effectiveStatus === 'done' || effectiveStatus === 'error' || effectiveStatus === 'cancelled') {
@@ -310,8 +338,6 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
       input={args ?? parsedPartialArgs}
       output={resolvedOutput}
       isStreaming={isLoading}
-      status={effectiveStatus}
-      hasError={hasDisplayError}
       progress={progress}
       progressMessage={progressMessage}
     />

@@ -1,5 +1,6 @@
+import { normalizePinnedDrafts, resolvePinnedDraftEvent, mergePinnedDraft, applyPinnedDraftMetadata } from '../../components/Chat/pinnedDraftMetadata';
 // HomePage 组件
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import './HomePage.css';
 import { electronStore } from '../../shared/electronStore';
 import { validateTextStyleRanges } from '../../shared/textTypography';
@@ -9,7 +10,7 @@ import { buildVideoUnderstandBlocks, normalizeVideoUnderstandRequest } from '../
 import { buildSubtitleRecognitionBlocks, normalizeSubtitleRecognitionRequest } from '../../shared/subtitleRecognition';
 import LogoIcon from '../../../public/logo-circle.png';
 import VipIcon from '../../../public/vip_icon.png';
-import { countTodayDrafts } from '../../api/capcut';
+import { countTodayDrafts, searchDraft } from '../../api/capcut';
 import { fetchMessagesSummary, getChatModelList } from '../../api/chat';
 import DPane from '../../components/DPane/DPane';
 import DailyCheckin from '../../components/DailyCheckin/DailyCheckin';
@@ -25,6 +26,7 @@ import PresetList from '../../components/PresetList/PresetList';
 import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
+import { sendQueue } from '../../components/Chat/sendQueue';
 import {
   buildSkillExampleApplyDetail,
   dispatchSkillExampleApply,
@@ -63,6 +65,9 @@ import { createImageBlock, createMainTextBlock, createMessage } from '../../rend
 import { IpcChannel } from '../../packages/shared/IpcChannel';
 import { isChatSessionAwaitingConfirmation, isChatSessionCompleted, isChatSessionPending, shouldDeferChatHistoryHydration } from '../../shared/chatSessionCompletion';
 import { compareChatSessionOrder, getChatSessionOrderTime } from '../../shared/chatSessionOrder';
+import { dispatchTaskFinishedNotification, dispatchTaskInputRequiredNotification } from '../../renderer/src/utils/taskNotification';
+import { subscribeTaskNotificationPreferences } from '../../renderer/src/utils/taskNotificationPreferences';
+import { isFocused } from '../../renderer/src/utils/window';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
 import { useChatModelPreference } from './useChatModelPreference';
@@ -72,6 +77,9 @@ const logChatModelPreferenceError = (message, error) => logger.warn(message, err
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
+const CHAT_UNREAD_STORAGE_KEY = 'capcut-helper-chat-unread-v1';
+// 前台完成后的历史持久化广播仍会以 headless=true 到达，时间窗内的重复结束信号直接吞掉。
+const CHAT_TASK_FINISHED_DEDUPE_MS = 3000;
 const DEFAULT_CHAT_TITLE = '新对话';
 const CHAT_MODELS = ['gpt-5.3-codex', 'claude-opus-4-7'];
 const VECTCUT_ANTHROPIC_API_BASE_URL = 'https://open.vectcut.com/llm/chat';
@@ -90,6 +98,23 @@ const QUICK_SWEATER_SELLING_SKILL_NAME = 'sweaterselling';
 const QUICK_CONVENIENCE_STORE_TOUR_SKILL_NAME = 'conveniencestore';
 const QUICK_EDUCATION_KNOWLEDGE_SKILL_NAME = 'educationknowledge';
 const BLOCK_NEW_CHAT_AFTER_TIMEOUT_MESSAGE = '当前会话已超时，请先在当前会话继续，暂不支持自动新建对话。';
+
+// 未读红点持久化：任务在用户没看着的时候结束的会话集合。重启后红点保留，点击会话/聚焦自动清除。
+const loadChatSessionUnreadMap = () => {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CHAT_UNREAD_STORAGE_KEY) || 'null');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const normalized = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      const chatId = String(key || '').trim();
+      if (chatId && value === true) normalized[chatId] = true;
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+};
 
 const normalizeLocalPath = (value = '') => String(value || '').replace(/\\/g, '/');
 const createLocalFilePreviewUrl = (filePath = '') => {
@@ -1644,7 +1669,7 @@ const sortChatSessions = (sessions) => {
 
 const STREAMING_LIKE_BLOCK_STATUSES = ['pending', 'processing', 'streaming', 'running', 'invoking'];
 const TERMINAL_TOOL_RUNTIME_STATUSES = ['done', 'error', 'cancelled'];
-const INTERRUPTED_BLOCK_STATUSES = ['cancelled', 'aborted', 'interrupted'];
+const INTERRUPTED_BLOCK_STATUSES = ['cancelled', 'canceled', 'paused', 'aborted', 'interrupted'];
 
 const isStreamingLikeBlockStatus = (value) => (
   STREAMING_LIKE_BLOCK_STATUSES.includes(String(value || '').toLowerCase())
@@ -1871,7 +1896,7 @@ const hasInterruptedAssistantState = (message = {}) => {
   });
 };
 
-const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
+const normalizePersistedChatMessage = (message = {}, modelOptions = [], { recovering = false } = {}) => {
   if (!message || typeof message !== 'object') return message;
 
   let nextMessage = message;
@@ -1897,7 +1922,10 @@ const normalizePersistedChatMessage = (message = {}, modelOptions = []) => {
   if (Array.isArray(nextMessage.blocks)) {
     const structuredBlocks = nextMessage.blocks.filter((block) => isStructuredBlockObject(block));
     if (structuredBlocks.length === nextMessage.blocks.length) {
-        const aborted = hasInterruptedAssistantState(nextMessage);
+        const aborted = hasInterruptedAssistantState(nextMessage)
+          || (recovering && !['success', 'completed'].includes(nextMessage.status)
+            && (isStreamingLikeBlockStatus(nextMessage.status)
+              || structuredBlocks.some((block) => isStreamingLikeBlockStatus(block.status))));
       const normalizedBlocks = normalizeStructuredBlocksForPersistence(structuredBlocks, {
           hasError: Boolean(nextMessage.error),
           aborted
@@ -1950,6 +1978,7 @@ const shouldPersistChatSessionMessages = (session) => {
 const serializeChatSessionsForPersistence = (sessions = [], modelOptions = []) => (
   (Array.isArray(sessions) ? sessions : []).map((session) => ({
     ...session,
+    pinnedDrafts: normalizePinnedDrafts(session.pinnedDrafts),
     lastUserMessageAt: session.lastUserMessageAt === 0 ? 0 : getChatSessionOrderTime(session),
     runtimeSessionId: String(session?.runtimeSessionId || '').trim(),
     historyLoaded: String(session?.runtimeSessionId || '').trim() ? false : session?.historyLoaded !== false,
@@ -2434,6 +2463,8 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
 
   return {
     id: String(sourceMessage?.id || `persisted-${index}`),
+    // Keep presentation boundaries when assistant fragments are reconstructed.
+    ...Object.fromEntries(['askId', 'turnId', 'topicId', 'assistantId', 'groupId'].map(key => [key, sourceMessage?.[key]])),
     role,
     content: limitInlineText(content, { label: '历史消息内容' }),
     blocks: normalizedBlocks,
@@ -2460,6 +2491,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
       ? { subtitleStoryboardRequest: { ...sourceMessage.subtitleStoryboardRequest } } : {}),
     createdAt,
     updatedAt,
+    status: sourceMessage.status,
     model: modelMeta,
     modelId: modelId || undefined,
     usage: sourceMessage?.usage ? { ...sourceMessage.usage } : undefined,
@@ -2545,6 +2577,8 @@ const HomePage = () => {
   const [creditsBalance, setCreditsBalance] = useState(null);
   const [creditsLoading, setCreditsLoading] = useState(true);
   const [selectedPane, setSelectedPane] = useState('chat');
+  const selectedPaneRef = useRef(selectedPane);
+  useLayoutEffect(() => { selectedPaneRef.current = selectedPane; }, [selectedPane]);
   const isChatPane = selectedPane === 'chat';
   const isSkillPane = selectedPane === 'skill';
   const [selectedDraft, setSelectedDraft] = useState(null);
@@ -2559,11 +2593,17 @@ const HomePage = () => {
   const workspaceRenameVersionRef = useRef(0);
   const [chatSessions, setChatSessions] = useState(() => [createEmptyChatSession()]);
   const [activeChatId, setActiveChatId] = useState(null);
+  // 流式回调的 effect 只依赖 canUseAgentRuntime，闭包里的 activeChatId 是旧的，用 ref 读取最新值。
+  const activeChatIdRef = useRef(null);
   const [chatSending, setChatSending] = useState(false);
   const chatRetryPendingRef = useRef(new Set());
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
   const [chatSessionInFlightMap, setChatSessionInFlightMap] = useState({});
   const [chatSessionFulfilledMap, setChatSessionFulfilledMap] = useState({});
+  // 红色“未读”圆点：任务（一轮对话）在用户没看着的时候结束的会话；localStorage 持久化，重启保留。
+  const [chatSessionUnreadMap, setChatSessionUnreadMap] = useState(loadChatSessionUnreadMap);
+  // 每个会话最近一次「任务结束」时间：用于吞掉前台完成后 headless 广播带来的重复结束信号。
+  const lastTaskFinishedAtByRequestIdRef = useRef({});
   const [chatHistoryLoadingMap, setChatHistoryLoadingMap] = useState({});
   const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
   const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
@@ -2642,7 +2682,19 @@ const HomePage = () => {
   const chatTitleGeneratingSessionIdsRef = useRef(new Set());
   const chatAgentSessionIdByChatIdRef = useRef(new Map());
   const chatIdByAgentSessionIdRef = useRef(new Map());
+  const seenInputRequiredRequestIdsRef = useRef(new Set());
   const chatPendingByRequestIdRef = useRef(new Map());
+  const queueCompletionRef = useRef(new Map());
+  const finishQueuedRequest = (requestId, outcome) => {
+    const pending = chatPendingByRequestIdRef.current.get(requestId);
+    const completion = queueCompletionRef.current.get(requestId);
+    const chatId = pending?.chatId || completion?.chatId;
+    if (chatId) recordTaskFinished(chatId, outcome === 'complete' ? 'success' : outcome === 'error' ? 'error' : 'cancelled', requestId);
+    const done = completion?.done;
+    queueCompletionRef.current.delete(requestId);
+    done?.(outcome);
+  };
+
   const chatPerfByRequestIdRef = useRef(new Map());
   const chatSnapshotThrottleByRequestIdRef = useRef(new Map());
   const chatEnsuringAgentSessionByChatIdRef = useRef(new Map());
@@ -3199,10 +3251,11 @@ const HomePage = () => {
             const restoredMessages = runtimeSessionId
               ? []
               : (Array.isArray(item.messages)
-                  ? item.messages.map((message) => normalizePersistedChatMessage(message))
+                  ? item.messages.map((message) => normalizePersistedChatMessage(message, [], { recovering: true }))
                   : []);
             return {
               id: item.id,
+              pinnedDrafts: normalizePinnedDrafts(item.pinnedDrafts),
               title: item.title || DEFAULT_CHAT_TITLE,
               titleAutoGenerated: item.titleAutoGenerated === true,
               createdAt: Number(item.createdAt) || Date.now(),
@@ -3348,6 +3401,28 @@ const HomePage = () => {
     chatIdByAgentSessionIdRef.current = nextAgentToChat;
   }, [chatSessions]);
 
+  const updatePinnedDraftsForChat = useCallback((chatId, updater) => {
+    setChatSessions((sessions) => sessions.map((session) => session.id === chatId
+      ? { ...session, pinnedDrafts: updater(session.pinnedDrafts || []) } : session));
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const unsubscribe = window.ipc?.on(IpcChannel.App_DraftCreated, (payload) => {
+      const ownedEvent = resolvePinnedDraftEvent(payload, chatIdByAgentSessionIdRef.current);
+      if (!ownedEvent) return;
+      const { chatId, draft } = ownedEvent;
+      updatePinnedDraftsForChat(chatId, (drafts) => mergePinnedDraft(drafts, draft));
+      if (draft.status !== 'completed') return;
+      searchDraft({ draft_id: draft.draftId }).then((response) => {
+        if (disposed || !response?.draft) return;
+        updatePinnedDraftsForChat(chatId, (drafts) => drafts.map((item) =>
+          item.draftId === draft.draftId ? applyPinnedDraftMetadata(item, response.draft) : item));
+      }).catch(() => {});
+    });
+    return () => { disposed = true; unsubscribe?.(); };
+  }, [updatePinnedDraftsForChat]);
+
   const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
   const activeStreamingAssistantMessageId = useMemo(() => {
     const messages = Array.isArray(activeChatSession?.messages) ? activeChatSession.messages : [];
@@ -3489,6 +3564,12 @@ const HomePage = () => {
       if (!runtimeSessionId) return;
       const chatId = chatIdByAgentSessionIdRef.current.get(runtimeSessionId);
       if (!chatId) return;
+
+      // Headless also covers metadata updates (e.g. workspace rename), not just finished turns.
+      if (payload?.headless && payload?.reason === 'turn-completed'
+        && ['success', 'error', 'cancelled'].includes(payload?.outcome)) {
+        recordTaskFinished(chatId, payload.outcome, payload.requestId || payload.turnId);
+      }
 
       const hasPendingForSession = Array.from(chatPendingByRequestIdRef.current.values()).some(
         (entry) => String(entry?.agentSessionId || '').trim() === runtimeSessionId
@@ -3684,13 +3765,23 @@ const HomePage = () => {
       return next;
     });
   };
-  const setChatSessionFulfilled = (chatId, fulfilled) => {
+  const setChatSessionUnseen = (chatId, unseen) => {
     const id = String(chatId || '').trim();
     if (!id) return;
-    setChatSessionFulfilledMap((prev) => {
-      const nextValue = Boolean(fulfilled);
+    setChatSessionUnreadMap((prev) => {
+      const nextValue = Boolean(unseen);
       if (prev[id] === nextValue) return prev;
       return { ...prev, [id]: nextValue };
+    });
+  };
+  const removeChatSessionUnseen = (chatId) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionUnreadMap((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
   };
   const removeChatSessionFulfilled = (chatId) => {
@@ -3701,6 +3792,41 @@ const HomePage = () => {
       const next = { ...prev };
       delete next[id];
       return next;
+    });
+    removeChatSessionUnseen(id);
+  };
+  const setChatSessionFulfilled = (chatId, fulfilled, reason = '') => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    setChatSessionFulfilledMap((prev) => {
+      const nextValue = Boolean(fulfilled);
+      if (prev[id] === nextValue) return prev;
+      return { ...prev, [id]: nextValue };
+    });
+    // 完成信号统一落点：只有后台会话（非当前查看中）完成才标“待查看”，
+    // 刚在眼前看完的对话切走后不应再显示圆点；选回会话或重新发送会清掉标记。
+    if (!fulfilled && !reason.startsWith('chunk.')) removeChatSessionUnseen(id);
+  };
+  const recordTaskFinished = (chatId, outcome, requestId) => {
+    const id = String(chatId || '').trim();
+    if (!id) return;
+    if (!['success', 'error'].includes(outcome)) return;
+    const now = Date.now();
+    const key = typeof requestId === 'string' ? requestId.trim() : '';
+    if (key) {
+      const previous = lastTaskFinishedAtByRequestIdRef.current[key];
+      if (previous !== undefined && now - previous < CHAT_TASK_FINISHED_DEDUPE_MS) return;
+      lastTaskFinishedAtByRequestIdRef.current[key] = now;
+      for (const taskId of Object.keys(lastTaskFinishedAtByRequestIdRef.current)) {
+        if (now - lastTaskFinishedAtByRequestIdRef.current[taskId] >= CHAT_TASK_FINISHED_DEDUPE_MS) delete lastTaskFinishedAtByRequestIdRef.current[taskId];
+      }
+    }
+    const watching = selectedPaneRef.current === 'chat' && activeChatIdRef.current === id
+      && isFocused() && document.visibilityState !== 'hidden';
+    setChatSessionUnseen(id, !watching);
+    void dispatchTaskFinishedNotification({
+      chatId: id, outcome, ...(key ? { requestId: key } : {}),
+      sessionTitle: chatSessionsRef.current.find((session) => session.id === id)?.title
     });
   };
   const removeChatHistoryLoading = (chatId) => {
@@ -3831,13 +3957,62 @@ const HomePage = () => {
           isPending: Boolean(chatSessionInFlightMap[session.id]),
           isFulfilled: Boolean(chatSessionFulfilledMap[session.id])
         }),
+        isUnseen: Boolean(chatSessionUnreadMap[session.id]),
       })),
-    [chatSessions, chatSessionInFlightMap, chatSessionFulfilledMap, toolPermissionRequests]
+    [chatSessions, chatSessionInFlightMap, chatSessionFulfilledMap, chatSessionUnreadMap, toolPermissionRequests]
   );
 
   useEffect(() => {
     chatSessionsRef.current = chatSessions;
   }, [chatSessions]);
+
+  useLayoutEffect(() => {
+    activeChatIdRef.current = activeChatId;
+    if (selectedPane === 'chat' && isFocused() && document.visibilityState !== 'hidden') {
+      removeChatSessionUnseen(activeChatId);
+    }
+  }, [activeChatId, selectedPane]);
+
+  useEffect(() => {
+    const clearCurrent = () => {
+      if (selectedPaneRef.current === 'chat' && isFocused() && document.visibilityState !== 'hidden') {
+        removeChatSessionUnseen(activeChatIdRef.current);
+      }
+    };
+    window.addEventListener('focus', clearCurrent);
+    document.addEventListener('visibilitychange', clearCurrent);
+    return () => {
+      window.removeEventListener('focus', clearCurrent);
+      document.removeEventListener('visibilitychange', clearCurrent);
+    };
+  }, []);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(CHAT_UNREAD_STORAGE_KEY, JSON.stringify(chatSessionUnreadMap)); } catch { /* storage unavailable */ }
+    const sendBadge = () => {
+      const ipc = window.electron?.ipcRenderer || window.ipc;
+      ipc?.send?.('notification:set-badge-count', Object.values(chatSessionUnreadMap).filter(Boolean).length);
+    };
+    sendBadge();
+    return subscribeTaskNotificationPreferences(sendBadge);
+  }, [chatSessionUnreadMap]);
+
+  useEffect(() => {
+    const ipc = window.electron?.ipcRenderer || window.ipc;
+    const onClick = (_event, notification) => {
+      const payload = notification || _event;
+      const chatId = String(payload?.meta?.chatId || '').trim();
+      if (!chatId || !chatSessionsRef.current.some((session) => session.id === chatId)) return;
+      setSelectedPane('chat');
+      setActiveChatId(chatId);
+      removeChatSessionUnseen(chatId);
+    };
+    const dispose = ipc?.on?.('notification-click', onClick);
+    return () => {
+      if (typeof dispose === 'function') dispose();
+      else ipc?.removeListener?.('notification-click', onClick);
+    };
+  }, []);
 
   useEffect(() => {
     const pendingSessions = chatSessions.filter((session) => {
@@ -4131,6 +4306,15 @@ const HomePage = () => {
         }
 
         if (isAskUserQuestion) {
+          if (!seenInputRequiredRequestIdsRef.current.has(requestId)) {
+            seenInputRequiredRequestIdsRef.current.add(requestId);
+            const runtimeSessionId = String(payload.toolCallId || '').split(':')[0];
+            const chatId = chatIdByAgentSessionIdRef.current.get(runtimeSessionId);
+            if (chatId) void dispatchTaskInputRequiredNotification({
+              chatId, requestId,
+              sessionTitle: chatSessionsRef.current.find((session) => session.id === chatId)?.title
+            });
+          }
           appStore.dispatch(toolPermissionsActions.requestReceived(payload));
           // Store questions on the message before a denial/stream failure removes the request.
           for (const block of Object.values(appStore.getState().messageBlocks.entities)) {
@@ -4188,6 +4372,10 @@ const HomePage = () => {
           ))
         );
         if (mappedChatId && hasNewerPendingForSameChat) {
+          if (['complete', 'error', 'cancelled'].includes(payloadType)) {
+            recordTaskFinished(mappedChatId, payloadType === 'complete' ? 'success' : payloadType === 'cancelled' || String(payload?.error?.code || '').toUpperCase() === 'ABORTED' ? 'cancelled' : 'error', requestId);
+            finishQueuedRequest(requestId, payloadType === 'complete' ? 'complete' : payloadType === 'error' ? 'error' : 'aborted');
+          }
           return;
         }
         if (payloadType === 'started') {
@@ -4204,12 +4392,14 @@ const HomePage = () => {
           setChatSessionSending(mappedChatId, false, 'chunk.complete.without-pending');
           setChatSessionInFlight(mappedChatId, false, 'chunk.complete.without-pending');
           setChatSessionFulfilled(mappedChatId, true, 'chunk.complete.without-pending');
+          recordTaskFinished(mappedChatId, 'success', requestId);
           if (mappedChatId === activeChatId) setChatSending(false);
         }
         if (mappedChatId && (payloadType === 'error' || payloadType === 'cancelled')) {
           setChatSessionSending(mappedChatId, false, `chunk.${payloadType}.without-pending`);
           setChatSessionInFlight(mappedChatId, false, `chunk.${payloadType}.without-pending`);
           setChatSessionFulfilled(mappedChatId, false, `chunk.${payloadType}.without-pending`);
+          recordTaskFinished(mappedChatId, payloadType === 'cancelled' || String(payload?.error?.code || '').trim().toUpperCase() === 'ABORTED' ? 'cancelled' : 'error', requestId);
           if (mappedChatId === activeChatId) setChatSending(false);
         }
         const isToolRelated =
@@ -4409,6 +4599,7 @@ const HomePage = () => {
       }
 
       if (payload.type === 'error') {
+        finishQueuedRequest(requestId, String(payload?.error?.code || '').toUpperCase() === 'ABORTED' ? 'aborted' : 'error');
         const errorMessage = String(payload?.error?.message || '');
         const errorCode = String(payload?.error?.code || '').trim().toUpperCase();
         if (errorCode === 'ABORTED') {
@@ -4422,6 +4613,7 @@ const HomePage = () => {
           setChatSessionSending(chatId, false, 'chunk.error.aborted');
           setChatSessionInFlight(chatId, false, 'chunk.error.aborted');
           setChatSessionFulfilled(chatId, false, 'chunk.error.aborted');
+          recordTaskFinished(chatId, 'cancelled', requestId);
           setChatSending(false);
           if (requestId) {
             const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
@@ -4457,6 +4649,7 @@ const HomePage = () => {
         setChatSessionSending(chatId, false, 'chunk.error');
         setChatSessionInFlight(chatId, false, 'chunk.error');
         setChatSessionFulfilled(chatId, false, 'chunk.error');
+        recordTaskFinished(chatId, 'error', requestId);
         setChatSending(false);
         if (requestId) {
           const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
@@ -4471,6 +4664,7 @@ const HomePage = () => {
       }
 
       if (payload.type === 'cancelled') {
+        finishQueuedRequest(requestId, 'aborted');
         clearScheduledSnapshot();
         streamController?.error(new DOMException('Request was aborted', 'AbortError'));
         finalizeAssistantMessage({ error: null, aborted: true });
@@ -4481,6 +4675,7 @@ const HomePage = () => {
         setChatSessionSending(chatId, false, 'chunk.cancelled');
         setChatSessionInFlight(chatId, false, 'chunk.cancelled');
         setChatSessionFulfilled(chatId, false, 'chunk.cancelled');
+        recordTaskFinished(chatId, 'cancelled', requestId);
         setChatSending(false);
         if (requestId) {
           const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
@@ -4500,6 +4695,7 @@ const HomePage = () => {
       }
 
       if (payload.type === 'complete') {
+        finishQueuedRequest(requestId, 'complete');
         // Cancel any delayed snapshot first so a stale processing snapshot cannot
         // overwrite the finalized assistant message after completion.
         clearScheduledSnapshot();
@@ -4577,6 +4773,7 @@ const HomePage = () => {
         setChatSessionSending(chatId, false, 'chunk.complete');
         setChatSessionInFlight(chatId, false, 'chunk.complete');
         setChatSessionFulfilled(chatId, true, 'chunk.complete');
+        recordTaskFinished(chatId, 'success', requestId);
         setChatSending(false);
         if (requestId) {
           const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
@@ -4624,9 +4821,29 @@ const HomePage = () => {
 
   const handleCreateChatSession = (metadata = {}) => {
     const normalizedWorkspacePath = normalizeLocalPath(metadata?.workspacePath || '').trim();
+    const sessions = chatSessionsRef.current.length ? chatSessionsRef.current : chatSessions;
+    const canReuseSession = (session) => (
+      // Displaying an empty chat prewarms its runtime; that does not mean it has been used.
+      Array.isArray(session.messages) && session.messages.length === 0
+      && (!session.title || session.title === DEFAULT_CHAT_TITLE)
+      && !session.lastUserMessageAt
+      && session.historyLoaded !== false
+      && !chatSessionSendingMap[session.id]
+      && !chatSessionInFlightMap[session.id]
+      && !chatWorkspaceStatusMap[session.id]
+      && getSessionWorkspacePath(session) === normalizedWorkspacePath
+    );
+    const reusableSession = sessions.find((session) => session.id === activeChatId && canReuseSession(session))
+      || sessions.find(canReuseSession);
+    if (reusableSession) {
+      setActiveChatId(reusableSession.id);
+      return;
+    }
     const session = createEmptyChatSession({
       workspacePath: normalizedWorkspacePath
     });
+    // Keep rapid new-chat clicks from creating duplicates before the next render.
+    chatSessionsRef.current = [session, ...sessions];
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'create-session');
@@ -5264,6 +5481,8 @@ const HomePage = () => {
   }, [ensureAgentSessionForChat, prepareQuickSkillTargetSession, setChatWorkspaceStatus]);
 
   const handleSelectChatSession = (sessionId) => {
+    setSelectedPane('chat');
+    removeChatSessionUnseen(sessionId);
     setActiveChatId(sessionId);
     setChatSessionFulfilled(sessionId, false, 'select-session');
   };
@@ -5280,6 +5499,10 @@ const HomePage = () => {
     ).trim()).filter(Boolean);
 
     normalizedSessionIds.forEach((sessionId) => {
+      sendQueue.clear(sessionId);
+      for (const [requestId, pending] of chatPendingByRequestIdRef.current) {
+        if (pending.chatId === sessionId) queueCompletionRef.current.delete(requestId);
+      }
       const timer = chatTitleRevealTimersRef.current.get(sessionId);
       if (timer) {
         clearTimeout(timer);
@@ -5304,6 +5527,10 @@ const HomePage = () => {
       const next = { ...prev };
       let changed = false;
       normalizedSessionIds.forEach((sessionId) => {
+      sendQueue.clear(sessionId);
+      for (const [requestId, pending] of chatPendingByRequestIdRef.current) {
+        if (pending.chatId === sessionId) queueCompletionRef.current.delete(requestId);
+      }
         if (sessionId in next) {
           delete next[sessionId];
           changed = true;
@@ -5497,6 +5724,7 @@ const HomePage = () => {
       // Cancellation removes this entry. A late tool response must not overwrite a stopped message.
       if (!chatPendingByRequestIdRef.current.has(requestId)) return;
       if (result?.aborted) {
+        finishQueuedRequest(requestId, 'aborted');
         finalizeChatAssistantMessageLocally({ chatId, assistantMessageId }, { aborted: true });
         return;
       }
@@ -5511,7 +5739,10 @@ const HomePage = () => {
       chatHistoryHydrateSettledRef.current.delete(`${chatId}:${agentSessionId}`);
       void hydratePersistedChatSessionFromHistory({ chatId, sessionId: agentSessionId, reason: 'reverse-prompt.complete' });
       setChatSessionFulfilled(chatId, true, 'reverse-prompt.complete');
+      recordTaskFinished(chatId, 'success', requestId);
+      finishQueuedRequest(requestId, 'complete');
     } catch (error) {
+      finishQueuedRequest(requestId, String(error?.code || '').toUpperCase() === 'ABORTED' || error?.name === 'AbortError' ? 'aborted' : 'error');
       if (chatPendingByRequestIdRef.current.has(requestId)) {
         finalizeChatAssistantMessageLocally({ chatId, assistantMessageId }, { error: normalizeChatError(error) });
       }
@@ -5526,6 +5757,7 @@ const HomePage = () => {
   };
 
   const handleSendChatMessage = async (inputText, options = {}) => {
+    const requestModel = options.queueModel || chatModel;
     let text = String(inputText || '').trim();
     const videoUnderstandRequest = options?.videoUnderstandRequest
       ? normalizeVideoUnderstandRequest(options.videoUnderstandRequest) : null;
@@ -5614,7 +5846,7 @@ const HomePage = () => {
       : [];
     if (!text) return;
 
-    let targetSessionId = activeChatId;
+    let targetSessionId = options.queueSessionId || activeChatId;
     if (!targetSessionId) {
       const recoveredSession = recoverTimedOutChatBeforeAutoCreate({ source: 'send-without-active-chat' });
       if (recoveredSession?.id) {
@@ -5626,7 +5858,9 @@ const HomePage = () => {
         setActiveChatId(created.id);
       }
     }
-    if (isChatSessionSending(targetSessionId)) {
+    options.onQueueSession?.(targetSessionId);
+    if ([...chatPendingByRequestIdRef.current.values()].some((pending) => pending.chatId === targetSessionId) || isChatSessionSending(targetSessionId)) {
+      options.onQueueComplete?.('error');
       return;
     }
 
@@ -5636,10 +5870,13 @@ const HomePage = () => {
     )).length;
     const shouldRequestTitleFromFirstUserMessage = existingUserMessageCount === 0;
     const requestId = createRequestId();
+    if (options.onQueueComplete) queueCompletionRef.current.set(requestId, { done: options.onQueueComplete, chatId: targetSessionId });
 
     applyImmediateChatTitleFromFirstUserMessage(targetSessionId, text);
 
     if (!canUseAgentRuntime) {
+      recordTaskFinished(targetSessionId, 'error', requestId);
+      finishQueuedRequest(requestId, 'error');
       const normalizedError = normalizeChatError(new Error('agent runtime unavailable'));
       const assistantMessageId = createMessageId();
       const userMessage = {
@@ -5676,7 +5913,7 @@ const HomePage = () => {
         blocks: [],
         createdAt: Date.now(),
         model: chatModelMeta,
-        modelId: chatModel,
+        modelId: requestModel,
         storeAssistantMessageId: null,
         retryStatusText: '',
         error: normalizedError,
@@ -5696,7 +5933,7 @@ const HomePage = () => {
       if (shouldRequestTitleFromFirstUserMessage) {
         void triggerAutoRenameSessionTitle(targetSessionId, {
           messagesOverride: [userMessage],
-          modelOverride: chatModel,
+          modelOverride: requestModel,
           requireFirstUserMessageOnly: true
         });
       }
@@ -5744,7 +5981,7 @@ const HomePage = () => {
         blocks: [],
         createdAt: Date.now(),
         model: chatModelMeta,
-        modelId: chatModel,
+        modelId: requestModel,
         storeAssistantMessageId: null,
         retryStatusText: '',
       };
@@ -5763,7 +6000,7 @@ const HomePage = () => {
       if (shouldRequestTitleFromFirstUserMessage) {
         void triggerAutoRenameSessionTitle(targetSessionId, {
           messagesOverride: [userMessage],
-          modelOverride: chatModel,
+          modelOverride: requestModel,
           requireFirstUserMessageOnly: true
         });
       }
@@ -5880,7 +6117,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             digitalHumanRequest: resolvedDigitalHumanRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -5892,7 +6129,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           digitalHumanRequest: resolvedDigitalHumanRequest,
         });
         if (!directDigitalHumanResult?.ok) {
@@ -5903,7 +6140,7 @@ const HomePage = () => {
           content: String(directDigitalHumanResult?.assistantText || '').trim(),
           blocks: Array.isArray(directDigitalHumanResult?.assistantBlocks) ? directDigitalHumanResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -5917,7 +6154,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'digital-human-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'digital-human-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'digital-human-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -5938,7 +6177,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             voiceConversionRequest: resolvedVoiceConversionRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -5950,7 +6189,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           voiceConversionRequest: resolvedVoiceConversionRequest,
         });
         if (!directVoiceConversionResult?.ok) {
@@ -5961,7 +6200,7 @@ const HomePage = () => {
           content: String(directVoiceConversionResult?.assistantText || '').trim(),
           blocks: Array.isArray(directVoiceConversionResult?.assistantBlocks) ? directVoiceConversionResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -5975,7 +6214,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'voice-conversion-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'voice-conversion-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'voice-conversion-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -5992,7 +6233,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             seedAudioRequest: resolvedSeedAudioRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6004,7 +6245,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           seedAudioRequest: resolvedSeedAudioRequest,
         });
         if (!directSeedAudioResult?.ok) {
@@ -6015,7 +6256,7 @@ const HomePage = () => {
           content: String(directSeedAudioResult?.assistantText || '').trim(),
           blocks: Array.isArray(directSeedAudioResult?.assistantBlocks) ? directSeedAudioResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6029,7 +6270,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'seed-audio-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'seed-audio-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'seed-audio-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6050,7 +6293,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             aiVideoRequest: resolvedAiVideoRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6062,7 +6305,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           aiVideoRequest: resolvedAiVideoRequest,
         });
         if (!directAiVideoResult?.ok) {
@@ -6073,7 +6316,7 @@ const HomePage = () => {
           content: String(directAiVideoResult?.assistantText || '').trim(),
           blocks: Array.isArray(directAiVideoResult?.assistantBlocks) ? directAiVideoResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6087,7 +6330,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'ai-video-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'ai-video-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'ai-video-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6108,7 +6353,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             imageGenerateRequest: resolvedImageGenerateRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6120,7 +6365,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           imageGenerateRequest: resolvedImageGenerateRequest,
         });
         if (!directImageGenerateResult?.ok) {
@@ -6131,7 +6376,7 @@ const HomePage = () => {
           content: String(directImageGenerateResult?.assistantText || '').trim(),
           blocks: Array.isArray(directImageGenerateResult?.assistantBlocks) ? directImageGenerateResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6145,7 +6390,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'image-generate-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'image-generate-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'image-generate-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6166,7 +6413,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             draftRequest: resolvedDraftRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6178,7 +6425,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           draftRequest: resolvedDraftRequest,
         });
         if (!directDraftResult?.ok) {
@@ -6189,7 +6436,7 @@ const HomePage = () => {
           content: String(directDraftResult?.assistantText || '').trim(),
           blocks: Array.isArray(directDraftResult?.assistantBlocks) ? directDraftResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6203,7 +6450,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'draft-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'draft-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'draft-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6220,7 +6469,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             draftModifyRequest: resolvedDraftModifyRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6232,7 +6481,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           draftModifyRequest: resolvedDraftModifyRequest,
         });
         if (!directDraftModifyResult?.ok) {
@@ -6243,7 +6492,7 @@ const HomePage = () => {
           content: String(directDraftModifyResult?.assistantText || '').trim(),
           blocks: Array.isArray(directDraftModifyResult?.assistantBlocks) ? directDraftModifyResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6257,7 +6506,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'draft-modify-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'draft-modify-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'draft-modify-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6274,7 +6525,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             textAddRequest: resolvedTextAddRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6286,7 +6537,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           textAddRequest: resolvedTextAddRequest,
         });
         if (!directTextAddResult?.ok) {
@@ -6297,7 +6548,7 @@ const HomePage = () => {
           content: String(directTextAddResult?.assistantText || '').trim(),
           blocks: Array.isArray(directTextAddResult?.assistantBlocks) ? directTextAddResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6311,7 +6562,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'text-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'text-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'text-add-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6328,7 +6581,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             presetAddRequest: resolvedPresetAddRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6340,7 +6593,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           presetAddRequest: resolvedPresetAddRequest,
         });
         if (!directPresetAddResult?.ok) {
@@ -6351,7 +6604,7 @@ const HomePage = () => {
           content: String(directPresetAddResult?.assistantText || '').trim(),
           blocks: Array.isArray(directPresetAddResult?.assistantBlocks) ? directPresetAddResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6365,7 +6618,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'preset-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'preset-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'preset-add-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6383,7 +6638,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             audioAddRequest: resolvedAudioAddRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6395,7 +6650,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           audioAddRequest: resolvedAudioAddRequest,
         });
         if (!directAudioAddResult?.ok) {
@@ -6406,7 +6661,7 @@ const HomePage = () => {
           content: String(directAudioAddResult?.assistantText || '').trim(),
           blocks: Array.isArray(directAudioAddResult?.assistantBlocks) ? directAudioAddResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6420,7 +6675,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'audio-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'audio-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'audio-add-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6437,7 +6694,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             imageAddRequest: resolvedImageAddRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6449,7 +6706,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           imageAddRequest: resolvedImageAddRequest,
         });
         if (!directImageAddResult?.ok) {
@@ -6460,7 +6717,7 @@ const HomePage = () => {
           content: String(directImageAddResult?.assistantText || '').trim(),
           blocks: Array.isArray(directImageAddResult?.assistantBlocks) ? directImageAddResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6474,7 +6731,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'image-add-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'image-add-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'image-add-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6491,7 +6750,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             speechRequest: resolvedSpeechRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6503,7 +6762,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           speechRequest: resolvedSpeechRequest,
         });
         if (!directSpeechResult?.ok) {
@@ -6514,7 +6773,7 @@ const HomePage = () => {
           content: String(directSpeechResult?.assistantText || '').trim(),
           blocks: Array.isArray(directSpeechResult?.assistantBlocks) ? directSpeechResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6528,7 +6787,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'speech-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'speech-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'speech-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6545,7 +6806,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             draftExportRequest: resolvedDraftExportRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6557,7 +6818,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           draftExportRequest: resolvedDraftExportRequest,
         });
         if (!directDraftExportResult?.ok) {
@@ -6568,7 +6829,7 @@ const HomePage = () => {
           content: String(directDraftExportResult?.assistantText || '').trim(),
           blocks: Array.isArray(directDraftExportResult?.assistantBlocks) ? directDraftExportResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6582,7 +6843,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'draft-export-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'draft-export-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'draft-export-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6599,7 +6862,7 @@ const HomePage = () => {
             assistantMessageId,
             requestId,
             draftDownloadRequest: resolvedDraftDownloadRequest,
-            modelId: chatModel,
+            modelId: requestModel,
           }),
           content: '',
           error: null,
@@ -6611,7 +6874,7 @@ const HomePage = () => {
           userMessageId: userMessage.id,
           assistantMessageId,
           userContent: text,
-          model: chatModel,
+          model: requestModel,
           draftDownloadRequest: resolvedDraftDownloadRequest,
         });
         if (!directDraftDownloadResult?.ok) {
@@ -6622,7 +6885,7 @@ const HomePage = () => {
           content: String(directDraftDownloadResult?.assistantText || '').trim(),
           blocks: Array.isArray(directDraftDownloadResult?.assistantBlocks) ? directDraftDownloadResult.assistantBlocks : [],
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           error: null,
           updatedAt: Date.now(),
@@ -6636,7 +6899,9 @@ const HomePage = () => {
         setChatSessionSending(targetSessionId, false, 'draft-download-request.complete');
         setChatSessionInFlight(targetSessionId, false, 'draft-download-request.complete');
         setChatSessionFulfilled(targetSessionId, true, 'draft-download-request.complete');
+        recordTaskFinished(targetSessionId, 'success', requestId);
         setChatSending(false);
+        finishQueuedRequest(requestId, 'complete');
         return;
       }
 
@@ -6645,7 +6910,7 @@ const HomePage = () => {
         appStore.getState,
         `home-chat-${targetSessionId}`,
         DEFAULT_RUNTIME_AGENT_ID,
-        chatModel,
+        requestModel,
         userMessage.id
       );
       updateChatAssistantMessage(targetSessionId, assistantMessageId, {
@@ -6685,7 +6950,7 @@ const HomePage = () => {
         content: text,
         createdAt: userMessage.createdAt,
         requestId,
-        model: chatModel,
+        model: requestModel,
         images,
         ...(options?.skillTemplateSource ? { skillTemplateSource: options.skillTemplateSource } : {}),
         ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
@@ -6696,6 +6961,7 @@ const HomePage = () => {
       }
     } catch (error) {
       const normalizedError = normalizeChatError(error);
+      finishQueuedRequest(requestId, String(error?.code || '').toUpperCase() === 'ABORTED' || error?.name === 'AbortError' ? 'aborted' : 'error');
       logger.error('Chat send failed', normalizedError?.detail || error?.message || String(error));
       chatPendingByRequestIdRef.current.delete(requestId);
       const failedPerf = chatPerfByRequestIdRef.current.get(requestId);
@@ -6721,6 +6987,7 @@ const HomePage = () => {
       setChatWorkspaceStatus(targetSessionId, '');
       setChatSessionSending(targetSessionId, false, 'send-catch');
       setChatSessionInFlight(targetSessionId, false, 'send-catch');
+      recordTaskFinished(targetSessionId, String(error?.code || '').toUpperCase() === 'ABORTED' || error?.name === 'AbortError' ? 'cancelled' : 'error', requestId);
       if (!userMessage) {
         const failedUserMessage = {
           id: createMessageId(),
@@ -6736,7 +7003,7 @@ const HomePage = () => {
           blocks: [],
           createdAt: Date.now(),
           model: chatModelMeta,
-          modelId: chatModel,
+          modelId: requestModel,
           storeAssistantMessageId: null,
           retryStatusText: '',
           error: normalizedError,
@@ -6763,8 +7030,9 @@ const HomePage = () => {
   const handleStopChatMessage = () => {
     if (canUseAgentRuntime) {
       const pendingEntries = [...chatPendingByRequestIdRef.current.entries()];
-      const active = pendingEntries.find(([, item]) => item.chatId === activeChatId) || pendingEntries[0];
+      const active = pendingEntries.find(([, item]) => item.chatId === activeChatId);
       if (active && active[1]?.agentSessionId) {
+          recordTaskFinished(active[1].chatId, 'cancelled', active[0]);
           finalizeChatAssistantMessageLocally({
             chatId: active[1].chatId,
             assistantMessageId: active[1].assistantMessageId,
@@ -6773,7 +7041,11 @@ const HomePage = () => {
             error: null,
             aborted: true
           });
-        void window.electronAPI.cherryChatStream.abort(active[1].agentSessionId);
+        void Promise.resolve(window.electronAPI.cherryChatStream.abort(active[1].agentSessionId)).catch((error) => {
+          // Abort failure does not prove termination. Keep the request occupied
+          // until its own terminal event so a fresh submission cannot overlap it.
+          logger.error('Chat abort failed', error);
+        });
         return;
       }
     }

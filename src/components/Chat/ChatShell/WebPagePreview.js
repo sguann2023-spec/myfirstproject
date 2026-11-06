@@ -14,6 +14,7 @@ import { download as downloadFile } from '@renderer/utils/download';
 import { IpcChannel } from '@shared/IpcChannel';
 import ImageContextMenu from './ImageContextMenu';
 import TextFilePreview from './TextFilePreview';
+import ArtifactPreview from './ArtifactPreview';
 import './WebPagePreview.css';
 
 const normalizeUrl = (value = '') => String(value || '').trim();
@@ -24,10 +25,11 @@ const MOBILE_CHROME_USER_AGENT = 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) A
 const logger = loggerService.withContext('ChatShell/WebPagePreview');
 const FILE_PREVIEW_TYPE = 'file';
 const WEB_PREVIEW_TYPE = 'web';
+const ARTIFACT_PREVIEW_TYPE = 'artifact';
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const readPreviewTabId = (preview, fallback = 'initial-tab') => String(preview?.tabId || fallback).trim() || fallback;
-const getPreviewType = (preview) => (String(preview?.previewType || '').trim() === FILE_PREVIEW_TYPE ? FILE_PREVIEW_TYPE : WEB_PREVIEW_TYPE);
+const getPreviewType = (preview) => ([FILE_PREVIEW_TYPE, ARTIFACT_PREVIEW_TYPE].includes(String(preview?.previewType || '').trim()) ? preview.previewType.trim() : WEB_PREVIEW_TYPE);
 const getFallbackFaviconUrl = (value = '') => {
   const normalized = normalizeUrl(value);
   if (!normalized || normalized === BLANK_TAB_URL) return '';
@@ -42,6 +44,15 @@ const getFallbackFaviconUrl = (value = '') => {
 
 const createPreviewTab = (preview, overrides = {}) => {
   const previewType = getPreviewType(preview);
+  if (previewType === ARTIFACT_PREVIEW_TYPE) {
+    return {
+      id: overrides.id || createTabId(),
+      type: ARTIFACT_PREVIEW_TYPE,
+      previewKey: String(preview?.key || '').trim(),
+      title: '产物',
+      activate: preview?.activate !== false
+    };
+  }
   if (previewType === FILE_PREVIEW_TYPE) {
     const fileName = String(preview?.name || preview?.title || '').trim() || '文件预览';
     return {
@@ -106,6 +117,8 @@ const WebPagePreview = ({
   onSaveFileEdit,
   onSubmitFileComment,
   onTabClose,
+  artifactProps = {},
+  sessionId = '',
   submittingComment = false
 }) => {
   const webviewRef = React.useRef(null);
@@ -122,12 +135,12 @@ const WebPagePreview = ({
   const [imageContextMenu, setImageContextMenu] = React.useState(null);
   const tabsStateRef = React.useRef([]);
   const activeTabIdRef = React.useRef(readPreviewTabId(preview));
-  const lastActiveWebTabIdRef = React.useRef(getPreviewType(preview) === FILE_PREVIEW_TYPE ? '' : readPreviewTabId(preview));
+  const lastActiveWebTabIdRef = React.useRef(getPreviewType(preview) === WEB_PREVIEW_TYPE ? readPreviewTabId(preview) : '');
   const activeTab = React.useMemo(
     () => tabs.find((item) => item.id === activeTabId) || tabs[0] || null,
     [activeTabId, tabs]
   );
-  const isActiveWebTab = activeTab?.type !== FILE_PREVIEW_TYPE;
+  const isActiveWebTab = activeTab?.type === WEB_PREVIEW_TYPE;
   const targetUrl = isActiveWebTab ? (normalizeUrl(activeTab?.url) || BLANK_TAB_URL) : BLANK_TAB_URL;
 
   React.useEffect(() => {
@@ -140,6 +153,22 @@ const WebPagePreview = ({
     activeTabIdRef.current = initialTab.id;
   }, []);
 
+  const staleArtifactKeyRef = React.useRef(null);
+  const previousSessionRef = React.useRef(sessionId);
+  React.useLayoutEffect(() => {
+    if (previousSessionRef.current === sessionId) return;
+    previousSessionRef.current = sessionId;
+    staleArtifactKeyRef.current = getPreviewType(preview) === ARTIFACT_PREVIEW_TYPE ? preview?.key : null;
+    const remaining = tabsStateRef.current.filter((tab) => tab.type !== ARTIFACT_PREVIEW_TYPE);
+    if (!remaining.length) remaining.push(createPreviewTab({ url: BLANK_TAB_URL }, { id: createTabId() }));
+    tabsStateRef.current = remaining;
+    setTabs(remaining);
+    if (!remaining.some((tab) => tab.id === activeTabIdRef.current)) {
+      activeTabIdRef.current = remaining[0].id;
+      setActiveTabId(remaining[0].id);
+    }
+  }, [sessionId]);
+
   React.useEffect(() => {
     tabsStateRef.current = tabs;
   }, [tabs]);
@@ -149,7 +178,7 @@ const WebPagePreview = ({
   }, [activeTabId]);
 
   React.useEffect(() => {
-    if (activeTab?.type !== FILE_PREVIEW_TYPE && activeTab?.id) {
+    if (activeTab?.type === WEB_PREVIEW_TYPE && activeTab?.id) {
       lastActiveWebTabIdRef.current = activeTab.id;
     }
   }, [activeTab]);
@@ -264,12 +293,12 @@ const WebPagePreview = ({
     if (!ipcRenderer?.invoke) return Promise.resolve(null);
 
     const buildStatePayload = () => {
-      const browserTabs = tabsStateRef.current.filter((tab) => tab.type !== FILE_PREVIEW_TYPE);
+      const browserTabs = tabsStateRef.current.filter((tab) => tab.type === WEB_PREVIEW_TYPE);
       const activeTab = tabsStateRef.current.find((tab) => tab.id === activeTabIdRef.current) || null;
       const fallbackBrowserTabId = browserTabs.some((tab) => tab.id === lastActiveWebTabIdRef.current)
         ? lastActiveWebTabIdRef.current
         : (browserTabs[0]?.id || null);
-      const activeBrowserTabId = activeTab?.type === FILE_PREVIEW_TYPE ? fallbackBrowserTabId : (activeTab?.id || fallbackBrowserTabId);
+      const activeBrowserTabId = activeTab?.type === WEB_PREVIEW_TYPE ? activeTab.id : fallbackBrowserTabId;
       let activeWebContentsId = null;
       try {
         const webviewId = webviewRef.current?.getWebContentsId?.();
@@ -359,26 +388,24 @@ const WebPagePreview = ({
   React.useEffect(() => {
     const previewKey = String(preview?.key || '').trim();
     const previewType = getPreviewType(preview);
-    const previewUrl = previewType === FILE_PREVIEW_TYPE ? '' : normalizeUrl(preview?.url);
-    if (!previewKey || (previewType !== FILE_PREVIEW_TYPE && !previewUrl)) return;
+    if (previewType === ARTIFACT_PREVIEW_TYPE && staleArtifactKeyRef.current === previewKey) return;
+    const previewUrl = previewType === WEB_PREVIEW_TYPE ? normalizeUrl(preview?.url) : '';
+    if (!previewKey || (previewType === WEB_PREVIEW_TYPE && !previewUrl)) return;
 
     appliedPreviewKeyRef.current = previewKey;
     const requestedTabId = readPreviewTabId(preview, createTabId());
     const nextTab = createPreviewTab(preview, { id: requestedTabId });
     const shouldActivate = nextTab.activate !== false;
 
-    if (previewType === FILE_PREVIEW_TYPE) {
-      let resolvedTabId = requestedTabId;
-      let createdNewTab = false;
+    if (previewType !== WEB_PREVIEW_TYPE) {
+      const matchesPreview = (tab) => tab.type === previewType
+        && (tab.id === requestedTabId || tab.previewKey === previewKey);
+      const existingTab = tabsStateRef.current.find(matchesPreview);
+      const resolvedTabId = existingTab?.id || requestedTabId;
+      if (!existingTab) shouldScrollTabsToEndRef.current = true;
       setTabs((prev) => {
-        const matchedTab = prev.find((tab) => tab.id === requestedTabId || tab.previewKey === previewKey);
-        if (!matchedTab) {
-          createdNewTab = true;
-          shouldScrollTabsToEndRef.current = true;
-          return [...prev, nextTab];
-        }
-
-        resolvedTabId = matchedTab.id;
+        const matchedTab = prev.find(matchesPreview);
+        if (!matchedTab) return [...prev, nextTab];
         return prev.map((tab) => (
           tab.id === matchedTab.id
             ? {
@@ -389,7 +416,7 @@ const WebPagePreview = ({
             : tab
         ));
       });
-      if (createdNewTab || shouldActivate) {
+      if (shouldActivate) {
         setActiveTabId(resolvedTabId);
       }
       return;
@@ -419,6 +446,7 @@ const WebPagePreview = ({
           : prev.map((tab, index) => {
               const shouldAdoptExistingTab = (
                 index === 0
+                && tab.type === WEB_PREVIEW_TYPE
                 && (
                   tab.id === 'initial-tab'
                   || tab.previewKey === previewKey
@@ -810,6 +838,9 @@ const WebPagePreview = ({
           const nextUrl = normalizeAddressInput(payload?.url || '');
           if (!nextUrl) throw new Error('缺少有效的 URL');
 
+          if (tabsStateRef.current.some((tab) => tab.id === tabId && tab.type !== WEB_PREVIEW_TYPE)) {
+            throw new Error('目标浏览器标签页不存在');
+          }
           const shouldCreateNewTab = Boolean(payload?.newTab) || !tabsStateRef.current.some((tab) => tab.id === tabId);
           if (shouldCreateNewTab) {
             const nextTab = createPreviewTab({
@@ -836,7 +867,7 @@ const WebPagePreview = ({
           result = await waitForLoadResult(tabId, Number(payload?.timeout || 15000));
         } else if (command === 'switch_tab') {
           const tabId = String(payload?.tabId || '').trim();
-          const targetTab = tabsStateRef.current.find((tab) => tab.id === tabId);
+          const targetTab = tabsStateRef.current.find((tab) => tab.id === tabId && tab.type === WEB_PREVIEW_TYPE);
           if (!tabId || !targetTab) throw new Error('目标标签页不存在');
 
           setActiveTabId(tabId);
@@ -858,7 +889,7 @@ const WebPagePreview = ({
           }
         } else if (command === 'get_context') {
           const webview = webviewRef.current;
-          const browserTabs = tabsStateRef.current.filter((tab) => tab.type !== FILE_PREVIEW_TYPE);
+          const browserTabs = tabsStateRef.current.filter((tab) => tab.type === WEB_PREVIEW_TYPE);
           const activeBrowserTabId = activeTabIdRef.current && browserTabs.some((tab) => tab.id === activeTabIdRef.current)
             ? activeTabIdRef.current
             : (browserTabs.some((tab) => tab.id === lastActiveWebTabIdRef.current) ? lastActiveWebTabIdRef.current : (browserTabs[0]?.id || null));
@@ -892,13 +923,14 @@ const WebPagePreview = ({
           };
         } else if (command === 'close_tab') {
           const tabId = String(payload?.tabId || '').trim();
-          if (!tabId) throw new Error('缺少 tabId');
+          if (!tabsStateRef.current.some((tab) => tab.id === tabId && tab.type === WEB_PREVIEW_TYPE)) throw new Error('目标浏览器标签页不存在');
           handleCloseTab(tabId);
           result = { closed: tabId };
         } else if (command === 'reset') {
           if (payload?.tabId) {
             const tabId = String(payload.tabId || '').trim();
             if (tabId) {
+              if (!tabsStateRef.current.some((tab) => tab.id === tabId && tab.type === WEB_PREVIEW_TYPE)) throw new Error('目标浏览器标签页不存在');
               handleCloseTab(tabId);
               result = { closed: tabId };
             }
@@ -987,11 +1019,11 @@ const WebPagePreview = ({
                   className={`chat-web-preview__tab ${isActive ? 'is-active' : ''}`.trim()}
                   onClick={() => {
                     setActiveTabId(tab.id);
-                    setAddressValue(tab.type === FILE_PREVIEW_TYPE ? '' : (normalizeUrl(tab.url) || BLANK_TAB_URL));
+                    setAddressValue(tab.type === WEB_PREVIEW_TYPE ? (normalizeUrl(tab.url) || BLANK_TAB_URL) : '');
                   }}
-                  title={tab.type === FILE_PREVIEW_TYPE ? (tab.filePreview?.path || tab.title) : (tab.title || tab.url)}>
+                  title={tab.type !== WEB_PREVIEW_TYPE ? (tab.filePreview?.path || tab.title) : (tab.title || tab.url)}>
                   <span className="chat-web-preview__tab-icon" aria-hidden="true">
-                    {tab.type === FILE_PREVIEW_TYPE ? (
+                    {tab.type !== WEB_PREVIEW_TYPE ? (
                       <FileText size={14} />
                     ) : tab.favicon ? (
                       <img
@@ -1097,7 +1129,11 @@ const WebPagePreview = ({
           partition="persist:webview"
           useragent={MOBILE_CHROME_USER_AGENT}
         />
-        {activeTab?.type === FILE_PREVIEW_TYPE ? (
+        {activeTab?.type === ARTIFACT_PREVIEW_TYPE ? (
+          <div className="chat-web-preview__file-pane">
+            <ArtifactPreview {...artifactProps} onClose={() => handleCloseTab(activeTab.id)} />
+          </div>
+        ) : activeTab?.type === FILE_PREVIEW_TYPE ? (
           <div className="chat-web-preview__file-pane">
             <TextFilePreview
               preview={activeTab.filePreview}

@@ -73,7 +73,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
+import { resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -94,6 +94,36 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('Pi runtime authentication', () => {
+  const runtime = (apiKey?: string) => ({
+    modelInfo: { provider: { type: 'openai', apiKey, anthropicApiHost: 'https://open.vectcut.com' } },
+    env: { ANTHROPIC_API_KEY: 'fresh-runtime-token', ANTHROPIC_AUTH_TOKEN: 'session-login-token' }
+  }) as any
+
+  it('uses the fresh resolved runtime token for OpenAI gateway requests instead of stale provider credentials', () => {
+    expect(resolvePiRuntimeApiKey(runtime('stale-provider-token'), 'https://open.vectcut.com/v1'))
+      .toBe('fresh-runtime-token')
+  })
+
+  it.each([
+    'https://custom.example/v1',
+    'https://open.vectcut.com.evil.example/v1',
+    'https://evil.example/open.vectcut.com',
+    'https://open.vectcut.com@evil.example/v1',
+    'not-a-url/open.vectcut.com',
+    'http://open.vectcut.com/v1'
+  ])('keeps custom endpoint credentials scoped to the actual destination %s', baseUrl => {
+    expect(resolvePiRuntimeApiKey(runtime('custom-api-key'), baseUrl)).toBe('custom-api-key')
+    expect(resolvePiRuntimeApiKey(runtime(), baseUrl)).toBe('')
+  })
+
+  it('does not fall back to a stale provider key when gateway runtime credentials are absent', () => {
+    const environment = runtime('stale-provider-token')
+    environment.env = {}
+    expect(resolvePiRuntimeApiKey(environment, 'https://open.vectcut.com/v1')).toBe('')
+  })
 })
 
 describe('OpenAI tool message normalization', () => {

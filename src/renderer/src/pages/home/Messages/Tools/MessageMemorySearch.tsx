@@ -1,10 +1,11 @@
 import type { MemorySearchToolInput, MemorySearchToolOutput } from '@renderer/aiCore/tools/MemorySearchTool'
-import Spinner from '@renderer/components/Spinner'
 import type { NormalToolResponse } from '@renderer/types'
 import { Typography } from 'antd'
 import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
+
+import { toolRunningShimmerCss } from './shared/toolShimmer'
 
 const { Text } = Typography
 
@@ -14,14 +15,10 @@ export const MessageMemorySearchToolTitle = ({ toolResponse }: { toolResponse: N
   const toolOutput = toolResponse.response as MemorySearchToolOutput
 
   return toolResponse.status !== 'done' ? (
-    <Spinner
-      text={
-        <MessageWebSearchToolTitleTextWrapper>
-          {t('memory.search_placeholder')}
-          <span>{toolInput?.query ?? ''}</span>
-        </MessageWebSearchToolTitleTextWrapper>
-      }
-    />
+    <MemorySearchRunningWrapper $running>
+      <span>{t('memory.search_placeholder')}</span>
+      <span>{toolInput?.query ?? ''}</span>
+    </MemorySearchRunningWrapper>
   ) : toolOutput?.length ? (
     <MessageWebSearchToolTitleTextWrapper type="secondary">
       <ChevronRight size={16} style={{ color: 'unset' }} />
@@ -31,6 +28,16 @@ export const MessageMemorySearchToolTitle = ({ toolResponse }: { toolResponse: N
     </MessageWebSearchToolTitleTextWrapper>
   ) : null
 }
+
+const MemorySearchRunningWrapper = styled.span<{ $running?: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  padding: 5px;
+  padding-left: 0;
+  ${(props) => (props.$running ? toolRunningShimmerCss : '')}
+`
 
 const MessageWebSearchToolTitleTextWrapper = styled(Text)`
   display: flex;

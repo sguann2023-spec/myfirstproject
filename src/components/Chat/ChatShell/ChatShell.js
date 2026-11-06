@@ -360,6 +360,7 @@ const ChatShell = ({
   onOpenSkillStore,
   onModifySkill,
   onSubmitFileComment,
+  onAddWorkspaceFile,
   onSubmitToolTask,
   sessionSending = false,
   webPreview = null,
@@ -376,6 +377,14 @@ const ChatShell = ({
   beginnerGuideSettingsPaneRef = null,
   beginnerGuideEligible = false,
   onRefreshCredits,
+  pinnedDrafts = [],
+  pinnedDraftSessionActive = false,
+  pinnedDraftSessionFulfilled = false,
+  onPinnedDraftPreviewItem,
+  onPinnedDraftDownloadItem,
+  pinnedDraftPreviewLoadingKey = null,
+  pinnedDraftPreviewErrorKey = null,
+  pinnedDraftPreviewErrorMessage = '',
   children
 }) => {
   const [resolvedSessionId, setResolvedSessionId] = React.useState(runtimeSessionId || '');
@@ -1524,6 +1533,7 @@ const ChatShell = ({
                 void openFilePreview(rootPath, node);
               }
             }}
+            onContextMenu={options.onContextMenu ? (event) => options.onContextMenu(event, { rootPath, node, absolutePath, onOpen: () => isDirectory ? toggleNodeExpanded(scopeKey, node.path) : void openFilePreview(rootPath, node) }) : undefined}
             role="button"
             tabIndex={0}
             onKeyDown={(event) => {
@@ -1731,6 +1741,7 @@ const ChatShell = ({
               currentWorkspacePath={currentWorkspacePath}
               hasLockedWorkspace={hasLockedWorkspace}
               workspaceStatus={workspaceStatus}
+              onAddWorkspaceFile={onAddWorkspaceFile}
               onBindWorkspace={bindWorkspaceToSession}
               renderTreeNodes={renderTreeNodes}
               beginnerGuideCreateWorkspaceButtonRef={beginnerGuideCreateWorkspaceButtonRef}
@@ -1757,9 +1768,20 @@ const ChatShell = ({
         ref={beginnerGuideWebPreviewPaneRef}
         className={`chat-panel__preview-pane chat-panel__preview-pane--trailing ${showTrailingWebPreview ? 'is-open' : ''}`.trim()}
         style={trailingWebPreviewStyle}>
-        {panePreview && (
+        {panePreview ? (
           <WebPagePreview
             preview={panePreview}
+            sessionId={chatSessionId}
+            artifactProps={{
+              drafts: pinnedDrafts,
+              sessionActive: pinnedDraftSessionActive,
+              sessionFulfilled: pinnedDraftSessionFulfilled,
+              onPreviewItem: onPinnedDraftPreviewItem,
+              onDownloadItem: onPinnedDraftDownloadItem,
+              previewLoadingKey: pinnedDraftPreviewLoadingKey,
+              previewErrorKey: pinnedDraftPreviewErrorKey,
+              previewErrorMessage: pinnedDraftPreviewErrorMessage
+            }}
             currentModelMeta={currentModelMeta}
             onClose={closeInlinePreviewPane}
             onRefreshFilePreview={handleRefreshFilePreview}
@@ -1768,7 +1790,7 @@ const ChatShell = ({
             onTabClose={handlePreviewTabClose}
             submittingComment={sessionSending}
           />
-        )}
+        ) : null}
       </div>
       <Tour
         open={beginnerGuideOpen}

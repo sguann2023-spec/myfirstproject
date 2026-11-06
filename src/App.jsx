@@ -50,7 +50,6 @@ function App() {
 
   const handleLogin = useCallback(async (id_token) => {
     logger.debug('login success');
-    logger.debug('id_token:', id_token);
     try {
       const { ipcRenderer } = window.require('electron');
       await prepareHomeRuntime();

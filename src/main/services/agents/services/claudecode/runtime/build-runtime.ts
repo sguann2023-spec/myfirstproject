@@ -13,6 +13,7 @@ import { withoutTrailingApiVersion } from '@shared/utils'
 import { app } from 'electron'
 
 import type { GetAgentSessionResponse } from '../..'
+import { isVectcutGatewayUrl } from '../../../gatewayAuth'
 
 const logger = loggerService.withContext('ClaudeCodeRuntime')
 
@@ -54,16 +55,6 @@ const BLOCKED_ENV_KEYS = new Set([
   'PROTOTYPE'
 ])
 
-const isVectcutGatewayUrl = (value: string): boolean => {
-  const raw = String(value || '').trim()
-  if (!raw) return false
-  try {
-    return new URL(raw).hostname === 'open.vectcut.com'
-  } catch {
-    return raw.includes('open.vectcut.com')
-  }
-}
-
 export function resolveWorkspaceCwd(session: GetAgentSessionResponse): string {
   const configuredWorkspacePath = String(
     (session.configuration as Record<string, unknown> | undefined)?.selected_workspace_path || ''
@@ -81,7 +72,12 @@ export async function buildClaudeRuntimeEnvironment(input: {
   const { session, modelOverride, cwd, enableToolSearch } = input
 
   const runtimeModel = String(modelOverride || session.model || '').trim()
-  const modelInfo = await validateModelId(runtimeModel)
+  const validatedModelInfo = await validateModelId(runtimeModel)
+  // Validation may return a cached provider; runtime normalization must stay invocation-local.
+  const modelInfo = {
+    ...validatedModelInfo,
+    provider: validatedModelInfo.provider ? { ...validatedModelInfo.provider } : undefined
+  }
   if (!modelInfo.valid) {
     throw new Error(`Invalid model ID '${runtimeModel}': ${JSON.stringify(modelInfo.error)}`)
   }
@@ -162,7 +158,9 @@ export async function buildClaudeRuntimeEnvironment(input: {
   const anthropicBaseUrl = resolveAnthropicBaseUrl()
   const sessionVectcutApiKey = String(sessionEnvVars?.VECTCUT_API_KEY || '').trim()
   const providerApiKey = String(provider.apiKey || '').trim()
-  const shouldUseRuntimeGatewayToken = isVectcutGatewayUrl(anthropicBaseUrl)
+  // Pi's OpenAI transport uses apiHost, not the optional Anthropic host.
+  const credentialBaseUrl = isAnthropicType ? anthropicBaseUrl : String(provider.apiHost || '').trim()
+  const shouldUseRuntimeGatewayToken = isVectcutGatewayUrl(credentialBaseUrl)
   let runtimeAuthToken = providerApiKey
 
   if (shouldUseRuntimeGatewayToken) {

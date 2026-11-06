@@ -63,14 +63,19 @@ const normalizeBlockStatus = (value, { isLoading = false, blockType = MessageBlo
   if (status === 'pending') return MessageBlockStatus.PENDING;
   if (status === 'processing') return MessageBlockStatus.PROCESSING;
   if (status === 'streaming' || status === 'running' || status === 'invoking') return MessageBlockStatus.STREAMING;
+  if (['paused', 'cancelled', 'canceled', 'aborted', 'interrupted'].includes(status)) return MessageBlockStatus.PAUSED;
   if (status === 'error' || status === 'failed') return MessageBlockStatus.ERROR;
   return MessageBlockStatus.SUCCESS;
 };
 
 const buildAssistantMessageStatus = ({ message, isLoading, entities, blockIds }) => {
   if (visibleTurnError(message)) return 'error';
-  if (isCancelledTurn(message)) return 'success';
+  if (isCancelledTurn(message) || message?.status === 'paused') return 'paused';
+  if (['error', 'failed'].includes(message?.status)) return 'error';
   if (isLoading) return 'processing';
+  // History can contain an in-flight snapshot after a crash. Without a live
+  // stream, it is interrupted, not evidence of successful completion.
+  if (['pending', 'processing', 'streaming', 'searching', 'running'].includes(message?.status)) return 'paused';
   const hasActiveBlock = blockIds.some((id) => {
     const status = entities[id]?.status;
     return (
@@ -92,7 +97,7 @@ const InterruptedNotice = ({ visible }) => (
   visible ? <div className="chat-message-interrupted">用户已取消</div> : null
 );
 
-const buildAssistantBlockState = ({ message, isLoading }) => {
+export const buildAssistantBlockState = ({ message, isLoading }) => {
   const messageId = String(message?.id || `assistant-${Date.now()}`);
   const createdAt = new Date().toISOString();
   const sourceBlocks = Array.isArray(message?.blocks) ? message.blocks : [];
@@ -334,7 +339,7 @@ const MessageContent = ({ message, isLoading = false }) => {
   }), [assistantCreatedAt, assistantStatus, message?.id, assistantState.blockIds, message?.retryStatusText, message?.aborted, message?.status]);
 
   React.useEffect(() => {
-    if (!isAssistant) return;
+    if (!isAssistant || message?.presentationMembers) return;
     const assistantBlocks = assistantState.blockIds
       .map((id) => assistantState.entities[id])
       .filter(Boolean);

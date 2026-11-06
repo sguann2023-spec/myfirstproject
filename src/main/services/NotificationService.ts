@@ -1,22 +1,60 @@
 import type { Notification } from '@types'
-import { Notification as ElectronNotification } from 'electron'
+import { BrowserWindow, Notification as ElectronNotification } from 'electron'
 
 import { windowService } from './WindowService'
 
 class NotificationService {
-  public async sendNotification(notification: Notification) {
-    // 使用 Electron Notification API
-    const electronNotification = new ElectronNotification({
-      title: notification.title,
-      body: notification.message
-    })
+  private activeNotifications = new Set<ElectronNotification>()
+  private seenInputRequestIds = new Set<string>()
 
-    electronNotification.on('click', () => {
-      windowService.getMainWindow()?.show()
-      windowService.getMainWindow()?.webContents.send('notification-click', notification)
-    })
+  public async sendNotification(notification: Notification): Promise<boolean> {
+    const isInputRequired = notification.meta?.kind === 'task-input-required'
+    const isTask = isInputRequired || notification.meta?.kind === 'task-finished'
+    const requestId = isInputRequired ? String(notification.meta?.requestId || '').trim() : ''
+    if (isInputRequired) {
+      if (!requestId || this.seenInputRequestIds.has(requestId)) return false
+      this.seenInputRequestIds.add(requestId)
+      if (this.seenInputRequestIds.size > 1000) {
+        this.seenInputRequestIds.delete(this.seenInputRequestIds.values().next().value!)
+      }
+    }
+    if (isTask && (BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused())
+      || !ElectronNotification.isSupported())) {
+      return false
+    }
 
-    electronNotification.show()
+    const show = () => {
+      const electronNotification = new ElectronNotification({
+        title: notification.title,
+        body: notification.message,
+        ...(isTask ? { silent: true } : {})
+      })
+
+      // Retain native notifications until dismissal so click handlers survive GC.
+      this.activeNotifications.add(electronNotification)
+      electronNotification.once('close', () => this.activeNotifications.delete(electronNotification))
+      electronNotification.once('failed', () => this.activeNotifications.delete(electronNotification))
+      electronNotification.on('click', () => {
+        this.activeNotifications.delete(electronNotification)
+        const window = windowService.getMainWindow()
+        if (!window || window.isDestroyed()) return
+        if (window.isMinimized()) window.restore()
+        window.show()
+        window.focus()
+        window.webContents.send('notification-click', notification)
+      })
+
+      electronNotification.show()
+      return true
+    }
+
+    // Keep legacy notification error/sound behavior unchanged.
+    if (!isTask) return show()
+    try {
+      return show()
+    } catch {
+      return false
+    }
   }
 }
 
