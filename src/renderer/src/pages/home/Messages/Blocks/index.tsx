@@ -69,6 +69,8 @@ interface Props {
   fallbackBlockEntities?: Record<string, MessageBlock>
   messageStatus?: Message['status']
   message: Message
+  /** ChatShell 专用：处理中占位块旁显示「已处理 xx」计时文案 */
+  showProcessingElapsed?: boolean
 }
 
 function getBlockTimestamp(block: MessageBlock | undefined): number {
@@ -170,7 +172,7 @@ function getLatestTimestamp(...values: number[]): number {
   return Math.max(...validValues)
 }
 
-const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockEntities }) => {
+const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockEntities, showProcessingElapsed }) => {
   // 始终调用useSelector，避免条件调用Hook
   const blockEntities = useSelector((state: RootState) => messageBlocksSelectors.selectEntities(state))
   // 根据blocks类型处理渲染数据
@@ -196,6 +198,9 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
     const rawRetryText = String((message as any)?.retryStatusText || '').trim()
     return rawRetryText
   }, [renderedBlocks, message])
+
+  // 「已处理」计时的起点：本轮回复消息的创建时间
+  const processingStartedAt = showProcessingElapsed ? String(message.createdAt || '').trim() : ''
 
   const resultAnchorIndex = useMemo(() => {
     for (let index = groupedBlocks.length - 1; index >= 0; index--) {
@@ -388,7 +393,13 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
               type: MessageBlockType.UNKNOWN,
               status: MessageBlockStatus.PROCESSING,
               createdAt: new Date().toISOString(),
-              metadata: processingLoadingLabel ? { loadingLabel: processingLoadingLabel } : undefined
+              metadata:
+                processingLoadingLabel || processingStartedAt
+                  ? {
+                      ...(processingLoadingLabel ? { loadingLabel: processingLoadingLabel } : {}),
+                      ...(processingStartedAt ? { processingStartedAt } : {})
+                    }
+                  : undefined
             }}
           />
         </AnimatedBlockWrapper>

@@ -118,6 +118,7 @@ export function buildFunctionCallToolName(serverName: string, toolName: string):
 export const VECTCUT_MCP_NAMESPACE = 'vectcut'
 
 export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
+  'user-interaction',
   'ai-library',
   'agent-memory',
   'assistant',

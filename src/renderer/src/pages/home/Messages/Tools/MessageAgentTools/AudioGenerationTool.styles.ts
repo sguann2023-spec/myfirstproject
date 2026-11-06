@@ -40,7 +40,7 @@ export const VoiceLabel = styled.div`
 
 export const AudioRow = styled.div`
   width: 100%;
-  height: 100px;
+  height: 64px;
   border-radius: 8px;
   background: #e4e0db;
   padding: 0;
@@ -65,35 +65,35 @@ export const RightSection = styled.div`
 
 export const PlayButtonSection = styled.div`
   height: 100%;
-  flex: 0 0 92px;
+  flex: 0 0 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-right: 20px;
-  padding-left: 20px;
+  padding-right: 12px;
+  padding-left: 12px;
 `
 
 export const ArtworkWrapper = styled.div`
   position: relative;
-  width: 100px;
-  height: 100px;
+  width: 64px;
+  height: 64px;
   flex: 0 0 auto;
 `
 
 export const ArtworkBackground = styled.img`
   position: absolute;
   inset: 0;
-  width: 100px;
-  height: 100px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
 `
 
 export const ArtworkRotation = styled.img<{ $isPlaying?: boolean }>`
   position: absolute;
-  left: 29px;
-  top: 29px;
-  width: 42px;
-  height: 42px;
+  left: 19px;
+  top: 19px;
+  width: 26px;
+  height: 26px;
   object-fit: contain;
   animation: ${({ $isPlaying }) =>
     $isPlaying
@@ -105,10 +105,10 @@ export const ArtworkRotation = styled.img<{ $isPlaying?: boolean }>`
 
 export const ArtworkArm = styled.img<{ $isPlaying?: boolean }>`
   position: absolute;
-  right: 15px;
-  top: 24px;
-  width: 18px;
-  height: 50px;
+  right: 8px;
+  top: 14px;
+  width: 12px;
+  height: 32px;
   object-fit: contain;
   opacity: ${({ $isPlaying }) => ($isPlaying ? 1 : 0)};
 `
@@ -135,10 +135,37 @@ export const AudioTitleRow = styled.div`
   min-width: 0;
 `
 
-export const AudioTitle = styled.div`
-  font-size: 16px;
+const titleScroll = keyframes`
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(var(--audio-title-offset)); }
+`
+
+export const AudioTitleText = styled.span`
+  display: inline;
+`
+
+export const AudioTitle = styled.div<{ $scrollable?: boolean }>`
+  flex: 1 1 0%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
   font-weight: 500;
   color: rgb(15, 20, 25);
+
+  ${({ $scrollable }) => $scrollable && css`
+    @media (prefers-reduced-motion: no-preference) {
+      ${AudioRow}:hover &, ${AudioRow}:focus-within & {
+        text-overflow: clip;
+      }
+      ${AudioRow}:hover & ${AudioTitleText}, ${AudioRow}:focus-within & ${AudioTitleText} {
+        display: inline-block;
+        width: max-content;
+        animation: ${titleScroll} var(--audio-title-duration) linear infinite alternate;
+      }
+    }
+  `}
 `
 
 export const BillingBadge = styled.span`
@@ -184,7 +211,7 @@ export const PlayerControlRow = styled.div`
 
 export const ProgressTime = styled.div`
   flex: 0 0 auto;
-  min-width: 64px;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -211,8 +238,8 @@ export const ProgressBarFill = styled.div`
 `
 
 export const PlayButton = styled.button`
-  width: 50px;
-  height: 50px;
+  width: 40px;
+  height: 40px;
   border: none;
   border-radius: 999px;
   background: rgba(201, 197, 188, 0.72);

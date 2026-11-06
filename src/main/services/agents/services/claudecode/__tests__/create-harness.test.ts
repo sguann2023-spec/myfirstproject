@@ -73,7 +73,7 @@ vi.mock('@shared/sessionPayloadLimits', () => {
 
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
+import { buildBuiltinTools, resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -660,5 +660,90 @@ describe('MCP image inspection integration', () => {
       await Promise.allSettled(clients.map(client => client.close()))
       call.mockRestore()
     }
+  })
+})
+
+
+describe('removed builtin AskUserQuestion tool', () => {
+  it('does not expose the legacy builtin even when requested', async () => {
+    const piAi = await import('@earendil-works/pi-ai')
+    const updated = new Map<string, Record<string, unknown>>()
+    const [tool] = buildBuiltinTools({
+      packageBridge: { agentCore, agentNode, piAi } as any,
+      invokeContext: { runtime: { workspacePath: os.tmpdir() }, tools: { activeToolNames: ['AskUserQuestion'] } } as any,
+      runtimeEnvironment: { env: {} } as any,
+      interactiveUpdatedInputs: updated
+    })
+    expect(tool).toBeUndefined()
+
+  })
+})
+
+
+describe('user interaction MCP lifecycle', () => {
+  it('lists rich schema and returns approved answers through real MCP transport', async () => {
+    const { default: UserInteractionServer } = await import('@main/mcpServers/user-interaction')
+    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    const server = new UserInteractionServer()
+    const client = new Client({ name: 'test', version: '1' })
+    await server.mcpServer.connect(serverTransport)
+    await client.connect(clientTransport)
+    try {
+      const listed = await client.listTools()
+      expect(listed.tools[0].inputSchema.properties).toHaveProperty('questions')
+      expect((await client.callTool({ name: 'AskUserQuestion', arguments: { question: 'Next?' } })).isError).toBe(true)
+      const result = await client.callTool({ name: 'AskUserQuestion', arguments: { question: 'Next?', answers: { 'Next?': 'Go' } } })
+      expect(JSON.parse((result.content as any)[0].text).answers).toEqual({ 'Next?': 'Go' })
+    } finally { await client.close(); await server.mcpServer.close() }
+  })
+
+  it('executes approved answers through the harness MCP bridge', async () => {
+    const { default: UserInteractionServer } = await import('@main/mcpServers/user-interaction')
+    const server = new UserInteractionServer()
+    const bridge = await buildMcpTools({
+      packageBridge: {} as any,
+      invokeContext: { runtime: { workspacePath: os.tmpdir(), traceId: 't' }, projection: { topicId: 't' } } as any,
+      options: { mcpServers: { 'user-interaction': { type: 'sdk', name: 'user-interaction', instance: server.mcpServer } } } as any
+    })
+    try {
+      expect(bridge.tools[0].name).toBe('mcp__vectcut__user-interaction__AskUserQuestion')
+      const result = await bridge.tools[0].execute('question-call', { question: 'Next?', answers: { 'Next?': 'Go' } })
+      expect(JSON.parse((result.content[0] as any).text).answers).toEqual({ 'Next?': 'Go' })
+    } finally { for (const client of bridge.clients) await client.close() }
+  })
+
+  it.each([false, true])('starts before permission and uses the same id, denied=%s', async denied => {
+    const events: any[] = []
+    const approved = { question: 'Next?', answers: { 'Next?': 'Go' } }
+    const execute = vi.fn(async (_id, args) => {
+      expect(args).toEqual(approved)
+      return { content: [{ type: 'text', text: 'Go' }] }
+    })
+    class Sandbox {
+      constructor(private options: any) {}
+      async execute(_code: string, context: any) {
+        try { return { ok: true, value: await this.options.tools[0].execute({ question: 'Next?' }, context), output: [], calls: [] } }
+        catch { return { ok: false, error: 'Denied', output: [], calls: [] } }
+      }
+      close() {}
+    }
+    const tool = buildCodemodeTool({
+      packageBridge: { piAi: { Type: { Object: (v: unknown) => v, String: (v: unknown) => v } }, piCodemode: { CodemodeSandbox: Sandbox } } as any,
+      mcpTools: [{ name: 'mcp__vectcut__user-interaction__AskUserQuestion', parameters: {}, execute }] as any,
+      invokeContext: { runtime: { workspacePath: '/tmp', traceId: 't' }, projection: { topicId: 't' } } as any,
+      pendingFileChanges: new Map(), emitNestedToolEvent: async e => { events.push(e) },
+      canUseTool: async (_name, _args, context) => {
+        expect(events.map(e => e.type)).toEqual(['start'])
+        expect(context.toolUseID).toBe(events[0].toolCallId)
+        return denied ? { behavior: 'deny', message: 'Cancelled' } : { behavior: 'allow', updatedInput: approved }
+      }
+    })
+    const run = tool.execute('outer', { code: 'call' }, new AbortController().signal)
+    if (denied) await expect(run).rejects.toThrow()
+    else await run
+    expect(events.filter(e => e.type === 'start')).toHaveLength(1)
+    expect(events.at(-1).type).toBe(denied ? 'error' : 'success')
+    expect(execute).toHaveBeenCalledTimes(denied ? 0 : 1)
   })
 })

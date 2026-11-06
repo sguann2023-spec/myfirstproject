@@ -207,6 +207,20 @@ it('keeps an interrupted assistant turn visible when no answer text was produced
   expect(container.textContent).toBe('用户已取消');
 });
 
+it('appends the processed duration to the cancelled notice when timestamps exist', async () => {
+  await act(async () => root.render(<Probe value={{
+    id: 'reply',
+    role: 'assistant',
+    blocks: [],
+    content: '',
+    aborted: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T01:02:03.000Z',
+  }} />));
+
+  expect(container.textContent).toBe('用户已取消 · 已处理 1小时2分3秒');
+});
+
 for (const live of [false, true]) {
   it(`renders one error card for block and top-level errors on ${live ? 'live' : 'historical'} turns`, async () => {
     const error = { message: '400 status code (no body)', status: 400 };

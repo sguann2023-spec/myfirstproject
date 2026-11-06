@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import type { NormalToolResponse } from '@renderer/types'
 import type { ToolMessageBlock } from '@renderer/types/newMessage'
 import React from 'react'
@@ -24,6 +25,7 @@ const isAgentTool = (toolName: AgentToolsType) => {
 }
 
 const ChooseTool = (toolResponse: NormalToolResponse): React.ReactNode | null => {
+  if (isAskUserQuestionTool(toolResponse.tool.name)) return <MessageAgentTools toolResponse={toolResponse} />
   let toolName = toolResponse.tool.name
   const toolType = toolResponse.tool.type
   // Aggregated MCP results can carry a bare tool name + serverName, or server:tool.

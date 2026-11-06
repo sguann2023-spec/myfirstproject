@@ -1,7 +1,7 @@
 import React from 'react';
 import { Provider } from 'react-redux';
 import { loggerService } from '@logger';
-import PinnedDraftPannel from '@renderer/pages/home/Inputbar/components/PinnedDraftPannel/PinnedDraftPannel';
+import PinnedArtifactPannel from '@renderer/pages/home/Inputbar/components/PinnedArtifactPannel/PinnedArtifactPannel';
 import { PinnedTodoPanel } from '@renderer/pages/home/Inputbar/components/PinnedTodoPanel';
 import { useActiveTodos } from '@renderer/pages/home/Inputbar/hooks/useActiveTodos';
 import { IpcChannel } from '@shared/IpcChannel';
@@ -12,6 +12,7 @@ import { ChatTaskContext } from './ChatShell/ChatTaskContext';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
 import { sendQueue } from './sendQueue';
+import { useArtifactAutoPreview } from './useArtifactAutoPreview';
 import SendQueuePanel from './SendQueuePanel';
 import {
   buildSkillExampleApplyDetail,
@@ -161,26 +162,31 @@ const enqueuePinnedDraftDownload = (draft) => {
   }
 };
 
-// 消息区右上角的草稿概要胶囊：点击后在右侧预览窗格打开 ArtifactPreview
-const ChatPinnedDraftPanel = ({ drafts, sessionId }) => {
+// 草稿变化时自动打开产物预览，也支持点击胶囊重新打开。
+const ChatPinnedDraftPanel = ({ drafts, audios, images, videos, documents, sessionId, historyLoading }) => {
   const taskContext = React.useContext(ChatTaskContext);
+  const previewSequence = React.useRef(0);
+  const openPreview = () => taskContext?.openAttachmentPreview?.({
+    key: `${ARTIFACT_PREVIEW_KEY}:${sessionId}:${Date.now()}:${++previewSequence.current}`,
+    tabId: `${ARTIFACT_PREVIEW_KEY}:${sessionId}`,
+    sessionId,
+    previewType: 'artifact',
+    title: '产出',
+    activate: true
+  });
+  useArtifactAutoPreview({ sessionId, drafts, audios, images, videos, documents, historyLoading, onOpen: openPreview });
 
-  if (!Array.isArray(drafts) || drafts.length === 0) {
+  if (!drafts?.length && !audios?.length && !images?.length && !videos?.length && !documents?.length) {
     return null;
   }
 
   return (
     <div className="pinned-draft-floating-anchor">
-      <PinnedDraftPannel
+      <PinnedArtifactPannel
         drafts={drafts}
-        onClick={() => taskContext?.openAttachmentPreview?.({
-          key: `${ARTIFACT_PREVIEW_KEY}:${sessionId}:${Date.now()}`,
-          tabId: `${ARTIFACT_PREVIEW_KEY}:${sessionId}`,
-          sessionId,
-          previewType: 'artifact',
-          title: '产物',
-          activate: true
-        })}
+        audios={audios}
+        images={images} videos={videos} documents={documents}
+        onClick={openPreview}
       />
     </div>
   );
@@ -264,6 +270,10 @@ const Chat = ({
   const beginnerGuideInputAreaRef = React.useRef(null);
   const [hasConnectedExternalAgent, setHasConnectedExternalAgent] = React.useState(false);
   const ownerId = session?.id;
+  const pinnedAudios = session?.pinnedAudios || [];
+  const pinnedImages = session?.pinnedImages || [];
+  const pinnedDocuments = session?.pinnedDocuments || [];
+  const pinnedVideos = session?.pinnedVideos || [];
   const sourceDrafts = session?.pinnedDrafts || PINNED_DRAFTS;
   const [previewState, setPreviewState] = React.useState({});
   const { loading: pinnedDraftPreviewLoadingKey = null, error: pinnedDraftPreviewErrorKey = null,
@@ -561,6 +571,10 @@ const Chat = ({
       beginnerGuideDownloadPaneRef={beginnerGuideDownloadPaneRef}
       beginnerGuideSettingsPaneRef={beginnerGuideSettingsPaneRef}
       onRefreshCredits={onRefreshCredits}
+      pinnedAudios={pinnedAudios}
+      pinnedImages={pinnedImages}
+      pinnedVideos={pinnedVideos}
+      pinnedDocuments={pinnedDocuments}
       pinnedDrafts={pinnedDrafts}
       pinnedDraftSessionActive={hasInProgressPinnedDraft}
       pinnedDraftSessionFulfilled={!hasInProgressPinnedDraft && pinnedDrafts.length > 0}
@@ -602,7 +616,7 @@ const Chat = ({
         childrensBookQuickPromptRef={childrensBookQuickPromptRef}
         beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
       />
-      <ChatPinnedDraftPanel drafts={pinnedDrafts} sessionId={ownerId} />
+      <ChatPinnedDraftPanel drafts={pinnedDrafts} audios={pinnedAudios} images={pinnedImages} videos={pinnedVideos} documents={pinnedDocuments} sessionId={ownerId} historyLoading={historyLoading} />
       <ChatPinnedTodoPanel topicId={chatTopicId} sessionFulfilled={sessionFulfilled} />
       <div className="chat-panel__composer-anchor">
         <div className="chat-panel__queue-overlay">

@@ -80,6 +80,9 @@ describe('Bundled social-media tools', () => {
     const tool = SCRAPT_TOOLS.find((item) => item.name === 'youtube_web_search_video')!
     expect(tool.description).toContain('Search YouTube videos using search_query')
     expect(tool.description).toContain('this does not download, trim or insert videos')
+    expect(tool.description?.slice(0, 240)).toContain('public figures')
+    expect(tool.description).toContain('Copyright uncertainty alone should not stop this retrieval workflow')
+    expect(tool.description).toContain('Do not bypass paywalls, login restrictions, DRM or an explicit access denial')
     expect(tool.description).not.toMatch(/license|permission|authorization/i)
     expect(tool.inputSchema).toMatchObject({ required: ['search_query'] })
     const request = buildScraptRequest(tool.name, { search_query: 'mountain hiking tutorial' })
@@ -87,6 +90,22 @@ describe('Bundled social-media tools', () => {
     expect(new URL(request.url).searchParams.get('search_query')).toBe('mountain hiking tutorial')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(tokenMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'youtube_web_v2_get_video_streams', 'youtube_web_v2_get_video_streams_v2',
+    'youtube_web_v2_get_video_streams_v3', 'youtube_web_v2_get_signed_stream_url'
+  ])('clarifies public-figure retrieval without changing the contract of %s', name => {
+    const tool = SCRAPT_TOOLS.find(item => item.name === name)!
+    expect(tool.description?.slice(0, 240)).toContain('public figures')
+    expect(tool.description).toContain('filesystem.download')
+    expect(tool.description).toContain('AI-generation restrictions on faces or copyrighted references do not apply')
+    expect(tool.description).toContain('retrieval does not establish reuse rights')
+    expect(tool.description).toContain('Do not bypass paywalls, login restrictions, DRM')
+    // REST parameter descriptions are already enriched by the tool exporter.
+    const contract = (schema: unknown) => JSON.parse(JSON.stringify(schema, (key, value) => key === 'description' ? undefined : value))
+    expect(contract(tool.inputSchema)).toEqual(contract(catalog.entries.find(entry => entry.tool.name === name)!.tool.inputSchema))
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('preserves case-sensitive algorithm route names', () => {

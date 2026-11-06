@@ -17,6 +17,8 @@ import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
 import { net } from 'electron'
 
+import { notifyAudioGenerated } from './notify-audio-generated'
+
 const logger = loggerService.withContext('MCPServer:VoiceConversion')
 const execFileAsync = promisify(execFile)
 const ffprobeStatic = require('ffprobe-static') as { path?: string }
@@ -264,7 +266,7 @@ class VoiceConversionServer {
 
   constructor(
     workspacePath?: string,
-    private readonly options: { external?: boolean } = {}
+    private readonly options: { external?: boolean; runtimeSessionId?: string } = {}
   ) {
     this.workspacePath = workspacePath
     this.mcpServer = new McpServer(
@@ -1108,6 +1110,38 @@ class VoiceConversionServer {
     return normalized
   }
 
+  private notifyConvertedAudio(result: VoiceConversionTaskStatusResponse, originalInput: unknown, voiceId: unknown) {
+    if (!this.options.runtimeSessionId?.trim() || result.success !== true || result.error || result.error_code) return
+    let filename = '原文件'
+    if (typeof originalInput === 'string' && originalInput.trim()) {
+      const source = originalInput.trim()
+      let pathname = ''
+      try {
+        pathname = new URL(source).pathname
+      } catch {
+        // Do not expose malformed URLs, query strings or signatures in artifact titles.
+        if (!source.includes('://')) pathname = source.split(/[?#]/)[0]
+      }
+      const basename = path.posix.basename(pathname.replace(/\\/g, '/'))
+      if (basename && basename !== '.') {
+        try {
+          filename = decodeURIComponent(basename)
+        } catch {
+          filename = basename
+        }
+      }
+    }
+    const targetVoiceId = typeof voiceId === 'string' && voiceId.trim() ? voiceId.trim() : '未知音色'
+    const billing = result.result?.billing ?? result.billing
+    notifyAudioGenerated({
+      runtimeSessionId: this.options.runtimeSessionId,
+      audioUrl: result.result?.converted_url,
+      text: `${filename} + ${targetVoiceId}`,
+      durationSeconds: result.result?.duration_seconds ?? result.result?.duration ?? result.duration_seconds ?? result.duration,
+      consumedPoints: billing?.total_consumed_points ?? billing?.points_consumed ?? billing?.deduct_points ?? billing?.consume
+    })
+  }
+
   private async submitVoiceConversionTask(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
     await this.reportProgress(extra, 5, '正在提交变声任务')
     const { payload, sourceSummary, pendingLocalVideoJob, cleanup } = await this.buildSubmitPayload(args)
@@ -1145,14 +1179,14 @@ class VoiceConversionServer {
         const statusResult = await this.queryVoiceConversionTaskStatus(taskId)
         if (this.isVoiceConversionTaskCompleted(statusResult)) {
           await this.reportProgress(extra, 100, statusResult.message || '变声处理完成')
-          return this.formatJsonResult(
-            await this.buildVoiceConversionTaskResultPayload({
-              request: payload,
-              result: statusResult,
-              sourceSummary,
-              localVideoJob: pendingLocalVideoJob
-            })
-          )
+          const normalized = await this.buildVoiceConversionTaskResultPayload({
+            request: payload,
+            result: statusResult,
+            sourceSummary,
+            localVideoJob: pendingLocalVideoJob
+          })
+          this.notifyConvertedAudio(statusResult, sourceSummary[0]?.original_input, payload.voice_id)
+          return this.formatJsonResult(normalized)
         }
 
         if (this.isVoiceConversionTaskFailed(statusResult)) {

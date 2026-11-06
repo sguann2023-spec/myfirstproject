@@ -29,11 +29,12 @@ const CHAT_COMPLETIONS_ENDPOINT = '/llm/chat/v1/chat/completions'
 const OAUTH_TOKEN_URL = 'https://mlbd8l6vgi13-demo.authing.cn/oidc/token'
 const OAUTH_CLIENT_ID = '6901dd145dafc6f1f3143938'
 const OAUTH_CLIENT_SECRET = '16a94e467e927cc09b3c8dc7ec92d420'
-const VIDEO_UNDERSTAND_MODEL = 'gpt-5.6-luna'
+const VIDEO_UNDERSTAND_MODEL = 'qwen3.8-flash'
 const DEFAULT_SAMPLE_FPS = 3
 const DEFAULT_DESCRIPTION_SLICE_SECONDS = 0.3
 const MAX_IMAGES_PER_BATCH = 30
 const MAX_CONCURRENT_VIDEOS = 10
+const MAX_CONCURRENT_FRAME_BATCHES = 10
 const GPT_REQUEST_MAX_RETRIES = 3
 const FFMPEG_TIMEOUT_MS = 15 * 60 * 1000
 const FFPROBE_TIMEOUT_MS = 15 * 1000
@@ -81,14 +82,14 @@ class VideoTaskQueue {
 const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
   name: 'submit_video_detail_task',
   description:
-    'Understand one or more videos using frame batches (at most 30 frames, compressed to 480p) with gpt-5.6-luna, plus basic speech recognition without sentence splitting. Videos without audio or detected speech are marked explicitly. Full visual analysis, spoken subtitles and timestamps are saved into workspace files.',
+    'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues. Accepts video URLs, file URLs, absolute local paths and workspace-relative paths. Prefer this tool over manually extracting frames for whole-video analysis; use prompt to specify the analysis needed. Handles frame extraction and batched visual analysis internally (at most 30 frames per batch, compressed to 480p) with qwen3.8-flash, plus basic speech recognition without sentence splitting. Videos without audio or detected speech are marked explicitly. Full visual analysis, spoken subtitles and timestamps are saved into workspace files.',
   inputSchema: {
     type: 'object',
     properties: {
       model: {
         type: 'string',
         enum: [VIDEO_UNDERSTAND_MODEL],
-        description: 'Optional model. Always uses gpt-5.6-luna.'
+        description: 'Optional model. Always uses qwen3.8-flash.'
       },
       prompt: {
         type: 'string',
@@ -1319,11 +1320,12 @@ class VideoUnderstandServer {
       .toFile(outputPath)
   }
 
-  private async compressFrames(framePaths: string[], fps: number, durationSeconds: number, outputDir: string) {
+  private async compressFrames(framePaths: string[], fps: number, durationSeconds: number, outputDir: string, startIndex = 0) {
     await fsPromises.mkdir(outputDir, { recursive: true })
 
     const frames: SampledFrame[] = []
-    for (const [index, framePath] of framePaths.entries()) {
+    for (const [offset, framePath] of framePaths.entries()) {
+      const index = startIndex + offset
       const compressedPath = path.join(outputDir, `frame-${String(index + 1).padStart(6, '0')}.jpg`)
       await this.compressFrame(framePath, compressedPath)
 
@@ -1393,6 +1395,7 @@ class VideoUnderstandServer {
 
     const requestBody = {
       model: VIDEO_UNDERSTAND_MODEL,
+      enable_thinking: false,
       stream: true,
       max_tokens: 2048,
       messages: [
@@ -1545,78 +1548,111 @@ class VideoUnderstandServer {
       const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), `vectcut-video-understand-${options.videoIndex}-`))
       const extractedFramesDir = path.join(tempDir, 'frames')
       const compressedFramesDir = path.join(tempDir, 'frames-480p')
+      const localPath = preparedSource.localPath
 
       try {
-        await options.report(options.videoIndex, 0.15, '进度')
-        const extractedFrames = await this.extractFrames(preparedSource.localPath, options.fps, extractedFramesDir)
+        const visualTask = (async () => {
+          await options.report(options.videoIndex, 0.15, '进度')
+          const extractedFrames = await this.extractFrames(localPath, options.fps, extractedFramesDir)
 
-        options.signal?.throwIfAborted()
-        await options.report(options.videoIndex, 0.4, '进度')
-        const compressedFrames = await this.compressFrames(extractedFrames, options.fps, durationSeconds, compressedFramesDir)
+          options.signal?.throwIfAborted()
+          await options.report(options.videoIndex, 0.4, '进度')
+          const batchCount = Math.ceil(extractedFrames.length / MAX_IMAGES_PER_BATCH)
+          const batches: BatchAnalysisResult[] = []
+          const batchBillings: Array<Record<string, unknown> | null> = []
+          const missingRanges: RecognitionGap[] = []
 
-        const batchCount = Math.ceil(compressedFrames.length / MAX_IMAGES_PER_BATCH)
-        const batches: BatchAnalysisResult[] = []
-        const batchBillings: Array<Record<string, unknown> | null> = []
-        const missingRanges: RecognitionGap[] = []
+          let nextBatchIndex = 0
+          let completedBatches = 0
+          let fatalError: unknown
+          let stopped = false
+          await options.report(options.videoIndex, 0.45, '进度')
+          const runWorker = async () => {
+            while (!stopped && nextBatchIndex < batchCount) {
+              const batchIndex = nextBatchIndex++
+              if (options.signal?.aborted) throw new Error('任务已取消')
+              const startIndex = batchIndex * MAX_IMAGES_PER_BATCH
+              const batchFrames = await this.compressFrames(
+                extractedFrames.slice(startIndex, startIndex + MAX_IMAGES_PER_BATCH),
+                options.fps, durationSeconds, compressedFramesDir, startIndex,
+              )
+              options.signal?.throwIfAborted()
+              if (stopped) return
 
-        for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
-          if (options.signal?.aborted) throw new Error('任务已取消')
-          const batchFrames = compressedFrames.slice(batchIndex * MAX_IMAGES_PER_BATCH, (batchIndex + 1) * MAX_IMAGES_PER_BATCH)
-          const batchProgressBase = 0.45 + (batchIndex / Math.max(batchCount, 1)) * 0.5
-          await options.report(options.videoIndex, batchProgressBase, '进度')
+              let result: Awaited<ReturnType<VideoUnderstandServer['analyzeFrameBatch']>>
+              try {
+                result = await this.analyzeFrameBatch({
+                  frames: batchFrames,
+                  prompt: options.prompt,
+                  videoIndex: options.videoIndex,
+                  videoCount: options.videoCount,
+                  batchIndex: batchIndex + 1,
+                  batchCount,
+                  totalFrames: extractedFrames.length,
+                  fps: options.fps,
+                  signal: options.signal,
+                  onBilling: (billing) => { batchBillings.push(billing); options.onBilling?.(billing) }
+                })
+              } catch (error) {
+                if (!(error instanceof RecognitionRequestFailure)) throw error
+                missingRanges.push({ video_index: options.videoIndex, start_seconds: batchFrames[0]?.timestampStart ?? 0,
+                  end_seconds: batchFrames[batchFrames.length - 1]?.timestampEnd ?? durationSeconds, reason: error.message })
+                completedBatches += 1
+                await options.report(options.videoIndex, 0.45 + (completedBatches / Math.max(batchCount, 1)) * 0.5, '进度')
+                continue
+              }
+              const { completion, answer, retryCount } = result
+              const billing =
+                completion.billing && typeof completion.billing === 'object' && !Array.isArray(completion.billing)
+                  ? (completion.billing as Record<string, unknown>)
+                  : null
 
-          let result: Awaited<ReturnType<VideoUnderstandServer['analyzeFrameBatch']>>
-          try {
-            result = await this.analyzeFrameBatch({
-              frames: batchFrames,
-              prompt: options.prompt,
-              videoIndex: options.videoIndex,
-              videoCount: options.videoCount,
-              batchIndex: batchIndex + 1,
-              batchCount,
-              totalFrames: compressedFrames.length,
-              fps: options.fps,
-              signal: options.signal,
-              onBilling: (billing) => { batchBillings.push(billing); options.onBilling?.(billing) }
-            })
-          } catch (error) {
-            if (!(error instanceof RecognitionRequestFailure)) throw error
-            missingRanges.push({ video_index: options.videoIndex, start_seconds: batchFrames[0]?.timestampStart ?? 0,
-              end_seconds: durationSeconds, reason: error.message })
-            break
+              batches.push({
+                batchIndex: batchIndex + 1,
+                frameCount: batchFrames.length,
+                frameStartIndex: batchFrames[0]?.frameIndex ?? batchIndex * MAX_IMAGES_PER_BATCH,
+                frameEndIndex: batchFrames[batchFrames.length - 1]?.frameIndex ?? batchIndex * MAX_IMAGES_PER_BATCH,
+                timeRangeStartSeconds: batchFrames[0]?.timestampStart ?? 0,
+                timeRangeEndSeconds: batchFrames[batchFrames.length - 1]?.timestampEnd ?? 0,
+                answer,
+                billing,
+                responseSummary: {
+                  id: String(completion.id || '').trim() || undefined,
+                  model: String(completion.model || '').trim() || VIDEO_UNDERSTAND_MODEL,
+                  choiceCount: Array.isArray(completion.choices) ? completion.choices.length : 0
+                },
+                retryCount
+              })
+              completedBatches += 1
+              await options.report(options.videoIndex, 0.45 + (completedBatches / Math.max(batchCount, 1)) * 0.5, '进度')
+            }
           }
-          const { completion, answer, retryCount } = result
-          const billing =
-            completion.billing && typeof completion.billing === 'object' && !Array.isArray(completion.billing)
-              ? (completion.billing as Record<string, unknown>)
-              : null
+          await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_FRAME_BATCHES, batchCount) }, async () => {
+            try {
+              await runWorker()
+            } catch (error) {
+              if (!stopped) fatalError = error
+              stopped = true
+            }
+          }))
+          if (stopped) throw fatalError
+          batches.sort((left, right) => left.batchIndex - right.batchIndex)
+          missingRanges.sort((left, right) => left.start_seconds - right.start_seconds)
 
-          batches.push({
-            batchIndex: batchIndex + 1,
-            frameCount: batchFrames.length,
-            frameStartIndex: batchFrames[0]?.frameIndex ?? batchIndex * MAX_IMAGES_PER_BATCH,
-            frameEndIndex: batchFrames[batchFrames.length - 1]?.frameIndex ?? batchIndex * MAX_IMAGES_PER_BATCH,
-            timeRangeStartSeconds: batchFrames[0]?.timestampStart ?? 0,
-            timeRangeEndSeconds: batchFrames[batchFrames.length - 1]?.timestampEnd ?? 0,
-            answer,
-            billing,
-            responseSummary: {
-              id: String(completion.id || '').trim() || undefined,
-              model: String(completion.model || '').trim() || VIDEO_UNDERSTAND_MODEL,
-              choiceCount: Array.isArray(completion.choices) ? completion.choices.length : 0
-            },
-            retryCount
-          })
-          await options.report(options.videoIndex, 0.45 + ((batchIndex + 1) / Math.max(batchCount, 1)) * 0.5, '进度')
-        }
-
-        const details = batches.map((batch) => batch.answer).filter(Boolean).join('\n\n').trim() + (missingRanges.length ? `\n\n未完全识别：${missingRanges.map((gap) => `${gap.start_seconds}-${gap.end_seconds} 秒：${gap.reason}`).join('; ')}` : '')
-        const analysis = buildStructuredVideoAnalysis(details)
-        if (missingRanges.length) analysis.summary = `未完全识别。${analysis.summary}`
-        await options.report(options.videoIndex, 0.96, '正在识别语音字幕')
-        const speech: VideoSpeechResult = probe.streams?.some((stream) => stream.codec_type === 'audio')
-          ? await this.recognizeVideoSpeech(preparedSource.localPath, options.signal, options.onBilling)
-          : { status: 'no_audio', effect_mode: 'basic', content: '', segments: [], message: '视频没有音轨，无对白或画外音' }
+          const details = batches.map((batch) => batch.answer).filter(Boolean).join('\n\n').trim() + (missingRanges.length ? `\n\n未完全识别：${missingRanges.map((gap) => `${gap.start_seconds}-${gap.end_seconds} 秒：${gap.reason}`).join('; ')}` : '')
+          const analysis = buildStructuredVideoAnalysis(details)
+          if (missingRanges.length) analysis.summary = `未完全识别。${analysis.summary}`
+          return { extractedFrames, batchCount, batches, batchBillings, missingRanges, analysis }
+        })()
+        const speechTask: Promise<VideoSpeechResult> = probe.streams?.some((stream) => stream.codec_type === 'audio')
+          ? this.recognizeVideoSpeech(localPath, options.signal, options.onBilling)
+          : Promise.resolve({ status: 'no_audio', effect_mode: 'basic', content: '', segments: [], message: '视频没有音轨，无对白或画外音' })
+        const [visualResult, speechResult] = await Promise.allSettled([visualTask, speechTask])
+        if (visualResult.status === 'rejected') throw visualResult.reason
+        if (speechResult.status === 'rejected') throw speechResult.reason
+        const { extractedFrames, batchCount, batches, batchBillings, missingRanges, analysis } = visualResult.value
+        const speech = speechResult.value
+        options.signal?.throwIfAborted()
         await options.report(options.videoIndex, 1, '已完成')
 
         return {
@@ -1626,7 +1662,7 @@ class VideoUnderstandServer {
           sourceKind: preparedSource.sourceKind,
           fps: options.fps,
           durationSeconds,
-          totalFrames: compressedFrames.length,
+          totalFrames: extractedFrames.length,
           totalBatches: batchCount,
           analysis,
           speech,

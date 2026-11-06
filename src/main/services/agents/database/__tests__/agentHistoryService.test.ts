@@ -190,7 +190,7 @@ describe('AgentHistoryService', () => {
   it('awaits lazy migration on opening history and reloads the canonical result', async () => {
     const transcript = {
       listTranscript: vi.fn().mockResolvedValueOnce([]).mockResolvedValue([entry('user', 0), entry('assistant', 1)]),
-      migrateLegacyHistory: vi.fn().mockResolvedValue(undefined)
+      migrateLegacyHistory: vi.fn().mockResolvedValue(true)
     }
     const payloads = [
       { message: { id: 'user', role: 'user' }, blocks: [] },
@@ -200,6 +200,21 @@ describe('AgentHistoryService', () => {
     const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
     expect(transcript.migrateLegacyHistory).toHaveBeenCalledWith('session-a')
     expect(transcript.listTranscript).toHaveBeenCalledTimes(2)
+    expect(result.messages.map(item => item.message.id)).toEqual(['user', 'assistant'])
+  })
+
+  it('skips the canonical reload when migration reports no work done', async () => {
+    const transcript = {
+      listTranscript: vi.fn().mockResolvedValue([entry('user', 0), entry('assistant', 1)]),
+      migrateLegacyHistory: vi.fn().mockResolvedValue(false)
+    }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([
+      { message: { id: 'user', role: 'user' }, blocks: [] },
+      { message: { id: 'assistant', role: 'assistant' }, blocks: [] }
+    ]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(transcript.migrateLegacyHistory).toHaveBeenCalledWith('session-a')
+    expect(transcript.listTranscript).toHaveBeenCalledExactlyOnceWith('session-a')
     expect(result.messages.map(item => item.message.id)).toEqual(['user', 'assistant'])
   })
 

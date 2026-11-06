@@ -835,6 +835,10 @@ class BackupManager {
         onProgress(totalSize ? Math.min(1, copiedSize / totalSize) : 1)
       }, include)
     }
+    // History media is part of durable message storage, not optional attachments.
+    if (skipAttachments && await fs.pathExists(path.join(source, 'history-media'))) {
+      await fs.copy(path.join(source, 'history-media'), path.join(destination, 'history-media'))
+    }
     // The core creates this absent directory and publishes manifest.json last.
     await database.backupStorage(path.join(destination, 'record-storage'))
     await this.validateStorage(destination, true)

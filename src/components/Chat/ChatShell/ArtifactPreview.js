@@ -1,5 +1,23 @@
+import { AudioGenerationToolBody } from '@renderer/pages/home/Messages/Tools/MessageAgentTools/AudioGenerationTool';
+import { pinnedAudioToOutput } from '../pinnedAudioMetadata';
 import React from 'react';
-import { Typography } from 'antd';
+import { FileChartLine } from 'lucide-react';
+import MediaPreviewModal from '../MediaPreviewModal';
+
+const VideoItem = ({ video, onOpen }) => {
+  const [duration, setDuration] = React.useState(null);
+  const src = toMediaSrc(video.videoUrl);
+  React.useEffect(() => setDuration(null), [src]);
+  const label = Number.isFinite(duration) && duration > 0
+    ? `${String(Math.floor(duration / 60)).padStart(2, '0')}:${String(Math.floor(duration % 60)).padStart(2, '0')}` : '--:--';
+  return <button type="button" className="artifact-preview__video-item" aria-label="预览生成视频" onClick={onOpen}>
+    <video src={src} muted playsInline preload="metadata"
+      onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+      onDurationChange={(event) => setDuration(event.currentTarget.duration)} onError={() => setDuration(null)} />
+    <span className="artifact-preview__video-duration">{label}</span>
+  </button>;
+};
+import { Image, Typography } from 'antd';
 import DraftIcon from '../../../../public/draft_icon.svg';
 import { toMediaSrc } from '../../../shared/mediaSrc.js';
 import PinnedDraftTrackView from '@renderer/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
@@ -8,7 +26,7 @@ import { formatDraftUpdatedAt } from '../pinnedDraftMetadata';
 
 const { Text } = Typography;
 
-// 与原 PinnedDraftPannel 展开列表保持一致的状态归一与标题回退逻辑
+// 与原 PinnedArtifactPannel 展开列表保持一致的状态归一与标题回退逻辑
 const getDraftTitle = (draft, index, sessionActive) => {
   if (draft.status === 'in_progress' && sessionActive && draft.activeTitle) {
     return draft.activeTitle;
@@ -37,6 +55,11 @@ const DraftCover = ({ cover }) => {
 // 点击条目展开轨道预览，导出按钮入队下载。
 const ArtifactPreview = ({
   drafts = [],
+  audios = [],
+  images = [],
+  videos = [],
+  documents = [],
+  onOpenDocument,
   sessionActive = false,
   sessionFulfilled = false,
   onPreviewItem,
@@ -45,6 +68,8 @@ const ArtifactPreview = ({
   previewErrorKey = null,
   previewErrorMessage = ''
 }) => {
+  const [previewVideo, setPreviewVideo] = React.useState(null);
+  React.useEffect(() => setPreviewVideo(null), [videos]);
   const [previewDraftKey, setPreviewDraftKey] = React.useState(null);
 
   const displayDrafts = React.useMemo(() => drafts.map((draft, index) => {
@@ -73,10 +98,10 @@ const ArtifactPreview = ({
   return (
     <div className="artifact-preview">
       <div className="artifact-preview__body">
-        <h3 className="artifact-preview__section-title">草稿</h3>
-        {displayDrafts.length === 0 ? (
+        {(displayDrafts.length > 0 || audios.length === 0 && images.length === 0 && videos.length === 0 && documents.length === 0) && <h3 className="artifact-preview__section-title">草稿</h3>}
+        {displayDrafts.length === 0 ? (audios.length || images.length || videos.length || documents.length ? null : (
           <div className="artifact-preview__state">暂无草稿</div>
-        ) : (
+        )) : (
           <div className="artifact-preview__list">
             {displayDrafts.map((draft) => (
               <div className="artifact-preview__card" key={draft.key}>
@@ -127,6 +152,46 @@ const ArtifactPreview = ({
             ))}
           </div>
         )}
+        {videos.length > 0 && <section aria-label="视频">
+          <h3 className="artifact-preview__section-title">视频</h3>
+          <div className="artifact-preview__video-grid">
+            {videos.map((video) => <VideoItem key={`${video.runtimeSessionId}:${video.id}`} video={video} onOpen={() => setPreviewVideo(video)} />)}
+          </div>
+        </section>}
+        <MediaPreviewModal src={previewVideo ? toMediaSrc(previewVideo.videoUrl) : ''} kind="video" name="生成视频" onClose={() => setPreviewVideo(null)} />
+        {images.length > 0 && <section aria-label="图片" className="artifact-preview__image-section">
+          <h3 className="artifact-preview__section-title">图片</h3>
+          <Image.PreviewGroup>
+            <div className="artifact-preview__image-grid">
+              {images.map((image, index) => <Image
+                key={image.id}
+                src={toMediaSrc(image.imageUrl)}
+                alt={`生成图片 ${index + 1}`}
+              />)}
+            </div>
+          </Image.PreviewGroup>
+        </section>}
+        {audios.length > 0 && <section aria-label="音频" className="artifact-preview__audio-section">
+          <h3 className="artifact-preview__section-title">音频</h3>
+          <div className="artifact-preview__list">
+            {audios.map((audio) => <div className="artifact-preview__card" key={audio.id}>
+              <AudioGenerationToolBody output={pinnedAudioToOutput(audio)} title={audio.text} isRunning={false} compact />
+            </div>)}
+          </div>
+        </section>}
+        {documents.length > 0 && <section aria-label="文档">
+          <h3 className="artifact-preview__section-title">文档</h3>
+          <div className="artifact-preview__list">{documents.map((item) => <div className="artifact-preview__card" key={item.id}>
+            <div className="artifact-preview__item">
+              <div className="artifact-preview__cover is-placeholder"><FileChartLine size={28} strokeWidth={1} /></div>
+              <div className="artifact-preview__item-main">
+                <Text className="artifact-preview__item-title" title={item.name || item.filePath?.split('/').pop()}>{item.name || item.filePath?.split('/').pop()}</Text>
+                <div className="artifact-preview__item-time">{formatDraftUpdatedAt(item.createdAt)}</div>
+              </div>
+              <button type="button" className="artifact-preview__export" onClick={() => onOpenDocument?.(item)}>打开</button>
+            </div>
+          </div>)}</div>
+        </section>}
       </div>
     </div>
   );

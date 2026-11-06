@@ -10,8 +10,9 @@ const layout = vi.hoisted(() => ({
 }));
 
 vi.mock('@renderer/components/VirtualList', () => ({
-  DynamicVirtualList: React.forwardRef(({ list, children }, ref) => {
+  DynamicVirtualList: React.forwardRef(({ list, children, shouldAdjustScrollPositionOnItemSizeChange }, ref) => {
     const elementRef = React.useRef(null);
+    layout.shouldAdjustScrollPositionOnItemSizeChange = shouldAdjustScrollPositionOnItemSizeChange;
     React.useImperativeHandle(ref, () => {
       const element = elementRef.current;
       Object.defineProperties(element, {
@@ -83,6 +84,7 @@ beforeEach(() => {
   layout.height = 1200;
   layout.viewport = 400;
   layout.scrollTo.mockClear();
+  layout.shouldAdjustScrollPositionOnItemSizeChange = undefined;
   messages = [{ id: '1', role: 'user', content: 'Hello' }];
   frames = new Map();
   observers = new Set();
@@ -184,6 +186,52 @@ describe('MessagePane auto-scroll', () => {
     await render();
     await flushFrames();
     expect(scroller().scrollTop).toBe(1400);
+  });
+
+  it('does not mistake a resize-correction scroll for opting out while following', async () => {
+    await render();
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(800);
+
+    const observer = [...observers].find((entry) => entry.element !== scroller());
+    // The streamed group first grows (its measured size is reported), then a
+    // placeholder inside it collapses.
+    vi.spyOn(observer.element, 'getBoundingClientRect').mockReturnValue({ height: 700 });
+    await act(async () => observer.callback());
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(800);
+
+    // The virtualizer corrects the offset synchronously for the shrink, and
+    // its scroll event fires while the content height is still stale, so the
+    // distance below looks larger than it really is.
+    vi.spyOn(observer.element, 'getBoundingClientRect').mockReturnValue({ height: 600 });
+    await act(async () => observer.callback());
+    await act(async () => scroll(700));
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(800);
+
+    // Following must continue for the rest of the stream.
+    layout.height = 1600;
+    vi.spyOn(observer.element, 'getBoundingClientRect').mockReturnValue({ height: 1000 });
+    await act(async () => observer.callback());
+    await flushFrames();
+    expect(scroller().scrollTop).toBe(1200);
+  });
+
+  it('suppresses virtualizer scroll corrections only while following', async () => {
+    await render();
+    await flushFrames();
+    const shouldAdjust = layout.shouldAdjustScrollPositionOnItemSizeChange;
+    expect(typeof shouldAdjust).toBe('function');
+
+    const instance = { getScrollOffset: () => 800, scrollAdjustments: 0 };
+    // Following the bottom: corrections would fight the follow-up scroll.
+    expect(shouldAdjust({ start: 100 }, -100, instance)).toBe(false);
+
+    // Reading above the bottom: keep the default above-viewport anchoring.
+    await wheelUp();
+    expect(shouldAdjust({ start: 100 }, -100, instance)).toBe(true);
+    expect(shouldAdjust({ start: 900 }, -100, instance)).toBe(false);
   });
 
   it('cancels queued following on upward wheel input and resumes at the bottom', async () => {

@@ -6,11 +6,11 @@ import { net } from 'electron'
 import Store from 'electron-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
-import { ASSET_SEARCH_ROUTING } from './asset-search-routing'
+import { ASSET_SEARCH_ROUTING, PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE, suggestYouTubeSearch, YOUTUBE_VIDEO_FALLBACK_GUIDANCE } from './asset-search-routing'
 import { requestWithVectcutAuth } from './vectcut-auth'
 
 const CONTEXT = 'Searching existing media assets to find suitable background material for an editing project while avoiding unnecessary custom generation costs.'
-const GUIDANCE = 'You can also consider searching existing assets as a potentially cheaper alternative to AI generation, or try a search before generating custom media. Honor explicit AI generation requests. Search and details only; no automatic download or timeline insertion. Check the selected asset license and third-party rights before use. '
+const GUIDANCE = 'You can also consider searching existing assets as a potentially cheaper alternative to AI generation, or try a search before generating custom media. Honor explicit AI generation requests. Search and details only; no automatic download or timeline insertion. Check the selected asset license and third-party rights before publication or redistribution; this is not a blanket restriction on searching or retrieving selected media. '
 const MAX_BYTES = 4 * 1024 * 1024
 const TOOL_MAP = {
   search_videos: 'get_videos',
@@ -55,7 +55,10 @@ const TOOLS: Tool[] = [
     inputSchema: { type: 'object', properties: { id: { type: 'string', minLength: 1, maxLength: 128, description: 'Audio ID returned by audio search.' } }, required: ['id'], additionalProperties: false }
   }
 ]
-for (const tool of TOOLS) tool.annotations = { readOnlyHint: true, destructiveHint: false, openWorldHint: true }
+for (const tool of TOOLS) {
+  tool.annotations = { readOnlyHint: true, destructiveHint: false, openWorldHint: true }
+  if (tool.name === 'search_videos') tool.description = YOUTUBE_VIDEO_FALLBACK_GUIDANCE + tool.description
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -167,15 +170,26 @@ export default class StockSearchServer {
     this.mcpServer = new McpServer({ name: 'stock-search', version: '1.0.0' }, { capabilities: { tools: {} } })
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      let fallbackQuery: string | undefined
       try {
         const tool = TOOLS.find((item) => item.name === request.params.name)
         if (!tool) throw new Error('Unknown stock search tool')
         const args = this.validateArgs(tool, request.params.arguments ?? {})
+        if (tool.name === 'search_videos') fallbackQuery = args.query as string
         const result = await this.callRemote(tool.name as keyof typeof TOOL_MAP, args, extra.signal)
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result }
       } catch {
         // Never expose upstream provider names, raw JSON-RPC errors or credentials.
-        return { content: [{ type: 'text' as const, text: 'Stock media search failed. Check search parameters and login, or try again later.' }], isError: true }
+        const message = 'Stock media search failed. Check search parameters and login, or try again later.'
+        const result = fallbackQuery && !extra.signal.aborted ? {
+          error: message,
+          suggestedNextSearch: suggestYouTubeSearch(fallbackQuery, 'The stock video search failed.')
+        } : undefined
+        return {
+          content: [{ type: 'text' as const, text: result ? JSON.stringify(result) : message }],
+          ...(result ? { structuredContent: result } : {}),
+          isError: true
+        }
       }
     })
   }
@@ -232,7 +246,8 @@ export default class StockSearchServer {
         raw = JSON.parse(text.text)
       }
       return { title: TOOLS.find((tool) => tool.name === name)!.title, mediaType: name.includes('video') ? 'video' : 'audio',
-        usage: 'Check the selected asset license and third-party rights before use. URLs are media references; no download or timeline insertion has been performed.',
+        usage: (name.includes('video') ? YOUTUBE_VIDEO_FALLBACK_GUIDANCE + PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE : '') +
+          'Check the selected asset license and third-party rights before publication or redistribution; this is not a blanket restriction on searching or retrieving selected media. URLs are media references; no download or timeline insertion has been performed.',
         ...projectResult(raw, name.startsWith('search_')) }
     } finally {
       await transport.terminateSession().catch(() => {})

@@ -14,6 +14,8 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
     include: [
+      'src/main/services/agents/services/claudecode/__tests__/tool-permissions.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/tool-surface.test.ts',
       'src/preload/__tests__/requestReuse.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/image-generation-action.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/image-inspection-state.test.ts',

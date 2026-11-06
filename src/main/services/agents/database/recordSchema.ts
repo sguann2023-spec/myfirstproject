@@ -119,8 +119,8 @@ export function recordIndexFields(entity: Entity): string[][] {
     const fields = group.map(reference => reference.from)
     return fields.map((_, index) => fields.slice(0, index + 1))
   })
-  const session = entity.name === 'agent_messages' ? [['session_id', 'sequence']]
-    : entity.name === 'agent_message_parts' ? [['session_id', 'message_id', 'sequence']]
+  const session = entity.name === 'agent_messages' ? [['session_id', 'sequence'], ['session_id', 'id']]
+    : entity.name === 'agent_message_parts' ? [['session_id', 'message_id', 'sequence'], ['session_id', 'id']]
       : entity.name === 'session_messages' ? [['session_id', 'id']] : []
   const candidates = [entity.keys, ...entity.uniques, ...entity.indexes, ...references, ...session]
   const fields = new Map<string, string[]>()

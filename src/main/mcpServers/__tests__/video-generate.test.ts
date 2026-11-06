@@ -1,3 +1,5 @@
+vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: vi.fn(() => ({ isDestroyed: () => false, webContents: { send: mockVideoSend } })) } }))
+const { mockVideoSend } = vi.hoisted(() => ({ mockVideoSend: vi.fn() }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockNetFetch, mockStat, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
@@ -1398,3 +1400,44 @@ describe('VideoGenerateServer', () => {
      expect(request).toHaveBeenCalledTimes(1)
    })
  })
+
+
+describe('video-generate completion notifications', () => {
+  beforeEach(() => mockVideoSend.mockReset())
+  it('replays stable identity and timestamp across status and wait completion observations', async () => {
+    const server = new VideoGenerateServer({ runtimeSessionId: 'session-video' }) as any
+    vi.spyOn(server, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status: 'succeeded', video_url: 'https://example.com/video.mp4' }))
+    await server.getVideoTaskStatus('notify-task')
+    server.notifyCompleted('notify-task', 'https://example.com/video.mp4')
+    expect(mockVideoSend).toHaveBeenCalledTimes(2)
+    expect(mockVideoSend.mock.calls[0]).toEqual(mockVideoSend.mock.calls[1])
+    expect(mockVideoSend.mock.calls[0][1]).toEqual({ id: 'video-generate:notify-task', source: 'video-generate', taskId: 'notify-task', runtimeSessionId: 'session-video', videoUrl: 'https://example.com/video.mp4', createdAt: expect.any(Number), status: 'completed' })
+  })
+  it('does not emit for failed status, missing session, external or invalid URL', async () => {
+    for (const options of [{}, { external: true, runtimeSessionId: 'session-video' }, { runtimeSessionId: 'session-video' }]) {
+      const server = new VideoGenerateServer(options) as any
+      vi.spyOn(server, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status: 'failed', video_url: 'https://example.com/video.mp4' }))
+      await server.getVideoTaskStatus('failed-task')
+      server.notifyCompleted('invalid-task', 'file:///tmp/video.mp4')
+      if (!options.runtimeSessionId || options.external) server.notifyCompleted('no-session', 'https://example.com/video.mp4')
+    }
+    expect(mockVideoSend).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('video wait notification delivery', () => {
+  it('notifies on actual wait completion and tolerates IPC failure', async () => {
+    mockVideoSend.mockReset()
+    const server = new VideoGenerateServer({ runtimeSessionId: 'wait-session' }) as any
+    vi.spyOn(server, 'buildVideoSubmitPayload').mockResolvedValue({ payload: {}, preparedReferenceAssets: [] })
+    vi.spyOn(server, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'actual-wait' }))
+    vi.spyOn(server, 'queryVideoTaskStatus').mockResolvedValue({ status: 'succeeded', video_url: 'https://example.com/wait.mp4' })
+    mockVideoSend.mockImplementationOnce(() => { throw new Error('window closed') })
+    const result = await server.submitAndWaitVideoTask({})
+    expect(JSON.parse(result.content[0].text).output.video_url).toBe('https://example.com/wait.mp4')
+    expect(mockVideoSend).toHaveBeenCalledTimes(1)
+    server.notifyCompleted('actual-wait', 'https://example.com/wait.mp4')
+    expect(mockVideoSend.mock.calls[0]).toEqual(mockVideoSend.mock.calls[1])
+  })
+})

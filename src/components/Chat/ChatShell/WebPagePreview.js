@@ -49,7 +49,7 @@ const createPreviewTab = (preview, overrides = {}) => {
       id: overrides.id || createTabId(),
       type: ARTIFACT_PREVIEW_TYPE,
       previewKey: String(preview?.key || '').trim(),
-      title: '产物',
+      title: '产出',
       activate: preview?.activate !== false
     };
   }
@@ -160,9 +160,14 @@ const WebPagePreview = ({
     previousSessionRef.current = sessionId;
     staleArtifactKeyRef.current = getPreviewType(preview) === ARTIFACT_PREVIEW_TYPE ? preview?.key : null;
     const remaining = tabsStateRef.current.filter((tab) => tab.type !== ARTIFACT_PREVIEW_TYPE);
-    if (!remaining.length) remaining.push(createPreviewTab({ url: BLANK_TAB_URL }, { id: createTabId() }));
     tabsStateRef.current = remaining;
     setTabs(remaining);
+    if (!remaining.length) {
+      activeTabIdRef.current = '';
+      setActiveTabId('');
+      onClose?.();
+      return;
+    }
     if (!remaining.some((tab) => tab.id === activeTabIdRef.current)) {
       activeTabIdRef.current = remaining[0].id;
       setActiveTabId(remaining[0].id);

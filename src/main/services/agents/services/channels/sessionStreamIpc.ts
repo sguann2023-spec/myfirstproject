@@ -1,3 +1,4 @@
+import { syncLegacyArtifacts } from '../../../artifactLegacySync'
 import { insertAgentAtFront } from '../../database/repositories/servicePersistence'
 import { modelsService } from '@main/apiServer/services/models'
 import { normalizeDirectPresetAddRequest } from './presetAddRequest'
@@ -338,8 +339,8 @@ async function callDraftElementsTool(toolName: string, args: Record<string, unkn
   )
 }
 
-async function callSpeechTool(toolName: string, args: Record<string, unknown>) {
-  const server = new SpeechGenerateServer()
+async function callSpeechTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
+  const server = new SpeechGenerateServer(runtimeSessionId)
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -357,8 +358,8 @@ async function callSpeechTool(toolName: string, args: Record<string, unknown>) {
   )
 }
 
-async function callSeedAudioTool(toolName: string, args: Record<string, unknown>) {
-  const server = new SeedAudioServer()
+async function callSeedAudioTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
+  const server = new SeedAudioServer({ runtimeSessionId })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -376,8 +377,8 @@ async function callSeedAudioTool(toolName: string, args: Record<string, unknown>
   )
 }
 
-async function callVoiceConversionTool(toolName: string, args: Record<string, unknown>, workspacePath?: string) {
-  const server = new VoiceConversionServer(workspacePath)
+async function callVoiceConversionTool(toolName: string, args: Record<string, unknown>, workspacePath?: string, runtimeSessionId?: string) {
+  const server = new VoiceConversionServer(workspacePath, { runtimeSessionId })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -395,8 +396,8 @@ async function callVoiceConversionTool(toolName: string, args: Record<string, un
   )
 }
 
-async function callVideoTool(toolName: string, args: Record<string, unknown>) {
-  const server = new VideoGenerateServer()
+async function callVideoTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
+  const server = new VideoGenerateServer({ runtimeSessionId })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -414,8 +415,8 @@ async function callVideoTool(toolName: string, args: Record<string, unknown>) {
   )
 }
 
-async function callImageGenerateTool(toolName: string, args: Record<string, unknown>, extra?: Record<string, unknown>) {
-  const server = new ImageGenerateServer()
+async function callImageGenerateTool(toolName: string, args: Record<string, unknown>, extra?: Record<string, unknown>, runtimeSessionId?: string) {
+  const server = new ImageGenerateServer({ runtimeSessionId })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -462,9 +463,10 @@ function createDirectToolProgressExtra(callId: string, stageStart: number, stage
 async function callDigitalHumanTool(
   toolName: string,
   args: Record<string, unknown>,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
+  runtimeSessionId?: string
 ) {
-  const server = new DigitalHumanServer()
+  const server = new DigitalHumanServer({ runtimeSessionId })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -485,9 +487,10 @@ async function callDigitalHumanTool(
 async function callKouboTemplateTool(
   toolName: string,
   args: Record<string, unknown>,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
+  runtimeSessionId?: string
 ) {
-  const server = new KouboTemplateServer()
+  const server = new KouboTemplateServer({ runtimeSessionId })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -4073,7 +4076,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `speech_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedSpeechRequest }
 
-      const toolResult = await callSpeechTool('generate_speech', toolArgs)
+      const toolResult = await callSpeechTool('generate_speech', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4198,7 +4201,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `seed_audio_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedSeedAudioRequest }
 
-      const toolResult = await callSeedAudioTool('generate_seed_audio', toolArgs)
+      const toolResult = await callSeedAudioTool('generate_seed_audio', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4322,7 +4325,7 @@ export function registerSessionStreamIpc(): void {
       const toolArgs: Record<string, unknown> = { ...normalizedVoiceConversionRequest }
       const workspacePath = await ensureSessionWorkspacePath(session)
 
-      const toolResult = await callVoiceConversionTool('submit_voice_conversion_task', toolArgs, workspacePath)
+      const toolResult = await callVoiceConversionTool('submit_voice_conversion_task', toolArgs, workspacePath, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4446,7 +4449,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `ai_video_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedAiVideoRequest }
 
-      const toolResult = await callVideoTool('generate_video', toolArgs)
+      const toolResult = await callVideoTool('generate_video', toolArgs, session.id)
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4573,7 +4576,8 @@ export function registerSessionStreamIpc(): void {
       const toolResult = await callImageGenerateTool(
         'generate_or_edit_image',
         toolArgs,
-        createDirectToolProgressExtra(toolCallId, 0.01, 0.99)
+        createDirectToolProgressExtra(toolCallId, 0.01, 0.99),
+        session.id
       )
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
@@ -4744,7 +4748,8 @@ export function registerSessionStreamIpc(): void {
       const toolResult = await callDigitalHumanTool(
         toolConfig.name,
         toolArgs,
-        createDirectToolProgressExtra(toolCallId, 0.01, digitalHumanProgressEnd)
+        createDirectToolProgressExtra(toolCallId, 0.01, digitalHumanProgressEnd),
+        session.id
       )
       const toolResponse = parseDraftResultText(toolResult)
       const hasCompletedStatus = isDirectDigitalHumanResponseComplete(mode, toolResponse)
@@ -4796,7 +4801,8 @@ export function registerSessionStreamIpc(): void {
             packagingToolResult = await callKouboTemplateTool(
               'submit_koubo_template_task',
               packagingArgs,
-              createDirectToolProgressExtra(toolCallId, 0.7, 0.99)
+              createDirectToolProgressExtra(toolCallId, 0.7, 0.99),
+              session.id
             )
             packagingResponse = parseDraftResultText(packagingToolResult)
             packagingError = String(
@@ -5181,6 +5187,12 @@ export function registerSessionStreamIpc(): void {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     } finally { pendingWorkspaceRequests.delete(request) }
   }
+  ipcMain.handle('app:artifacts-sync', async (event, payload = {}) => {
+    if (event.sender !== windowService.getMainWindow()?.webContents) throw new Error('Untrusted sender')
+    const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : ''
+    if (!sessionId || !await resolveSessionById(sessionId)) throw new Error('Unknown session')
+    return syncLegacyArtifacts(sessionId, payload.items)
+  })
   ipcMain.handle(IpcChannel.CherryChatStream_WorkspaceRename, async (_event, payload = {}) => {
     const isBusy = () => isWorkspaceRunning(payload.source)
       || [...pendingWorkspaceRequests.values()].some((paths) => paths === null || workspacePathsOverlap(payload.source, paths))

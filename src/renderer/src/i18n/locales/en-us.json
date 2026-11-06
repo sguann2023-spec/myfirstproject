@@ -85,6 +85,17 @@
       "retry_advice": "Please try again later or contact support if the issue persists."
     },
     "askUserQuestion": {
+      "errors": {
+        "fileCount": "Select at least {{min}} and at most {{max}} files.",
+        "filePath": "Select a file with a valid local path and name.",
+        "duplicateFile": "The same file path cannot be selected twice.",
+        "fileExtension": "Unsupported file format. Allowed formats: {{extensions}}.",
+        "invalidAnswer": "Invalid answer. Please check the field configuration."
+      },
+      "selectFiles": "Select files",
+      "selectFilesFailed": "Unable to select files",
+      "previewMedia": "Preview media",
+      "previewFailed": "Unable to preview this file. It may be missing or unsupported.",
       "answered": "answered",
       "customPlaceholder": "Enter your answer...",
       "loading": "Loading questions...",
@@ -2601,6 +2612,7 @@
         "webSearch": "Web Search: Web Search",
         "servers": {
           "agent_memory": "Workspace Memory",
+          "artifact_server": "Artifacts",
           "assistant": "Assistant",
           "brave_search_server": "Brave Search",
           "cherry_browser": "Browser",
@@ -2626,6 +2638,7 @@
           "figure_search": "Stick Figure Search",
           "search": "Web Search",
           "seed_audio": "AI Audio",
+          "skills": "Skills",
           "speech": "Speech",
           "storyboard_editor": "Subtitle Storyboard",
           "subtitle_recognition": "Subtitle Recognition",
@@ -2741,6 +2754,10 @@
             "download_draft": "Download Draft",
             "export_draft": "Export Draft"
           },
+          "artifact_server": {
+            "add_artifact": "Add Artifact",
+            "list_artifacts": "List Artifacts"
+          },
           "draft_management": {
             "create_draft": "Create Draft",
             "modify_draft": "Modify Draft",
@@ -2818,6 +2835,9 @@
           },
           "seed_audio": {
             "generate_seed_audio": "Generate Audio"
+          },
+          "skills": {
+            "skills": "Skill Management"
           },
           "speech": {
             "generate_speech": "Generate Speech"

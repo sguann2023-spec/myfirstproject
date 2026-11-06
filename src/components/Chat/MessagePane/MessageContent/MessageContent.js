@@ -9,6 +9,7 @@ import { upsertManyBlocks } from '../../../../renderer/src/store/messageBlock';
 import Markdown from '../Markdown/Markdown';
 import './MessageContent.css';
 import { shouldSuppressCancelledTurnError } from '../../../../shared/chatError';
+import { formatProcessedDuration } from '@shared/processedDuration';
 
 const isCancelledTurn = (message) => Boolean(message?.aborted)
   || ['cancelled', 'aborted', 'interrupted'].includes(String(message?.status || '').toLowerCase());
@@ -93,9 +94,15 @@ const isActiveBlockStatus = (status) => (
   || status === MessageBlockStatus.STREAMING
 );
 
-const InterruptedNotice = ({ visible }) => (
-  visible ? <div className="chat-message-interrupted">用户已取消</div> : null
-);
+const InterruptedNotice = ({ visible, startedAt, endedAt }) => {
+  if (!visible) return null;
+  const processedText = formatProcessedDuration(startedAt, endedAt);
+  return (
+    <div className="chat-message-interrupted">
+      {processedText ? `用户已取消 · 已处理 ${processedText}` : '用户已取消'}
+    </div>
+  );
+};
 
 export const buildAssistantBlockState = ({ message, isLoading }) => {
   const messageId = String(message?.id || `assistant-${Date.now()}`);
@@ -251,6 +258,8 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
       blocks: fallbackAssistantState.blockIds,
       error: visibleTurnError(fallbackMessage) || null,
       aborted: isCancelledTurn(fallbackMessage),
+      createdAt: fallbackAssistantCreatedAt,
+      updatedAt: fallbackMessage?.updatedAt ? String(fallbackMessage.updatedAt) : undefined,
       retryStatusText: fallbackMessage?.retryStatusText || ''
     };
   const blocks = React.useMemo(() => {
@@ -285,8 +294,12 @@ const LiveAssistantMessageContent = ({ fallbackMessage, storeAssistantMessageId,
 
   return (
     <div className="chat-message-content tw-scope chat-tool-layout-fix">
-      <MessageBlockRenderer blocks={blocks} message={resolvedMessage} fallbackBlockEntities={fallbackAssistantState.entities} />
-      <InterruptedNotice visible={!isLoading && resolvedMessage.aborted} />
+      <MessageBlockRenderer blocks={blocks} message={resolvedMessage} fallbackBlockEntities={fallbackAssistantState.entities} showProcessingElapsed />
+      <InterruptedNotice
+        visible={!isLoading && resolvedMessage.aborted}
+        startedAt={resolvedMessage.createdAt}
+        endedAt={resolvedMessage.updatedAt}
+      />
     </div>
   );
 };
@@ -391,8 +404,12 @@ const MessageContent = ({ message, isLoading = false }) => {
   return (
     <Provider store={appStore}>
       <div className="chat-message-content tw-scope chat-tool-layout-fix">
-        <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} fallbackBlockEntities={assistantState.entities} />
-        <InterruptedNotice visible={!isLoading && isCancelledTurn(message)} />
+        <MessageBlockRenderer blocks={assistantState.blockIds} message={assistantMessage} fallbackBlockEntities={assistantState.entities} showProcessingElapsed />
+        <InterruptedNotice
+          visible={!isLoading && isCancelledTurn(message)}
+          startedAt={message?.createdAt}
+          endedAt={message?.updatedAt}
+        />
       </div>
     </Provider>
   );

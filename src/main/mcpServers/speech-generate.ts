@@ -2,6 +2,7 @@ import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
+import { notifyAudioGenerated } from './notify-audio-generated'
 import Store from 'electron-store'
 import { net } from 'electron'
 
@@ -325,7 +326,7 @@ class SpeechGenerateServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor() {
+  constructor(private readonly runtimeSessionId?: string) {
     this.mcpServer = new McpServer(
       {
         name: 'speech',
@@ -467,6 +468,24 @@ class SpeechGenerateServer {
     }
   }
 
+  private notifyAudioGenerated(result: SpeechGenerateResponse, text: string) {
+    if (!this.runtimeSessionId?.trim() || result.success !== true || result.error || result.error_code) return
+    const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+      value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : undefined
+    const billingFields = ['total_consumed_points', 'points_consumed', 'deduct_points', 'consume']
+    const billing = asRecord(result.billing) ?? asRecord(result.output?.billing) ??
+      (billingFields.some(field => field in result) ? result : result.output)
+    notifyAudioGenerated({
+      runtimeSessionId: this.runtimeSessionId,
+      audioUrl: result.output?.audio_url,
+      text,
+      durationSeconds: result.output?.duration_seconds ?? result.output?.duration ?? result.duration_seconds ?? result.duration,
+      consumedPoints: billing?.total_consumed_points ?? billing?.points_consumed ?? billing?.deduct_points ?? billing?.consume
+    })
+  }
+
   private async generateSpeech(args: Record<string, unknown>) {
     const { payload, result } = await generateSpeechAudio(args, {
       store: this.store,
@@ -478,6 +497,8 @@ class SpeechGenerateServer {
       voiceId: payload.voice_id,
       success: result.success
     })
+
+    this.notifyAudioGenerated(result, payload.text as string)
 
     return this.formatJsonResult({
       provider: 'vectcut',

@@ -1,3 +1,5 @@
+vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: vi.fn(() => ({ isDestroyed: () => false, webContents: { send: mockVideoSend } })) } }))
+const { mockVideoSend } = vi.hoisted(() => ({ mockVideoSend: vi.fn() }))
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -804,3 +806,58 @@ describe('DigitalHumanServer', () => {
      expect(request).toHaveBeenCalledTimes(1)
    })
  })
+
+
+describe('digital-human completion notifications', () => {
+  beforeEach(() => mockVideoSend.mockReset())
+  it('replays stable identity and timestamp across status and wait completion observations', async () => {
+    const server = new DigitalHumanServer({ runtimeSessionId: 'session-video' }) as any
+    vi.spyOn(server, 'queryStatus').mockResolvedValue({ status: 'completed', video_url: 'https://example.com/video.mp4' })
+    await server.getImageDrivenDigitalHumanStatus({ taskId: 'notify-task' })
+    server.notifyCompleted('image_driven', 'notify-task', { status: 'completed', video_url: 'https://example.com/video.mp4' })
+    expect(mockVideoSend).toHaveBeenCalledTimes(2)
+    expect(mockVideoSend.mock.calls[0]).toEqual(mockVideoSend.mock.calls[1])
+    expect(mockVideoSend.mock.calls[0][1]).toEqual({ id: 'digital-human:notify-task', source: 'digital-human', taskId: 'notify-task', runtimeSessionId: 'session-video', videoUrl: 'https://example.com/video.mp4', createdAt: expect.any(Number), status: 'completed' })
+  })
+  it('does not emit for failed status, missing session, external or invalid URL', async () => {
+    for (const options of [{}, { external: true, runtimeSessionId: 'session-video' }, { runtimeSessionId: 'session-video' }]) {
+      const server = new DigitalHumanServer(options) as any
+      server.notifyCompleted('image_driven', 'failed-task', { status: 'failed', video_url: 'https://example.com/video.mp4' })
+      server.notifyCompleted('image_driven', 'invalid-task', { status: 'completed', video_url: 'file:///tmp/video.mp4' })
+      if (!options.runtimeSessionId || options.external) server.notifyCompleted('image_driven', 'no-session', { status: 'completed', video_url: 'https://example.com/video.mp4' })
+    }
+    expect(mockVideoSend).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('digital human wait and background notification delivery', () => {
+  beforeEach(() => mockVideoSend.mockReset())
+  it('notifies from actual wait, completed job reads and recovery with stable identity', async () => {
+    const server = new DigitalHumanServer({ runtimeSessionId: 'job-session' }) as any
+    const video = { status: 'completed', video_url: 'https://example.com/job.mp4' }
+    vi.spyOn(server, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ task_id: 'actual-job' }))
+    vi.spyOn(server, 'waitForResult').mockResolvedValue(video)
+    const result = await server.submitAndWait({ mode: 'image_driven', submitEndpoint: '/submit', statusEndpoint: '/status', requestBody: {}, sourceSummary: [], processingMessage: '', submitMessage: '' })
+    const completed = JSON.parse(result.content[0].text)
+    const job = { job_id: 'job', task_id: 'actual-job', status: 'success', result: completed }
+    server.formatBackgroundJob(job)
+    server.formatBackgroundJob(job)
+    let recover: any
+    vi.spyOn(server, 'backgroundJobs').mockReturnValue({ get: (_id: string, _kind: string, resume: any) => {
+      recover = resume
+      return { ...job, status: 'running' }
+    } })
+    server.getBackgroundJob({ jobId: 'job' })
+    await recover({ task_id: 'actual-job', request_id: 'request', metadata: { mode: 'image_driven', statusEndpoint: '/status', submitResult: {} } }, vi.fn())
+    expect(mockVideoSend).toHaveBeenCalledTimes(4)
+    for (const call of mockVideoSend.mock.calls) expect(call).toEqual(mockVideoSend.mock.calls[0])
+    mockVideoSend.mockImplementationOnce(() => { throw new Error('window closed') })
+    expect(() => server.formatBackgroundJob(job)).not.toThrow()
+  })
+  it('does not notify for failed or running jobs', () => {
+    const server = new DigitalHumanServer({ runtimeSessionId: 'job-session' }) as any
+    for (const status of ['failed', 'running']) server.formatBackgroundJob({ status, task_id: 'failed-job', result: { status: 'completed', video_url: 'https://example.com/job.mp4' } })
+    expect(mockVideoSend).not.toHaveBeenCalled()
+  })
+})

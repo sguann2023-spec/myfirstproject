@@ -85,8 +85,19 @@
       "retry_advice": "请稍后重试；如果问题持续，请联系支持。"
     },
     "askUserQuestion": {
+      "errors": {
+        "fileCount": "文件数量不符合要求：至少 {{min}} 个，最多 {{max}} 个。",
+        "filePath": "请选择具有有效本地路径和文件名的文件。",
+        "duplicateFile": "不能重复选择同一路径的文件。",
+        "fileExtension": "文件格式不符合要求，允许的格式：{{extensions}}。",
+        "invalidAnswer": "答案不符合要求，请检查字段配置。"
+      },
+      "selectFiles": "选择文件",
+      "selectFilesFailed": "无法选择文件",
+      "previewMedia": "预览媒体",
+      "previewFailed": "无法预览此文件，文件可能不存在或格式不受支持。",
       "answered": "已回答",
-      "customPlaceholder": "输入您的回答...",
+      "customPlaceholder": "请输入其他内容",
       "loading": "正在加载问题...",
       "multiSelect": "多选",
       "next": "下一个",
@@ -2601,6 +2612,7 @@
         "webSearch": "联网搜索：联网搜索",
         "servers": {
           "agent_memory": "工作区记忆",
+          "artifact_server": "产出",
           "assistant": "助手",
           "brave_search_server": "Brave 搜索",
           "cherry_browser": "浏览器",
@@ -2626,6 +2638,7 @@
           "figure_search": "火柴人素材搜索",
           "search": "联网搜索",
           "seed_audio": "AI生成音频",
+          "skills": "技能",
           "speech": "语音",
           "storyboard_editor": "字幕分镜",
           "subtitle_recognition": "字幕识别",
@@ -2741,6 +2754,10 @@
             "download_draft": "下载草稿",
             "export_draft": "导出草稿"
           },
+          "artifact_server": {
+            "add_artifact": "添加产出",
+            "list_artifacts": "查看产出"
+          },
           "draft_management": {
             "create_draft": "创建草稿",
             "modify_draft": "修改草稿",
@@ -2818,6 +2835,9 @@
           },
           "seed_audio": {
             "generate_seed_audio": "生成音频"
+          },
+          "skills": {
+            "skills": "技能管理"
           },
           "speech": {
             "generate_speech": "生成语音"

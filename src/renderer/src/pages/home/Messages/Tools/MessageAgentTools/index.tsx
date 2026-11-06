@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import { useAppSelector } from '@renderer/store'
 import { selectPendingPermission } from '@renderer/store/toolPermissions'
 import type { NormalToolResponse } from '@renderer/types'
@@ -282,7 +283,7 @@ export function MessageAgentTools({ toolResponse }: { toolResponse: NormalToolRe
   }
 
   // AskUserQuestion uses a unified card for both pending and completed states
-  if (tool?.name === AgentToolsType.AskUserQuestion) {
+  if (isAskUserQuestionTool(tool?.name)) {
     const isLoading = status === 'streaming' || status === 'invoking'
     return (
       <StreamingContext value={isLoading}>

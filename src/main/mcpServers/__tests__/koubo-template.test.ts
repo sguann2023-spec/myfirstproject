@@ -52,6 +52,15 @@ vi.mock('@logger', () => ({
 
 import KouboTemplateServer from '../koubo-template'
 
+const { mockRegisterArtifact, mockDraftEventSend, mockDraftIsTest } = vi.hoisted(() => ({
+  mockRegisterArtifact: vi.fn(),
+  mockDraftEventSend: vi.fn(),
+  mockDraftIsTest: vi.fn()
+}))
+vi.mock('../../services/artifactIndex', () => ({ registerArtifact: mockRegisterArtifact }))
+vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: () => ({ isDestroyed: () => false, webContents: { send: mockDraftEventSend } }) } }))
+vi.mock('../draft-test-registry', () => ({ draftTestRegistry: { isTest: mockDraftIsTest } }))
+
 type KouboTemplateServerInstance = InstanceType<typeof KouboTemplateServer>
 
 function createServer() {
@@ -265,6 +274,64 @@ describe('KouboTemplateServer', () => {
     await new Promise<void>((resolve) => setImmediate(resolve))
     const completed = JSON.parse((await callTool(server, 'get_koubo_template_job', { jobId: started.job_id })).content[0].text)
     expect(completed).toMatchObject({ status: 'success', result: { output: { draft_id: 'draft-1' } } })
+  })
+
+  it('registers the finished draft artifact for the runtime session', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({ access_token: 'access-token', refresh_token: 'refresh-token', expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'task-1' }))
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: 'success',
+          success: true,
+          output: { draft_id: 'draft-1', draft_name: '口播草稿' }
+        })
+      )
+
+    const server = new KouboTemplateServer({ runtimeSessionId: 'session-1' })
+    await callTool(server, 'submit_koubo_template_task', {
+      template: 'knowledge_pip',
+      videoUrl: 'https://example.com/source.mp4',
+      name: '口播草稿'
+    })
+
+    expect(mockRegisterArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'draft', runtimeSessionId: 'session-1', draftId: 'draft-1', name: '口播草稿' })
+    )
+    expect(mockDraftEventSend).toHaveBeenCalledWith(
+      'app:draft-created',
+      expect.objectContaining({ draftId: 'draft-1', runtimeSessionId: 'session-1', status: 'completed' })
+    )
+  })
+
+  it('skips draft artifact registration without a runtime session or for test drafts', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({ access_token: 'access-token', refresh_token: 'refresh-token', expires_in: 3600 })
+      )
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'task-2' }))
+      .mockResolvedValueOnce(
+        mockJsonResponse({ status: 'success', success: true, output: { draft_id: 'draft-2' } })
+      )
+
+    mockDraftIsTest.mockReturnValue(true)
+    const server = new KouboTemplateServer({ runtimeSessionId: 'session-2' })
+    await callTool(server, 'submit_koubo_template_task', {
+      template: 'knowledge_pip',
+      videoUrl: 'https://example.com/source.mp4'
+    })
+    expect(mockRegisterArtifact).not.toHaveBeenCalled()
+    expect(mockDraftEventSend).not.toHaveBeenCalled()
+
+    mockDraftIsTest.mockReturnValue(false)
+    const noSessionServer = new KouboTemplateServer()
+    await callTool(noSessionServer, 'submit_koubo_template_task', {
+      template: 'knowledge_pip',
+      videoUrl: 'https://example.com/source.mp4'
+    })
+    expect(mockRegisterArtifact).not.toHaveBeenCalled()
   })
 
   it('should submit a built-in template task with remote video input', async () => {

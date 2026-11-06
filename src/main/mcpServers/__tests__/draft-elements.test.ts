@@ -42,6 +42,7 @@ vi.mock('@logger', () => ({
 }))
 
 import DraftElementsServer from '../draft-elements'
+import { draftTestRegistry } from '../draft-test-registry'
 
 type DraftElementsServerInstance = InstanceType<typeof DraftElementsServer>
 type ListedTool = {
@@ -91,6 +92,21 @@ describe('DraftElementsServer', () => {
       webContents: { send: mockWebContentsSend }
     })
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+  })
+
+  it.each(['draftId', 'draft_id'])('should suppress both element events for registered test IDs via %s', async (idKey) => {
+    const saved = new Map<string, unknown>()
+    mockStoreSet.mockImplementation((key, value) => saved.set(key, value))
+    mockStoreGet.mockImplementation((key) => key === 'auth.refresh_token' ? 'refresh-token' : saved.get(key))
+    draftTestRegistry.markTest('test-elements')
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ success: true, output: { draft_id: 'test-elements', material_id: 'text-1' } }))
+    const result = await callTool(createServer(), 'add_text', {
+      text: 'Hello', start: 0, end: 5, [idKey]: 'test-elements'
+    })
+    expect(result.isError).not.toBe(true)
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    expect(mockWebContentsSend).not.toHaveBeenCalled()
   })
 
   it('should expose text, subtitle, media, audio, effect, filter, and animation tools', async () => {

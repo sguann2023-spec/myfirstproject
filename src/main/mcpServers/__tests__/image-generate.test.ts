@@ -49,6 +49,9 @@ vi.mock('@logger', () => ({
   }
 }))
 
+const { mockSend, mockGetMainWindow } = vi.hoisted(() => ({ mockSend: vi.fn(), mockGetMainWindow: vi.fn() }))
+vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: mockGetMainWindow } }))
+
 import ImageGenerateServer from '../image-generate'
 
 type ImageGenerateServerInstance = InstanceType<typeof ImageGenerateServer>
@@ -99,6 +102,8 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 
 describe('ImageGenerateServer', () => {
   beforeEach(() => {
+    mockSend.mockReset()
+    mockGetMainWindow.mockReset().mockReturnValue({ isDestroyed: () => false, webContents: { send: mockSend } })
     mockNetFetch.mockReset()
     mockStat.mockReset()
     mockStoreGet.mockReset()
@@ -109,6 +114,84 @@ describe('ImageGenerateServer', () => {
     mockStat.mockResolvedValue({
       isFile: () => true
     })
+  })
+
+  it('notifies wait and repeated status with stable task identity and creation time', async () => {
+    const server = new ImageGenerateServer({ runtimeSessionId: 'session-a' })
+    const completed = { success: true, status: 'success', result: { image: 'https://example.com/result.png' } }
+    const request = vi.spyOn(server as any, 'requestWithAuth')
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'task-a' }))
+      .mockResolvedValue(mockJsonResponse(completed))
+    vi.spyOn(server as any, 'buildInlineResultImageContent').mockResolvedValue(null)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
+    try {
+      await callTool(server, { prompt: 'an image' })
+      now.mockReturnValue(2000)
+      const status = await callTool(server, { action: 'status', taskId: 'task-a' })
+      expect(JSON.parse(status.content[0].text).task_id).toBe('task-a')
+      expect(mockSend.mock.calls).toEqual([
+        ['app:image-generated', { id: 'task-a', runtimeSessionId: 'session-a', taskId: 'task-a', imageUrl: completed.result.image, createdAt: 1000, status: 'completed' }],
+        ['app:image-generated', { id: 'task-a', runtimeSessionId: 'session-a', taskId: 'task-a', imageUrl: completed.result.image, createdAt: 1000, status: 'completed' }]
+      ])
+      expect(request).toHaveBeenCalledTimes(3)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it.each([
+    { status: 'failed', success: false, image: 'https://example.com/a.png' },
+    { status: 'error', image: 'https://example.com/a.png' },
+    { status: 'running', image: 'https://example.com/a.png' },
+    { status: 'success', success: false, image: 'https://example.com/a.png' },
+    { status: 'success', image: 'file:///tmp/a.png' },
+    { status: 'success', image: 'data:image/png;base64,YQ==' },
+    { status: 'success', image: 'https://' },
+    { status: 'success', image: undefined }
+  ])('does not notify non-completed or invalid image results: %j', async ({ status, success, image }) => {
+    const server = new ImageGenerateServer({ runtimeSessionId: 'session-a' })
+    vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status, success, result: { image } }))
+    vi.spyOn(server as any, 'buildInlineResultImageContent').mockResolvedValue(null)
+    await callTool(server, { action: 'status', taskId: 'task-a' })
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('never infers multi-image fields or notifies submit, external, or sessionless calls', async () => {
+    for (const options of [{}, { runtimeSessionId: ' ' }, { runtimeSessionId: 'session-a', external: true }, { runtimeSessionId: 'session-a' }]) {
+      const server = new ImageGenerateServer(options)
+      vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ success: true, task_id: 'task-a', status: 'success', result: options.runtimeSessionId === 'session-a' && !options.external ? { images: ['https://example.com/a.png'] } : { image: 'https://example.com/a.png' } }))
+      vi.spyOn(server as any, 'buildInlineResultImageContent').mockResolvedValue(null)
+      await callTool(server, options.external ? { task_id: 'task-a' } : { action: 'status', taskId: 'task-a' }, options.external ? 'task_status' : 'generate_or_edit_image')
+      if (!options.external) {
+        vi.mocked((server as any).requestWithAuth).mockResolvedValue(mockJsonResponse({
+          success: true, task_id: 'task-a', status: 'success', result: { image: 'https://example.com/a.png' }
+        }))
+        await callTool(server, { action: 'submit', prompt: 'an image' })
+      }
+    }
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'destroyed', 'throws'])('notification window failure does not change tool success: %s', async (mode) => {
+    const server = new ImageGenerateServer({ runtimeSessionId: 'session-a' })
+    vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ success: true, status: 'success', result: { image: 'http://example.com/a.png' } }))
+    vi.spyOn(server as any, 'buildInlineResultImageContent').mockResolvedValue(null)
+    if (mode === 'missing') mockGetMainWindow.mockReturnValue(null)
+    if (mode === 'destroyed') mockGetMainWindow.mockReturnValue({ isDestroyed: () => true })
+    if (mode === 'throws') mockSend.mockImplementation(() => { throw new Error('IPC closed') })
+    const result = await callTool(server, { action: 'status', taskId: 'task-a' })
+    expect(result.isError).not.toBe(true)
+    expect(JSON.parse(result.content[0].text).success).toBe(true)
+  })
+
+  it('isolates notifications between session-scoped servers', async () => {
+    for (const runtimeSessionId of ['session-a', 'session-b']) {
+      const server = new ImageGenerateServer({ runtimeSessionId })
+      vi.spyOn(server as any, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status: 'success', result: { image: 'https://example.com/a.png' } }))
+      vi.spyOn(server as any, 'buildInlineResultImageContent').mockResolvedValue(null)
+      await callTool(server, { action: 'status', taskId: 'task-a' })
+    }
+    expect(mockSend.mock.calls.map((call) => call[1].runtimeSessionId)).toEqual(['session-a', 'session-b'])
   })
 
   it('isolates external tools on every transport and rejects hidden tools', async () => {

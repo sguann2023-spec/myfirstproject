@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import * as fs from 'node:fs'
 import path from 'node:path'
 import { buildVectcutMcpToolName, normalizeVectcutMcpToolName } from '@shared/mcp'
@@ -19,7 +20,7 @@ export type ApprovalCacheValue =
 export const normalizeToolName = (name: string): string =>
   name.startsWith('builtin_') ? name.slice('builtin_'.length) : name
 
-export const requiresInteractiveApproval = (name: string): boolean => normalizeToolName(name) === 'AskUserQuestion'
+export const requiresInteractiveApproval = (name: string): boolean => isAskUserQuestionTool(name)
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value)

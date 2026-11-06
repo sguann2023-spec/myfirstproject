@@ -30,8 +30,18 @@ export function isMediaGenerationBillingToolName(toolName?: string, serverName?:
 }
 
 // Shared ✦ points badge so child tool headers and aggregate group headers render
-// the exact same markup: same alignment offsets, font sizes and normal weight.
-export function MediaGenBillingBadge({ displayText, title }: { displayText: string; title: string }) {
+// the exact same markup: same font sizes and normal weight. Child headers sit on
+// a text baseline, so they keep the small translateY optical corrections; flex
+// centered contexts (aggregate group header) pass centered to drop them.
+export function MediaGenBillingBadge({
+  displayText,
+  title,
+  centered = false
+}: {
+  displayText: string
+  title: string
+  centered?: boolean
+}) {
   return (
     <span
       className="tool-header-billing-badge"
@@ -48,7 +58,7 @@ export function MediaGenBillingBadge({ displayText, title }: { displayText: stri
         flex: '0 0 auto',
         whiteSpace: 'nowrap',
         lineHeight: 1,
-        transform: 'translateY(2px)'
+        transform: centered ? undefined : 'translateY(2px)'
       }}>
       <img
         src={getMediaGenerationPointIconUrl()}
@@ -59,7 +69,7 @@ export function MediaGenBillingBadge({ displayText, title }: { displayText: stri
           height: 14,
           display: 'block',
           flexShrink: 0,
-          transform: 'translateY(0.5px)'
+          transform: centered ? undefined : 'translateY(0.5px)'
         }}
       />
       <span
@@ -69,7 +79,7 @@ export function MediaGenBillingBadge({ displayText, title }: { displayText: stri
           fontSize: 12,
           fontWeight: 'normal',
           lineHeight: 1,
-          transform: 'translateY(0.5px)'
+          transform: centered ? undefined : 'translateY(0.5px)'
         }}>
         {displayText}
       </span>

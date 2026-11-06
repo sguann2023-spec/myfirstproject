@@ -1,3 +1,4 @@
+import { USER_INTERACTION_GUIDANCE } from '@shared/userInteraction'
 import { CHANNEL_SECURITY_PROMPT } from '@shared/agents/claudecode/constants'
 
 import type { GetAgentSessionResponse } from '../..'
@@ -102,8 +103,10 @@ export async function buildInvocationPromptState(input: {
     }
   }
 
+  if (isAssistant) assistantSystemPrompt = [assistantSystemPrompt, USER_INTERACTION_GUIDANCE].filter(Boolean).join('\n\n')
+
   const clawSystemPrompt = !isAssistant
-    ? await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)
+    ? [await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions), USER_INTERACTION_GUIDANCE].join('\n\n')
     : undefined
 
   const finalSystemPrompt = assistantSystemPrompt

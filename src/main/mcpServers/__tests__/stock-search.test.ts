@@ -81,7 +81,16 @@ function mockRemote(options: RemoteOptions = {}) {
 }
 
 function assertFailure(result: unknown) {
-  expect(result).toEqual(FAILURE)
+  const structured = (result as CallToolResult).structuredContent
+  if (structured) {
+    expect(structured).toEqual({ error: FAILURE.content[0].text, suggestedNextSearch: {
+      tool: 'scrapt.youtube_web_search_video', arguments: { search_query: expect.any(String) },
+      guidance: expect.stringContaining('must try scrapt.youtube_web_search_video')
+    } })
+    expect(result).toEqual({ content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured, isError: true })
+  } else {
+    expect(result).toEqual(FAILURE)
+  }
   expect(JSON.stringify(result)).not.toMatch(/coverr|upstream|secret|Bearer|JSON-RPC|rawOutput|base64/i)
 }
 
@@ -131,6 +140,7 @@ describe('StockSearchServer with real MCP SDK clients', () => {
   it('lists exactly four read-only tools with restricted schemas and search guidance', async () => {
     const { tools } = await client.listTools()
     expect(tools.map(tool => tool.name)).toEqual(['search_videos', 'get_video', 'search_audios', 'get_audio'])
+    expect(tools[0].description?.slice(0, 240)).toContain('must try scrapt.youtube_web_search_video')
     expect(tools.map(tool => tool.title)).toEqual(['\u89c6\u9891\u641c\u7d22', '\u89c6\u9891\u8be6\u60c5', '\u97f3\u9891\u641c\u7d22', '\u97f3\u9891\u8be6\u60c5'])
     for (const tool of tools) {
       expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, openWorldHint: true })
@@ -154,6 +164,23 @@ describe('StockSearchServer with real MCP SDK clients', () => {
     expect(JSON.stringify(tools)).not.toMatch(/coverr|upstream|api.key|proxy/i)
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockEnsureToken).not.toHaveBeenCalled()
+  })
+
+  it('suggests YouTube for failed valid video searches, never audio or invalid requests', async () => {
+    mockFetch.mockRejectedValue(new Error('secret upstream failure'))
+    const result = await client.callTool({ name: 'search_videos', arguments: { query: 'gas station' } })
+    assertFailure(result)
+    expect(result.structuredContent).toMatchObject({
+      suggestedNextSearch: { arguments: { search_query: 'gas station' } }
+    })
+    for (const request of [
+      { name: 'search_audios', arguments: { query: 'calm' } },
+      { name: 'search_videos', arguments: { query: '' } }
+    ]) {
+      const failure = await client.callTool(request)
+      assertFailure(failure)
+      expect(failure.structuredContent).toBeUndefined()
+    }
   })
 
   it.each(['get_videos', 'get_audios', 'download_video', 'generate_audio', 'search_images', '__proto__'])('blocks non-whitelisted tool %s before network/auth', async name => {

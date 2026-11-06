@@ -35,32 +35,77 @@
   !insertmacro MUI_PAGE_FINISH
 !macroend
 
-!macro customCheckAppRunning
-  Push $0
-  Push $1
-  Push $2
+; Resolve exactly the registry roots/fallback used by uninstallOldVersion, not
+; $INSTDIR (which can be a new /D destination or not yet machine-wide).
+!macro PreflightOldInstallation ROOT
+  ReadRegStr $3 ${ROOT} "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  !ifdef UNINSTALL_REGISTRY_KEY_2
+    ${If} $3 == ""
+      ReadRegStr $3 ${ROOT} "${UNINSTALL_REGISTRY_KEY_2}" "UninstallString"
+    ${EndIf}
+  !endif
+  ${If} $3 != ""
+    ReadRegStr $4 ${ROOT} "${INSTALL_REGISTRY_KEY}" "InstallLocation"
+    ${If} $4 == ""
+      Push $3
+      Call GetInQuotes
+      Pop $4
+      ${If} $4 != ""
+        Push $4
+        Call GetFileParent
+        Pop $4
+      ${EndIf}
+    ${EndIf}
+    ${If} $4 != ""
+      !insertmacro RunWindowsPreflight
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+!macro RunWindowsPreflight
   InitPluginsDir
   File "/oname=$PLUGINSDIR\windows-update-preflight.ps1" "${WINDOWS_UPDATE_PREFLIGHT_SCRIPT}"
   System::Call 'kernel32::GetCurrentProcessId() i.r0'
   ${Do}
-    nsExec::ExecToStack /TIMEOUT=120000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\windows-update-preflight.ps1" -InstallDirectory "$INSTDIR" -ExecutableName "${APP_EXECUTABLE_FILENAME}" -UninstallerName "${UNINSTALL_FILENAME}" -InstallerProcessId $0`
+    nsExec::ExecToStack /TIMEOUT=120000 `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\windows-update-preflight.ps1" -InstallDirectory "$4" -ExecutableName "${APP_EXECUTABLE_FILENAME}" -UninstallerName "${UNINSTALL_FILENAME}" -InstallerProcessId $0 -LogPath "$TEMP\chatcut-update-preflight-$0.log"`
     Pop $2
     Pop $1
     ${If} $2 == 0
       ${ExitDo}
     ${EndIf}
     DetailPrint "Update preflight failed ($2): $1"
-    MessageBox MB_RETRYCANCEL|MB_ICONSTOP "更新前检查失败，尚未开始卸载。请关闭流光剪辑及相关后台任务，必要时以管理员身份运行安装包。$\r$\n$\r$\n$1" /SD IDCANCEL IDRETRY +2
+    MessageBox MB_RETRYCANCEL|MB_ICONSTOP "更新前检查失败，尚未开始卸载。请关闭流光剪辑及相关后台任务，必要时以管理员身份运行安装包。$\r$\n日志: $TEMP\chatcut-update-preflight-$0.log$\r$\n$1" /SD IDCANCEL IDRETRY +2
     Quit
   ${Loop}
+!macroend
+
+!ifndef BUILD_UNINSTALLER
+!macro customCheckAppRunning
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  !insertmacro PreflightOldInstallation SHELL_CONTEXT
+  ${If} $installMode == "all"
+    !insertmacro PreflightOldInstallation HKCU
+  ${EndIf}
+  Pop $4
+  Pop $3
   Pop $2
   Pop $1
   Pop $0
 !macroend
 
+!endif ; BUILD_UNINSTALLER uses the standard app-running check.
+
 !macro customInit
   ; Assisted installers skip CHECK_APP_RUNNING in the elevated inner instance.
   ${If} ${UAC_IsInnerInstance}
+    ; Inner instances are always machine-wide. The page (or silent section)
+    ; normally sets this later, after customInit; establish it before resolving
+    ; SHELL_CONTEXT. The normal outer path remains unchanged.
+    !insertmacro setInstallModePerAllUsers
     !insertmacro customCheckAppRunning
   ${EndIf}
 !macroend

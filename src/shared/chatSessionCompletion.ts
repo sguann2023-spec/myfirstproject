@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '../packages/shared/userInteraction'
 export type ChatSessionCompletionFlags = {
   isPending?: boolean | null
   isFulfilled?: boolean | null
@@ -11,7 +12,7 @@ export function isChatSessionAwaitingConfirmation(
   const runtimeSessionId = String(session.runtimeSessionId || '').trim()
   if (!session.isPending || !runtimeSessionId) return false
   return Object.values(requests).some((entry) =>
-    entry.toolName === 'AskUserQuestion' &&
+    isAskUserQuestionTool(entry.toolName) &&
     !entry.autoApprove &&
     entry.toolCallId?.startsWith(`${runtimeSessionId}:`) &&
     ['pending', 'submitting-allow', 'submitting-deny'].includes(entry.status)

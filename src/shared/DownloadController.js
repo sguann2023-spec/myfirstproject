@@ -2,6 +2,7 @@
 import { electronStore } from './electronStore';
 import { queryScript, searchDraft } from '../api/capcut';
 import { mapDownloadErrorMessage } from './downloadErrorMessage';
+import { enqueueDraftDownloaderLink } from './draftDownloaderUrl';
 import { loggerService } from '@logger';
 const logger = loggerService.withContext('DownloadController');
 let ipc;
@@ -388,6 +389,14 @@ async function enrichIncomingDrafts(items = []) {
       };
     }
   }));
+}
+
+/* 拦截草稿跳链：解析 draft_id 后补全元数据并入队，非草稿跳链返回 false */
+function enqueueFromDownloaderUrl(url, fallbackDraftName = '') {
+  return enqueueDraftDownloaderLink(url, fallbackDraftName, {
+    enrich: enrichIncomingDrafts,
+    enqueue,
+  });
 }
 
 async function startNextIfIdle() {
@@ -802,6 +811,7 @@ init();
 export const DownloadController = {
   enqueue,
   enqueueMany,
+  enqueueFromDownloaderUrl,
   pauseCurrent,
   resumeCurrent,
   retryTask,

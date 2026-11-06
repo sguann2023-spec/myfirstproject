@@ -9,6 +9,7 @@ import type {
 } from '@types'
 import { and, eq, sql } from 'drizzle-orm'
 
+import { offloadPersistedMedia, resolvePersistedMedia } from './repositories/persistedMedia'
 import { readMessageProjection } from './messageEventStore'
 import { BaseService } from '../BaseService'
 import { persistedToCanonicalInputs } from './agentHistoryMapper'
@@ -77,7 +78,7 @@ class AgentMessageRepository extends BaseService {
       }
     }
 
-    return deserialized
+    return resolvePersistedMedia(deserialized)
   }
 
   private async findExistingMessageRow(
@@ -197,14 +198,16 @@ class AgentMessageRepository extends BaseService {
   }
 
   async persistUserMessage(params: PersistUserMessageParams): Promise<AgentSessionMessageEntity> {
-    const saved = await this.upsertMessage({ ...params, agentSessionId: params.agentSessionId ?? '' })
-    await this.dualWriteCanonical(params.sessionId, params.payload, params.metadata)
+    const prepared = await offloadPersistedMedia(params)
+    const saved = await this.upsertMessage({ ...prepared, agentSessionId: prepared.agentSessionId ?? '' })
+    await this.dualWriteCanonical(prepared.sessionId, prepared.payload, prepared.metadata)
     return saved
   }
 
   async persistAssistantMessage(params: PersistAssistantMessageParams): Promise<AgentSessionMessageEntity> {
-    const saved = await this.upsertMessage(params)
-    await this.dualWriteCanonical(params.sessionId, params.payload, params.metadata)
+    const prepared = await offloadPersistedMedia(params)
+    const saved = await this.upsertMessage(prepared)
+    await this.dualWriteCanonical(prepared.sessionId, prepared.payload, prepared.metadata)
     return saved
   }
 

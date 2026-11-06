@@ -12,6 +12,7 @@ import Store from 'electron-store'
 import { net } from 'electron'
 
 import { ossUploadService } from '@main/services/OssUploadService'
+import { notifyAudioGenerated } from './notify-audio-generated'
 
 const logger = loggerService.withContext('MCPServer:SeedAudio')
 
@@ -252,7 +253,7 @@ class SeedAudioServer {
   // Bounded per-instance fallback: no upstream async endpoint is documented in this integration.
   private readonly tasks = new Map<string, { status: string; updatedAt: number; result?: Record<string, unknown> }>()
 
-  constructor(private readonly options: { external?: boolean } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -867,6 +868,15 @@ class SeedAudioServer {
       voiceIds: resolvedVoiceIds,
       speaker: payload.speaker || null
     })
+
+    if (result.success === true && !result.error && !result.error_code) {
+      notifyAudioGenerated({
+        runtimeSessionId: this.options.runtimeSessionId,
+        audioUrl: result.url,
+        text: payload.text_prompt as string,
+        durationSeconds: result.duration_seconds
+      })
+    }
 
     return this.formatJsonResult({
       provider: 'vectcut',

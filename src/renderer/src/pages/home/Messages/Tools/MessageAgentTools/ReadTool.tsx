@@ -90,7 +90,7 @@ export function ReadTool({
         {imageOutputs.map((image, index) => (
           <div key={`${image.mimeType}-${index}`} style={{ marginTop: strippedOutput ? 12 : 0 }}>
             <ImageViewer
-              src={image.kind === 'url' ? image.source : `data:${image.mimeType};base64,${image.source}`}
+              src={image.kind === 'url' ? (image.source.startsWith('/') ? `file://${image.source}` : image.source) : `data:${image.mimeType};base64,${image.source}`}
               style={{ maxWidth: 300, maxHeight: 300, padding: 0, borderRadius: 8 }}
             />
           </div>

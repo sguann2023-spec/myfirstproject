@@ -1,3 +1,14 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
+import {
+  answerError,
+  fileExtensions,
+  questionId,
+  optionId,
+  groupId,
+  questionType,
+  summarizeAnswer,
+  type QuestionAnswer
+} from '@shared/askUserQuestion'
 import { loggerService } from '@logger'
 import { useAppDispatch, useAppSelector } from '@renderer/store'
 import {
@@ -8,8 +19,9 @@ import {
 import type { NormalToolResponse } from '@renderer/types'
 import { cn } from '@renderer/utils'
 import { resolveToolArguments } from '@shared/parseToolArguments'
-import { Button, Checkbox, Input, Radio, Tag } from 'antd'
-import { CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle, Send } from 'lucide-react'
+import { localQuestionMedia } from '@renderer/utils/localQuestionMedia'
+import { Button, Checkbox, Input, Modal, Radio, Upload } from 'antd'
+import { CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, File, FileAudio, Plus, Send } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -26,18 +38,17 @@ const OTHER_OPTION_VALUE = '__other__'
 // ==================== Sub Components ====================
 
 interface CardHeaderProps {
+  question?: string
   currentIndex: number
   totalQuestions: number
   extra?: ReactNode
 }
 
-function CardHeader({ currentIndex, totalQuestions, extra }: CardHeaderProps) {
-  const { t } = useTranslation()
+function CardHeader({ question, currentIndex, totalQuestions, extra }: CardHeaderProps) {
   return (
     <div className="ask-user-question-header">
-      <div className="ask-user-question-header-main">
-        <HelpCircle className="ask-user-question-header-icon" />
-        <span className="ask-user-question-header-title">{t('agent.askUserQuestion.title')}</span>
+      <div className="ask-user-question-header-title" role="heading" aria-level={3}>
+        <SkeletonValue value={question} width="100%" />
       </div>
       <span className="ask-user-question-header-meta">
         <SkeletonValue value={totalQuestions > 0 ? `${currentIndex + 1} / ${totalQuestions}` : null} width="40px" />
@@ -56,15 +67,21 @@ interface NavigationProps {
 }
 
 function Navigation({ showPrevious = true, isFirst, onPrevious, rightButton }: NavigationProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation('translation')
   return (
     <div
       className={cn(
         'ask-user-question-navigation',
         showPrevious ? 'ask-user-question-navigation--between' : 'ask-user-question-navigation--end'
-      )}>
+      )}
+    >
       {showPrevious && (
-        <Button icon={<ChevronLeft size={16} />} disabled={isFirst} onClick={onPrevious} className="ask-user-question-navigation-button">
+        <Button
+          icon={<ChevronLeft size={16} />}
+          disabled={isFirst}
+          onClick={onPrevious}
+          className="ask-user-question-navigation-button"
+        >
           {t('agent.askUserQuestion.previous')}
         </Button>
       )}
@@ -85,11 +102,9 @@ interface OptionItemProps {
 function OptionItem({ label, description, isSelected, control, onClick }: OptionItemProps) {
   return (
     <div
-      className={cn(
-        'ask-user-question-option',
-        isSelected ? 'ask-user-question-option--selected' : undefined
-      )}
-      onClick={onClick}>
+      className={cn('ask-user-question-option', isSelected ? 'ask-user-question-option--selected' : undefined)}
+      onClick={onClick}
+    >
       {control}
       <div className="ask-user-question-option-body">
         <div className="ask-user-question-option-label">{label}</div>
@@ -106,13 +121,28 @@ interface OptionsListProps {
   multiSelect?: boolean
   onSelect: (label: string, checked?: boolean) => void
   otherLabel: string
+  showOther?: boolean
+  useIds?: boolean
 }
 
-function OptionsList({ options, selected, hasCustomInput, multiSelect, onSelect, otherLabel }: OptionsListProps) {
-  const renderOptionItem = (option: { label: string; description?: string }, isOther = false) => {
+function OptionsList({
+  options,
+  selected,
+  hasCustomInput,
+  multiSelect,
+  onSelect,
+  otherLabel,
+  useIds,
+  showOther = true
+}: OptionsListProps) {
+  const renderOptionItem = (
+    option: { label: string; description?: string; id?: string },
+    isOther = false,
+    index = 0
+  ) => {
     const label = isOther ? otherLabel : option.label
-    const value = isOther ? OTHER_OPTION_VALUE : option.label
-    const isSelected = isOther ? hasCustomInput : selected.includes(option.label)
+    const value = isOther ? OTHER_OPTION_VALUE : useIds ? optionId(option, index) : option.label
+    const isSelected = isOther ? hasCustomInput : selected.includes(value)
 
     return (
       <OptionItem
@@ -122,20 +152,20 @@ function OptionsList({ options, selected, hasCustomInput, multiSelect, onSelect,
         isSelected={isSelected}
         control={
           multiSelect ? (
-            <Checkbox checked={isSelected} className="mt-0.5" />
+            <Checkbox checked={isSelected} />
           ) : (
-            <Radio value={value} className="mt-0.5" />
+            <Radio checked={isSelected} value={value} />
           )
         }
-        onClick={() => onSelect(value, multiSelect ? !isSelected : undefined)}
+        onClick={() => onSelect(value, !isSelected)}
       />
     )
   }
 
   const optionItems = (
     <>
-      {options.map((option) => renderOptionItem(option))}
-      {renderOptionItem({ label: '' }, true)}
+      {options.map((option, i) => renderOptionItem(option, false, i))}
+      {showOther && renderOptionItem({ label: '' }, true)}
     </>
   )
 
@@ -147,7 +177,8 @@ function OptionsList({ options, selected, hasCustomInput, multiSelect, onSelect,
         <Radio.Group
           value={hasCustomInput ? OTHER_OPTION_VALUE : selected[0]}
           onChange={(e) => onSelect(e.target.value)}
-          className="ask-user-question-radio-group">
+          className="ask-user-question-radio-group"
+        >
           <div className="ask-user-question-options-stack">{optionItems}</div>
         </Radio.Group>
       )}
@@ -162,18 +193,10 @@ interface CompletedContentProps {
   answer?: string
 }
 
-function CompletedContent({ question, answer }: CompletedContentProps) {
+function CompletedContent({ answer }: CompletedContentProps) {
+  if (!answer) return null
   return (
     <div className="ask-user-question-content ask-user-question-content--completed">
-      <div className="ask-user-question-tags">
-        <Tag color={answer ? 'processing' : 'default'} className="m-0">
-          <SkeletonValue value={question?.header} width="60px" />
-        </Tag>
-        {answer && <CheckCircle2 className="ask-user-question-status-icon" />}
-      </div>
-      <div className="ask-user-question-prompt">
-        <SkeletonValue value={question?.question} width="100%" />
-      </div>
       {answer && (
         <div className="ask-user-question-answer">
           <CheckCircle2 className="ask-user-question-answer-icon" />
@@ -210,25 +233,11 @@ function PendingContent({
   onSelect,
   onCustomInputChange
 }: PendingContentProps) {
-  const { t } = useTranslation()
+  const { t } = useTranslation('translation')
 
   return (
     <div className="ask-user-question-content ask-user-question-content--pending">
-      <div className="ask-user-question-tags">
-        <Tag color="processing" className="m-0">
-          <SkeletonValue value={question?.header} width="60px" />
-        </Tag>
-        {question?.multiSelect && (
-          <Tag color="processing" className="m-0">
-            {t('agent.askUserQuestion.multiSelect')}
-          </Tag>
-        )}
-        {isAnswered && <CheckCircle className="ask-user-question-status-icon" />}
-      </div>
-
-      <div className="ask-user-question-prompt ask-user-question-prompt--strong">
-        <SkeletonValue value={question?.question} width="100%" />
-      </div>
+      {isAnswered && <CheckCircle className="ask-user-question-status-icon" />}
 
       {question?.options ? (
         <OptionsList
@@ -259,14 +268,273 @@ function PendingContent({
   )
 }
 
+function QuestionField({
+  question: q,
+  answer,
+  disabled,
+  onChange,
+  showPrompt = false
+}: {
+  showPrompt?: boolean
+  question: AskUserQuestionItem
+  answer?: QuestionAnswer
+  disabled: boolean
+  onChange: (answer: QuestionAnswer) => void
+}) {
+  const { t } = useTranslation('translation')
+  const [error, setError] = useState('')
+  const [preview, setPreview] = useState<{ path: string; name: string } | null>(null)
+  const [failedMedia, setFailedMedia] = useState<Record<string, boolean>>({})
+  const media = preview ? localQuestionMedia(preview.path) : undefined
+  const player = useRef<HTMLMediaElement | null>(null)
+  const closePreview = () => {
+    player.current?.pause()
+    setPreview(null)
+  }
+  useEffect(() => () => { player.current?.pause() }, [])
+  const type = questionType(q)
+  const a = answer ?? { type }
+  const [other, setOther] = useState(!!a.text)
+  const live = useRef({ a, disabled, onChange })
+  live.current = { a, disabled, onChange }
+  const mounted = useRef(false)
+  const selecting = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+  return (
+    <div className="ask-user-question-content ask-user-question-content--pending">
+      {showPrompt && (
+        <div className="ask-user-question-prompt ask-user-question-prompt--strong">{q.question}</div>
+      )}
+      {type === 'text' &&
+        (q.multiline ? (
+          <Input.TextArea
+            className="ask-user-question-custom-input"
+            autoSize={{ minRows: 3, maxRows: 8 }}
+            disabled={disabled}
+            aria-label={q.question}
+            placeholder={q.placeholder}
+            value={a.text ?? ''}
+            maxLength={q.maxLength}
+            onChange={(e) => onChange({ type, text: e.target.value })}
+          />
+        ) : (
+          <Input
+            disabled={disabled}
+            aria-label={q.question}
+            placeholder={q.placeholder}
+            value={a.text ?? ''}
+            maxLength={q.maxLength}
+            onChange={(e) => onChange({ type, text: e.target.value })}
+          />
+        ))}
+      {(type === 'single_select' || type === 'multi_select') && (
+        <>
+          <OptionsList
+            options={q.options ?? []}
+            useIds
+            showOther={!q.groups?.length}
+            selected={a.selectedIds ?? []}
+            hasCustomInput={other}
+            multiSelect={type === 'multi_select'}
+            otherLabel={t('agent.askUserQuestion.other')}
+            onSelect={(label, checked) => {
+              if (disabled) return
+              if (label === OTHER_OPTION_VALUE) {
+                setOther(checked !== false)
+                onChange({
+                  ...a,
+                  text: checked !== false ? (a.text ?? '') : undefined,
+                  selectedIds: type === 'single_select' ? [] : a.selectedIds,
+                  optionInputs: type === 'single_select' ? undefined : a.optionInputs
+                })
+              } else {
+                const id = label
+                const ids =
+                  type === 'single_select'
+                    ? [id]
+                    : checked
+                      ? [...(a.selectedIds ?? []), id]
+                      : (a.selectedIds ?? []).filter((v) => v !== id)
+                if (type === 'single_select') setOther(false)
+                onChange({
+                  ...a,
+                  selectedIds: [...new Set(ids)],
+                  text: type === 'single_select' ? undefined : a.text,
+                  optionInputs: Object.fromEntries(
+                    Object.entries(a.optionInputs ?? {}).filter(([key]) => ids.includes(key))
+                  )
+                })
+              }
+            }}
+          />
+          {other && (
+            <Input
+              autoFocus
+              disabled={disabled}
+              aria-label={t('agent.askUserQuestion.other')}
+              className="ask-user-question-custom-input"
+              placeholder={t('agent.askUserQuestion.customPlaceholder')}
+              value={a.text ?? ''}
+              onChange={(e) => onChange({ ...a, text: e.target.value })}
+            />
+          )}
+          {(q.options ?? []).map(
+            (o, i) =>
+              o.input &&
+              a.selectedIds?.includes(optionId(o, i)) && (
+                <QuestionField
+                  showPrompt
+                  key={optionId(o, i)}
+                  question={{
+                    ...o.input,
+                    header: o.input.label ?? o.label,
+                    question: o.input.label ?? o.label
+                  }}
+                  answer={a.optionInputs?.[optionId(o, i)]}
+                  disabled={disabled}
+                  onChange={(value) =>
+                    onChange({
+                      ...a,
+                      optionInputs: {
+                        ...a.optionInputs,
+                        [optionId(o, i)]: value
+                      }
+                    })
+                  }
+                />
+              )
+          )}
+        </>
+      )}
+      {type === 'upload' && (
+        <>
+          <div
+            className="ask-user-question-upload"
+            onDropCapture={(event) => { event.preventDefault(); event.stopPropagation() }}
+            onDragOverCapture={(event) => { event.preventDefault(); event.stopPropagation() }}
+          >
+            <Upload
+              listType="picture-card"
+              disabled={disabled}
+              openFileDialogOnClick={false}
+              beforeUpload={() => false}
+              isImageUrl={() => false}
+              iconRender={(file) => {
+                const source = localQuestionMedia(file.uid)
+                if (!source || failedMedia[file.uid]) return <span className="ask-user-question-file-fallback"><File size={28} /></span>
+                const fail = () => setFailedMedia((prev) => ({ ...prev, [file.uid]: true }))
+                if (source.kind === 'image') return <img className="ask-user-question-media-thumb" src={source.url} alt={file.name} onError={fail} />
+                if (source.kind === 'video') return <video className="ask-user-question-media-thumb" src={source.url} muted playsInline preload="metadata" onError={fail} onLoadedMetadata={(event) => { if (event.currentTarget.duration > 0) event.currentTarget.currentTime = Math.min(0.01, event.currentTarget.duration / 2) }} />
+                return <FileAudio size={28} />
+              }}
+              onPreview={(file) => {
+                if (localQuestionMedia(file.uid) && !failedMedia[file.uid]) setPreview({ path: file.uid, name: file.name })
+              }}
+              showUploadList={{
+                showPreviewIcon: (file) => !!localQuestionMedia(file.uid) && !failedMedia[file.uid],
+                showRemoveIcon: !disabled
+              }}
+              fileList={(a.files ?? []).map((file) => ({
+                uid: file.path,
+                name: file.name,
+                size: file.size,
+                url: localQuestionMedia(file.path)?.url,
+                status: 'done' as const
+              }))}
+              onRemove={(file) => {
+                if (!mounted.current || live.current.disabled) return false
+                setError('')
+                live.current.onChange({
+                  ...live.current.a,
+                  files: live.current.a.files?.filter((value) => value.path !== file.uid)
+                })
+                return false
+              }}
+              itemRender={(node, file) => <div className="ask-user-question-upload-item" title={file.uid}>{node}</div>}
+            >
+              <button
+                type="button"
+                className="ask-user-question-file-picker"
+                disabled={disabled}
+                onClick={async () => {
+                  if (live.current.disabled || selecting.current) return
+                  selecting.current = true
+                  try {
+                    const selected = await window.api.file.select({
+                      properties: ['openFile', 'multiSelections'],
+                      // Explicit unrestricted filter when the question has no extension constraint.
+                      filters: [{
+                        name: t('agent.askUserQuestion.selectFiles'),
+                        extensions: fileExtensions(q.extensions).filter((ext) => !ext.startsWith('unsupported:')).length
+                          ? fileExtensions(q.extensions).filter((ext) => !ext.startsWith('unsupported:'))
+                          : ['*']
+                      }]
+                    })
+                    if (!mounted.current || live.current.disabled || !selected?.length) return
+                    const files = [...(live.current.a.files ?? [])]
+                    for (const f of selected) {
+                      if (!f.path) continue
+                      if (!files.some((existing) => existing.path === f.path)) {
+                        files.push({ path: f.path, name: f.origin_name || f.name, size: f.size })
+                      }
+                    }
+                    const next = { ...live.current.a, files }
+                    const failure = answerError({ ...q, minFiles: 0, required: false }, next)
+                    if (failure) {
+                      const errorKeys: Record<string, string> = {
+                        'Invalid file count': 'fileCount',
+                        'Invalid file path': 'filePath',
+                        'Duplicate file path': 'duplicateFile',
+                        'Invalid file extension': 'fileExtension'
+                      }
+                      setError(t(`agent.askUserQuestion.errors.${errorKeys[failure] ?? 'invalidAnswer'}`, {
+                        min: q.minFiles ?? (q.required === false ? 0 : 1),
+                        max: q.maxFiles ?? '∞',
+                        extensions: q.extensions?.join(', ')
+                      }))
+                      return
+                    }
+                    setError('')
+                    live.current.onChange(next)
+                  } catch {
+                    if (mounted.current && !live.current.disabled) setError(t('agent.askUserQuestion.selectFilesFailed'))
+                  } finally {
+                    selecting.current = false
+                  }
+                }}
+              >
+                <Plus size={24} aria-hidden="true" />
+                <span>{t('agent.askUserQuestion.selectFiles')}</span>
+              </button>
+            </Upload>
+          </div>
+        </>
+      )}
+      {preview && media && (
+        <Modal open title={`${t('agent.askUserQuestion.previewMedia')} · ${preview.name}`} footer={null} onCancel={closePreview}>
+          {failedMedia[preview.path] ? <div role="alert">{t('agent.askUserQuestion.previewFailed')}</div>
+            : media.kind === 'image' ? <img className="ask-user-question-media-preview" src={media.url} alt={preview.name} onError={() => setFailedMedia((prev) => ({ ...prev, [preview.path]: true }))} />
+              : media.kind === 'video' ? <video ref={(node) => { player.current = node }} className="ask-user-question-media-preview" src={media.url} controls preload="metadata" onError={() => setFailedMedia((prev) => ({ ...prev, [preview.path]: true }))} />
+                : <audio ref={(node) => { player.current = node }} src={media.url} controls preload="metadata" onError={() => setFailedMedia((prev) => ({ ...prev, [preview.path]: true }))} />}
+        </Modal>
+      )}
+      {error && <div role="alert">{error}</div>}
+    </div>
+  )
+}
+
 // ==================== Main Component ====================
 export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalToolResponse }) {
-  const { t } = useTranslation()
+  const { t } = useTranslation('translation')
   const dispatch = useAppDispatch()
   const isTerminal = ['done', 'error', 'cancelled'].includes(toolResponse.status)
   const request = useAppSelector((state) => {
-    const directMatch = selectPendingPermission(state.toolPermissions, toolResponse.toolCallId)
-      ?? selectPendingPermission(state.toolPermissions, toolResponse.id)
+    const directMatch =
+      selectPendingPermission(state.toolPermissions, toolResponse.toolCallId) ??
+      selectPendingPermission(state.toolPermissions, toolResponse.id)
     if (directMatch) return directMatch
     // Finished cards may read their own request, but never borrow another call's input.
     if (isTerminal) return undefined
@@ -274,7 +542,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
     // pi-agent currently reports a synthetic streamed toolCallId to the renderer,
     // while the permission request keeps the namespaced provider toolCallId.
     // Fall back only when there is a single active AskUserQuestion request.
-    return toolResponse.tool?.name === 'AskUserQuestion'
+    return isAskUserQuestionTool(toolResponse.tool?.name)
       ? selectUniqueActivePermissionByToolName(state.toolPermissions, 'AskUserQuestion')
       : undefined
   })
@@ -288,7 +556,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   // Parse from available sources - prefer request.input when pending, fall back to toolResponse.arguments.
   // 流式阶段参数可能只以 JSON 字符串形式停留在 partialArguments 上（arguments 尚未回填），
   // 此时也要能渲染出问题，否则多会话并行时卡片只剩标题和骨架。
-  const { questions, answers } = useMemo(() => {
+  const { questions, answers, structuredAnswers } = useMemo(() => {
     const cached = retainedInput.current
     const retained = cached && cached.toolCallId === toolResponse.toolCallId ? cached.input : undefined
     const source = isPending
@@ -310,17 +578,31 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
 
     return {
       questions: parsed?.questions ?? [],
-      answers: parsed?.answers ?? {}
+      answers: parsed?.answers ?? {},
+      structuredAnswers: parsed?.structuredAnswers ?? {}
     }
-  }, [isPending, request?.input, toolResponse.arguments, toolResponse.partialArguments, toolResponse.status, toolResponse.toolCallId, toolResponse.id])
+  }, [
+    isPending,
+    request?.input,
+    toolResponse.arguments,
+    toolResponse.partialArguments,
+    toolResponse.status,
+    toolResponse.toolCallId,
+    toolResponse.id
+  ])
 
   // Keep the already displayed question through permission cleanup until the saved block catches up.
   useEffect(() => {
-    retainedInput.current = questions.length > 0
-      ? { toolCallId: toolResponse.toolCallId, input: { questions, answers } }
-      : undefined
-  }, [questions, answers, toolResponse.toolCallId])
+    retainedInput.current =
+      questions.length > 0
+        ? {
+            toolCallId: toolResponse.toolCallId,
+            input: { questions, answers, structuredAnswers }
+          }
+        : undefined
+  }, [questions, answers, structuredAnswers, toolResponse.toolCallId])
 
+  const [fields, setFields] = useState<Record<string, QuestionAnswer>>({})
   const [currentIndex, setCurrentIndex] = useState(0)
   // Use question index as key to avoid collision when questions have identical text
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string[]>>({})
@@ -330,26 +612,61 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
 
   const displayAnswers = Object.keys(answers).length > 0 ? answers : submittedAnswers
 
+  useEffect(() => {
+    setCurrentIndex(0)
+    setFields({})
+    setSelectedAnswers({})
+    setCustomInputs({})
+    setShowCustomInput({})
+    setSubmittedAnswers({})
+  }, [toolResponse.toolCallId])
   const isSubmitting = request?.status === 'submitting-allow'
-  const currentQuestion = questions[currentIndex]
-  const totalQuestions = questions.length
+  const pages = questions.flatMap((q, index) =>
+    q.type?.startsWith('group_')
+      ? (q.groups ?? []).map((g, gi) => ({
+          index,
+          group: groupId(g, gi),
+          question: {
+            ...q,
+            type: q.type === 'group_multi_check' ? ('multi_select' as const) : ('single_select' as const),
+            header: g.label,
+            options: g.options,
+            required: g.required ?? q.required
+          }
+        }))
+      : [{ index, group: undefined as string | undefined, question: q }]
+  )
+  const page = pages[currentIndex]
+  const currentQuestion = isPending ? page?.question : questions[page?.index ?? currentIndex]
+  const totalQuestions = pages.length
   const isFirstQuestion = currentIndex === 0
   const isLastQuestion = currentIndex === totalQuestions - 1
 
-  const isCurrentAnswered = useMemo(() => {
-    if (!currentQuestion) return false
-    const selected = selectedAnswers[currentIndex] ?? []
-    const custom = customInputs[currentIndex]?.trim()
-    return selected.length > 0 || (showCustomInput[currentIndex] && !!custom)
-  }, [currentQuestion, currentIndex, selectedAnswers, customInputs, showCustomInput])
-
-  const allAnswered = useMemo(() => {
-    return questions.every((_, idx) => {
-      const selected = selectedAnswers[idx] ?? []
-      const custom = customInputs[idx]?.trim()
-      return selected.length > 0 || (showCustomInput[idx] && custom)
-    })
-  }, [questions, selectedAnswers, customInputs, showCustomInput])
+  function getAnswer(q: AskUserQuestionItem, idx: number): QuestionAnswer | undefined {
+    const id = questionId(q, idx)
+    if (q.type || q.options?.some((o) => o.input)) return fields[id] ?? structuredAnswers[id]
+    const ids = (q.options ?? []).flatMap((o, i) =>
+      (selectedAnswers[idx] ?? []).includes(o.label) ? [optionId(o, i)] : []
+    )
+    return {
+      type: questionType(q),
+      selectedIds: ids,
+      text: showCustomInput[idx] ? customInputs[idx] : undefined
+    }
+  }
+  const isCurrentAnswered =
+    !!currentQuestion &&
+    !answerError(
+      currentQuestion,
+      page?.group
+        ? {
+            type: questionType(currentQuestion),
+            selectedIds: getAnswer(questions[page.index], page.index)?.groups?.[page.group],
+            optionInputs: getAnswer(questions[page.index], page.index)?.groupInputs?.[page.group]
+          }
+        : getAnswer(currentQuestion, page?.index ?? currentIndex)
+    )
+  const allAnswered = questions.length > 0 && questions.every((q, i) => !answerError(q, getAnswer(q, i)))
 
   const handleSelect = useCallback(
     (questionIndex: number, label: string, checked?: boolean) => {
@@ -372,7 +689,10 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
         })
       } else {
         setShowCustomInput((prev) => ({ ...prev, [questionIndex]: false }))
-        setSelectedAnswers((prev) => ({ ...prev, [questionIndex]: [label] }))
+        setSelectedAnswers((prev) => ({
+          ...prev,
+          [questionIndex]: checked === false ? [] : [label]
+        }))
         setCustomInputs((prev) => ({ ...prev, [questionIndex]: '' }))
       }
     },
@@ -388,18 +708,14 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   }, [isLastQuestion])
 
   const handleSubmit = useCallback(async () => {
-    if (isTerminal || request?.status !== 'pending') return
+    if (isTerminal || request?.status !== 'pending' || !allAnswered) return
 
     const collectedAnswers: Record<string, string> = {}
+    const collectedStructured: Record<string, QuestionAnswer> = {}
     questions.forEach((q, idx) => {
-      const selected = selectedAnswers[idx] ?? []
-      const custom = customInputs[idx]?.trim()
-
-      if (showCustomInput[idx] && custom) {
-        collectedAnswers[q.question] = q.multiSelect && selected.length > 0 ? [...selected, custom].join(', ') : custom
-      } else if (selected.length > 0) {
-        collectedAnswers[q.question] = selected.join(', ')
-      }
+      const answer = getAnswer(q, idx) ?? { type: questionType(q) }
+      collectedStructured[questionId(q, idx)] = answer
+      collectedAnswers[q.question] = summarizeAnswer(q, answer)
     })
 
     logger.info('AskUserQuestion submit start', {
@@ -412,18 +728,30 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
     })
 
     setSubmittedAnswers(collectedAnswers)
-    dispatch(toolPermissionsActions.submissionSent({ requestId: request.requestId, behavior: 'allow' }))
+    dispatch(
+      toolPermissionsActions.submissionSent({
+        requestId: request.requestId,
+        behavior: 'allow'
+      })
+    )
 
     try {
       logger.info('AskUserQuestion respondToPermission send', {
         requestId: request.requestId,
         toolCallId: toolResponse.toolCallId,
-        updatedInputKeys: Object.keys({ ...request.input, answers: collectedAnswers })
+        updatedInputKeys: Object.keys({
+          ...request.input,
+          answers: collectedAnswers
+        })
       })
       const response = await window.api.agentTools.respondToPermission({
         requestId: request.requestId,
         behavior: 'allow' as const,
-        updatedInput: { ...request.input, answers: collectedAnswers }
+        updatedInput: {
+          ...request.input,
+          answers: collectedAnswers,
+          structuredAnswers: collectedStructured
+        }
       })
 
       logger.info('AskUserQuestion respondToPermission result', {
@@ -437,16 +765,29 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
     } catch (error) {
       logger.error('Failed to submit AskUserQuestion answers', { error })
       window.toast?.error?.(t('agent.toolPermission.error.sendFailed'))
-      dispatch(toolPermissionsActions.submissionFailed({ requestId: request.requestId }))
+      setSubmittedAnswers({})
+      dispatch(
+        toolPermissionsActions.submissionFailed({
+          requestId: request.requestId
+        })
+      )
     }
-  }, [dispatch, isTerminal, request, questions, selectedAnswers, customInputs, showCustomInput, t])
+  }, [
+    dispatch,
+    isTerminal,
+    request,
+    questions,
+    selectedAnswers,
+    customInputs,
+    showCustomInput,
+    t,
+    fields,
+    structuredAnswers,
+    allAnswered
+  ])
 
   if (isPending && (questions.length === 0 || !currentQuestion)) {
-    return (
-      <div className="ask-user-question-waiting">
-        {t('agent.toolPermission.waiting')}
-      </div>
-    )
+    return <div className="ask-user-question-waiting">{t('agent.toolPermission.waiting')}</div>
   }
 
   const answeredCount = Object.keys(displayAnswers).length
@@ -457,7 +798,8 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
       icon={<Send size={16} />}
       loading={isSubmitting}
       disabled={!allAnswered || isSubmitting}
-      onClick={handleSubmit}>
+      onClick={handleSubmit}
+    >
       {t('agent.askUserQuestion.submit')}
     </Button>
   )
@@ -473,7 +815,8 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
           disabled={!isCurrentAnswered}
           onClick={handleNext}
           iconPosition="end"
-          icon={<ChevronRight size={16} />}>
+          icon={<ChevronRight size={16} />}
+        >
           {t('agent.askUserQuestion.next')}
         </Button>
       )
@@ -484,7 +827,8 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
         onClick={handleNext}
         className="ask-user-question-navigation-button"
         iconPosition="end"
-        icon={<ChevronRight size={16} />}>
+        icon={<ChevronRight size={16} />}
+      >
         {t('agent.askUserQuestion.next')}
       </Button>
     )
@@ -494,6 +838,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
     <div className="ask-user-question-card">
       <div className="ask-user-question-card-inner">
         <CardHeader
+          question={currentQuestion?.question}
           currentIndex={currentIndex}
           totalQuestions={totalQuestions}
           extra={
@@ -501,20 +846,72 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
           }
         />
 
-        {isPending ? (
+        {isPending && (currentQuestion.type || currentQuestion.options?.some((o) => o.input)) ? (
+          <QuestionField
+            key={`${page?.index}-${page?.group ?? ''}`}
+            question={currentQuestion}
+            answer={
+              page?.group
+                ? {
+                    type: questionType(currentQuestion),
+                    selectedIds: getAnswer(questions[page.index], page.index)?.groups?.[page.group],
+                    optionInputs: getAnswer(questions[page.index], page.index)?.groupInputs?.[page.group]
+                  }
+                : getAnswer(currentQuestion, page?.index ?? currentIndex)
+            }
+            disabled={isSubmitting}
+            onChange={(answer) =>
+              setFields((prev) => ({
+                ...prev,
+                [questionId(questions[page.index], page.index)]: page.group
+                  ? {
+                      ...(getAnswer(questions[page.index], page.index) ?? {
+                        type: questionType(questions[page.index])
+                      }),
+                      groups: {
+                        ...getAnswer(questions[page.index], page.index)?.groups,
+                        [page.group]: answer.selectedIds ?? []
+                      },
+                      groupInputs: {
+                        ...getAnswer(questions[page.index], page.index)?.groupInputs,
+                        [page.group]: answer.optionInputs ?? {}
+                      }
+                    }
+                  : answer
+              }))
+            }
+          />
+        ) : isPending ? (
           <PendingContent
             question={currentQuestion}
-            selected={selectedAnswers[currentIndex] ?? []}
-            hasCustomInput={showCustomInput[currentIndex] ?? false}
-            customInputValue={customInputs[currentIndex] ?? ''}
+            selected={selectedAnswers[page?.index ?? currentIndex] ?? []}
+            hasCustomInput={showCustomInput[page?.index ?? currentIndex] ?? false}
+            customInputValue={customInputs[page?.index ?? currentIndex] ?? ''}
             isAnswered={isCurrentAnswered}
-            onSelect={(label, checked) => handleSelect(currentIndex, label, checked)}
-            onCustomInputChange={(value) => setCustomInputs((prev) => ({ ...prev, [currentIndex]: value }))}
+            onSelect={(label, checked) => {
+              if (!isSubmitting) handleSelect(page?.index ?? currentIndex, label, checked)
+            }}
+            onCustomInputChange={(value) =>
+              !isSubmitting &&
+              setCustomInputs((prev) => ({
+                ...prev,
+                [page?.index ?? currentIndex]: value
+              }))
+            }
           />
         ) : (
           <CompletedContent
             question={currentQuestion}
-            answer={currentQuestion ? displayAnswers[currentQuestion.question] : undefined}
+            answer={
+              currentQuestion
+                ? structuredAnswers[questionId(currentQuestion, page?.index ?? currentIndex)]
+                  ? summarizeAnswer(
+                      currentQuestion,
+                      structuredAnswers[questionId(currentQuestion, page?.index ?? currentIndex)]
+                    )
+                  : displayAnswers[currentQuestion.question]
+                : undefined
+            }
           />
         )}
 
@@ -523,7 +920,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
             showPrevious={totalQuestions > 1}
             isFirst={isFirstQuestion}
             onPrevious={handlePrevious}
-            rightButton={totalQuestions === 1 ? submitButton : renderRightButton()}
+            rightButton={totalQuestions === 1 && isPending ? submitButton : renderRightButton()}
           />
         )}
       </div>

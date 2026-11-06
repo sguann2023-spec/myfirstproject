@@ -110,6 +110,50 @@ describe('DraftManagementServer', () => {
     ])
   })
 
+  it('should document the optional local-only test flag', async () => {
+    const { tools } = await listTools(createServer())
+    expect(tools[0].inputSchema.properties.is_test).toMatchObject({ type: 'boolean', default: false })
+    expect(tools[0].inputSchema.properties.is_test.description).toContain('Not sent to the backend')
+    expect(tools[0].inputSchema.required || []).not.toContain('is_test')
+  })
+
+  it.each([false, true])('should handle explicit is_test=%s without forwarding it', async (isTest) => {
+    const saved = new Map<string, unknown>()
+    mockStoreSet.mockImplementation((key, value) => saved.set(key, value))
+    mockStoreGet.mockImplementation((key) => key === 'auth.refresh_token' ? 'refresh-token' : saved.get(key))
+    mockNetFetch.mockImplementation(async (url) => String(url).includes('/oidc/token')
+      ? mockJsonResponse({ access_token: 'token' })
+      : mockJsonResponse({ success: true, output: { draft_id: 'test-created' } }))
+    const result = await callTool(createServer(), 'create_draft', { is_test: isTest, name: 'Verification' })
+    expect(JSON.parse(result.content[0].text).output.draft_id).toBe('test-created')
+    expect(JSON.parse(mockNetFetch.mock.calls[1][1].body)).toEqual({ name: 'Verification' })
+    expect(mockWebContentsSend).toHaveBeenCalledTimes(isTest ? 0 : 2)
+    expect([...saved.keys()].filter((key) => key.startsWith('drafts.'))).toHaveLength(isTest ? 1 : 0)
+    mockWebContentsSend.mockClear()
+    await callTool(createServer(), 'modify_draft', { draftId: 'test-created', name: 'Edited' })
+    expect(mockWebContentsSend).toHaveBeenCalledTimes(isTest ? 0 : 2)
+  })
+
+  it.each([
+    { ok: false, data: { error: 'HTTP error' } },
+    { ok: true, data: { success: false, output: { draft_id: 'failed' } } },
+    { ok: true, data: { error: 'Rejected', output: { draft_id: 'failed' } } },
+    { ok: true, data: { success: true, output: {} } }
+  ])('should not register unsuccessful test creation: %j', async ({ ok, data }) => {
+    mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse(data, ok, ok ? 200 : 500))
+    await callTool(createServer(), 'create_draft', { is_test: true })
+    expect(mockWebContentsSend).not.toHaveBeenCalled()
+    expect(mockStoreSet.mock.calls.filter(([key]) => key.startsWith('drafts.'))).toHaveLength(0)
+  })
+
+  it('should reject a non-boolean test flag before requests or events', async () => {
+    const result = await callTool(createServer(), 'create_draft', { is_test: 'true' })
+    expect(result.isError).toBe(true)
+    expect(mockNetFetch).not.toHaveBeenCalled()
+    expect(mockWebContentsSend).not.toHaveBeenCalled()
+  })
+
   it('should create a draft', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
@@ -320,7 +364,7 @@ describe('DraftManagementServer', () => {
       )
 
       const parsedResult = JSON.parse(result.content[0].text)
-      const expectedScriptPath = path.join(workspacePath, '.capcut', 'draft-scripts', 'dfd_query_1.json')
+      const expectedScriptPath = path.join(workspacePath, 'dfd_query_1.json')
 
       expect(parsedResult).toEqual({
         provider: 'vectcut',
@@ -335,7 +379,7 @@ describe('DraftManagementServer', () => {
           material_group_count: 2
         },
         script_file_path: expectedScriptPath,
-        script_relative_path: '.capcut/draft-scripts/dfd_query_1.json',
+        script_relative_path: 'dfd_query_1.json',
         success: true,
         error: ''
       })

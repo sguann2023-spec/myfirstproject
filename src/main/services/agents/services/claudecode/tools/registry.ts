@@ -1,7 +1,9 @@
+import UserInteractionServer from '@main/mcpServers/user-interaction'
 import type { McpHttpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { loggerService } from '@logger'
 import AiLibraryServer from '@main/mcpServers/ai-library'
 import AssistantServer from '@main/mcpServers/assistant'
+import ArtifactServer from '@main/mcpServers/artifact-server'
 import AudioUnderstandServer from '@main/mcpServers/audio-understand'
 import type BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
@@ -16,7 +18,7 @@ import FileSystemServer from '@main/mcpServers/filesystem'
 import FileUploadServer from '@main/mcpServers/file-upload'
 import FigureSearchServer from '@main/mcpServers/figure-search'
 import FootageSearchServer from '@main/mcpServers/footage-search'
-import type ImageGenerateServer from '@main/mcpServers/image-generate'
+import ImageGenerateServer from '@main/mcpServers/image-generate'
 import ImageUnderstandServer from '@main/mcpServers/image-understand'
 import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
@@ -33,7 +35,7 @@ import StoryboardEditorServer from '@main/mcpServers/storyboard-editor'
 import SubtitleRecognitionServer from '@main/mcpServers/subtitle-recognition'
 import SubtitleTemplateServer from '@main/mcpServers/subtitle-template'
 import SystemServer from '@main/mcpServers/system'
-import type VideoGenerateServer from '@main/mcpServers/video-generate'
+import VideoGenerateServer from '@main/mcpServers/video-generate'
 import VideoUnderstandServer from '@main/mcpServers/video-understand'
 import VoiceConversionServer from '@main/mcpServers/voice-conversion'
 import VoiceLibraryServer from '@main/mcpServers/voice-library'
@@ -79,8 +81,6 @@ export async function mountRuntimeMcpServers(input: {
     autoAllowTools,
     autonomousEnabled,
     isAssistant,
-    imageGenerateServer,
-    videoGenerateServer,
     getOrCreateBrowserServer,
     resolveSourceChannel
   } = input
@@ -131,6 +131,11 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add(toolName)
     }
   }
+
+  mountMcpServer('user-interaction', { type: 'sdk', name: 'user-interaction', instance: new UserInteractionServer().mcpServer })
+
+  mountMcpServer('artifact_server', { type: 'sdk', name: 'artifact_server', instance: new ArtifactServer(cwd, session.id, session.accessible_paths || []).mcpServer })
+  allowMcpTools([vt('artifact_server', 'add_artifact'), vt('artifact_server', 'list_artifacts')])
 
   if (hasWorkspaceDomain || hasWebDomain || hasCutDomain) {
     const fileSystemServer = new FileSystemServer(cwd)
@@ -256,7 +261,7 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('image', {
       type: 'sdk',
       name: 'image',
-      instance: imageGenerateServer.createMcpServer(),
+      instance: new ImageGenerateServer({ runtimeSessionId: session.id }).mcpServer,
       longRunning: true,
       timeout: 10 * 60
     })
@@ -269,7 +274,7 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('video', {
       type: 'sdk',
       name: 'video',
-      instance: videoGenerateServer.createMcpServer(),
+      instance: new VideoGenerateServer({ runtimeSessionId: session.id }).createMcpServer(),
       longRunning: true,
       timeout: 35 * 60
     })
@@ -279,7 +284,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const speechGenerateServer = new SpeechGenerateServer()
+    const speechGenerateServer = new SpeechGenerateServer(session.id)
     mountMcpServer('speech', { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer })
     autoAllowTools.add(vt('speech', 'generate_speech'))
     allowMcpPattern(vp('speech'))
@@ -300,7 +305,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const voiceConversionServer = new VoiceConversionServer(cwd)
+    const voiceConversionServer = new VoiceConversionServer(cwd, { runtimeSessionId: session.id })
     mountMcpServer('voice-conversion', {
       type: 'sdk',
       name: 'voice-conversion',
@@ -311,7 +316,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const seedAudioServer = new SeedAudioServer()
+    const seedAudioServer = new SeedAudioServer({ runtimeSessionId: session.id })
     mountMcpServer('seed-audio', { type: 'sdk', name: 'seed-audio', instance: seedAudioServer.mcpServer })
     autoAllowTools.add(vt('seed-audio', 'generate_seed_audio'))
     allowMcpPattern(vp('seed-audio'))
@@ -498,7 +503,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasCutDomain) {
-    const subtitleTemplateServer = new SubtitleTemplateServer()
+    const subtitleTemplateServer = new SubtitleTemplateServer({ runtimeSessionId: session.id })
     mountMcpServer('subtitle-template', {
       type: 'sdk',
       name: 'subtitle-template',
@@ -558,7 +563,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const digitalHumanServer = new DigitalHumanServer()
+    const digitalHumanServer = new DigitalHumanServer({ runtimeSessionId: session.id })
     mountMcpServer('digital-human', {
       type: 'sdk',
       name: 'digital-human',
@@ -575,7 +580,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasCutDomain) {
-    const kouboTemplateServer = new KouboTemplateServer()
+    const kouboTemplateServer = new KouboTemplateServer({ runtimeSessionId: session.id })
     mountMcpServer('koubo-template', {
       type: 'sdk',
       name: 'koubo-template',

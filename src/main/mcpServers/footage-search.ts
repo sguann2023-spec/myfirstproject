@@ -1,9 +1,9 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 
-import { ASSET_SEARCH_ROUTING } from './asset-search-routing'
+import { ASSET_SEARCH_ROUTING, PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE, suggestYouTubeSearch, YOUTUBE_VIDEO_FALLBACK_GUIDANCE } from './asset-search-routing'
 import StatelessMediaProxyServer, { isMediaRecord, mediaReference } from './media-proxy'
 
-const GUIDANCE = 'Consider existing assets as a potentially cheaper alternative to custom generation. Honor explicit AI generation requests. Search and details only; no automatic download or timeline insertion. This library supports still photos and stock videos, not audio, GIF or guaranteed transparent stickers. Preserve original media URLs and query parameters, show the returned source link prominently and credit creators where possible. Check asset licenses and third-party rights before use. '
+const GUIDANCE = 'Consider existing assets as a potentially cheaper alternative to custom generation. Honor explicit AI generation requests. Search and details only; no automatic download or timeline insertion. This library supports still photos and stock videos, not audio, GIF or guaranteed transparent stickers. Preserve original media URLs and query parameters, show the returned source link prominently and credit creators where possible. Check asset licenses and third-party rights before publication or redistribution; this is not a blanket restriction on searching or retrieving selected media. '
 const LOCALES = [
   'en-US', 'pt-BR', 'es-ES', 'ca-ES', 'de-DE', 'it-IT', 'fr-FR', 'sv-SE',
   'id-ID', 'pl-PL', 'ja-JP', 'zh-TW', 'zh-CN', 'ko-KR', 'th-TH', 'nl-NL',
@@ -49,7 +49,10 @@ const TOOLS: Tool[] = [
     inputSchema: { type: 'object', properties: { video_id: { ...MEDIA_ID, description: 'Numeric video ID returned by video search.' } }, required: ['video_id'], additionalProperties: false }
   }
 ]
-for (const tool of TOOLS) tool.annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+for (const tool of TOOLS) {
+  tool.annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+  if (tool.name === 'search_videos') tool.description = YOUTUBE_VIDEO_FALLBACK_GUIDANCE + tool.description
+}
 
 function copyNumbers(source: Record<string, unknown>, target: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
@@ -120,7 +123,8 @@ function projectResult(data: unknown, name: string, args: Record<string, unknown
   if (!Array.isArray(data.attribution) || data.attribution.length !== items.length || !data.attribution.every(isMediaRecord)) throw new Error('Missing media credits')
   const assets = items.map((asset) => projectAsset(asset, video))
   const result: Record<string, unknown> = {
-    mediaType: video ? 'video' : 'image', attribution_required: true, usage: GUIDANCE,
+    mediaType: video ? 'video' : 'image', attribution_required: true,
+    usage: (video ? YOUTUBE_VIDEO_FALLBACK_GUIDANCE + PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE : '') + GUIDANCE,
     ...(search ? { results: assets } : { [video ? 'video' : 'photo']: assets[0] }),
     attribution: data.attribution.map((credit) => {
       const projected: Record<string, unknown> = { ...copyLinks(credit, ['media_url', 'creator_url']) }
@@ -144,6 +148,11 @@ function projectResult(data: unknown, name: string, args: Record<string, unknown
 
 export default class FootageSearchServer extends StatelessMediaProxyServer {
   constructor(endpoint = process.env.FOOTAGE_SEARCH_MCP_URL || 'https://open.vectcut.com/pexels/mcp') {
-    super({ name: 'footage-search', endpoint, allowedPaths: ['/pexel/mcp', '/pexels/mcp'], tools: TOOLS, upstreamTools: UPSTREAM_TOOLS, projectResult })
+    super({
+      name: 'footage-search', endpoint, allowedPaths: ['/pexel/mcp', '/pexels/mcp'], tools: TOOLS,
+      upstreamTools: UPSTREAM_TOOLS, projectResult,
+      suggestNextSearch: (name, args) => name === 'search_videos'
+        ? suggestYouTubeSearch(args.query as string, 'The stock video search failed.') : undefined
+    })
   }
 }

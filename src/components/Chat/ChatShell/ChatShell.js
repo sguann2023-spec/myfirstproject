@@ -25,6 +25,8 @@ import MCPSettings from './MCPSettings/MCPSettings';
 import WebPagePreview from './WebPagePreview';
 import WorkSpace from './WorkSpace/WorkSpace';
 import { claimNewguiderReward } from '../../../api/newguiderReward';
+import { DownloadController } from '../../../shared/DownloadController.js';
+import { parseDraftDownloaderUrl } from '../../../shared/draftDownloaderUrl';
 import { loggerService } from '@logger';
 import {
   BEGINNER_GUIDE_COMPLETED_KEY,
@@ -378,6 +380,10 @@ const ChatShell = ({
   beginnerGuideEligible = false,
   onRefreshCredits,
   pinnedDrafts = [],
+  pinnedAudios = [],
+  pinnedImages = [],
+  pinnedVideos = [],
+  pinnedDocuments = [],
   pinnedDraftSessionActive = false,
   pinnedDraftSessionFulfilled = false,
   onPinnedDraftPreviewItem,
@@ -1164,6 +1170,24 @@ const ChatShell = ({
     const normalizedUrl = normalizeWebPreviewUrl(url);
     if (!normalizedUrl || !isInlineWebPreviewUrl(normalizedUrl)) return;
 
+    // 草稿下载跳链（https://www.vectcut.com/draft/downloader?draft_id=xxx）：拦截跳转，直接加入下载队列
+    if (parseDraftDownloaderUrl(normalizedUrl)) {
+      DownloadController.enqueueFromDownloaderUrl(normalizedUrl, title)
+        .then((enqueued) => {
+          if (enqueued) {
+            message.success('已加入下载队列');
+          }
+        })
+        .catch((error) => {
+          logger.warn('[ChatShell] failed to enqueue draft downloader link', {
+            url: normalizedUrl,
+            error: error?.message || String(error)
+          });
+          message.error('加入下载队列失败，请稍后重试');
+        });
+      return;
+    }
+
     const previewKeySuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     openInlinePreviewPane({
       key: `chat-link:${normalizedUrl}:${previewKeySuffix}`,
@@ -1774,6 +1798,11 @@ const ChatShell = ({
             sessionId={chatSessionId}
             artifactProps={{
               drafts: pinnedDrafts,
+              audios: pinnedAudios,
+              images: pinnedImages,
+              videos: pinnedVideos,
+              documents: pinnedDocuments,
+              onOpenDocument: (item) => loadFilePreviewByPath(item.filePath, item.name),
               sessionActive: pinnedDraftSessionActive,
               sessionFulfilled: pinnedDraftSessionFulfilled,
               onPreviewItem: onPinnedDraftPreviewItem,

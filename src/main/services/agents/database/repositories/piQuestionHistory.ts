@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import { sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import { parseMaybeJsonToolArguments } from '@shared/parseToolArguments'
@@ -58,7 +59,7 @@ export class PiQuestionHistory implements PiQuestionHistoryReader {
       if (entry.message?.role === 'user') break
       if (entry.message?.role !== 'assistant' || !Array.isArray(entry.message.content)) continue
       entry.message.content.forEach((content: any, contentIndex: number) => {
-        if (content?.type !== 'toolCall' || content.name !== 'AskUserQuestion' || typeof content.id !== 'string') return
+        if (content?.type !== 'toolCall' || !isAskUserQuestionTool(content.name) || typeof content.id !== 'string') return
         const input = parseMaybeJsonToolArguments(content.arguments)
         if (input) questions.push({ toolCallId: content.id, contentIndex, input })
       })

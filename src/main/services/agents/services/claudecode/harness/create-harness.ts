@@ -14,6 +14,7 @@ import { isWin } from '@main/constant'
 import { loggerService } from '@logger'
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 import type { MCPProgressEvent } from '@shared/config/types'
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import { IpcChannel } from '@shared/IpcChannel'
 import { buildVectcutMcpToolName } from '@shared/mcp'
 import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
@@ -627,7 +628,7 @@ async function capturePendingFileChangeSnapshots(input: {
   ])
 }
 
-function buildBuiltinTools(input: {
+export function buildBuiltinTools(input: {
   packageBridge: PiPackageBridge
   invokeContext: ClaudeCodeInvokeContext
   runtimeEnvironment: ClaudeRuntimeEnvironment
@@ -704,7 +705,7 @@ function buildBuiltinTools(input: {
     name: 'ReadImageAsContent',
     label: 'ReadImageAsContent',
     description:
-      'Attach an image from a local path, URL, or data URL. No audio/video; extract a video frame first. No analysis or conversion.',
+      'Attach a still image from a local path, URL, or data URL for visual inspection. Images only; no audio/video or conversion. For video understanding, reference-video recreation, or shot/style analysis, first discover and use video-understand (submit_video_detail_task) via codemode instead of manually extracting frames. Use this image tool for supplemental frame inspection when needed, or as a fallback if video understanding is unavailable or fails.',
     parameters: Type.Object({
       file_path: Type.Optional(Type.String()),
       path: Type.Optional(Type.String()),
@@ -718,54 +719,6 @@ function buildBuiltinTools(input: {
         invokeContext,
         cwd
       })
-    }
-  } as any
-
-  const askUserQuestionTool: PiAgentHarnessTool = {
-    name: 'AskUserQuestion',
-    label: 'AskUserQuestion',
-    description: 'Show choice questions and wait for user answers.',
-    parameters: Type.Object({
-      questions: Type.Array(
-        Type.Object({
-          question: Type.String(),
-          header: Type.String(),
-          options: Type.Array(
-            Type.Object({
-              label: Type.String(),
-              description: Type.Optional(Type.String())
-            })
-          ),
-          multiSelect: Type.Boolean()
-        })
-      ),
-      answers: Type.Optional(Type.Any())
-    }),
-    async execute(_toolCallId: string, rawParams: unknown) {
-      const params =
-        interactiveUpdatedInputs.get(_toolCallId) ??
-        ((rawParams ?? {}) as Record<string, unknown>)
-      interactiveUpdatedInputs.delete(_toolCallId)
-      const answers =
-        params.answers && typeof params.answers === 'object' && !Array.isArray(params.answers)
-          ? (params.answers as Record<string, unknown>)
-          : {}
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              Object.keys(answers).length > 0
-                ? summarizeValue({ questions: params.questions, answers })
-                : 'User question card displayed.'
-          }
-        ],
-        details: {
-          questions: params.questions,
-          answers
-        }
-      }
     }
   } as any
 
@@ -818,7 +771,6 @@ function buildBuiltinTools(input: {
     ['MultiEdit', multiEditTool],
     ['Bash', bashTool],
     ['ReadImageAsContent', readImageAsContentTool],
-    ['AskUserQuestion', askUserQuestionTool],
     ['TodoWrite', todoWriteTool],
     ['Task', taskTool],
     ['NotebookRead', notebookReadTool],
@@ -1046,6 +998,7 @@ export function buildCodemodeTool(input: {
       let resolvedArgs: Record<string, unknown> = toolArgs
 
       try {
+        if (isAskUserQuestionTool(tool.name)) await emitNestedToolEvent({ type: 'start', toolCallId: nestedToolCallId, toolName: tool.name, input: toolArgs })
         await capturePendingFileChangeSnapshots({
           toolName: tool.name,
           toolInput: toolArgs,
@@ -1073,7 +1026,7 @@ export function buildCodemodeTool(input: {
           }
         }
 
-        await emitNestedToolEvent({
+        if (!isAskUserQuestionTool(tool.name)) await emitNestedToolEvent({
           type: 'start',
           toolCallId: nestedToolCallId,
           toolName: tool.name,

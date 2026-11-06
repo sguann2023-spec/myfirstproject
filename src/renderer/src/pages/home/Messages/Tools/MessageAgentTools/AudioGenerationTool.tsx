@@ -1,6 +1,6 @@
 import { Spin } from 'antd'
 import { Pause, Play } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 
 import { extractTextPreviewFromToolResult } from '../shared/callToolResult'
 import {
@@ -17,6 +17,7 @@ import {
   AudioStatus,
   AudioTitle,
   AudioTitleRow,
+  AudioTitleText,
   Container,
   HiddenAudio,
   OriginalCopy,
@@ -154,7 +155,7 @@ function formatDuration(seconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(remainSeconds).padStart(2, '0')}`
 }
 
-export function AudioGenerationToolBody({ input, output, progressMessage, isRunning }: MediaGenerationToolProps) {
+export function AudioGenerationToolBody({ input, output, progressMessage, isRunning, compact = false, title }: MediaGenerationToolProps & { compact?: boolean; title?: string }) {
   const parsedInput = useMemo(() => parseInput(input), [input])
   const parsedOutput = useMemo(() => parseOutput(output), [output])
   const outputText = useMemo(() => extractTextPreviewFromToolResult(output).trim(), [output])
@@ -174,6 +175,52 @@ export function AudioGenerationToolBody({ input, output, progressMessage, isRunn
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(fallbackDuration ?? 0)
+
+  const artifactTitle = compact ? title?.trim() : undefined
+  const titleViewportRef = useRef<HTMLDivElement | null>(null)
+  const titleTextRef = useRef<HTMLSpanElement | null>(null)
+  const [titleOverflow, setTitleOverflow] = useState(0)
+
+  useEffect(() => {
+    setTitleOverflow(0)
+    const viewport = titleViewportRef.current
+    const text = titleTextRef.current
+    if (!artifactTitle || !viewport || !text) return
+    let disposed = false
+    let frame: number | undefined
+    const measure = () => {
+      if (disposed) return
+      // Measure the text, not its inline/animated box. This is independent of
+      // ellipsis, hover transforms and the viewport's clipping.
+      const range = document.createRange()
+      range.selectNodeContents(text)
+      const width = viewport.clientWidth
+      const overflow = width > 0 ? Math.max(0, Math.ceil(range.getBoundingClientRect().width - width)) : 0
+      setTitleOverflow(previous => previous === overflow ? previous : overflow)
+    }
+    const scheduleMeasure = () => {
+      if (disposed || frame !== undefined) return
+      frame = requestAnimationFrame(() => {
+        frame = undefined
+        measure()
+      })
+    }
+    measure()
+    // Only observe the stable viewport: changing the animated span's display
+    // on hover must not feed back into ResizeObserver and restart the motion.
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(scheduleMeasure)
+    observer?.observe(viewport)
+    window.addEventListener('resize', scheduleMeasure)
+    document.fonts?.ready.then(scheduleMeasure)
+    document.fonts?.addEventListener('loadingdone', scheduleMeasure)
+    return () => {
+      disposed = true
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener('resize', scheduleMeasure)
+      document.fonts?.removeEventListener('loadingdone', scheduleMeasure)
+    }
+  }, [artifactTitle])
 
   useEffect(() => {
     setDuration(fallbackDuration ?? 0)
@@ -240,8 +287,8 @@ export function AudioGenerationToolBody({ input, output, progressMessage, isRunn
   const secondaryText = !isCompleted && taskMessage ? taskMessage : undefined
 
   return (
-    <Container>
-      {(originalCopy || voiceLabel) && (
+    <Container style={compact ? { padding: 0 } : undefined}>
+      {!compact && (originalCopy || voiceLabel) && (
         <SummaryLine>
           {originalCopy ? <OriginalCopy>{originalCopy}</OriginalCopy> : null}
           {voiceLabel ? <VoiceLabel>{voiceLabel}</VoiceLabel> : null}
@@ -265,13 +312,16 @@ export function AudioGenerationToolBody({ input, output, progressMessage, isRunn
         <RightSection>
           <AudioInfo>
             <AudioTitleRow>
-              <AudioTitle>{statusText}</AudioTitle>
-              {billingSummary ? (
-                <BillingBadge title={`总消耗 ${billingSummary.displayText}`}>
-                  <BillingIcon src={getMediaGenerationPointIconUrl()} alt="" aria-hidden="true" />
-                  <BillingText>{billingSummary.displayText}</BillingText>
-                </BillingBadge>
-              ) : null}
+              <AudioTitle
+                ref={titleViewportRef}
+                title={title?.trim() || undefined}
+                $scrollable={Boolean(artifactTitle) && titleOverflow > 0}
+                style={{
+                  '--audio-title-offset': `-${titleOverflow}px`,
+                  '--audio-title-duration': `${Math.max(3, titleOverflow / 30)}s`
+                } as CSSProperties}>
+                {artifactTitle ? <AudioTitleText ref={titleTextRef}>{artifactTitle}</AudioTitleText> : title?.trim() || statusText}
+              </AudioTitle>
             </AudioTitleRow>
             {secondaryText ? <AudioStatus>{secondaryText}</AudioStatus> : null}
           </AudioInfo>

@@ -48,6 +48,8 @@ describe('Media Search MCP', () => {
     expect(tools[0].description).toContain('does not support music, sound effects or GIF search')
     expect(tools[0].description).toContain('Never label a raster preview as SVG')
     expect(tools[1].description).toContain('scrapt.youtube_web_search_video with search_query')
+    expect(tools[1].description?.slice(0, 240)).toContain('must try scrapt.youtube_web_search_video')
+    expect(tools[1].description).toContain('before switching to AI-generated images or video')
     expect(tools[1].description).toContain('establishing shots, scenic backgrounds')
     expect(tools[1].description).toContain('YouTube fallback is not limited to one call')
     expect(tools[1].description).toContain('Never use YouTube as an animation, vector or AI-only asset fallback')
@@ -126,6 +128,58 @@ describe('Media Search MCP', () => {
     const result = await client.callTool(request)
     expect(result.isError).not.toBe(true)
     expect(result.structuredContent).not.toHaveProperty('suggestedNextSearch')
+  })
+
+  it.each([404, 429, 500])('provides a YouTube next step on video HTTP %i without calling it', async status => {
+    mockFetch.mockResolvedValue(new Response('private upstream details', { status }))
+    const result = await client.callTool({ name: 'search_videos', arguments: { q: 'Capitol Building', video_type: 'film' } })
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      error: expect.any(String),
+      suggestedNextSearch: {
+        tool: 'scrapt.youtube_web_search_video', arguments: { search_query: 'Capitol Building' },
+        guidance: expect.stringContaining('must try scrapt.youtube_web_search_video')
+      }
+    })
+    const nextSearch = (result.structuredContent as any).suggestedNextSearch
+    expect(nextSearch.guidance).toContain('Public figures appearing in publicly accessible footage are not a reason to refuse')
+    expect(nextSearch.guidance).toContain('Do not bypass paywalls, login restrictions, DRM')
+    expect(JSON.stringify(result)).not.toContain('private upstream details')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('provides a YouTube next step after a network failure', async () => {
+    mockFetch.mockRejectedValue(new Error('private network details'))
+    const result = await client.callTool({ name: 'search_videos', arguments: { q: 'gas station' } })
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      suggestedNextSearch: { arguments: { search_query: 'gas station' } }
+    })
+    expect(JSON.stringify(result)).not.toContain('private network details')
+  })
+
+  it.each([
+    { name: 'search_images', arguments: { q: 'photo' } },
+    { name: 'search_videos', arguments: { q: 'animation', video_type: 'animation' } },
+    { name: 'search_videos', arguments: { id: '21' } },
+    { name: 'search_videos', arguments: { q: 'film', per_page: 2 } }
+  ])('does not route non-footage failures or invalid arguments to YouTube: %j', async request => {
+    mockFetch.mockResolvedValue(new Response('', { status: 500 }))
+    const result = await client.callTool(request)
+    expect(result.isError).toBe(true)
+    expect(result.structuredContent).toBeUndefined()
+    expect(JSON.stringify(result)).not.toContain('youtube_web_search_video')
+  })
+
+  it('includes the mismatch policy even when video results are non-empty', async () => {
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ total: 1, totalHits: 1, hits: [{ id: 1, tags: 'lake' }] })))
+    const result = await client.callTool({ name: 'search_videos', arguments: { q: 'Capitol Building' } })
+    expect(result.structuredContent).toMatchObject({ hits: [{ id: 1, tags: 'lake' }],
+      usage: expect.stringContaining('must try scrapt.youtube_web_search_video') })
+    expect(result.structuredContent).not.toHaveProperty('suggestedNextSearch')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect((result.structuredContent as any).usage).toContain('Copyright uncertainty alone should not stop this retrieval workflow')
+    expect(JSON.stringify(result)).not.toMatch(/ask the user|user consent|seek approval/i)
   })
 
   async function callCloudTool(q: string) {

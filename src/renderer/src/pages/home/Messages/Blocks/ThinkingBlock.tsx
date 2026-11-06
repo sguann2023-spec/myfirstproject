@@ -1,7 +1,7 @@
 import { MessageBlockStatus, type ThinkingMessageBlock } from '@renderer/types/newMessage'
-import { Lightbulb } from 'lucide-react'
+import { Brain } from 'lucide-react'
 import { memo, useMemo, useState } from 'react'
-import styled from 'styled-components'
+import { css, keyframes, styled } from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
 import { toolRunningShimmerCss } from '../Tools/shared/toolShimmer'
@@ -13,6 +13,20 @@ interface Props {
 
 const isActive = (block: ThinkingMessageBlock) =>
   block.status === MessageBlockStatus.STREAMING || block.status === MessageBlockStatus.PROCESSING
+
+const brainColorPulse = keyframes`
+  0%, 100% { color: #888; }
+  50% { color: #d0d0d0; }
+`
+
+const ThinkingBrain = styled(Brain)<{ $running: boolean }>`
+  color: #888;
+  ${({ $running }) => $running && css`animation: ${brainColorPulse} 1.2s ease-in-out infinite;`}
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`
 
 const ThinkingBlock: React.FC<Props> = ({ block, blocks }) => {
   const [expanded, setExpanded] = useState(false)
@@ -35,7 +49,13 @@ const ThinkingBlock: React.FC<Props> = ({ block, blocks }) => {
       aria-expanded={expanded}
       aria-controls={`thinking-content-${block.id}`}
       onClick={() => setExpanded((value) => !value)}>
-      <span className="tool-icon"><Lightbulb size={14} aria-hidden="true" /></span>
+      <span className="tool-icon">
+        <ThinkingBrain
+          $running={isThinking}
+          size={14}
+          aria-hidden="true"
+        />
+      </span>
       <ThinkingLabel $running={isThinking}><span>深度思考{reasoningBlocks.length > 1 ? ` · ${reasoningBlocks.length} 次` : ''}</span></ThinkingLabel>
       {isThinking ? (
         <Preview>

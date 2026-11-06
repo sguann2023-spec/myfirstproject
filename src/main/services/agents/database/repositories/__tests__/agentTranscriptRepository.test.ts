@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -7,6 +7,8 @@ const createClient = (config: ConstructorParameters<typeof WorkerDatabaseClient>
 import { drizzle } from 'drizzle-orm/libsql'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const mediaRoot = vi.hoisted(() => ({ path: '' }))
+vi.mock('@main/utils', () => ({ getDataPath: () => mediaRoot.path }))
 vi.mock('../../DatabaseManager', () => ({
   DatabaseManager: class DatabaseManager {
     static async getInstance(): Promise<never> {
@@ -15,7 +17,7 @@ vi.mock('../../DatabaseManager', () => ({
   }
 }))
 vi.mock('@logger', () => ({
-  loggerService: { withContext: () => ({ warn: vi.fn(), info: vi.fn() }) }
+  loggerService: { withContext: () => ({ warn: vi.fn(), info: vi.fn(), debug: vi.fn() }) }
 }))
 vi.mock('@shared/parseToolArguments', () => import('../../../../../../packages/shared/parseToolArguments'))
 vi.mock('../../sessionMessageRepository', () => ({
@@ -26,6 +28,7 @@ import { AgentHistoryService } from '../../agentHistoryService'
 import { readMessageProjection } from '../../messageEventStore'
 import * as schema from '../../schema'
 import { AgentTranscriptRepository } from '../agentTranscriptRepository'
+import { buildInlineToolResultPayload } from '../../../services/claudecode/harness/tool-result-payload'
 
 const createSchemaSql = `
   CREATE TABLE sessions (id TEXT PRIMARY KEY NOT NULL);
@@ -402,6 +405,7 @@ describe('AgentTranscriptRepository', () => {
 
   beforeEach(async () => {
     tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-transcript-'))
+    mediaRoot.path = tempDirectory
     client = createClient({ url: `file:${path.join(tempDirectory, 'transcript.db')}`, intMode: 'number' })
     await client.executeMultiple(createSchemaSql)
     await client.executeMultiple(createLegacySchemaSql)
@@ -413,6 +417,44 @@ describe('AgentTranscriptRepository', () => {
   afterEach(async () => {
     await (client as WorkerDatabaseClient).closeAsync()
     await rm(tempDirectory, { recursive: true, force: true })
+  })
+
+  it('persists no inline media in merged canonical data and leaves live input intact', async () => {
+    await repository.upsertMessage({ id: 'media-message', sessionId: 'session-a', role: 'user', status: 'completed' })
+    const data = { data: 'aGVsbG8=', mimeType: 'image/png', raw: JSON.stringify({ type: 'audio', data: 'aGVsbG8=', mimeType: 'audio/wav' }) }
+    const original = JSON.stringify(data)
+    await repository.upsertPart({ id: 'media-part', sessionId: 'session-a', messageId: 'media-message', type: 'image', data })
+    await repository.upsertPart({ id: 'media-part', sessionId: 'session-a', messageId: 'media-message', type: 'image', data: { caption: 'retained' } })
+    const stored = await client.execute("SELECT data_json FROM agent_message_parts WHERE id='media-part'")
+    expect(String(stored.rows[0].data_json)).not.toContain('aGVsbG8=')
+    expect(String(stored.rows[0].data_json)).toContain('history-media')
+    expect(JSON.stringify(data)).toBe(original)
+  })
+
+  it('persists actual inline summaries, raw media and final text through assistant completion', async () => {
+    const raw = { content: [{ type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }] }
+    const inline = buildInlineToolResultPayload(raw)
+    const data = { content: inline, metadata: { raw }, finalText: 'Image generated: tiger.png' }
+    const before = JSON.stringify(data)
+    await repository.upsertMessage({ id: 'image-answer', sessionId: 'session-a', role: 'assistant', status: 'streaming' })
+    await repository.upsertParts([
+      { id: 'image-tool', sessionId: 'session-a', messageId: 'image-answer', type: 'tool', data },
+      { id: 'image-final', sessionId: 'session-a', messageId: 'image-answer', type: 'text', data: { text: data.finalText } }
+    ])
+    await repository.upsertMessage({ id: 'image-answer', sessionId: 'session-a', role: 'assistant', status: 'completed' })
+    // Read through the history projection/mapper used after reopening, not just write return values.
+    const history = await new AgentHistoryService(repository, { getSessionHistory: async () => [] } as any).getHistory('session-a')
+    expect(history.messages).toHaveLength(1)
+    expect(history.messages[0].message.canonicalStatus).toBe('completed')
+    expect(history.messages[0].blocks.find(block => block.type === 'main_text')?.content).toBe(data.finalText)
+    const tool = history.messages[0].blocks.find(block => block.type === 'tool') as any
+    expect(tool.content).toEqual(inline)
+    expect(tool.finalText).toBe(data.finalText)
+    expect(tool.metadata.raw.content[0].data).toBeUndefined()
+    expect(await readFile(tool.metadata.raw.content[0].source, 'utf8')).toBe('hello')
+    const stored = await client.execute("SELECT data_json FROM agent_message_parts WHERE id='image-tool'")
+    expect(String(stored.rows[0].data_json)).not.toContain('aGVsbG8=')
+    expect(JSON.stringify(data)).toBe(before)
   })
 
   it('allocates stable message sequence with ordered tasks and returns ordered transcript', async () => {

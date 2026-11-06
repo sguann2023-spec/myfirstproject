@@ -34,6 +34,7 @@ export type MediaProxyConfig = {
   tools: Tool[]
   upstreamTools: Readonly<Record<string, string>>
   projectResult: (data: unknown, toolName: string, args: Record<string, unknown>) => Record<string, unknown>
+  suggestNextSearch?: (toolName: string, args: Record<string, unknown>) => Record<string, unknown> | undefined
   timeoutMs?: number
   errorMessage?: string
 }
@@ -81,9 +82,11 @@ export default class StatelessMediaProxyServer {
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const tool = config.tools.find((item) => item.name === request.params.name)
       const paid = tool?.annotations?.readOnlyHint === false
+      let suggestedNextSearch: Record<string, unknown> | undefined
       try {
         if (!tool) throw new Error('Unknown media tool')
         const args = this.validateArgs(tool, request.params.arguments ?? {})
+        suggestedNextSearch = config.suggestNextSearch?.(tool.name, args)
         const signal = AbortSignal.any([extra.signal, AbortSignal.timeout(config.timeoutMs ?? 65_000)])
         // These gateways are stateless. Do not share sessions, user data or expiring media URLs.
         const initialized = await this.rpc('initialize', {
@@ -103,9 +106,15 @@ export default class StatelessMediaProxyServer {
       } catch {
         // Provider diagnostics, credentials and internal payloads must never reach the Agent.
         const message = config.errorMessage ?? 'Media search is unavailable. Check parameters, login and service deployment, or try again later.'
-        return { content: [{ type: 'text' as const, text: paid
+        const error = paid
           ? `${message} This operation may consume credits and was not automatically retried. Confirm its outcome before attempting another search.`
-          : message }], isError: true }
+          : message
+        const result = suggestedNextSearch && !extra.signal.aborted ? { error, suggestedNextSearch } : undefined
+        return {
+          content: [{ type: 'text' as const, text: result ? JSON.stringify(result) : error }],
+          ...(result ? { structuredContent: result } : {}),
+          isError: true
+        }
       }
     })
   }

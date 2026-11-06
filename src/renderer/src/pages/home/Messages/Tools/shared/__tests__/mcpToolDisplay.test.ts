@@ -1,3 +1,4 @@
+import { createInstance } from 'i18next'
 import { describe, expect, it } from 'vitest'
 
 import enUs from '../../../../../../i18n/locales/en-us.json'
@@ -7,6 +8,24 @@ import zhTw from '../../../../../../i18n/locales/zh-tw.json'
 import { getMcpToolDisplayName, parseMcpToolName, shouldHideSearchToolDetails } from '../mcpToolDisplay'
 
 describe('mcpToolDisplay', () => {
+  it.each([
+    ['zh-cn', zhCn, '产出', '添加产出', '查看产出', '：'],
+    ['zh-tw', zhTw, '產出', '新增產出', '檢視產出', '：'],
+    ['en-us', enUs, 'Artifacts', 'Add Artifact', 'List Artifacts', ': ']
+  ] as const)('resolves artifact tool keys with real i18next in %s', async (lng, locale, server, add, list, colon) => {
+    const i18n = createInstance()
+    const language = lng.replace(/-([a-z]+)/, (_, region: string) => `-${region.toUpperCase()}`)
+    await i18n.init({ lng: language, fallbackLng: false, resources: { [language]: { translation: locale } } })
+    expect(i18n.t('message.tools.mcp.servers.artifact_server')).toBe(server)
+    for (const [tool, title] of [['add_artifact', add], ['list_artifacts', list]]) {
+      expect(i18n.t(`message.tools.mcp.tools.artifact_server.${tool}`)).toBe(title)
+      for (const name of [`mcp__artifact_server__${tool}`, `mcp__vectcut__artifact_server__${tool}`, `artifact_server:${tool}`]) {
+        expect(parseMcpToolName(name)).toEqual({ serverName: 'artifact_server', toolName: tool })
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: i18n.t })).toBe(`${server}${colon}${title}`)
+      }
+      expect(getMcpToolDisplayName({ serverName: 'artifact_server', toolName: tool, t: i18n.t })).toBe(`${server}${colon}${title}`)
+    }
+  })
   it.each([
     ['scrapt', 'douyin_search_fetch_music_search'],
     ['search', 'web_search'],

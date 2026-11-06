@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import type { AgentPersistedMessage } from '@types'
 import { resolveToolArguments } from '@shared/parseToolArguments'
 import type { PiQuestionHistoryReader, StoredPiQuestion } from './repositories/piQuestionHistory'
@@ -36,7 +37,7 @@ export async function recoverPiQuestionHistory(
     const blocks = await Promise.all(entry.blocks.map(async (block) => {
       const data = record(block)
       const raw = record(data.metadata?.rawMcpToolResponse)
-      if ((raw.tool?.name ?? data.toolName) !== 'AskUserQuestion' ||
+      if (!isAskUserQuestionTool(raw.tool?.name ?? data.toolName) ||
           hasQuestions(resolveToolArguments(raw.arguments, raw.partialArguments, data.arguments))) return block
       const invocationId = String(message.askId)
       let pending = invocations.get(invocationId)

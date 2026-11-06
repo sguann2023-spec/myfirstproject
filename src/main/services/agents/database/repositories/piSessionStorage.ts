@@ -19,6 +19,7 @@ import { resolveMessageProjectionTables } from '../messageEventStore'
 import { AgentTranscriptRepository } from './agentTranscriptRepository'
 import type { AgentMessagePart, AgentMessageWithParts } from './agentTranscript.types'
 import { captureOverlayBoundary, isPiOverlay, readOverlayPrefix, type OverlayContextBoundary } from './piOverlayContext'
+import { resolvePersistedMedia } from './persistedMedia'
 import { prepareHistoryImageProjection, relocateHistoryImageReferences } from './piHistoryImages'
 
 export interface DurablePiSessionMetadata extends SessionMetadata {
@@ -165,8 +166,10 @@ export function canonicalMessageToPi(entry: AgentMessageWithParts, includeProvid
       if (part.type === 'text') content.push({ type: 'text', text: partText(part) })
       if (part.type === 'image') {
         const file = part.data.file && typeof part.data.file === 'object' ? part.data.file as { path?: unknown } : undefined
-        const source = part.data.source ?? part.data.sourcePath ?? file?.path ?? part.data.url
-        const data = String(part.data.data ?? '')
+        const storedData = String(part.data.data ?? '')
+        const dataIsPath = /^(?:\/|[a-z]:[\\/]|file:\/\/)/i.test(storedData)
+        const source = part.data.source ?? part.data.sourcePath ?? file?.path ?? part.data.url ?? (dataIsPath ? storedData : undefined)
+        const data = dataIsPath ? '' : storedData
         if (!data && typeof source === 'string' && /^(?:\/|[a-z]:[\\/]|https?:\/\/)/i.test(source)) {
           content.push({ type: 'text', text: `Previously loaded image: ${JSON.stringify(source)}. Use ReadImageAsContent with this file_path or URL if visual inspection is needed again.` })
           continue
@@ -890,7 +893,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
         const row = bodies.get(item.id)!
         total += Number(row.bytes)
         if (typeof row.entry !== 'string' || total > PI_HISTORY_LIMITS.totalBytes) throw historyLimitError()
-        const entry = JSON.parse(row.entry) as SessionTreeEntry
+        const entry = resolvePersistedMedia(JSON.parse(row.entry)) as SessionTreeEntry
         if (entry.id !== item.id) throw await sessionError('invalid_session', 'History entry identity mismatch')
         entries.push(entry)
         bodies.delete(item.id)

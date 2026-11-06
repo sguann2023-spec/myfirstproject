@@ -1,8 +1,22 @@
 import { lightbulbVariants } from '@renderer/utils/motionVariants'
-import { ChevronRight, Lightbulb } from 'lucide-react'
+import { ChevronRight, Brain } from 'lucide-react'
 import { motion } from 'motion/react'
 import React, { useMemo } from 'react'
-import styled from 'styled-components'
+import { css, keyframes, styled } from 'styled-components'
+
+const brainColorPulse = keyframes`
+  0%, 100% { color: #626262; }
+  50% { color: #c0c0c0; }
+`
+
+const ThinkingBrain = styled(Brain)<{ $running: boolean }>`
+  color: #626262;
+  ${({ $running }) => $running && css`animation: ${brainColorPulse} 1.2s ease-in-out infinite;`}
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`
 
 interface Props {
   isThinking: boolean
@@ -33,9 +47,9 @@ const ThinkingEffect: React.FC<Props> = ({ isThinking, thinkingTimeText, content
     <ThinkingContainer style={{ height: containerHeight }} className={expanded ? 'expanded' : ''}>
       <LoadingContainer>
         <motion.div variants={lightbulbVariants} animate={isThinking ? 'active' : 'idle'} initial="idle">
-          <Lightbulb
+          <ThinkingBrain
+            $running={isThinking}
             size={!showThinking || messages.length < 2 ? 14 : 18}
-            color="#626262"
             strokeWidth={2}
             style={{ transition: 'width,height, 150ms', transform: 'translateX(-2px)' }}
           />

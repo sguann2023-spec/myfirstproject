@@ -15,6 +15,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { build } from 'vite'
 import Database from 'better-sqlite3'
 
+const mediaRoot = vi.hoisted(() => ({ path: '' }))
+vi.mock('@main/utils', () => ({ getDataPath: () => mediaRoot.path }))
 vi.mock('../../DatabaseManager', () => ({
   DatabaseManager: class DatabaseManager {
     static async getInstance() {
@@ -26,7 +28,7 @@ vi.mock('../../../BaseService', async () => {
   const { DatabaseManager } = await import('../../DatabaseManager')
   return { BaseService: class { async getDatabase() { return (await DatabaseManager.getInstance()).getDatabase() } } }
 })
-vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ warn: vi.fn(), error: vi.fn() }) } }))
+vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ warn: vi.fn(), error: vi.fn(), debug: vi.fn(), info: vi.fn() }) } }))
 
 import { agentArtifactRepository } from '../agentArtifactRepository'
 import { agentTurnRepository } from '../agentTurnRepository'
@@ -169,6 +171,7 @@ describe('SqlitePiSessionStorage', () => {
       return storage
     })
     tempDirectory = await mkdtemp(path.join(tmpdir(), 'pi-session-storage-'))
+    mediaRoot.path = tempDirectory
     client = createClient({ url: `file:${path.join(tempDirectory, 'sessions.db')}`, intMode: 'number' })
     await client.executeMultiple(createSchemaSql)
     await client.executeMultiple('CREATE TABLE session_messages (id INTEGER PRIMARY KEY,session_id TEXT,agent_session_id TEXT,role TEXT,content TEXT,metadata TEXT,created_at TEXT,updated_at TEXT)')
@@ -436,11 +439,11 @@ describe('SqlitePiSessionStorage', () => {
     await rename(workspace, renamed)
     database = drizzle(client, { schema })
     const moved = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database, metadata: { workspacePath: renamed } })
-    expect(JSON.stringify(await new Session(moved).buildContext())).toContain(renamed)
+    expect(JSON.stringify(await new Session(moved).buildContext())).toContain('history-media')
     expect(JSON.stringify(await new Session(moved).buildContext())).not.toContain(workspace)
     const restarted = await recover()
     const context = await new Session(restarted).buildContext()
-    expect(JSON.stringify(context)).toContain(renamed)
+    expect(JSON.stringify(context)).toContain('history-media')
     expect(JSON.stringify(context)).not.toContain(workspace)
   })
 

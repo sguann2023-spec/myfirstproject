@@ -9,9 +9,12 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
+import { registerArtifact } from '../services/artifactIndex'
 import { net } from 'electron'
 
 import { ossUploadService } from '@main/services/OssUploadService'
+import { windowService } from '@main/services/WindowService'
+import { IpcChannel } from '../../packages/shared/IpcChannel'
 import defaultImageCapabilitiesPayload from './image-capabilities.default.json'
 
 const logger = loggerService.withContext('MCPServer:ImageGenerate')
@@ -379,7 +382,9 @@ class ImageGenerateServer {
   private capabilitiesCache: CachedImageCapabilities | null = null
   private imageModelListCache: CachedImageModelList | null = null
 
-  constructor(private readonly options: { external?: boolean } = {}) {
+  private readonly completedTaskCreatedAt = new Map<string, number>()
+
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -632,7 +637,43 @@ class ImageGenerateServer {
     }
   }
 
+  private notifyImageGenerated(payload: Record<string, unknown>) {
+    const runtimeSessionId = this.options.runtimeSessionId?.trim()
+    if (this.options.external || !runtimeSessionId || payload.success === false ||
+        this.normalizeImageTaskStatus(payload.status) !== 'success') return
+    const taskId = typeof payload.task_id === 'string' ? payload.task_id.trim() : ''
+    const output = payload.output as Record<string, unknown> | undefined
+    const imageUrl = typeof output?.image_url === 'string' ? output.image_url.trim() : ''
+    if (!taskId) return
+    try {
+      const url = new URL(imageUrl)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return
+    } catch {
+      return
+    }
+    try {
+      // The status API has no documented creation timestamp. Keep the first
+      // observed completion time stable for repeated queries on this server.
+      const createdAt = this.completedTaskCreatedAt.get(taskId) ?? Date.now()
+      this.completedTaskCreatedAt.set(taskId, createdAt)
+      registerArtifact({ type: 'image', runtimeSessionId, taskId, source: 'image-generate', url: imageUrl, createdAt })
+      const mainWindow = windowService.getMainWindow()
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.webContents.send(IpcChannel.App_ImageGenerated, {
+        id: taskId,
+        runtimeSessionId,
+        taskId,
+        imageUrl,
+        createdAt,
+        status: 'completed'
+      })
+    } catch (error) {
+      logger.warn('Failed to notify image generation', { error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
   private async formatImageTaskResult(payload: Record<string, unknown>) {
+    this.notifyImageGenerated(payload)
     const content: Array<
       | { type: 'text'; text: string }
       | { type: 'image'; data: string; mimeType: string }
@@ -1306,7 +1347,7 @@ class ImageGenerateServer {
       progress: result.progress
     })
 
-    return result
+    return { ...result, task_id: taskId }
   }
 
   private async getImageTaskStatus(taskId: string) {

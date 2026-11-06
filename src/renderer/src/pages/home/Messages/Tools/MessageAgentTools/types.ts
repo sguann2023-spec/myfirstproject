@@ -1,3 +1,4 @@
+import { normalizeAskUserQuestionInput } from '@shared/askUserQuestion'
 import type { CollapseProps } from 'antd'
 import * as z from 'zod'
 
@@ -362,7 +363,26 @@ export const ToolSearchToolOutputSchema = z.union([
 export type ToolSearchToolOutput = z.infer<typeof ToolSearchToolOutputSchema>
 
 // AskUserQuestion 工具的类型定义 (使用 Zod)
+const OptionInputSchema = z.object({
+  type: z.enum(['text', 'upload']),
+  label: z.string().optional(),
+  required: z.boolean().optional(),
+  placeholder: z.string().optional(),
+  multiline: z.boolean().optional(),
+  minLength: z.number().nonnegative().optional(),
+  maxLength: z.number().nonnegative().optional(),
+  minFiles: z.number().nonnegative().optional(),
+  maxFiles: z.number().nonnegative().optional(),
+  extensions: z.array(z.string()).optional()
+})
+const OptionInputAnswerSchema = z.object({
+  type: z.enum(['text', 'upload']),
+  text: z.string().optional(),
+  files: z.array(z.object({ path: z.string(), name: z.string(), size: z.number().optional() })).optional()
+})
 export const AskUserQuestionOptionSchema = z.object({
+  input: OptionInputSchema.optional(),
+  id: z.string().optional(),
   /** The display text for this option */
   label: z.string(),
   /** Explanation of what this option means */
@@ -375,9 +395,31 @@ export const AskUserQuestionItemSchema = z.object({
   /** Very short label displayed as a chip/tag (max 12 chars) */
   header: z.string(),
   /** The available choices for this question (2-4 options) */
-  options: z.array(AskUserQuestionOptionSchema),
+  id: z.string().optional(),
+  type: z
+    .enum(['single_select', 'multi_select', 'text', 'upload', 'group_single_check', 'group_multi_check'])
+    .optional(),
+  required: z.boolean().optional(),
+  groups: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        label: z.string(),
+        required: z.boolean().optional(),
+        options: z.array(AskUserQuestionOptionSchema)
+      })
+    )
+    .optional(),
+  placeholder: z.string().optional(),
+  multiline: z.boolean().optional(),
+  minLength: z.number().int().nonnegative().optional(),
+  maxLength: z.number().int().nonnegative().optional(),
+  minFiles: z.number().int().nonnegative().optional(),
+  maxFiles: z.number().int().nonnegative().optional(),
+  extensions: z.array(z.string()).optional(),
+  options: z.array(AskUserQuestionOptionSchema).optional(),
   /** Set to true to allow multiple selections */
-  multiSelect: z.boolean()
+  multiSelect: z.boolean().optional()
 })
 
 export const AskUserQuestionAnswerSchema = z.record(z.string(), z.string())
@@ -403,6 +445,20 @@ const normalizeAskUserQuestionAnswers = (value: unknown): unknown => {
 export const AskUserQuestionToolInputSchema = z.object({
   /** Questions to ask the user (1-4 questions) */
   questions: z.array(AskUserQuestionItemSchema),
+  structuredAnswers: z
+    .record(
+      z.string(),
+      z.object({
+        type: z.enum(['single_select', 'multi_select', 'text', 'upload', 'group_single_check', 'group_multi_check']),
+        optionInputs: z.record(z.string(), OptionInputAnswerSchema).optional(),
+        groupInputs: z.record(z.string(), z.record(z.string(), OptionInputAnswerSchema)).optional(),
+        selectedIds: z.array(z.string()).optional(),
+        text: z.string().optional(),
+        groups: z.record(z.string(), z.array(z.string())).optional(),
+        files: z.array(z.object({ path: z.string(), name: z.string(), size: z.number().optional() })).optional()
+      })
+    )
+    .optional(),
   answers: z.preprocess(normalizeAskUserQuestionAnswers, AskUserQuestionAnswerSchema.optional())
 })
 
@@ -417,7 +473,7 @@ export type AskUserQuestionAnswer = z.infer<typeof AskUserQuestionAnswerSchema>
  * Returns undefined if the data doesn't match the expected structure.
  */
 export function parseAskUserQuestionToolInput(value: unknown): AskUserQuestionToolInput | undefined {
-  const result = AskUserQuestionToolInputSchema.safeParse(value)
+  const result = AskUserQuestionToolInputSchema.safeParse(normalizeAskUserQuestionInput(value))
   return result.success ? result.data : undefined
 }
 

@@ -136,6 +136,10 @@ const MessagePane = ({
   const autoScrollFrameRef = React.useRef(null);
   const sessionBottomFrameRef = React.useRef(null);
   const sessionBottomSyncRef = React.useRef(false);
+  // True between a group-resize correction and the follow-up scroll frame: the
+  // virtualizer moves scrollTop synchronously for such corrections, and that
+  // upward move must not read as the user opting out of auto-scroll.
+  const layoutSyncFrameRef = React.useRef(false);
   const previousScrollStateRef = React.useRef({
     count: 0,
     signature: ''
@@ -178,6 +182,9 @@ const MessagePane = ({
 
     autoScrollFrameRef.current = window.requestAnimationFrame(() => {
       autoScrollFrameRef.current = null;
+      // The correction's scroll event always precedes this frame, so any
+      // pending resize correction has been accounted for by now.
+      layoutSyncFrameRef.current = false;
       if (!applyScroll() || !shouldRepeat) {
         sessionBottomSyncRef.current = false;
         return;
@@ -232,6 +239,7 @@ const MessagePane = ({
   React.useLayoutEffect(() => {
     autoScrollEnabledRef.current = true;
     sessionBottomSyncRef.current = hasMessages;
+    layoutSyncFrameRef.current = false;
 
     // Measurements are indexed, so carrying them across conversations can
     // make the new session's virtual height look like the old session's.
@@ -250,10 +258,16 @@ const MessagePane = ({
       const target = event.currentTarget;
       // Content growth and programmatic downward scrolling are not an opt-out.
       if (target.scrollTop < previousScrollTop) {
-        // Session replacement can clamp the old scroll offset while the
-        // virtual list is still measuring. Do not treat that as user intent.
-        // Removing the loading indicator can clamp it for the same reason.
-        if (!sessionBottomSyncRef.current && !isNearBottom(target)) {
+        if (layoutSyncFrameRef.current) {
+          // Virtualizer size corrections shift scrollTop synchronously; their
+          // scroll event arrives while the content height is still stale, so
+          // the distance below can look larger than it really is. The pending
+          // follow-up scroll settles the position.
+          layoutSyncFrameRef.current = false;
+        } else if (!sessionBottomSyncRef.current && !isNearBottom(target)) {
+          // Session replacement can clamp the old scroll offset while the
+          // virtual list is still measuring. Do not treat that as user intent.
+          // Removing the loading indicator can clamp it for the same reason.
           autoScrollEnabledRef.current = false;
         }
       } else if (isNearBottom(target)) {
@@ -266,6 +280,7 @@ const MessagePane = ({
       if (event.deltaY < 0) {
         autoScrollEnabledRef.current = false;
         sessionBottomSyncRef.current = false;
+        layoutSyncFrameRef.current = false;
         if (autoScrollFrameRef.current) {
           window.cancelAnimationFrame(autoScrollFrameRef.current);
           autoScrollFrameRef.current = null;
@@ -329,6 +344,12 @@ const MessagePane = ({
     if (previousSize === size) return;
 
     groupSizeMapRef.current.set(index, size);
+    // resizeItem may correct the scroll offset synchronously (items above the
+    // viewport changing size, e.g. a streaming group collapsing). Its scroll
+    // event must not be mistaken for the user scrolling away from the bottom.
+    if (autoScrollEnabledRef.current) {
+      layoutSyncFrameRef.current = true;
+    }
     virtualListRef.current?.resizeItem?.(index, size);
 
     if (autoScrollEnabledRef.current) {
@@ -340,6 +361,17 @@ const MessagePane = ({
     (index) => groupSizeMapRef.current.get(index) || DEFAULT_GROUP_ESTIMATED_HEIGHT,
     []
   );
+
+  // While auto-scroll is following the bottom, size corrections must not move
+  // the scroll offset: the virtualizer's transient shift reads as an upward
+  // user scroll and can silently stop following mid-stream. The follow-up
+  // scrollToBottom on every measured resize keeps the bottom pinned instead.
+  // When not following, keep tanstack's default anchoring for items above the
+  // viewport so a reading user's position stays stable.
+  const shouldAdjustScrollPositionOnItemSizeChange = React.useCallback((item, delta, instance) => (
+    !autoScrollEnabledRef.current
+    && item.start < instance.getScrollOffset() + instance.scrollAdjustments
+  ), []);
 
   return (
     <div className="chat-panel__message-pane">
@@ -381,6 +413,7 @@ const MessagePane = ({
           list={groupedMessages}
           estimateSize={estimateGroupSize}
           overscan={4}
+          shouldAdjustScrollPositionOnItemSizeChange={shouldAdjustScrollPositionOnItemSizeChange}
           scrollerStyle={{
             padding: '12px 14px'
           }}>

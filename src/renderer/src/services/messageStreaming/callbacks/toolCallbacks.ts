@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import { loggerService } from '@logger'
 import type { AppDispatch } from '@renderer/store'
 import { selectPendingPermission, selectUniqueActivePermissionByToolName, toolPermissionsActions } from '@renderer/store/toolPermissions'
@@ -289,7 +290,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
   }
 
   const getAskUserQuestionDedupSignature = (toolResponse: ToolResponse): string | null => {
-    if (toolResponse.tool?.name !== 'AskUserQuestion') {
+    if (!isAskUserQuestionTool(toolResponse.tool?.name)) {
       return null
     }
 
@@ -333,7 +334,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
         arguments: enhanceImageGenerationArguments(toolResponse.tool?.name, toolResponse.arguments, state, userMessageId, assistantMsgId)
       })
       const existingBlockId = toolCallIdToBlockIdMap.get(nextToolResponse.id)
-      if (nextToolResponse.tool?.name === 'AskUserQuestion') {
+      if (isAskUserQuestionTool(nextToolResponse.tool?.name)) {
         const existing = existingBlockId ? state.messageBlocks.entities[existingBlockId]?.metadata?.rawMcpToolResponse : undefined
         nextToolResponse.arguments = resolveToolArguments(nextToolResponse.arguments, nextToolResponse.partialArguments,
           selectPendingPermission(state.toolPermissions, nextToolResponse.id)?.input, existing?.arguments, existing?.partialArguments)
@@ -412,7 +413,7 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       }
 
       // Resolve arguments before publishing the response to Redux, which freezes it.
-      if (nextToolResponse.tool?.name === 'AskUserQuestion') {
+      if (isAskUserQuestionTool(nextToolResponse.tool?.name)) {
         const existing = existingBlockId ? state.messageBlocks.entities[existingBlockId]?.metadata?.rawMcpToolResponse : undefined
         nextToolResponse = {
           ...nextToolResponse,
@@ -476,10 +477,11 @@ export const createToolCallbacks = (deps: ToolCallbacksDependencies) => {
       const state = getState()
       const toolPermissionsState = state.toolPermissions ?? { requests: {}, resolvedInputs: {} }
       const fallbackPermission = selectPendingPermission(toolPermissionsState, nextToolResponse.id) ?? (
-        nextToolResponse.tool?.name === 'AskUserQuestion'
+        isAskUserQuestionTool(nextToolResponse.tool?.name)
           ? selectUniqueActivePermissionByToolName(toolPermissionsState, 'AskUserQuestion')
           : undefined)
       const resolvedInput =
+        (nextToolResponse?.toolCallId ? toolPermissionsState.resolvedInputs[nextToolResponse.toolCallId] : undefined) ??
         (nextToolResponse?.id ? toolPermissionsState.resolvedInputs[nextToolResponse.id] : undefined) ??
         fallbackPermission?.resolvedInput
 

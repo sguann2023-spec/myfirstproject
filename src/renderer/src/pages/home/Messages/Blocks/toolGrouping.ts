@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import i18next, { type TFunction } from 'i18next'
 import { getToolDisplayName } from '../Tools/shared/toolDisplay'
 import { MessageBlockType, type MessageBlock, type ToolMessageBlock } from '@renderer/types/newMessage'
@@ -64,7 +65,8 @@ function getToolIdentity(block: MessageBlock, t: TFunction): string | undefined 
   const tool = block.metadata?.rawMcpToolResponse?.tool
   if (!tool?.name?.trim()) return undefined
   // Interactive cards/inline navigation must remain accessible; todos are hidden.
-  if (['AskUserQuestion', 'TodoWrite', 'mcp__vectcut__assistant__navigate', 'mcp__assistant__navigate'].includes(tool.name)) return undefined
+  if (isAskUserQuestionTool(tool.name)) return undefined
+  if (['TodoWrite', 'mcp__vectcut__assistant__navigate', 'mcp__assistant__navigate'].includes(tool.name)) return undefined
   if (tool.name.startsWith('builtin_')) {
     if (!['builtin_web_search', 'builtin_web_search_preview', 'builtin_knowledge_search', 'builtin_memory_search'].includes(tool.name)) return undefined
     if (tool.type === 'provider' && ['builtin_web_search', 'builtin_web_search_preview'].includes(tool.name)) return undefined

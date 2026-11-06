@@ -7,6 +7,7 @@ export default defineConfig({
     alias: {
       '@renderer': fileURLToPath(new URL('../../../renderer/src', import.meta.url)),
       '@logger': fileURLToPath(new URL('../../../renderer/src/services/LoggerService', import.meta.url)),
+      '@shared': fileURLToPath(new URL('../../../packages/shared', import.meta.url)),
     },
   },
   plugins: [{

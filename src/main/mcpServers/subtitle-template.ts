@@ -17,6 +17,8 @@ import Store from 'electron-store'
 import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
+import { notifyDraftCreated } from './notify-draft-created'
+
 const logger = loggerService.withContext('MCPServer:SubtitleTemplate')
 const execFileAsync = promisify(execFile)
 const ffprobeStatic = require('ffprobe-static') as { path?: string }
@@ -239,7 +241,7 @@ class SubtitleTemplateServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(private readonly options: { external?: boolean } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
     this.mcpServer = new McpServer(
       {
         name: 'subtitle-template',
@@ -773,6 +775,11 @@ class SubtitleTemplateServer {
         : typeof payload.draft_id === 'string' && payload.draft_id.trim()
           ? payload.draft_id.trim()
           : ''
+    notifyDraftCreated({
+      runtimeSessionId: this.options.runtimeSessionId,
+      draftId: finalDraftId,
+      name: typeof finalResult.output?.draft_name === 'string' ? finalResult.output.draft_name.trim() : undefined
+    })
     const shouldAddOriginalLocalMediaBack = preparedSource.sourceKind !== 'remote_url'
     let addMediaResult: AddMediaResponse | null = null
 

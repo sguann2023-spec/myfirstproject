@@ -52,7 +52,7 @@ import React, { useCallback, useEffect, useEffectEvent, useMemo, useRef, useStat
 import { useTranslation } from 'react-i18next'
 
 import { InputbarCore } from './components/InputbarCore'
-import PinnedDraftPannel from './components/PinnedDraftPannel/PinnedDraftPannel'
+import PinnedArtifactPannel from './components/PinnedArtifactPannel/PinnedArtifactPannel'
 import { PinnedTodoPanel } from './components/PinnedTodoPanel'
 import InputbarTools from './InputbarTools'
 import KnowledgeBaseInput from './KnowledgeBaseInput'
@@ -604,7 +604,7 @@ const InputbarInner: FC<InputbarInnerProps> = ({ assistant: initialAssistant, se
 
   const pinnedContent = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-      {showMockDraftPanel && <PinnedDraftPannel drafts={MOCK_PINNED_DRAFTS} />}
+      {showMockDraftPanel && <PinnedArtifactPannel drafts={MOCK_PINNED_DRAFTS} />}
       <PinnedTodoPanel topicId={pinnedTodoTopicId} sessionActive={pinnedTodoSessionActive} />
     </div>
   )

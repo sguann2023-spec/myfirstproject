@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { addAutoAllowedTool, buildToolSurface } from '../tool-surface'
 
-const BASE_BUILTIN_TOOLS = ['AskUserQuestion', 'Bash', 'Read', 'Write', 'Edit']
+const BASE_BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit']
 const BASE_AUTO_ALLOWED_TOOLS = ['Write', 'Edit']
 
 describe('buildToolSurface', () => {
-  it('always exposes AskUserQuestion, Bash and the file builtins as direct builtin tools', () => {
+  it('exposes Bash and the file builtins as direct builtin tools', () => {
     const surface = buildToolSurface({
       sessionAllowedTools: ['Bash', 'Read', 'Write', 'mcp__skills__*'],
       isAssistant: false

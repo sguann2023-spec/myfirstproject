@@ -1,3 +1,4 @@
+import { offloadPersistedMedia, resolvePersistedMedia } from './persistedMedia'
 import { and, eq, inArray, max } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import type { AgentPersistedMessage } from '@types'
@@ -103,7 +104,8 @@ export interface IAgentTranscriptRepository {
   getPartsByMessageIds(sessionId: string, messageIds: string[]): Promise<AgentMessagePart[]>
   listMessageParts(sessionId: string, messageId: string): Promise<AgentMessagePart[]>
   listTranscript(sessionId: string): Promise<AgentMessageWithParts[]>
-  migrateLegacyHistory?(sessionId: string, legacy?: AgentPersistedMessage[]): Promise<void>
+  /** Returns true when rows were actually migrated; false means the read set is unchanged. */
+  migrateLegacyHistory?(sessionId: string, legacy?: AgentPersistedMessage[]): Promise<boolean>
   tombstoneMessage(sessionId: string, messageId: string): Promise<boolean>
 }
 
@@ -142,7 +144,7 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
       messageId: row.message_id,
       sequence: row.sequence,
       type: row.type,
-      data: row.data_json,
+      data: resolvePersistedMedia(row.data_json),
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }
@@ -240,11 +242,13 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
     return rows.sort((a, b) => a.sequence - b.sequence).map(row => this.deserializeMessage(row))
   }
 
-  async migrateLegacyHistory(sessionId: string, suppliedLegacy?: AgentPersistedMessage[]): Promise<void> {
-    await this.withOrderedWrite(async database => {
+  async migrateLegacyHistory(sessionId: string, suppliedLegacy?: AgentPersistedMessage[]): Promise<boolean> {
+    return this.withOrderedWrite(async database => {
       // Overlay already reads the immutable legacy prefix. Opening history
       // must not copy its bodies or rewrite its ordering as new business facts.
-      if ((database as AgentDatabase & { $client?: { overlayEnabled?: boolean } }).$client?.overlayEnabled) return
+      if ((database as AgentDatabase & { $client?: { overlayEnabled?: boolean } }).$client?.overlayEnabled) {
+        return false
+      }
       // Production reads the latest source inside the write queue, not a UI snapshot.
       const legacy = suppliedLegacy ?? (await readMessageProjection<SessionMessageRow>(database, 'session_messages', sessionId))
         .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
@@ -252,11 +256,15 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
           const item = typeof row.content === 'string' ? JSON.parse(row.content) : row.content
           return { ...item, message: { ...item.message, createdAt: item.message.createdAt ?? row.created_at, updatedAt: item.message.updatedAt ?? row.updated_at } } as AgentPersistedMessage
         })
-      if (!legacy.length) return
+      if (!legacy.length) {
+        return false
+      }
       // Frozen PI prefixes depend on source sequence boundaries and parent digests.
       // Keep their sources unchanged; the history reader still orders its fallback.
       const [piSession] = await database.select().from(piSessionsTable).where(eq(piSessionsTable.topic_id, sessionId)).limit(1)
-      if (piSession?.metadata_json?.__overlayContext) return
+      if (piSession?.metadata_json?.__overlayContext) {
+        return false
+      }
       const rows = await readMessageProjection<AgentMessageRow>(database, 'agent_messages', sessionId)
       const existing = new Map(rows.map(row => [row.id, row]))
       const canonical = rows.sort((a, b) =>
@@ -322,6 +330,7 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
             .where(and(eq(agentMessagesTable.session_id, sessionId), eq(agentMessagesTable.id, input.message.id)))
         }
       }
+      return true
     })
   }
 
@@ -358,7 +367,7 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
       sequence = (result?.value ?? -1) + 1
     }
 
-    const mergedData = mergePartData(existing[0]?.data_json, input.data)
+    const mergedData = await offloadPersistedMedia(mergePartData(existing[0]?.data_json, input.data), undefined, input.type)
     const values = {
       id: input.id, session_id: input.sessionId, message_id: input.messageId, sequence,
       type: input.type, data_json: mergedData,

@@ -21,7 +21,7 @@ export const PI_HISTORY_IMAGE_LIMITS = {
   chunkChars: 64 * 1024
 } as const
 
-const extensions: Record<string, string> = {
+export const extensions: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif',
   'image/webp': 'webp', 'image/avif': 'avif', 'image/svg+xml': 'svg',
   'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
@@ -121,6 +121,28 @@ export async function relocateHistoryImageReferences<T>(value: T, oldWorkspace: 
   return await visit(value, 0, true) as T
 }
 
+/** Publish a fully synced staging inode without replacing any existing content. */
+export async function publishHistoryMediaFile(staging: string, file: string, digest: string, bytes: number): Promise<void> {
+  try { await link(staging, file) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const stat = await handle.stat()
+      if (!stat.isFile() || stat.size !== bytes) throw new Error('Invalid existing history image file')
+      const hash = createHash('sha256')
+      const buffer = Buffer.alloc(PI_HISTORY_IMAGE_LIMITS.chunkChars)
+      let offset = 0
+      while (offset < bytes) {
+        const read = await handle.read(buffer, 0, Math.min(buffer.length, bytes - offset), offset)
+        if (!read.bytesRead) throw new Error('Invalid existing history image file')
+        hash.update(buffer.subarray(0, read.bytesRead))
+        offset += read.bytesRead
+      }
+      if (hash.digest('hex') !== digest) throw new Error('Invalid existing history image file')
+    } finally { await handle.close() }
+  }
+}
+
 interface Leaf {
   node: number
   location: string | null
@@ -182,28 +204,6 @@ export async function prepareHistoryImageProjection(
     return directory
   }
 
-  const verifyPublishedImage = async (file: string, digest: string, bytes: number) => {
-    const existing = await lstat(file)
-    if (!existing.isFile() || existing.isSymbolicLink()) throw new Error('Invalid existing history image file')
-    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW)
-    try {
-      const stat = await handle.stat()
-      if (!stat.isFile() || stat.size !== bytes) throw new Error('Invalid existing history image file')
-      const hash = createHash('sha256')
-      const buffer = Buffer.alloc(PI_HISTORY_IMAGE_LIMITS.chunkChars)
-      let offset = 0
-      while (offset < bytes) {
-        const read = await handle.read(buffer, 0, Math.min(buffer.length, bytes - offset), offset)
-        if (!read.bytesRead) throw new Error('Invalid existing history image file')
-        hash.update(buffer.subarray(0, read.bytesRead))
-        offset += read.bytesRead
-      }
-      if (hash.digest('hex') !== digest) throw new Error('Invalid existing history image file')
-    } finally {
-      await handle.close()
-    }
-  }
-
   const saveImage = async (doc: number, leaf: Leaf, mime: string, start: number) => {
     const chars = leaf.chars - start + 1
     if (chars <= 0 || chars % 4 !== 0) return undefined
@@ -243,14 +243,7 @@ export async function prepareHistoryImageProjection(
       }
       const digest = hash.digest('hex')
       const file = path.join(root, `${mime.startsWith('image/') ? 'image' : 'media'}-${digest}.${extensions[mime]}`)
-      try {
-        // No overwrite: a concurrent recovery can publish the same complete
-        // inode, but no reader can ever observe a partially written final file.
-        await link(staging, file)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-        await verifyPublishedImage(file, digest, written)
-      }
+      await publishHistoryMediaFile(staging, file, digest, written)
       imageBytes += written
       return file
     } finally {

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3'
 import { installCurrentView, installRecordIndexes, quote, storedEntities } from './recordSchema'
 
-export const RECORD_INDEX_VERSION = 3
+export const RECORD_INDEX_VERSION = 4
 type Progress = (phase: string, count?: number, total?: number, detail?: string) => void
 
 export function markRecordIndexesComplete(db: Database.Database): void {
@@ -11,10 +11,24 @@ export function markRecordIndexesComplete(db: Database.Database): void {
 /** Run on the broker's writer before accepting requests. Incomplete DDL is rebuilt,
  * never resumed; facts are neither copied nor validated by this index-only upgrade. */
 export function upgradeRecordIndexes(db: Database.Database, progress: Progress): boolean {
-  const versions = db.prepare('SELECT version,phase FROM storage_upgrade WHERE version>=?').all(RECORD_INDEX_VERSION) as Array<{ version: number | bigint; phase: string }>
+  const versions = db.prepare('SELECT version,phase FROM storage_upgrade WHERE version>=?')
+    .all(RECORD_INDEX_VERSION - 1) as Array<{ version: number | bigint; phase: string }>
   if (versions.some(row => Number(row.version) > RECORD_INDEX_VERSION)) throw new Error('Unsupported record index version')
-  if (versions.some(row => row.phase === 'complete')) return false
+  if (versions.some(row => Number(row.version) === RECORD_INDEX_VERSION && row.phase === 'complete')) return false
   const entities = storedEntities(db)
+  // v4 only appends lookup fields to recordIndexFields; index numbering of
+  // earlier versions is stable, so a database that finished v3 needs nothing
+  // dropped or rebuilt — CREATE INDEX IF NOT EXISTS materializes the additions.
+  const previousComplete = versions.some(row => Number(row.version) === RECORD_INDEX_VERSION - 1 && row.phase === 'complete')
+  if (previousComplete) {
+    for (const [index, entity] of entities.entries()) {
+      installRecordIndexes(db, entity)
+      progress('index-add', index + 1, entities.length, entity.name)
+    }
+    progress('index-complete')
+    markRecordIndexesComplete(db)
+    return true
+  }
   progress('index-rebuild', 0, entities.length)
   const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='entity_records' AND substr(name,1,9)='v2_index_'").all() as Array<{ name: string }>
   for (const { name } of indexes) db.exec(`DROP INDEX ${quote(name)}`)

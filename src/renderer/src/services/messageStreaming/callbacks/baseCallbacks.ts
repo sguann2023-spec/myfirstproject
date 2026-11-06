@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 import { resolveToolArguments } from '@shared/parseToolArguments'
 import { loggerService } from '@logger'
 import { autoRenameTopic } from '@renderer/hooks/useTopic'
@@ -274,7 +275,7 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
                       ...toolBlock.metadata,
                       rawMcpToolResponse: {
                         ...toolResponse,
-                        arguments: toolResponse.tool?.name === 'AskUserQuestion'
+                        arguments: isAskUserQuestionTool(toolResponse.tool?.name)
                           ? resolveToolArguments(toolResponse.arguments, toolResponse.partialArguments,
                               selectPendingPermission(getState().toolPermissions, toolResponse.id)?.input)
                           : toolResponse.arguments,

@@ -9,10 +9,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import Store from 'electron-store'
+import { registerArtifact } from '../services/artifactIndex'
 import { net } from 'electron'
 
 import { ossUploadService } from '@main/services/OssUploadService'
 
+import { draftTestRegistry } from './draft-test-registry'
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
 
 const logger = loggerService.withContext('MCPServer:DraftManagement')
@@ -38,6 +40,11 @@ const CREATE_DRAFT_TOOL: Tool = {
   inputSchema: {
     type: 'object',
     properties: {
+      is_test: {
+        type: 'boolean',
+        default: false,
+        description: 'Local-only test draft flag. Set true for temporary verification drafts: creation and subsequent edits never appear as UI artifacts. Not sent to the backend. Defaults to false.'
+      },
       width: {
         type: 'integer',
         description: 'Optional video width. Defaults to 1080 on the API side.'
@@ -321,6 +328,12 @@ class DraftManagementServer {
     height?: number
     status: 'in_progress' | 'completed'
   }) {
+    if (draftTestRegistry.isTest(payload.draftId)) return
+    // "pending:<clientRequestId>" is a placeholder until the backend returns the real draft ID.
+    if (this.runtimeSessionId?.trim() && !payload.draftId.startsWith('pending:')) {
+      registerArtifact({ type: 'draft', runtimeSessionId: this.runtimeSessionId, draftId: payload.draftId, name: payload.name })
+    }
+
     const mainWindow = windowService.getMainWindow()
     if (!mainWindow || mainWindow.isDestroyed()) {
       logger.warn('Skip draft created event because main window is unavailable', {
@@ -503,11 +516,15 @@ class DraftManagementServer {
   }
 
   private async createDraft(args: Record<string, unknown>) {
+    if (args.is_test !== undefined && typeof args.is_test !== 'boolean') {
+      throw new McpError(ErrorCode.InvalidParams, "'is_test' must be a boolean")
+    }
+    const isTest = args.is_test === true
     const payload = await this.buildCreateDraftPayload(args)
     const clientRequestId = this.getOptionalTrimmedString(args.clientRequestId) || randomUUID()
     const pendingDraftId = `pending:${clientRequestId}`
 
-    this.emitDraftCreated({
+    if (!isTest) this.emitDraftCreated({
       action: 'create',
       clientRequestId,
       draftId: pendingDraftId,
@@ -533,7 +550,10 @@ class DraftManagementServer {
     })
 
     const createdDraftId = this.getOptionalTrimmedString(result.output?.draft_id)
-    if (createdDraftId) {
+    if (isTest && createdDraftId && result.success !== false && !result.error) {
+      draftTestRegistry.markTest(createdDraftId)
+    }
+    if (createdDraftId && !isTest) {
       this.emitDraftCreated({
         action: 'create',
         clientRequestId,

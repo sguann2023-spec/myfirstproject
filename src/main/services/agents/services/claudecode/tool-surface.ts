@@ -15,7 +15,7 @@ export function buildToolSurface(args: {
   hasExplicitSkillInvocation?: boolean
   supportsImageInput?: boolean
 }): ToolSurface {
-  const builtinTools = ['AskUserQuestion', 'Bash', 'Read', 'Write', 'Edit']
+  const builtinTools = ['Bash', 'Read', 'Write', 'Edit']
   if (args.supportsImageInput) {
     builtinTools.push('ReadImageAsContent')
   }

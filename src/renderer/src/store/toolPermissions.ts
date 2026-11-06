@@ -1,3 +1,4 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
 /**
  * @deprecated Scheduled for removal in v2.0.0
  * --------------------------------------------------------------------------
@@ -175,7 +176,7 @@ export const selectUniqueActivePermissionByToolName = (
   toolName: string
 ): ToolPermissionEntry | undefined => {
   const activeEntries = Object.values(state.requests)
-    .filter((entry) => entry.toolName === toolName)
+    .filter((entry) => (entry.toolName === toolName || (isAskUserQuestionTool(toolName) && isAskUserQuestionTool(entry.toolName))))
     .filter((entry) => ACTIVE_TOOL_PERMISSION_STATUSES.includes(entry.status))
 
   if (activeEntries.length !== 1) return undefined

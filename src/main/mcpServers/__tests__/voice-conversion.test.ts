@@ -4,7 +4,8 @@ import path from 'node:path'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockExecFile, mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
+const { mockSend, mockExecFile, mockNetFetch, mockStoreGet, mockStoreSet, mockUploadLocalFile } = vi.hoisted(() => ({
+  mockSend: vi.fn(),
   mockExecFile: vi.fn(),
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
@@ -55,7 +56,12 @@ vi.mock('@main/utils', () => ({
   getResourcePath: () => '/tmp/vectcut-test-resources'
 }))
 
+vi.mock('@main/services/WindowService', () => ({
+  windowService: { getMainWindow: () => ({ isDestroyed: () => false, webContents: { send: mockSend } }) }
+}))
+
 import VoiceConversionServer from '../voice-conversion'
+import { IpcChannel } from '../../../packages/shared/IpcChannel'
 
 type VoiceConversionServerInstance = InstanceType<typeof VoiceConversionServer>
 
@@ -136,8 +142,81 @@ function mockFfprobeProbe(
 describe('VoiceConversionServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockSend.mockReset()
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
     mockFfprobeProbe({ durationSeconds: 120, hasAudio: true })
+  })
+
+  it.each([
+    ['audioUrl', 'voiceId'],
+    ['audio_url', 'voice_id'],
+    ['videoUrl', 'voiceId'],
+    ['video_url', 'voice_id']
+  ])('notifies the session after successful %s conversion using the original filename', async (sourceKey, voiceKey) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'notification-task' }))
+      .mockResolvedValueOnce(mockJsonResponse({
+        success: true, status: 'completed', task_id: 'notification-task',
+        result: { converted_url: 'https://example.com/converted.mp3', duration: '12.5', billing: { consume: '2.5' } }
+      }))
+    const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
+    const result = await callTool(server, 'submit_voice_conversion_task', {
+      [sourceKey]: 'https://example.com/media/%E5%8E%9F%E5%A3%B0.mp3?signature=secret#fragment',
+      [voiceKey]: 'voice-target'
+    })
+    expect(result.isError).not.toBe(true)
+    expect(mockSend).toHaveBeenCalledTimes(1)
+    expect(mockSend).toHaveBeenCalledWith(IpcChannel.App_AudioGenerated, expect.objectContaining({
+      runtimeSessionId: 'session-123', audioUrl: 'https://example.com/converted.mp3',
+      text: '原声.mp3 + voice-target', status: 'completed', durationSeconds: 12.5,
+      billing: { total_consumed_points: 2.5 }
+    }))
+  })
+
+  it.each([
+    ['/tmp/original.mp3', 'voice-1', 'original.mp3 + voice-1'],
+    ['C:\\media\\original.mp3', 'voice-1', 'original.mp3 + voice-1'],
+    ['file:///tmp/hello%20world.mp3', 'voice-1', 'hello world.mp3 + voice-1'],
+    ['https://example.com/%ZZ.mp3?token=secret', 'voice-1', '%ZZ.mp3 + voice-1'],
+    ['https://example.com/?token=secret', '', '原文件 + 未知音色'],
+    ['https://[invalid?token=secret', undefined, '原文件 + 未知音色'],
+    [undefined, undefined, '原文件 + 未知音色']
+  ])('safely derives title from %s', (source, voice, title) => {
+    const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
+    ;(server as any).notifyConvertedAudio({ success: true, result: { converted_url: 'https://example.com/a.mp3' } }, source, voice)
+    expect(mockSend.mock.calls[0][1].text).toBe(title)
+  })
+
+  it.each([
+    { success: false, result: { converted_url: 'https://example.com/a.mp3' } },
+    { success: true, error: 'failed', result: { converted_url: 'https://example.com/a.mp3' } },
+    { success: true, error_code: 'failed', result: { converted_url: 'https://example.com/a.mp3' } },
+    { success: true, result: { converted_url: 'file:///tmp/a.mp3' } },
+    { success: true, result: { converted_url: 'not a URL' } },
+    { success: true }
+  ])('does not notify unsuccessful or invalid results %j', (result) => {
+    const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
+    ;(server as any).notifyConvertedAudio(result, '/tmp/source.mp3', 'voice-1')
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps sessionless/external calls silent and tolerates notification failures', async () => {
+    const result = { success: true, result: { converted_url: 'https://example.com/a.mp3' } }
+    for (const options of [{}, { external: true }, { runtimeSessionId: '  ' }]) {
+      const server = new VoiceConversionServer(undefined, options)
+      ;(server as any).notifyConvertedAudio(result, '/tmp/source.mp3', 'voice-1')
+    }
+    expect(mockSend).not.toHaveBeenCalled()
+    mockSend.mockImplementationOnce(() => { throw new Error('window unavailable') })
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ task_id: 'notification-task' }))
+      .mockResolvedValueOnce(mockJsonResponse({ ...result, status: 'completed', task_id: 'notification-task' }))
+    const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
+    const response = await callTool(server, 'submit_voice_conversion_task', { audioUrl: 'https://example.com/source.mp3', voiceId: 'voice-1' })
+    expect(response.isError).not.toBe(true)
+    expect(JSON.parse(response.content[0].text).success).toBe(true)
   })
 
   it('should expose submit-and-wait tool', async () => {

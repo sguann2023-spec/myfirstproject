@@ -5,7 +5,7 @@ import { net } from 'electron'
 import Store from 'electron-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
-import { ASSET_SEARCH_ROUTING } from './asset-search-routing'
+import { ASSET_SEARCH_ROUTING, PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE, suggestYouTubeSearch, YOUTUBE_VIDEO_FALLBACK_GUIDANCE } from './asset-search-routing'
 import { getStoredVectcutApiKey, requestWithVectcutAuth } from './vectcut-auth'
 
 const LANGUAGES = ['cs', 'da', 'de', 'en', 'es', 'fr', 'id', 'it', 'hu', 'nl', 'no', 'pl', 'pt', 'ro', 'sk', 'fi', 'sv', 'tr', 'vi', 'th', 'bg', 'ru', 'el', 'ja', 'ko', 'zh']
@@ -14,6 +14,8 @@ const COLORS = ['grayscale', 'transparent', 'red', 'orange', 'yellow', 'green', 
 const SEARCH_GUIDANCE =
   'You can also consider existing assets as a potentially cheaper alternative to AI generation. This search call returns asset metadata and URLs; downstream tools handle downloads and editing. This service does not support music, sound effects or GIF search. '
 const VIDEO_USAGE_GUIDANCE =
+  YOUTUBE_VIDEO_FALLBACK_GUIDANCE +
+  PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE +
   'For an editing task, prefer automatically downloading the selected video into the workspace using filesystem.download(url, file_path), rather than returning only a link. Do not download every search hit. When only a segment is needed, use ffmpeg-media.trim_media_segment with the local source and verified start/end or duration. For a selected YouTube result, obtain a direct media URL using scrapt.youtube_web_v2_get_video_streams with video_id or video_url before downloading; never save a watch page as a video. If the user explicitly asks only to search or preview, return candidates without downloading. '
 
 const COMMON_PROPERTIES = {
@@ -65,6 +67,9 @@ const TOOLS: Tool[] = [
     }
   }
 ]
+for (const tool of TOOLS) {
+  if (tool.name === 'search_videos') tool.description = YOUTUBE_VIDEO_FALLBACK_GUIDANCE + tool.description
+}
 
 type SearchPayload = { total: number; totalHits: number; hits: Record<string, unknown>[] }
 type CacheEntry = { expiresAt: number; payload: SearchPayload; bytes: number }
@@ -160,12 +165,16 @@ export default class MediaSearchServer {
     this.requiresAuth = url.origin === 'https://open.vectcut.com'
     this.mcpServer = new McpServer({ name: 'media-search', version: '1.0.0' }, { capabilities: { tools: {} } })
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }))
-    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+      let fallbackQuery: string | undefined
       try {
         const tool = TOOLS.find((item) => item.name === request.params.name)
         if (!tool) throw new Error(`Unknown tool: ${request.params.name}`)
         const params = this.validateParams(tool, request.params.arguments ?? {})
         const kind = tool.name === 'search_videos' ? 'video' : 'image'
+        if (kind === 'video' && params.has('q') && !params.has('id') && params.get('video_type') !== 'animation') {
+          fallbackQuery = params.get('q')!
+        }
         const endpoint = kind === 'video' ? '/pixabay/videos/search' : '/pixabay/search'
         const payload = await this.fetchSearch(`${this.baseUrl}${endpoint}?${params}`)
         const result = {
@@ -177,16 +186,21 @@ export default class MediaSearchServer {
           per_page: Number(params.get('per_page')),
           ...payload,
           ...(kind === 'video' && payload.hits.length === 0 && params.get('page') === '1' && params.has('q') && !params.has('id') && params.get('video_type') !== 'animation' ? {
-            suggestedNextSearch: {
-              tool: 'scrapt.youtube_web_search_video',
-              arguments: { search_query: params.get('q') },
-              guidance: 'No matching videos were found. For real-world filmed footage, B-roll, establishing shots, scenic backgrounds, locations, events or tutorials, search YouTube next instead of stopping. If results are still unsuitable, refine keywords, try relevant synonyms or another result page; this fallback is not limited to one call. Avoid repeating identical failed searches and stop when suitable footage is found. Skip it for animation or AI-only requests. When editing, download the selected result using the video workflow above.'
-            }
+            suggestedNextSearch: suggestYouTubeSearch(params.get('q')!, 'No matching videos were found.')
           } : {})
         }
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result }
       } catch (error) {
-        return { content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'Image or video search failed' }], isError: true }
+        const message = error instanceof Error ? error.message : 'Image or video search failed'
+        const result = fallbackQuery && !extra.signal.aborted ? {
+          error: message,
+          suggestedNextSearch: suggestYouTubeSearch(fallbackQuery, 'The stock video search failed.')
+        } : undefined
+        return {
+          content: [{ type: 'text' as const, text: result ? JSON.stringify(result) : message }],
+          ...(result ? { structuredContent: result } : {}),
+          isError: true
+        }
       }
     })
   }

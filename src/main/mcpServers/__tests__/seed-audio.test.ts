@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockSend, mockGetMainWindow } = vi.hoisted(() => ({
+  mockSend: vi.fn(),
+  mockGetMainWindow: vi.fn(),
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn()
@@ -35,6 +37,11 @@ vi.mock('@logger', () => ({
   }
 }))
 
+vi.mock('@main/services/WindowService', () => ({
+  windowService: { getMainWindow: mockGetMainWindow }
+}))
+
+import { IpcChannel } from '../../../packages/shared/IpcChannel'
 import SeedAudioServer from '../seed-audio'
 
 type SeedAudioServerInstance = InstanceType<typeof SeedAudioServer>
@@ -73,7 +80,73 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 describe('SeedAudioServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockSend.mockReset()
+    mockGetMainWindow.mockReset()
+    mockGetMainWindow.mockReturnValue({ isDestroyed: () => false, webContents: { send: mockSend } })
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
+  })
+
+  async function generateWithResult(result: Record<string, unknown>, runtimeSessionId?: string) {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse(result))
+    return callTool(new SeedAudioServer({ runtimeSessionId }), { prompt: '  actual request prompt  ' })
+  }
+
+  it('archives successful audio with runtime, actual payload prompt and duration, not resource credits', async () => {
+    await generateWithResult({
+      success: true, url: 'https://example.com/generated.wav', text_prompt: 'different response title',
+      duration_seconds: 18.2, resource_amount: 99
+    }, 'session-seed')
+    expect(mockSend).toHaveBeenCalledExactlyOnceWith(IpcChannel.App_AudioGenerated, {
+      id: expect.any(String), runtimeSessionId: 'session-seed', audioUrl: 'https://example.com/generated.wav',
+      text: 'actual request prompt', createdAt: expect.any(Number), status: 'completed', durationSeconds: 18.2
+    })
+  })
+
+  it.each([undefined, '', '  '])('does not archive without a session (%s)', async runtime => {
+    await generateWithResult({ success: true, url: 'https://example.com/generated.wav' }, runtime)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { success: false, url: 'https://example.com/audio.wav' },
+    { url: 'https://example.com/audio.wav' },
+    { success: true, error: 'failed', url: 'https://example.com/audio.wav' },
+    { success: true, error_code: 'failed', url: 'https://example.com/audio.wav' },
+    ...[undefined, '', 'not a URL', 'file:///tmp/audio.wav', 'data:audio/wav;base64,AA==', 'https://'].map(url => ({ success: true, url }))
+  ])('does not archive failures or invalid URLs (%j)', async result => {
+    await generateWithResult(result, 'session-seed')
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it.each([null, { isDestroyed: () => true }])('ignores unavailable windows (%j)', async window => {
+    mockGetMainWindow.mockReturnValue(window)
+    const result = await generateWithResult({ success: true, url: 'https://example.com/audio.wav' }, 'session-seed')
+    expect(JSON.parse(result.content[0].text).success).toBe(true)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('returns successful generation even if notification throws', async () => {
+    mockSend.mockImplementation(() => { throw new Error('notification failed') })
+    const result = await generateWithResult({ success: true, url: 'http://example.com/audio.wav', duration_seconds: -1 }, 'session-seed')
+    expect(JSON.parse(result.content[0].text).success).toBe(true)
+    expect(mockSend.mock.calls[0][1]).not.toHaveProperty('durationSeconds')
+  })
+
+  it('does not notify on HTTP failure', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse({ error: 'failed' }, false, 500))
+    const result = await callTool(new SeedAudioServer({ runtimeSessionId: 'session-seed' }), { prompt: 'test' })
+    expect(result.isError).toBe(true)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('retains external mode compatibility with runtime options', async () => {
+    const result = await listTools(new SeedAudioServer({ external: true, runtimeSessionId: 'session-seed' }))
+    expect(result.tools.map((tool: any) => tool.name)).toEqual(['submit', 'task_status'])
+    expect(mockSend).not.toHaveBeenCalled()
   })
 
   it('should expose only the generate_seed_audio tool', async () => {

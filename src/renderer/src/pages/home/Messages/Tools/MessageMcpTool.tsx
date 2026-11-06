@@ -564,8 +564,8 @@ const ToolResponseContent: FC<{
     if (!isExpanded || !response) return
 
     const highlight = async () => {
-      const { text: previewContent, images } = extractPreviewContentFromToolResult(response)
-      setResponseImages(images)
+      const { text: previewContent, images, media } = extractPreviewContentFromToolResult(response)
+      setResponseImages([...images, ...media])
       const {
         data: truncatedContent,
         isTruncated: wasTruncated,
@@ -684,14 +684,12 @@ const ToolResponseContent: FC<{
             <MarkdownContainer className="markdown" dangerouslySetInnerHTML={{ __html: highlightedResponse }} />
           )}
           {isTruncated && <TruncatedIndicator originalLength={originalLength} />}
-          {responseImages.map((img, idx) => (
-            <img
-              key={idx}
-              src={img.kind === 'url' ? img.source : `data:${img.mimeType};base64,${img.source}`}
-              alt="Tool output"
-              style={{ maxWidth: 300, borderRadius: 4, marginTop: 8 }}
-            />
-          ))}
+          {responseImages.map((img, idx) => {
+            const src = img.kind === 'url' ? (img.source.startsWith('/') ? `file://${img.source}` : img.source) : `data:${img.mimeType};base64,${img.source}`
+            if (img.mimeType.startsWith('audio/')) return <audio key={idx} controls src={src} />
+            if (img.mimeType.startsWith('video/')) return <video key={idx} controls src={src} style={{ maxWidth: 300 }} />
+            return <img key={idx} src={src} alt="Tool output" style={{ maxWidth: 300, borderRadius: 4, marginTop: 8 }} />
+          })}
         </ResponseSection>
       )}
     </div>

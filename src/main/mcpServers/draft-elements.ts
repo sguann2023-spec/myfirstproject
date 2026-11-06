@@ -10,6 +10,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import Store from 'electron-store'
 import { net } from 'electron'
 
+import { draftTestRegistry } from './draft-test-registry'
 import { renderTextPositionPreview, renderTextStylePreview } from './preview/textStyle'
 import { renderFontSprite, type FontSpriteItem } from './preview/textFontSprite'
 import { fetchTextAnimationPreviewImages, type TextAnimationPreviewItem, type TextAnimationPreviewKind } from './preview/textAnimationPreviewImages'
@@ -2325,6 +2326,8 @@ class DraftElementsServer {
     height?: number
     status: 'in_progress' | 'completed'
   }) {
+    if (draftTestRegistry.isTest(payload.draftId)) return
+
     const mainWindow = windowService.getMainWindow()
     if (!mainWindow || mainWindow.isDestroyed()) {
       logger.warn('Skip draft preview event because main window is unavailable', { draftId: payload.draftId })

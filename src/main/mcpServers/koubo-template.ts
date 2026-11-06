@@ -14,6 +14,7 @@ import { net } from 'electron'
 import { BackgroundJobStore, BACKGROUND_REQUEST_ID_PROPERTY, backgroundStatusTool } from './background-job'
 import type { BackgroundJob, JobUpdate } from './background-job'
 import { getVectcutBackgroundAccountId, requestWithVectcutAuth } from './vectcut-auth'
+import { notifyDraftCreated } from './notify-draft-created'
 
 const logger = loggerService.withContext('MCPServer:KouboTemplate')
 
@@ -271,7 +272,7 @@ class KouboTemplateServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(private readonly options: { external?: boolean } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
     this.mcpServer = new McpServer(
       {
         name: 'koubo-template',
@@ -802,6 +803,13 @@ class KouboTemplateServer {
     })
     await this.reportProgress(extra, 12, '口播模版任务已提交，正在处理中')
     const finalResult = await this.waitForKouboTemplateTaskResult(taskId, extra)
+    notifyDraftCreated({
+      runtimeSessionId: this.options.runtimeSessionId,
+      draftId: finalResult.output?.draft_id,
+      name: typeof payload.body.params.name === 'string' && payload.body.params.name.trim()
+        ? payload.body.params.name.trim()
+        : typeof finalResult.output?.draft_name === 'string' ? finalResult.output.draft_name.trim() : undefined
+    })
 
     return this.formatJsonResult({
       provider: 'vectcut',

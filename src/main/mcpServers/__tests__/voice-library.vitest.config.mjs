@@ -11,6 +11,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: [
+      'src/main/mcpServers/__tests__/voice-conversion.test.ts',
       'src/main/mcpServers/__tests__/voice-library.test.ts',
       'src/main/mcpServers/__tests__/voice-clone.test.ts',
       'src/main/mcpServers/__tests__/speech-generate.test.ts',

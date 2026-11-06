@@ -1,3 +1,5 @@
+import { isAskUserQuestionTool } from '@shared/userInteraction'
+import { answerError, normalizeAskUserQuestionInput, questionId, summarizeAnswer, type Question, type QuestionAnswer } from '@shared/askUserQuestion'
 import { randomUUID } from 'node:crypto'
 
 import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
@@ -61,10 +63,7 @@ type RendererPermissionResultPayload = {
 const pendingRequests = new Map<string, PendingPermissionRequest>()
 let ipcHandlersInitialized = false
 
-const normalizeToolName = (name: string): string =>
-  name.startsWith('builtin_') ? name.slice('builtin_'.length) : name
-
-const requiresUserResponse = (toolName: string): boolean => normalizeToolName(toolName) === 'AskUserQuestion'
+const requiresUserResponse = (toolName: string): boolean => isAskUserQuestionTool(toolName)
 
 const jsonReplacer = (_key: string, value: unknown) => {
   if (typeof value === 'bigint') return value.toString()
@@ -130,7 +129,10 @@ const finalizeRequest = (
   const pending = pendingRequests.get(requestId)
 
   if (!pending) {
-    logger.debug('Attempted to finalize unknown tool permission request', { requestId, reason })
+    logger.debug('Attempted to finalize unknown tool permission request', {
+      requestId,
+      reason
+    })
     return false
   }
 
@@ -203,6 +205,48 @@ const ensureIpcHandlersRegistered = () => {
         ? (updatedInput as Record<string, unknown>)
         : pending.originalInput
 
+    if (behavior === 'allow' && requiresUserResponse(pending.toolName)) {
+      // Questions and constraints are authoritative; renderer may only supply answers.
+      const questions = pending.originalInput.questions as Question[]
+      const structured = maybeUpdatedInput.structuredAnswers as Record<string, QuestionAnswer> | undefined
+      if (!Array.isArray(questions)) return { success: false, error: 'invalid-questions' }
+      if (new Set(questions.map(questionId)).size !== questions.length)
+        return { success: false, error: 'duplicate-question-id' }
+      if (structured) {
+        try {
+          if (
+            Object.keys(structured).some((id) => !questions.some((q, i) => questionId(q, i) === id)) ||
+            questions.some((q, i) => answerError(q, structured[questionId(q, i)]))
+          )
+            return { success: false, error: 'invalid-answers' }
+        } catch {
+          return { success: false, error: 'invalid-answers' }
+        }
+      } else if (
+        questions.some(
+          (q) =>
+            q.type ||
+            (q.required !== false &&
+              (typeof (maybeUpdatedInput.answers as Record<string, unknown>)?.[q.question] !== 'string' ||
+                !(maybeUpdatedInput.answers as Record<string, string>)[q.question].trim()))
+        )
+      ) {
+        return { success: false, error: 'invalid-answers' }
+      }
+      const answers = structured
+        ? Object.fromEntries(
+            questions.map((q, i) => [
+              q.question,
+              structured[questionId(q, i)] ? summarizeAnswer(q, structured[questionId(q, i)]) : ''
+            ])
+          )
+        : maybeUpdatedInput.answers
+      Object.assign(maybeUpdatedInput, pending.originalInput, {
+        answers,
+        structuredAnswers: structured
+      })
+    }
+
     const sanitizedUpdatedPermissions = Array.isArray(payload.updatedPermissions)
       ? payload.updatedPermissions.map((perm) => sanitizeStructuredData(perm))
       : undefined
@@ -258,18 +302,24 @@ export async function promptForToolApproval(
 
   if (options?.signal?.aborted) {
     logger.info('Skipping tool approval prompt because request signal is already aborted', { toolName })
-    return { behavior: 'deny', message: 'Tool request was cancelled before prompting the user' }
+    return {
+      behavior: 'deny',
+      message: 'Tool request was cancelled before prompting the user'
+    }
   }
 
   const mainWindow = windowService.getMainWindow()
 
   if (!mainWindow) {
     logger.warn('Denying tool usage because no renderer window is available to obtain approval', { toolName })
-    return { behavior: 'deny', message: 'Unable to request approval – renderer not ready' }
+    return {
+      behavior: 'deny',
+      message: 'Unable to request approval – renderer not ready'
+    }
   }
 
   const toolMetadata = builtinTools.find((tool) => tool.name === toolName || tool.id === toolName)
-  const sanitizedInput = sanitizeStructuredData(input)
+  const sanitizedInput = sanitizeStructuredData(requiresUserResponse(toolName) ? normalizeAskUserQuestionInput(input) : input)
   const inputPreview = buildInputPreview(sanitizedInput)
   const sanitizedSuggestions = (options?.suggestions ?? []).map((suggestion) => sanitizeStructuredData(suggestion))
 
@@ -307,13 +357,18 @@ export async function promptForToolApproval(
 
   if (requiresUserResponse(toolName) && options.onQuestionReceived) {
     try {
-      void Promise.resolve(options.onQuestionReceived({
-      toolName,
-      toolCallId: options.toolCallId,
-      rawToolCallId: options.rawToolCallId,
-      aliases: toolCallIdAliases,
-      input: sanitizedInput
-      }, options.signal)).catch((error) => {
+      void Promise.resolve(
+        options.onQuestionReceived(
+          {
+            toolName,
+            toolCallId: options.toolCallId,
+            rawToolCallId: options.rawToolCallId,
+            aliases: toolCallIdAliases,
+            input: sanitizedInput
+          },
+          options.signal
+        )
+      ).catch((error) => {
         logger.error('Failed to persist received question', error as Error)
       })
     } catch (error) {
@@ -321,10 +376,16 @@ export async function promptForToolApproval(
     }
   }
   if (options.signal.aborted) {
-    return { behavior: 'deny', message: 'Tool request was cancelled before prompting the user' }
+    return {
+      behavior: 'deny',
+      message: 'Tool request was cancelled before prompting the user'
+    }
   }
 
-  const defaultDenyUpdate: PermissionResult = { behavior: 'deny', message: 'Tool request aborted before user decision' }
+  const defaultDenyUpdate: PermissionResult = {
+    behavior: 'deny',
+    message: 'Tool request aborted before user decision'
+  }
 
   logger.debug('Registering tool permission request', {
     requestId,

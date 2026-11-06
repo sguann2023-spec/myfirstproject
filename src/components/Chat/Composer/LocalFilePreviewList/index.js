@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, Popover } from 'antd';
+import MediaPreviewModal from '../../MediaPreviewModal';
+import { Popover } from 'antd';
 import { AudioLines, File, FileAudio, FileVideo, LoaderCircle, X } from 'lucide-react';
 import FirstFrameIcon from '../../../../../public/first_frame.svg';
 import MaterialPlusIcon from '../../../../../public/material-plus.svg';
@@ -196,7 +197,6 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
   onActiveGroupChange, onRemove, onAddFile }) => {
   const [localGroupKey, setLocalGroupKey] = React.useState('');
   const [modalFile, setModalFile] = React.useState(null);
-  const [previewAspectRatio, setPreviewAspectRatio] = React.useState(1);
   const resolvedFiles = Array.isArray(files) ? files : [];
   const resolvedPlaceholders = Array.isArray(placeholders) ? placeholders : [];
   const resolvedFileGroups = Array.isArray(fileGroups) ? fileGroups : null;
@@ -223,7 +223,6 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
   // Toolbar attachments and template slots share the same centered media modal;
   // the open-preview button only renders for image/video/audio with a URL.
   const selectFile = (file) => {
-    setPreviewAspectRatio(1);
     setModalFile(file);
   };
   if (resolvedFiles.length === 0 && resolvedPlaceholders.length === 0 && (resolvedFileGroups?.length || 0) === 0) return null;
@@ -343,31 +342,9 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
         ))}
         {selectedGroup ? renderGroupSection(selectedGroup) : null}
       </div>
-      <Modal open={Boolean(modalFile)} centered title={null} closable closeIcon={<X size={22} />} maskClosable
-        transitionName="" maskTransitionName=""
-        width={modalFile && getPreviewKind(modalFile) === 'audio' ? 492 : `min(80vw, ${80 * previewAspectRatio}vh)`}
-        rootClassName={`chat-panel__media-click-modal chat-panel__media-click-modal--${modalFile ? getPreviewKind(modalFile) : ''}`}
-        onCancel={() => setModalFile(null)} footer={null} destroyOnHidden>
-        {modalFile ? (
-          <div className="chat-panel__media-click-content" onClick={() => setModalFile(null)}>
-            {getPreviewKind(modalFile) === 'image' ? (
-              <img className="chat-panel__media-click-image" src={getMediaPreviewUrl(modalFile)} alt={getFileDisplayName(modalFile)}
-                onLoad={(event) => {
-                  const { naturalWidth, naturalHeight } = event.currentTarget;
-                  if (naturalWidth > 0 && naturalHeight > 0) setPreviewAspectRatio(naturalWidth / naturalHeight);
-                }} />
-            ) : getPreviewKind(modalFile) === 'video' ? <>
-              <video key={getMediaPreviewUrl(modalFile)} src={getMediaPreviewUrl(modalFile)} controls playsInline preload="metadata"
-                onClick={(event) => event.stopPropagation()}
-                onLoadedMetadata={(event) => {
-                  const { videoWidth, videoHeight } = event.currentTarget;
-                  if (videoWidth > 0 && videoHeight > 0) setPreviewAspectRatio(videoWidth / videoHeight);
-                }} />
-              <div className="chat-panel__media-click-title" title={getFileDisplayName(modalFile)}>{getFileDisplayName(modalFile)}</div>
-            </> : <audio key={getMediaPreviewUrl(modalFile)} src={getMediaPreviewUrl(modalFile)} controls preload="metadata" onClick={(event) => event.stopPropagation()} />}
-          </div>
-        ) : null}
-      </Modal>
+      <MediaPreviewModal src={modalFile ? getMediaPreviewUrl(modalFile) : ''}
+        kind={modalFile ? getPreviewKind(modalFile) : ''} name={modalFile ? getFileDisplayName(modalFile) : ''}
+        onClose={() => setModalFile(null)} />
     </div>
   );
 };

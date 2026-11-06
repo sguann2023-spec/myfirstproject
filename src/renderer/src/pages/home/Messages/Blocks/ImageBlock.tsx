@@ -28,7 +28,7 @@ const ImageBlock: React.FC<Props> = ({ block, isSingle = false }) => {
       <Container>
         {images.map((src, index) => (
           <ImageViewer
-            src={src}
+            src={src.startsWith('/') ? `file://${src}` : src}
             key={`image-${index}`}
             style={
               isSingle

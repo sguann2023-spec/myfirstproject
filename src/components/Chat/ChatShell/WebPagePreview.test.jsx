@@ -90,12 +90,12 @@ describe('manual preview tab identity', () => {
   });
 });
 
-const artifact = { key: 'chat-artifact:pinned-drafts', previewType: 'artifact', title: '产物' };
+const artifact = { key: 'chat-artifact:pinned-drafts', previewType: 'artifact', title: '产出' };
 describe('artifact preview tabs', () => {
   it.each([false, true])('mounts an artifact once without browser controls (StrictMode: %s)', async (strict) => {
     await renderPreview(artifact, strict);
     expect(tabs()).toHaveLength(1);
-    expect(tabs()[0].textContent).toContain('产物');
+    expect(tabs()[0].textContent).toContain('产出');
     expect(container.querySelector('[data-testid="artifact-pane"]')).not.toBeNull();
     expect(container.querySelector('.chat-web-preview__address')).toBeNull();
   });
@@ -150,14 +150,57 @@ describe('artifact preview tabs', () => {
 });
 
 describe('session artifact cleanup', () => {
+  it('closes the pane without creating a blank tab when A only has an artifact', async () => {
+    const onClose = vi.fn();
+    const Harness = ({ sessionId }) => {
+      const [panePreview, setPanePreview] = React.useState(artifact);
+      return panePreview ? (
+        <WebPagePreview preview={panePreview} sessionId={sessionId} onClose={() => {
+          onClose();
+          setPanePreview(null);
+        }} />
+      ) : null;
+    };
+    await act(async () => root.render(<Harness sessionId="A" />));
+    expect(tabs()).toHaveLength(1);
+    await act(async () => root.render(<Harness sessionId="B" />));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(tabs()).toHaveLength(0);
+    expect(container.querySelector('.chat-web-preview')).toBeNull();
+    await act(async () => root.render(<Harness sessionId="B" />));
+    expect(tabs()).toHaveLength(0);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves a manually created blank tab across session cleanup', async () => {
+    const onClose = vi.fn();
+    const render = async (sessionId) => act(async () => root.render(
+      <WebPagePreview preview={artifact} sessionId={sessionId} onClose={onClose} />
+    ));
+    await render('A');
+    await act(async () => container.querySelector('.chat-web-preview__tab-add').click());
+    expect(tabs()).toHaveLength(2);
+    const manualTab = tabs()[1];
+    expect(address()).toBe('about:blank');
+    await render('B');
+    expect(tabs()).toHaveLength(1);
+    expect(tabs()[0]).toBe(manualTab);
+    expect(address()).toBe('about:blank');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])('removes active and inactive artifacts while preserving web tabs (active: %s)', async (active) => {
-    const render = async (preview, sessionId) => act(async () => root.render(<WebPagePreview preview={preview} sessionId={sessionId} />));
+    const onClose = vi.fn();
+    const render = async (preview, sessionId) => act(async () => root.render(<WebPagePreview preview={preview} sessionId={sessionId} onClose={onClose} />));
     await render(initialPreview, 'A');
+    const webTab = tabs()[0];
     await render({ ...artifact, key: 'artifact:A', tabId: 'artifact:A' }, 'A');
     if (!active) await render(initialPreview, 'A');
     expect(tabs()).toHaveLength(2);
     await render(active ? { ...artifact, key: 'artifact:A', tabId: 'artifact:A' } : initialPreview, 'B');
     expect(tabs()).toHaveLength(1);
+    expect(tabs()[0]).toBe(webTab);
+    expect(onClose).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="artifact-pane"]')).toBeNull();
     expect(address()).toBe(initialPreview.url);
   });

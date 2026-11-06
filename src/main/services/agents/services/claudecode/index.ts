@@ -518,9 +518,7 @@ class ClaudeCodeService implements AgentServiceInterface {
         ]
       },
       disallowedTools: [
-        ...GLOBALLY_DISALLOWED_TOOLS,
-        // Cherry Assistant is a read-only guide; it should not ask users questions via tool
-        ...(isAssistant ? ['AskUserQuestion'] : [])
+        ...GLOBALLY_DISALLOWED_TOOLS
       ],
       ...(thinkingOptions?.effort ? { effort: thinkingOptions.effort } : {}),
       ...(resolvedThinkingConfig ? { thinking: resolvedThinkingConfig } : {})

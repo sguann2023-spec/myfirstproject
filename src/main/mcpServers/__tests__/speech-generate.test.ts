@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item'
 
-const { mockNetFetch, mockStoreGet, mockStoreSet } = vi.hoisted(() => ({
+const { mockNetFetch, mockStoreGet, mockStoreSet, mockSend, mockGetMainWindow } = vi.hoisted(() => ({
+  mockSend: vi.fn(),
+  mockGetMainWindow: vi.fn(),
   mockNetFetch: vi.fn(),
   mockStoreGet: vi.fn(),
   mockStoreSet: vi.fn()
@@ -37,7 +39,11 @@ vi.mock('@logger', () => ({
   }
 }))
 
-import SpeechGenerateServer from '../speech-generate'
+vi.mock('@main/services/WindowService', () => ({
+  windowService: { getMainWindow: mockGetMainWindow }
+}))
+
+import SpeechGenerateServer, { generateSpeechAudio } from '../speech-generate'
 
 type SpeechGenerateServerInstance = InstanceType<typeof SpeechGenerateServer>
 
@@ -75,10 +81,129 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 describe('SpeechGenerateServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockSend.mockReset()
+    mockGetMainWindow.mockReset().mockReturnValue({
+      isDestroyed: () => false,
+      webContents: { send: mockSend }
+    })
     mockStoreGet.mockImplementation((key: string) => {
       if (key === 'auth.refresh_token') return 'refresh-token'
       return undefined
     })
+  })
+
+  const queueSpeechResult = (result: unknown) => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+      .mockResolvedValueOnce(mockJsonResponse(result))
+  }
+
+  it('emits a compact session-scoped completed event without changing the MCP response', async () => {
+    const apiResult = {
+      success: true,
+      error: '',
+      output: { audio_url: ' https://example.com/audio.mp3 ', duration: '12.5' },
+      billing: { consume: '2.75', secret: 'not forwarded' },
+      text: 'long private text'
+    }
+    queueSpeechResult(apiResult)
+    const before = Date.now()
+    const result = await callTool(new SpeechGenerateServer('session-1'), { text: '  实际用于生成的配音文案  ' })
+    expect(mockSend).toHaveBeenCalledTimes(1)
+    expect(mockSend).toHaveBeenCalledWith('app:audio-generated', {
+      id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+      runtimeSessionId: 'session-1',
+      audioUrl: 'https://example.com/audio.mp3',
+      text: '实际用于生成的配音文案',
+      createdAt: expect.any(Number),
+      status: 'completed',
+      durationSeconds: 12.5,
+      billing: { total_consumed_points: 2.75 }
+    })
+    expect(mockSend.mock.calls[0][1].createdAt).toBeGreaterThanOrEqual(before)
+    expect(JSON.parse(result.content[0].text)).toMatchObject(apiResult)
+  })
+
+  it.each(['total_consumed_points', 'points_consumed', 'deduct_points', 'consume'])(
+    'normalizes existing billing field %s including zero', async (field) => {
+      queueSpeechResult({ success: true, output: { audio_url: 'https://example.com/a.mp3' }, billing: { [field]: '0' } })
+      await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+      expect(mockSend.mock.calls[0][1].billing).toEqual({ total_consumed_points: 0 })
+    }
+  )
+
+  it.each([
+    { total_consumed_points: '4', points_consumed: 9 },
+    { output: { audio_url: 'https://example.com/a.mp3', points_consumed: '4' } }
+  ])('normalizes top-level and output billing fields with existing precedence', async (fields) => {
+    queueSpeechResult({ success: true, output: { audio_url: 'https://example.com/a.mp3' }, ...fields })
+    await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+    expect(mockSend.mock.calls[0][1].billing).toEqual({ total_consumed_points: 4 })
+  })
+
+  it('supports output billing and omits invalid optional metadata', async () => {
+    queueSpeechResult({ success: true, output: { audio_url: 'https://example.com/a.mp3', duration: -1, billing: { deduct_points: 3 } } })
+    await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+    expect(mockSend.mock.calls[0][1].billing).toEqual({ total_consumed_points: 3 })
+    expect(mockSend.mock.calls[0][1]).not.toHaveProperty('durationSeconds')
+  })
+
+  it.each([
+    { success: false, output: { audio_url: 'https://example.com/a.mp3' } },
+    { output: { audio_url: 'https://example.com/a.mp3' } },
+    { success: true, error: 'failed', output: { audio_url: 'https://example.com/a.mp3' } },
+    { success: true, error_code: 'failed', output: { audio_url: 'https://example.com/a.mp3' } },
+    { success: true, output: {} },
+    ...['', 'not a url', 'file:///tmp/a.mp3', 'javascript:alert(1)', 123].map(audio_url => ({ success: true, output: { audio_url } }))
+  ])('does not notify for failed business results or invalid URLs: %j', async (apiResult) => {
+    queueSpeechResult(apiResult)
+    const result = await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+    expect(result.isError).not.toBe(true)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it.each([undefined, '', '  '])('does not notify without a session (%s)', async (sessionId) => {
+    queueSpeechResult({ success: true, output: { audio_url: 'https://example.com/a.mp3' } })
+    await callTool(new SpeechGenerateServer(sessionId), { text: 'hello' })
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('notification errors cannot turn successful speech into an MCP error', async () => {
+    queueSpeechResult({ success: true, output: { audio_url: 'https://example.com/a.mp3', duration: 'invalid' }, billing: { consume: 'NaN' } })
+    mockSend.mockImplementation(() => { throw new Error('window closed') })
+    const result = await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+    expect(result.isError).not.toBe(true)
+    expect(JSON.parse(result.content[0].text).success).toBe(true)
+    expect(mockSend.mock.calls[0][1]).not.toHaveProperty('billing')
+    expect(mockSend.mock.calls[0][1]).not.toHaveProperty('durationSeconds')
+  })
+
+  it.each([null, { isDestroyed: () => true }])('ignores unavailable windows', async (window) => {
+    mockGetMainWindow.mockReturnValue(window)
+    queueSpeechResult({ success: true, output: { audio_url: 'https://example.com/a.mp3' } })
+    const result = await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+    expect(result.isError).not.toBe(true)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('does not notify on transport failure', async () => {
+    mockNetFetch
+      .mockResolvedValueOnce(mockJsonResponse({ access_token: 'token' }))
+      .mockResolvedValueOnce(mockJsonResponse({ error: 'failed' }, false, 500))
+    const result = await callTool(new SpeechGenerateServer('session-1'), { text: 'hello' })
+    expect(result.isError).toBe(true)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('keeps the shared generateSpeechAudio helper free of notification side effects', async () => {
+    const apiResult = { success: true, output: { audio_url: 'https://example.com/a.mp3' } }
+    const result = await generateSpeechAudio({ text: 'hello' }, {
+      store: { get: mockStoreGet, set: mockStoreSet },
+      request: async () => mockJsonResponse(apiResult)
+    })
+    expect(result.result).toEqual(apiResult)
+    expect(mockGetMainWindow).not.toHaveBeenCalled()
+    expect(mockSend).not.toHaveBeenCalled()
   })
 
   it('should expose only the generate_speech tool', async () => {

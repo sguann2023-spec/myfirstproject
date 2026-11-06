@@ -91,8 +91,17 @@ function mockRemote(options: {
 }
 
 function assertFailure(result: unknown) {
-  expect(result).toEqual({ content: [{ type: 'text', text:
-    'Media search is unavailable. Check parameters, login and service deployment, or try again later.' }], isError: true })
+  const message = 'Media search is unavailable. Check parameters, login and service deployment, or try again later.'
+  const structured = (result as CallToolResult).structuredContent
+  if (structured) {
+    expect(structured).toEqual({ error: message, suggestedNextSearch: {
+      tool: 'scrapt.youtube_web_search_video', arguments: { search_query: expect.any(String) },
+      guidance: expect.stringContaining('must try scrapt.youtube_web_search_video')
+    } })
+    expect(result).toEqual({ content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured, isError: true })
+  } else {
+    expect(result).toEqual({ content: [{ type: 'text', text: message }], isError: true })
+  }
   expect(JSON.stringify(result)).not.toMatch(/pexels|upstream|secret|Bearer|private-token|rawOutput|base64|provider/i)
 }
 
@@ -142,6 +151,7 @@ describe('FootageSearchServer with a real in-memory MCP SDK client', () => {
     const { tools } = await client.listTools()
     expect(tools.map(tool => tool.name)).toEqual(operations.map(operation => operation.name))
     expect(tools.map(tool => tool.title)).toEqual(operations.map(operation => operation.title))
+    expect(tools[2].description?.slice(0, 240)).toContain('must try scrapt.youtube_web_search_video')
     for (const tool of tools) {
       expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true })
       expect(tool.inputSchema.additionalProperties).toBe(false)
@@ -168,6 +178,20 @@ describe('FootageSearchServer with a real in-memory MCP SDK client', () => {
     expect(mockFetch).not.toHaveBeenCalled()
     expect(mockEnsureToken).not.toHaveBeenCalled()
     expect(mockStoreGet).not.toHaveBeenCalled()
+  })
+
+  it('suggests YouTube for a failed valid video search but not image or invalid requests', async () => {
+    mockFetch.mockRejectedValue(new Error(SECRET))
+    const result = await client.callTool({ name: 'search_videos', arguments: { query: 'Capitol Building' } })
+    assertFailure(result)
+    expect(result.structuredContent).toMatchObject({
+      suggestedNextSearch: { arguments: { search_query: 'Capitol Building' } }
+    })
+    for (const request of [SEARCH, { name: 'search_videos', arguments: { query: '' } }]) {
+      const failure = await client.callTool(request)
+      assertFailure(failure)
+      expect(failure.structuredContent).toBeUndefined()
+    }
   })
 
   it.each(operations)('maps only $name to $upstream with validated arguments', async operation => {

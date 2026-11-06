@@ -1,3 +1,4 @@
+import { notifyVideoGenerated } from './notify-video-generated'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
@@ -328,7 +329,7 @@ class DigitalHumanServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(private readonly options: { external?: boolean } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
     this.mcpServer = new McpServer(
       {
         name: 'digital-human',
@@ -832,6 +833,13 @@ class DigitalHumanServer {
     return String(value || '').trim().toLowerCase()
   }
 
+  private notifyCompleted(mode: 'lip_sync' | 'image_driven' | 'seedance_image_driven', taskId: string, result: DigitalHumanStatusResponse) {
+    if (!this.options.external && !this.isFailed(result) && this.isCompleted(mode, result)) {
+      notifyVideoGenerated({ source: 'digital-human', taskId,
+        runtimeSessionId: this.options.runtimeSessionId, videoUrl: this.extractVideoUrl(result) })
+    }
+  }
+
   private isCompleted(mode: 'lip_sync' | 'image_driven' | 'seedance_image_driven', result: DigitalHumanStatusResponse): boolean {
     if (mode === 'lip_sync') {
       return String(result.task_status ?? '').trim() === '1'
@@ -1017,6 +1025,8 @@ class DigitalHumanServer {
       throw new Error('Digital human task completed without a video URL')
     }
 
+    this.notifyCompleted(args.mode, taskId, finalResult)
+
     const combinedResult = {
       ...submitResult,
       ...finalResult
@@ -1098,6 +1108,7 @@ class DigitalHumanServer {
         mode, saved.task_id!, String(metadata.statusEndpoint),
         { requestId: saved.request_id, jobUpdate: update }, '正在恢复数字人任务状态'
       )
+      this.notifyCompleted(mode, saved.task_id!, result)
       const videoUrl = this.extractVideoUrl(result)
       if (!videoUrl) throw new Error('Digital human task completed without a video URL')
       const combined = { ...(metadata.submitResult as Record<string, unknown>), ...result }
@@ -1112,6 +1123,10 @@ class DigitalHumanServer {
   }
 
   private formatBackgroundJob(job: BackgroundJob) {
+    if (job.status === 'success' && job.result) {
+      this.notifyCompleted(job.result.mode as 'lip_sync' | 'image_driven' | 'seedance_image_driven',
+        String(job.task_id || job.result.task_id || ''), job.result as DigitalHumanStatusResponse)
+    }
     const { fingerprint: _fingerprint, metadata: _metadata, ...visible } = job
     return this.formatJsonResult({ ...visible, poll_after_seconds: 10 })
   }
@@ -1119,6 +1134,7 @@ class DigitalHumanServer {
   private async getLipSyncDigitalHumanStatus(args: Record<string, unknown>) {
     const taskId = this.getRequiredString(args, 'taskId', 'task_id')
     const result = await this.queryStatus(DIGITAL_HUMAN_STATUS_ENDPOINT, taskId)
+    this.notifyCompleted('lip_sync', taskId, result)
 
     return this.formatJsonResult({
       provider: 'vectcut',
@@ -1250,6 +1266,7 @@ class DigitalHumanServer {
   private async getImageDrivenDigitalHumanStatus(args: Record<string, unknown>) {
     const taskId = this.getRequiredString(args, 'taskId', 'task_id')
     const result = await this.queryStatus(OMNI_DIGITAL_HUMAN_STATUS_ENDPOINT, taskId)
+    this.notifyCompleted('image_driven', taskId, result)
 
     return this.formatJsonResult({
       provider: 'vectcut',
@@ -1285,6 +1302,7 @@ class DigitalHumanServer {
   private async getSeedanceDigitalHumanStatus(args: Record<string, unknown>) {
     const taskId = this.getRequiredString(args, 'taskId', 'task_id')
     const result = await this.queryStatus(SEEDANCE_DIGITAL_HUMAN_STATUS_ENDPOINT, taskId)
+    this.notifyCompleted('seedance_image_driven', taskId, result)
 
     return this.formatJsonResult({
       provider: 'vectcut',

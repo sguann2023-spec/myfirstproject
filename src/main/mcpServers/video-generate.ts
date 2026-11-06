@@ -1,3 +1,4 @@
+import { notifyVideoGenerated } from './notify-video-generated'
 import { stat as fsStat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -285,7 +286,7 @@ class VideoGenerateServer {
   private capabilitiesCache: CachedVideoCapabilities | null = null
   private videoModelListCache: CachedVideoModelList | null = null
 
-  constructor(private readonly options: { external?: boolean } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -959,6 +960,10 @@ class VideoGenerateServer {
       progress: result.progress
     })
 
+    if (this.isVideoTaskCompleted(result) && !this.isVideoTaskFailed(result)) {
+      this.notifyCompleted(taskId, result.video_url)
+    }
+
     const format = this.options.external
       ? (payload: Record<string, unknown>) => this.formatExternalResult(payload)
       : (payload: Record<string, unknown>) => this.formatJsonResult(payload)
@@ -1038,6 +1043,12 @@ class VideoGenerateServer {
     return String(status || '').trim().toLowerCase()
   }
 
+  private notifyCompleted(taskId: string, videoUrl: unknown) {
+    if (!this.options.external) notifyVideoGenerated({
+      source: 'video-generate', taskId, videoUrl, runtimeSessionId: this.options.runtimeSessionId
+    })
+  }
+
   private isVideoTaskCompleted(result: VideoTaskStatusResponse): boolean {
     const status = this.normalizeVideoTaskStatus(result.status)
     return status === 'succeeded' || status === 'success'
@@ -1084,6 +1095,7 @@ class VideoGenerateServer {
       attempt += 1
       const result = await this.queryVideoTaskStatus(taskId)
       if (this.isVideoTaskCompleted(result)) {
+        this.notifyCompleted(taskId, result.video_url)
         await this.reportProgress(extra, 100, '视频生成完成')
         return this.formatJsonResult({
           provider: 'vectcut',

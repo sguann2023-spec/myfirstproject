@@ -20,24 +20,13 @@
   gap: 12px;
 }
 
-.ask-user-question-header-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ask-user-question-header-icon {
-  width: 20px;
-  height: 20px;
-  color: var(--color-primary, #22c55e);
-  flex-shrink: 0;
-}
-
 .ask-user-question-header-title {
-  color: #111827;
-  font-size: 16px;
-  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  color: #000;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.4;
 }
 
@@ -72,7 +61,7 @@
 .ask-user-question-status-icon {
   width: 16px;
   height: 16px;
-  color: var(--color-primary, #22c55e);
+  color: #333;
   flex-shrink: 0;
 }
 
@@ -107,7 +96,7 @@
 
 .ask-user-question-option {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid #e5e7eb;
@@ -117,37 +106,49 @@
 }
 
 .ask-user-question-option:hover {
-  border-color: #02b96b;
-  background: #ebf7ef;
+  border-color: #888;
+  background: #eee;
 }
 
-.ask-user-question-option--selected {
-  border-color: #02b96b;
-  background: #ebf7ef;
+.ask-user-question-option--selected,
+.ask-user-question-option--selected:hover {
+  border-color: #888;
+  background: #eee;
 }
 
 .ask-user-question-option .ant-radio-wrapper,
 .ask-user-question-option .ant-checkbox-wrapper {
-  margin-top: 2px;
+  margin: 0;
+  align-items: center;
+  align-self: center;
   flex-shrink: 0;
 }
 
-.ask-user-question-option .ant-radio-inner {
-  border-color: #02b96b;
+.ask-user-question-option .ant-radio,
+.ask-user-question-option .ant-checkbox {
+  top: 0;
+  align-self: center;
 }
 
-.ask-user-question-option .ant-radio-wrapper:hover .ant-radio-inner,
-.ask-user-question-option .ant-radio:hover .ant-radio-inner {
-  border-color: #02b96b;
+.ask-user-question-option .ant-radio:not(.ant-radio-checked) .ant-radio-inner,
+.ask-user-question-option .ant-checkbox:not(.ant-checkbox-checked) .ant-checkbox-inner {
+  border-color: #333;
 }
 
-.ask-user-question-option .ant-radio-checked .ant-radio-inner {
-  background-color: #02b96b;
-  border-color: #02b96b;
+.ask-user-question-option .ant-radio-checked .ant-radio-inner,
+.ask-user-question-option .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: #333;
+  border-color: #333;
 }
 
-.ask-user-question-option .ant-radio-checked::after {
-  border-color: #02b96b;
+.ask-user-question-option .ant-radio-checked::after,
+.ask-user-question-option .ant-checkbox-checked::after {
+  border-color: #333;
+}
+
+.ask-user-question-option:hover .ant-radio-inner,
+.ask-user-question-option:hover .ant-checkbox-inner {
+  border-color: #333;
 }
 
 .ask-user-question-option-body {
@@ -182,22 +183,23 @@
   margin-top: 8px;
 }
 
-.ask-user-question-custom-input.ant-input,
-.ask-user-question-card .ask-user-question-custom-input.ant-input {
-  border-color: #02b96b;
+.ask-user-question-card .ant-input,
+.ask-user-question-card textarea {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 4px 11px;
+  box-shadow: none;
 }
 
-.ask-user-question-custom-input.ant-input:hover,
-.ask-user-question-card .ask-user-question-custom-input.ant-input:hover {
-  border-color: #02b96b;
-}
-
-.ask-user-question-custom-input.ant-input:focus,
-.ask-user-question-custom-input.ant-input:focus-within,
-.ask-user-question-card .ask-user-question-custom-input.ant-input:focus,
-.ask-user-question-card .ask-user-question-custom-input.ant-input:focus-within {
-  border-color: #02b96b;
-  box-shadow: 0 0 0 2px rgba(2, 185, 107, 0.15);
+.ask-user-question-card .ant-input:hover,
+.ask-user-question-card textarea:hover,
+.ask-user-question-card .ant-input:focus,
+.ask-user-question-card .ant-input:focus-within,
+.ask-user-question-card textarea:focus,
+.ask-user-question-card textarea:focus-within {
+  border-color: #888;
+  outline: none;
+  box-shadow: none;
 }
 
 .ask-user-question-answer {
@@ -205,20 +207,20 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border: 1px solid rgba(34, 197, 94, 0.28);
+  border: 1px solid #888;
   border-radius: 10px;
-  background: rgba(34, 197, 94, 0.08);
+  background: #eee;
 }
 
 .ask-user-question-answer-icon {
   width: 16px;
   height: 16px;
-  color: var(--color-primary, #22c55e);
+  color: #333;
   flex-shrink: 0;
 }
 
 .ask-user-question-answer-text {
-  color: var(--color-primary, #16a34a);
+  color: #333;
   font-size: 14px;
   line-height: 1.4;
   word-break: break-word;
@@ -272,6 +274,151 @@
   border-color: #d9d9d9;
   color: #b8b8b8;
   box-shadow: none;
+}
+
+.ask-user-question-upload {
+  --ask-upload-card-size: 104px;
+}
+
+/* Override AntD's item token as well as the selector; the itemRender wrapper must fill its container. */
+.ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ant-upload-list-item-container,
+.ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ant-upload-list-item,
+.ask-user-question-upload .ask-user-question-upload-item,
+.ask-user-question-upload .ant-upload.ant-upload-select {
+  box-sizing: border-box;
+  width: var(--ask-upload-card-size);
+  height: var(--ask-upload-card-size);
+  min-height: var(--ask-upload-card-size);
+  margin-top: 0;
+}
+
+.ask-user-question-upload .ant-upload.ant-upload-select {
+  border: 1px dashed #888;
+  border-radius: 8px;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload.ant-upload-select:not(.ant-upload-disabled):hover,
+.ask-user-question-card .ask-user-question-upload .ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload.ant-upload-select:focus,
+.ask-user-question-card .ask-user-question-upload .ant-upload-wrapper.ant-upload-picture-card-wrapper .ant-upload.ant-upload-select:focus-within {
+  border-color: #888;
+  background: #eee;
+}
+
+/* AntD's non-image thumbnail + name rule absolutely positions the name. Keep both in separate rows. */
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 18px;
+  gap: 4px;
+  padding: 8px;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ant-upload-list-item-thumbnail {
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ant-upload-list-item-name,
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ant-upload-list-item-name:hover,
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ant-upload-list-item-name:focus {
+  grid-row: 2;
+  position: static;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+  color: #333;
+}
+
+/* Cover the whole card, including its padding and filename, on hover. */
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item::before,
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ant-upload-list-item-actions {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item::before {
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ant-upload-list-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ask-user-question-file-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.ask-user-question-file-fallback span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ask-user-question-card .ask-user-question-upload .ant-upload-list.ant-upload-list-picture-card .ask-user-question-upload-item .ant-upload-list-item .ask-user-question-media-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+}
+
+.ask-user-question-media-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: auto;
+}
+
+.ask-user-question-file-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #888;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ask-user-question-file-picker:focus-visible {
+  outline: 1px solid #888;
+  background: #eee;
+}
+
+.ask-user-question-file-picker:disabled {
+  cursor: not-allowed;
 }
 
 .ask-user-question-waiting {

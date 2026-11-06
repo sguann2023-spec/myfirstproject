@@ -85,6 +85,17 @@
       "retry_advice": "請稍後重試；如果問題持續，請聯絡支援。"
     },
     "askUserQuestion": {
+      "errors": {
+        "fileCount": "檔案數量不符合要求：至少 {{min}} 個，最多 {{max}} 個。",
+        "filePath": "請選擇具有有效本機路徑和檔名的檔案。",
+        "duplicateFile": "不能重複選擇相同路徑的檔案。",
+        "fileExtension": "檔案格式不符合要求，允許的格式：{{extensions}}。",
+        "invalidAnswer": "答案不符合要求，請檢查欄位設定。"
+      },
+      "selectFiles": "選擇檔案",
+      "selectFilesFailed": "無法選擇檔案",
+      "previewMedia": "預覽媒體",
+      "previewFailed": "無法預覽此檔案，檔案可能不存在或格式不受支援。",
       "answered": "已回答",
       "customPlaceholder": "輸入你的答案...",
       "loading": "載入問題中...",
@@ -2601,6 +2612,7 @@
         "webSearch": "聯網搜尋：聯網搜尋",
         "servers": {
           "agent_memory": "工作區記憶",
+          "artifact_server": "產出",
           "assistant": "助手",
           "brave_search_server": "Brave 搜尋",
           "cherry_browser": "瀏覽器",
@@ -2625,6 +2637,7 @@
           "figure_search": "火柴人素材搜尋",
           "search": "聯網搜尋",
           "seed_audio": "AI音訊",
+          "skills": "技能",
           "speech": "語音",
           "storyboard_editor": "字幕分鏡",
           "subtitle_recognition": "字幕識別",
@@ -2739,6 +2752,10 @@
             "download_draft": "下載草稿",
             "export_draft": "匯出草稿"
           },
+          "artifact_server": {
+            "add_artifact": "新增產出",
+            "list_artifacts": "檢視產出"
+          },
           "draft_management": {
             "create_draft": "建立草稿",
             "modify_draft": "修改草稿",
@@ -2813,6 +2830,9 @@
           },
           "seed_audio": {
             "generate_seed_audio": "生成AI音訊"
+          },
+          "skills": {
+            "skills": "技能管理"
           },
           "speech": {
             "generate_speech": "生成語音"

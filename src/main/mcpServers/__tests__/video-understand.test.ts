@@ -272,7 +272,7 @@ describe('VideoUnderstandServer', () => {
             },
             responseSummary: {
               id: `resp-${videoIndex}`,
-              model: 'gpt-5.6-luna',
+              model: 'qwen3.8-flash',
               choiceCount: 1
             },
             retryCount: 0
@@ -291,7 +291,7 @@ describe('VideoUnderstandServer', () => {
       provider: 'vectcut',
       action: 'inspect_video',
       mode: 'video_understand',
-      model: 'gpt-5.6-luna',
+      model: 'qwen3.8-flash',
       prompt: '按时间描述视频内容',
       total_video_count: 2,
       total_duration_seconds: 24.8,
@@ -383,14 +383,14 @@ describe('VideoUnderstandServer', () => {
     vi.spyOn(server as any, 'extractFrames').mockResolvedValue(
       Array.from({ length: 65 }, (_, index) => `/tmp/frame-${String(index + 1).padStart(6, '0')}.jpg`)
     )
-    vi.spyOn(server as any, 'compressFrames').mockResolvedValue(
-      Array.from({ length: 65 }, (_, index) => ({
+    vi.spyOn(server as any, 'compressFrames').mockImplementation(async (paths: string[], _fps: number, _duration: number, _dir: string, start: number) =>
+      paths.map((_, offset) => { const index = start + offset; return ({
         frameIndex: index,
         timestampStart: index * 0.2,
         timestampEnd: (index + 1) * 0.2,
         originalPath: `/tmp/frame-${String(index + 1).padStart(6, '0')}.jpg`,
         compressedPath: `/tmp/frame-${String(index + 1).padStart(6, '0')}-480p.jpg`
-      }))
+      }) })
     )
 
     const analyzeBatchSpy = vi.spyOn(server as any, 'analyzeFrameBatch')
@@ -400,7 +400,7 @@ describe('VideoUnderstandServer', () => {
         return {
         completion: {
           id: 'batch-1',
-          model: 'gpt-5.6-luna',
+          model: 'qwen3.8-flash',
           billing: { total_consumed_points: 1.1 },
           choices: [{ message: { content: '0~20秒的内容：第一批结果' } }]
         },
@@ -412,7 +412,7 @@ describe('VideoUnderstandServer', () => {
         return {
         completion: {
           id: 'batch-2',
-          model: 'gpt-5.6-luna',
+          model: 'qwen3.8-flash',
           billing: { total_consumed_points: 2.2 },
           choices: [{ message: { content: '20~40秒的内容：第二批结果' } }]
         },
@@ -424,7 +424,7 @@ describe('VideoUnderstandServer', () => {
         return {
         completion: {
           id: 'batch-3',
-          model: 'gpt-5.6-luna',
+          model: 'qwen3.8-flash',
           billing: { total_consumed_points: 0.3 },
           choices: [{ message: { content: '40~41秒的内容：第三批结果' } }]
         },
@@ -468,6 +468,89 @@ describe('VideoUnderstandServer', () => {
       total_consumed_points: 3.85, complete: true
     })
     expect(result.batches[1].retryCount).toBe(1)
+  })
+
+  it('runs visual analysis and speech recognition concurrently and waits for both', async () => {
+    const server = createServer(workspaceRoot)
+    vi.spyOn(server as any, 'prepareVideoSource').mockResolvedValue({
+      originalInput: '/tmp/sample.mp4', localPath: '/tmp/sample.mp4', sourceKind: 'local_video', cleanupDir: null,
+    })
+    vi.spyOn(server as any, 'probeMedia').mockResolvedValue({
+      probe: { format: { duration: 1 }, streams: [{ codec_type: 'video' }, { codec_type: 'audio' }] },
+    })
+    vi.spyOn(server as any, 'extractFrames').mockResolvedValue(['/tmp/frame.jpg'])
+    vi.spyOn(server as any, 'compressFrames').mockResolvedValue([{
+      frameIndex: 0, timestampStart: 0, timestampEnd: 1,
+      originalPath: '/tmp/frame.jpg', compressedPath: '/tmp/frame-480p.jpg',
+    }])
+    let finishVisual!: (value: unknown) => void
+    let finishSpeech!: (value: unknown) => void
+    const analyzeBatch = vi.spyOn(server as any, 'analyzeFrameBatch').mockImplementation(
+      () => new Promise((resolve) => { finishVisual = resolve }),
+    )
+    const speech = vi.spyOn(server as any, 'recognizeVideoSpeech').mockImplementation(
+      () => new Promise((resolve) => { finishSpeech = resolve }),
+    )
+    let settled = false
+    const task = (server as any).analyzeSingleVideo({
+      videoIndex: 1, videoCount: 1, source: '/tmp/sample.mp4', fps: 1, prompt: '', report: vi.fn(),
+    }).then((result: unknown) => { settled = true; return result })
+    await vi.waitFor(() => {
+      expect(analyzeBatch).toHaveBeenCalledOnce()
+      expect(speech).toHaveBeenCalledOnce()
+    })
+    finishVisual({ completion: { choices: [] }, answer: '0~1秒的内容：画面', retryCount: 0 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    finishSpeech({ status: 'recognized', effect_mode: 'basic', content: '对白', segments: [] })
+    expect(await task).toMatchObject({ speech: { content: '对白' }, totalBatches: 1 })
+  })
+
+  it('keeps ten batch workers busy and restores chronological order after out-of-order completion', async () => {
+    const server = createServer(workspaceRoot)
+    vi.spyOn(server as any, 'prepareVideoSource').mockResolvedValue({
+      originalInput: '/tmp/sample.mp4', localPath: '/tmp/sample.mp4', sourceKind: 'local_video', cleanupDir: null,
+    })
+    vi.spyOn(server as any, 'probeMedia').mockResolvedValue({
+      probe: { format: { duration: 360 }, streams: [{ codec_type: 'video' }] },
+    })
+    vi.spyOn(server as any, 'extractFrames').mockResolvedValue(Array.from({ length: 360 }, (_, index) => `/tmp/${index}.jpg`))
+    const compress = vi.spyOn(server as any, 'compressFrame').mockResolvedValue(undefined)
+    const pending = new Map<number, () => void>()
+    let active = 0
+    let peak = 0
+    const analyzeBatch = vi.spyOn(server as any, 'analyzeFrameBatch').mockImplementation((options: any) => {
+      active += 1
+      peak = Math.max(peak, active)
+      return new Promise((resolve) => {
+        pending.set(options.batchIndex, () => {
+          active -= 1
+          resolve({ completion: { choices: [] }, answer: `批次${options.batchIndex}`, retryCount: 0 })
+        })
+      })
+    })
+    const report = vi.fn()
+    const task = (server as any).analyzeSingleVideo({
+      videoIndex: 1, videoCount: 1, source: '/tmp/sample.mp4', fps: 1, prompt: '', report,
+    })
+    await vi.waitFor(() => expect(analyzeBatch).toHaveBeenCalledTimes(10))
+    expect(active).toBe(10)
+    expect(compress).toHaveBeenCalledTimes(300)
+    pending.get(7)!()
+    await vi.waitFor(() => expect(analyzeBatch).toHaveBeenCalledTimes(11))
+    expect(active).toBe(10)
+    expect(compress).toHaveBeenCalledTimes(330)
+    pending.get(11)!()
+    await vi.waitFor(() => expect(analyzeBatch).toHaveBeenCalledTimes(12))
+    expect(active).toBe(10)
+    expect(compress).toHaveBeenCalledTimes(360)
+    for (const index of [12, 10, 9, 8, 6, 5, 4, 3, 2, 1]) pending.get(index)!()
+    const result = await task
+    expect(peak).toBe(10)
+    expect(active).toBe(0)
+    expect(result.batches.map((batch: any) => batch.batchIndex)).toEqual(Array.from({ length: 12 }, (_, index) => index + 1))
+    const progress = report.mock.calls.map((call) => call[1])
+    expect(progress).toEqual([...progress].sort((a, b) => a - b))
   })
 
   it('downloads a remote video before exposing it as a local source', async () => {
@@ -550,7 +633,7 @@ describe('VideoUnderstandServer', () => {
       ok: true,
       text: vi.fn().mockResolvedValue(
         JSON.stringify({
-          model: 'gpt-5.6-luna',
+          model: 'qwen3.8-flash',
           billing: {
             total_consumed_points: 0.5
           },
@@ -610,6 +693,10 @@ describe('VideoUnderstandServer', () => {
         fps: 5
       })
       .then((result: { answer: string }) => {
+        expect((server as any).requestWithAuth).toHaveBeenCalledWith(
+          '/llm/chat/v1/chat/completions',
+          expect.objectContaining({ body: expect.objectContaining({ model: 'qwen3.8-flash', enable_thinking: false }) }),
+        )
         expect(result.answer).toBe(
           [
             '0~0.3秒的内容：男子面对镜头自拍',
@@ -634,7 +721,7 @@ describe('VideoUnderstandServer', () => {
         .mockResolvedValue(
           JSON.stringify({
             id: 'batch-1',
-            model: 'gpt-5.6-luna',
+            model: 'qwen3.8-flash',
             choices: [
               {
                 message: {
@@ -697,31 +784,40 @@ describe('VideoUnderstandServer', () => {
 
     const response = await (server as any).requestWithAuth('/llm/chat/v1/chat/completions', {
       body: {
-        model: 'gpt-5.6-luna'
+        model: 'qwen3.8-flash'
       }
     })
 
     expect(response.ok).toBe(true)
   })
 
-  it.each([[0, true], [1, true], [1, false]] as const)('retains %s successful batches and billed empty retries (known=%s) without requesting later batches', async (successfulBatches, knownBilling) => {
+  it.each([[0, true], [1, true], [1, false]] as const)('retains %s successful batches and bills all concurrent empty retries (known=%s)', async (successfulBatches, knownBilling) => {
     const server = createServer(workspaceRoot)
     vi.spyOn(server as any, 'prepareVideoSource').mockResolvedValue({ originalInput: '/tmp/v.mp4', localPath: '/tmp/v.mp4', sourceKind: 'local_video' })
     vi.spyOn(server as any, 'probeMedia').mockResolvedValue({ probe: { format: { duration: 90 }, streams: [{ codec_type: 'video' }] } })
-    vi.spyOn(server as any, 'extractFrames').mockResolvedValue([])
-    vi.spyOn(server as any, 'compressFrames').mockResolvedValue(Array.from({ length: 90 }, (_, i) => ({ frameIndex: i, timestampStart: i, timestampEnd: i + 1 })))
+    vi.spyOn(server as any, 'extractFrames').mockResolvedValue(Array.from({ length: 90 }, (_, i) => `/tmp/${i}.jpg`))
+    vi.spyOn(server as any, 'compressFrame').mockResolvedValue(undefined)
     vi.spyOn(server as any, 'encodeFrameAsDataUrl').mockImplementation(async (frame) => ({ frame, dataUrl: 'data:image/jpeg;base64,AA==' }))
     vi.spyOn(server as any, 'sleep').mockResolvedValue(undefined)
     let call = 0
     const request = vi.spyOn(server as any, 'requestWithAuth').mockImplementation(async () => ({ ok: true, text: async () => `data: ${JSON.stringify({ ...(knownBilling ? { billing: { total_consumed_points: 0.2 } } : {}), choices: [{ delta: { content: call++ < successfulBatches ? '画面内容' : '' } }] })}\n\ndata: [DONE]` }))
-    const result = await callTool(server, 'submit_video_detail_task', { video_urls: ['/tmp/v.mp4'] })
+    const result = await callTool(server, 'submit_video_detail_task', { video_urls: ['/tmp/v.mp4'], fps: 1 })
     expect(result.isError).toBeUndefined()
     const payload = JSON.parse(result.content[0].text)
-    expect(payload).toMatchObject({ recognition_status: successfulBatches ? 'partial' : 'unrecognized', recognition_complete: false, billing: { total_consumed_points: knownBilling ? (successfulBatches + 3) * 0.2 : 0, complete: knownBilling } })
+    const expectedRequests = successfulBatches + (3 - successfulBatches) * 3
+    expect(payload).toMatchObject({ recognition_status: successfulBatches ? 'partial' : 'unrecognized', recognition_complete: false, billing: { complete: knownBilling } })
+    expect(payload.billing.total_consumed_points).toBeCloseTo(knownBilling ? expectedRequests * 0.2 : 0)
     expect(payload.error).toBeUndefined()
     expect(payload.success).toBeUndefined()
-    expect(request).toHaveBeenCalledTimes(successfulBatches + 3)
-    expect(payload.missing_ranges[0]).toMatchObject({ start_seconds: successfulBatches * 30, end_seconds: 90 })
+    expect(request).toHaveBeenCalledTimes(expectedRequests)
+    expect(payload.missing_ranges).toHaveLength(3 - successfulBatches)
+    const missingStarts = payload.missing_ranges.map((gap: any) => gap.start_seconds)
+    expect(missingStarts).toEqual([...missingStarts].sort((a, b) => a - b))
+    expect(new Set(missingStarts).size).toBe(3 - successfulBatches)
+    for (const gap of payload.missing_ranges) {
+      expect([0, 30, 60]).toContain(gap.start_seconds)
+      expect(gap.end_seconds).toBe(gap.start_seconds + 30)
+    }
     const artifact = JSON.parse(await fs.readFile(payload.artifact.file_path, 'utf8'))
     expect(artifact.videos[0].frame_summary).toHaveLength(successfulBatches)
     expect(await fs.readFile(payload.result_files[1].file_path, 'utf8')).toContain('未完全识别')

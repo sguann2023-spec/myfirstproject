@@ -1,0 +1,57 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import ArtifactPreview from './ArtifactPreview';
+import PinnedArtifactPannel from '@renderer/pages/home/Inputbar/components/PinnedArtifactPannel/PinnedArtifactPannel';
+import { useArtifactAutoPreview } from '../useArtifactAutoPreview';
+vi.mock('@renderer/pages/home/Messages/Tools/MessageAgentTools/AudioGenerationTool', () => ({ AudioGenerationToolBody: () => null }));
+vi.mock('@renderer/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView', () => ({ default: () => null }));
+const video = { id: 'video-generate:t', runtimeSessionId: 'r', videoUrl: 'https://example.com/a.mp4', status: 'completed' };
+let host, root;
+beforeEach(() => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+});
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
+const render = async (element) => act(async () => root.render(element));
+it('renders video grid, actual metadata duration, shared modal controls and stops media on close', async () => {
+  await render(<ArtifactPreview videos={[video]} />);
+  expect(host.querySelector('.artifact-preview__video-grid')).not.toBeNull();
+  expect(host.textContent).not.toContain('暂无草稿');
+  expect(host.textContent).toContain('--:--');
+  const thumb = host.querySelector('video');
+  expect(thumb.muted).toBe(true); expect(thumb.controls).toBe(false);
+  Object.defineProperty(thumb, 'duration', { configurable: true, value: 125.8 });
+  await act(async () => thumb.dispatchEvent(new Event('loadedmetadata')));
+  expect(host.textContent).toContain('02:05');
+  await act(async () => host.querySelector('.artifact-preview__video-item').click());
+  const player = document.querySelector('.ant-modal video');
+  expect(player.controls).toBe(true);
+  Object.defineProperties(player, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } });
+  await act(async () => player.dispatchEvent(new Event('loadedmetadata')));
+  expect(document.querySelector('.ant-modal').style.width).toContain('142.222');
+  await act(async () => document.querySelector('.ant-modal-close').click());
+  expect(document.querySelector('.ant-modal video')).toBeNull();
+  expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+  expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
+});
+it('counts categories in draft video image audio order and supports video-only summary', async () => {
+  await render(<PinnedArtifactPannel drafts={[{}]} videos={[video]} images={[{}]} audios={[{}]} />);
+  expect(host.querySelector('[role="button"]').getAttribute('aria-label')).toBe('查看生成的 1 草稿 1 视频 1 图片 1 音频');
+  await render(<PinnedArtifactPannel videos={[video]} />);
+  expect(host.textContent).toContain('视频');
+});
+it('opens video-only events, ignores metadata and history/session switches', async () => {
+  const onOpen = vi.fn();
+  const Harness = (props) => { useArtifactAutoPreview({ ...props, onOpen }); return null; };
+  await render(<Harness sessionId="a" videos={[]} />);
+  await render(<Harness sessionId="a" videos={[video]} />);
+  expect(onOpen).toHaveBeenCalledTimes(1);
+  await render(<Harness sessionId="a" videos={[{ ...video, duration: 90, createdAt: 3 }]} />);
+  await render(<Harness sessionId="b" videos={[video]} />);
+  await render(<Harness sessionId="a" videos={[video]} historyLoading />);
+  await render(<Harness sessionId="a" videos={[video]} />);
+  expect(onOpen).toHaveBeenCalledTimes(1);
+});

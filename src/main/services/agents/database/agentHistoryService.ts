@@ -55,8 +55,12 @@ export class AgentHistoryService {
 
     if (legacy.length && this.transcript.migrateLegacyHistory) {
       try {
-        await this.transcript.migrateLegacyHistory(sessionId)
-        canonical = await this.transcript.listTranscript(sessionId)
+        const migrated = await this.transcript.migrateLegacyHistory(sessionId)
+        // A no-op migration (overlay/skipped) leaves the canonical read valid;
+        // re-listing would reload every part body for nothing.
+        if (migrated) {
+          canonical = await this.transcript.listTranscript(sessionId)
+        }
       } catch (error) {
         logger.warn('Session history migration failed; preserving legacy fallback for retry', { sessionId, error: error as Error })
         canonical = await this.transcript.listTranscript(sessionId).catch(() => canonical)

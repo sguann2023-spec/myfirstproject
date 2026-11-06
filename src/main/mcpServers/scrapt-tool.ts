@@ -6,6 +6,7 @@ import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv
 import { net } from 'electron'
 
 import catalog from './scrapt-catalog.json'
+import { PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE } from './asset-search-routing'
 
 type Schema = Record<string, any>
 type Entry = {
@@ -28,6 +29,15 @@ const validator = new AjvJsonSchemaValidator()
 const validators = new Map<string, ReturnType<typeof validator.getValidator>>()
 export const SCRAPT_TOOLS: Tool[] = ENTRIES.map((entry) => {
   const tool = structuredClone(entry.tool)
+  if (tool.name === 'youtube_web_search_video') {
+    tool.description = 'Search YouTube videos using search_query, including news and footage featuring public figures; this does not download, trim or insert videos. ' +
+      PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE +
+      'For an editing task, resolve a selected result with scrapt.youtube_web_v2_get_video_streams, download its direct media URL using filesystem.download, and trim the needed segment with ffmpeg-media.trim_media_segment. If the user only requests search or preview, return candidates without downloading.'
+  } else if (tool.name.startsWith('youtube_web_v2_get_video_streams') || tool.name === 'youtube_web_v2_get_signed_stream_url') {
+    tool.description = 'Resolve direct media URLs for a selected YouTube video, including publicly accessible footage featuring public figures. ' +
+      PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE + tool.description +
+      ' Download the selected direct media URL using filesystem.download for editing; do not save the YouTube watch page as a video.'
+  }
   // Hosted MCP schemas omit useful parameter descriptions from the REST contract.
   for (const parameter of entry.route.parameters) {
     const property = tool.inputSchema.properties?.[parameter.name]

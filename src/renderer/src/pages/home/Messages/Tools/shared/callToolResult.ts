@@ -10,6 +10,7 @@ export type ToolResultPreviewImage = {
 export type ToolResultPreview = {
   text: string
   images: ToolResultPreviewImage[]
+  media: ToolResultPreviewImage[]
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
@@ -31,6 +32,10 @@ const normalizeContentItem = (item: unknown): MCPToolResultContent | null => {
     case 'text':
       return typeof item.text === 'string' ? { type: 'text', text: item.text } : null
     case 'image':
+    case 'video':
+      if (typeof item.url === 'string' || typeof item.source === 'string' || (typeof item.data === 'string' && /^(?:\/|[a-z]:[\\/]|https?:\/\/|file:\/\/)/i.test(item.data))) {
+        return { type: 'resource_link', uri: String(item.url ?? item.source ?? item.data), mimeType: String(item.mimeType ?? (item.type === 'image' ? 'image/png' : 'video/mp4')) }
+      }
       return typeof item.data === 'string'
         ? {
             type: 'image',
@@ -39,6 +44,9 @@ const normalizeContentItem = (item: unknown): MCPToolResultContent | null => {
           }
         : null
     case 'audio':
+      if (typeof item.url === 'string' || typeof item.source === 'string' || (typeof item.data === 'string' && /^(?:\/|[a-z]:[\\/]|https?:\/\/|file:\/\/)/i.test(item.data))) {
+        return { type: 'resource_link', uri: String(item.url ?? item.source ?? item.data), mimeType: String(item.mimeType ?? 'audio/mpeg') }
+      }
       return typeof item.data === 'string'
         ? {
             type: 'audio',
@@ -77,10 +85,14 @@ export function normalizeToCallToolResult(output: unknown, options: { isError?: 
   const parsed = CallToolResultSchema.safeParse(output)
   if (parsed.success) {
     return {
-      content: parsed.data.content as MCPToolResultContent[],
+      content: parsed.data.content.map((item) => normalizeContentItem(item)).filter((item): item is MCPToolResultContent => Boolean(item)),
       structuredContent: parsed.data.structuredContent,
       isError: options.isError ?? parsed.data.isError
     }
+  }
+
+  if (isRecord(output) && Array.isArray(output.content)) {
+    return { content: output.content.map(normalizeContentItem).filter((item): item is MCPToolResultContent => Boolean(item)), structuredContent: output.structuredContent as MCPCallToolResponse['structuredContent'], isError: options.isError ?? Boolean(output.isError) }
   }
 
   if (Array.isArray(output)) {
@@ -114,6 +126,7 @@ export function normalizeToCallToolResult(output: unknown, options: { isError?: 
 export function extractPreviewContentFromToolResult(response: unknown): ToolResultPreview {
   const normalized = normalizeToCallToolResult(response)
   const textParts: string[] = []
+  const media: ToolResultPreviewImage[] = []
   const images: ToolResultPreviewImage[] = []
 
   for (const content of normalized.content) {
@@ -136,6 +149,8 @@ export function extractPreviewContentFromToolResult(response: unknown): ToolResu
       case 'resource_link':
         if (content.uri && (content.mimeType || '').startsWith('image/')) {
           images.push({ source: content.uri, mimeType: content.mimeType ?? 'image/png', kind: 'url' })
+        } else if (content.uri && /^(audio|video)\//.test(content.mimeType ?? '')) {
+          media.push({ source: content.uri, mimeType: content.mimeType!, kind: 'url' })
         } else if (content.uri) {
           textParts.push(`[Resource Link: ${content.uri}]`)
         }
@@ -155,7 +170,7 @@ export function extractPreviewContentFromToolResult(response: unknown): ToolResu
     }
   }
 
-  return { text: textParts.join('\n\n'), images }
+  return { text: textParts.join('\n\n'), images, media }
 }
 
 export function extractTextPreviewFromToolResult(response: unknown): string {
