@@ -644,9 +644,10 @@ export function buildBuiltinTools(input: {
     agentNode: packageBridge.agentNode,
     cwd
   })
-  readTool.description =
-    'Use Read for text files. For image files or visual inspection, you MUST use ReadImageAsContent first instead of Read, including local image paths. '
-    + readTool.description
+  readTool.description = invokeContext.tools.activeToolNames.includes('ReadImageAsContent')
+    ? 'Use Read for text files. For image files or visual inspection, you MUST use ReadImageAsContent first instead of Read, including local image paths. '
+      + readTool.description
+    : 'Read text files by path, with optional offset and limit for partial reads. This model does not support image input; Read cannot be used to view or visually inspect images. If an image-understanding tool is available, use it to obtain a text analysis; otherwise explain that the current model cannot view images.'
   const writeTool = wrapPiNativeFileTool({
     nativeTool: packageBridge.agentCore.createWriteTool(),
     name: 'Write',

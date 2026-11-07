@@ -15,7 +15,19 @@ vi.mock('@renderer/store', () => ({ default: store }));
 vi.mock('../MessagePane/MessageContent/MessageContent', () => ({ buildAssistantBlockState: ({ message }) => ({
   blockIds: message.blocks.map(b => b.id), entities: Object.fromEntries(message.blocks.map(b => [b.id, b]))
 }) }));
-vi.mock('./MessageItem/MessageItem', () => ({ default: ({ message }) => <div data-testid="item">{message.blocks.filter(b => b.type === 'tool').length} calls</div> }));
+vi.mock('./MessageItem/MessageItem', () => ({ default: ({ message }) => <div data-testid="item" data-request={JSON.stringify(message.draftRequest || message.imageGenerateRequest)}>{message.blocks.filter(b => b.type === 'tool').length} calls</div> }));
+it.each(['draftRequest', 'imageGenerateRequest'])('rerenders when history restores %s alone', async (key) => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const message = { id: 'user', role: 'user', content: 'request', blocks: [] };
+  await act(async () => root.render(<MessageGroup role="user" messages={[message]} />));
+  expect(container.querySelector('[data-testid="item"]').getAttribute('data-request')).toBeNull();
+  const request = { name: 'restored' };
+  await act(async () => root.render(<MessageGroup role="user" messages={[{ ...message, [key]: request }]} />));
+  expect(container.querySelector('[data-testid="item"]').getAttribute('data-request')).toBe(JSON.stringify(request));
+  await act(async () => root.unmount());
+});
 const tool = id => ({ id, type: 'tool', metadata: { rawMcpToolResponse: { tool: { name: 'mcp__voice-library__list_voices', type: 'mcp' } } } });
 const fragment = id => ({ id, role: 'assistant', blocks: [tool(id + '-tool')] });
 it('aggregates separate voice-library fragments without changing stored objects', () => {

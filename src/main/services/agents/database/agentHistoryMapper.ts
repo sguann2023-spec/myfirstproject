@@ -1,4 +1,5 @@
 import type { AgentPersistedMessage } from '@types'
+import { extractDirectRequestMetadata } from '../../../../shared/directRequestMetadata'
 
 import type {
   AgentMessageStatus,
@@ -121,7 +122,8 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
       canonicalStatus: message.status,
       sequence: message.sequence,
       ...(message.turnId ? { turnId: message.turnId } : {}),
-      ...(message.parentMessageId ? { askId: message.parentMessageId } : {})
+      ...(message.parentMessageId ? { askId: message.parentMessageId } : {}),
+      ...(message.role === 'user' ? extractDirectRequestMetadata(message.semantics?.presentation) : {})
     },
     blocks
   } as unknown as AgentPersistedMessage
@@ -163,6 +165,11 @@ export function persistedToCanonicalInputs(
         uiVisibility: semantics.uiVisibility ?? 'visible',
         providerVisibility: semantics.providerVisibility ?? 'visible',
         ...semantics,
+        // Keep UI request payloads separate from provider/lifecycle semantics.
+        presentation: roleValue === 'user' ? {
+          ...extractDirectRequestMetadata(semantics.presentation),
+          ...extractDirectRequestMetadata(legacyMessage)
+        } : {},
         ...(legacyMessage.visibility === 'hidden'
           ? { uiVisibility: 'hidden', providerVisibility: 'hidden', transcriptVisibility: 'hidden' } : {})
       },

@@ -1,4 +1,5 @@
 import React from 'react';
+import { DIRECT_REQUEST_METADATA_FIELDS } from '../../../../shared/directRequestMetadata';
 import { Provider, useSelector } from 'react-redux';
 import appStore from '../../../../renderer/src/store';
 import { buildAssistantBlockState } from '../MessageContent/MessageContent';
@@ -120,7 +121,7 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
       || prev.content !== next.content
       || prev.blocks !== next.blocks
       || prev.aborted !== next.aborted
-      || prev.digitalHumanRequest !== next.digitalHumanRequest
+      || DIRECT_REQUEST_METADATA_FIELDS.some(key => prev[key] !== next[key])
       || prev.storeAssistantMessageId !== next.storeAssistantMessageId
       || prev.createdAt !== next.createdAt
       || prev.updatedAt !== next.updatedAt

@@ -2487,6 +2487,11 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     ...(role === 'user' && textAddRequest ? { textAddRequest } : {}),
     ...(role === 'user' && presetAddRequest ? { presetAddRequest } : {}),
     ...(role === 'user' && imageAddRequest ? { imageAddRequest } : {}),
+    ...Object.fromEntries(
+      ['speechRequest', 'audioAddRequest', 'aiVideoRequest', 'imageGenerateRequest']
+        .filter(key => role === 'user' && sourceMessage?.[key] && typeof sourceMessage[key] === 'object')
+        .map(key => [key, { ...sourceMessage[key] }])
+    ),
     ...(role === 'user' && seedAudioRequest ? { seedAudioRequest } : {}),
     ...(role === 'user' && draftInspectRequest ? { draftInspectRequest } : {}),
     ...(role === 'user' && voiceConversionRequest ? { voiceConversionRequest } : {}),

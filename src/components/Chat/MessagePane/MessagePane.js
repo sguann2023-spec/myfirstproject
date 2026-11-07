@@ -1,4 +1,5 @@
 import React from 'react';
+import { DIRECT_REQUEST_METADATA_FIELDS } from '../../../shared/directRequestMetadata';
 import { DynamicVirtualList } from '@renderer/components/VirtualList';
 import './MessagePane.css';
 import MessageGroup from './MessageGroup/MessageGroup';
@@ -459,7 +460,7 @@ const areMessagesEqual = (prevMessages = [], nextMessages = []) => {
       || prev.blocks !== next.blocks
       || prev.error !== next.error
       || prev.aborted !== next.aborted
-      || prev.digitalHumanRequest !== next.digitalHumanRequest
+      || DIRECT_REQUEST_METADATA_FIELDS.some(key => prev[key] !== next[key])
       || prev.storeAssistantMessageId !== next.storeAssistantMessageId
       || prev.createdAt !== next.createdAt
       || prev.updatedAt !== next.updatedAt

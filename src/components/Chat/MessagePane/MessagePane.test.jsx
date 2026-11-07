@@ -39,7 +39,7 @@ vi.mock('./MessageGroup/MessageGroup', () => ({
   default: ({ messages }) => (
     <div>
       {messages.map((message) => (
-        `${message.content}${message.aborted ? '[aborted]' : ''}${message.blocks?.map((block) => block.content).join('') || ''}`
+        `${message.content}${message.draftRequest ? '[draft]' : ''}${message.imageGenerateRequest ? '[image]' : ''}${message.aborted ? '[aborted]' : ''}${message.blocks?.map((block) => block.content).join('') || ''}`
       )).join('')}
     </div>
   ),
@@ -116,6 +116,14 @@ afterEach(async () => {
   container.remove();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it.each([['draftRequest', '[draft]'], ['imageGenerateRequest', '[image]']])('restores %s without other message changes', async (key, marker) => {
+  await render();
+  expect(container.textContent).not.toContain(marker);
+  messages = [{ ...messages[0], [key]: { name: 'restored' } }];
+  await render();
+  expect(container.textContent).toContain(marker);
 });
 
 describe('MessagePane empty state', () => {

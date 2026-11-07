@@ -1,4 +1,14 @@
 import type { AgentPersistedMessage } from '@types'
+import { extractDirectRequestMetadata } from '../../../../shared/directRequestMetadata'
+
+const supplementRequests = (canonical: AgentPersistedMessage, legacy: AgentPersistedMessage): AgentPersistedMessage => {
+  if (canonical.message.role !== 'user') return canonical
+  const message = { ...canonical.message } as typeof canonical.message & Record<string, unknown>
+  for (const [field, value] of Object.entries(extractDirectRequestMetadata(legacy.message))) {
+    if (message[field] === undefined) message[field] = value
+  }
+  return { ...canonical, message }
+}
 
 const timestamp = (value: unknown): number => {
   if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) {
@@ -17,10 +27,16 @@ export function mergeLegacyHistory(
   const canonicalById = new Map(canonical.map(item => [item.message.id, item]))
   const items = new Map<string, AgentPersistedMessage>()
   for (const item of legacy) {
-    if (item.message.id) items.set(item.message.id, canonicalById.get(item.message.id) ?? item)
+    if (item.message.id) {
+      const current = items.get(item.message.id) ?? canonicalById.get(item.message.id)
+      items.set(item.message.id, current ? supplementRequests(current, item) : item)
+    }
   }
   const legacyIds = [...items.keys()]
-  for (const item of canonical) items.set(item.message.id, item)
+  // Do not overwrite same-ID request supplements in this final canonical pass.
+  for (const item of canonical) {
+    if (!items.has(item.message.id)) items.set(item.message.id, item)
+  }
   const edges = new Map([...items.keys()].map(id => [id, new Set<string>()]))
   const degree = new Map([...items.keys()].map(id => [id, 0]))
   const connect = (before: string, after: string) => {

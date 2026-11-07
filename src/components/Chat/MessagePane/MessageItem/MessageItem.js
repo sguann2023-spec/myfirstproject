@@ -954,6 +954,7 @@ const MessageItem = ({
           {canShowDraftCozeAction && showDraftCozeFormat ? (
             <div className="chat-panel__message-api-tip">复制到扣子工作流使用</div>
           ) : null}
+          <div className="chat-panel__message-time">{formatMessageTime(message?.updatedAt || message?.createdAt)}</div>
           {(canShowDraftAgentAction || canShowDraftApiAction || canShowDraftCozeAction) ? (
             <>
               <Tooltip title="文字" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
@@ -1000,7 +1001,6 @@ const MessageItem = ({
               ) : null}
             </>
           ) : null}
-          <div className="chat-panel__message-time">{formatMessageTime(message?.updatedAt || message?.createdAt)}</div>
           <Tooltip title="复制" mouseEnterDelay={0.8} styles={{ body: { fontSize: 12 } }}>
             <button
               type="button"
@@ -1087,6 +1087,7 @@ export default React.memo(MessageItem, (prevProps, nextProps) => {
     && buildAudioAddRequestSignature(prevMessage.audioAddRequest) === buildAudioAddRequestSignature(nextMessage.audioAddRequest)
     && buildImageAddRequestSignature(prevMessage.imageAddRequest) === buildImageAddRequestSignature(nextMessage.imageAddRequest)
     && buildAiVideoRequestSignature(prevMessage.aiVideoRequest) === buildAiVideoRequestSignature(nextMessage.aiVideoRequest)
+    && JSON.stringify(prevMessage.imageGenerateRequest) === JSON.stringify(nextMessage.imageGenerateRequest)
     && buildDigitalHumanRequestSignature(prevMessage.digitalHumanRequest) === buildDigitalHumanRequestSignature(nextMessage.digitalHumanRequest)
     && buildDraftInspectRequestSignature(prevMessage.draftInspectRequest) === buildDraftInspectRequestSignature(nextMessage.draftInspectRequest)
     && JSON.stringify(prevMessage.reversePromptRequest) === JSON.stringify(nextMessage.reversePromptRequest)

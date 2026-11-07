@@ -664,6 +664,34 @@ describe('MCP image inspection integration', () => {
 })
 
 
+describe('builtin Read image guidance', () => {
+  it.each([false, true])('matches the exposed image tool, available=%s', async available => {
+    const piAi = await import('@earendil-works/pi-ai')
+    const tools = buildBuiltinTools({
+      packageBridge: { agentCore, agentNode, piAi } as any,
+      invokeContext: {
+        runtime: { workspacePath: os.tmpdir() },
+        tools: { activeToolNames: available ? ['Read', 'ReadImageAsContent'] : ['Read'] }
+      } as any,
+      runtimeEnvironment: { env: {} } as any,
+      interactiveUpdatedInputs: new Map()
+    })
+    const read = tools.find(tool => tool.name === 'Read')!
+    if (available) {
+      expect(read.description).toContain('MUST use ReadImageAsContent first')
+      expect(tools.some(tool => tool.name === 'ReadImageAsContent')).toBe(true)
+    } else {
+      expect(read.description).not.toContain('ReadImageAsContent')
+      expect(read.description).not.toContain('Images are sent as attachments')
+      expect(read.description).toContain('This model does not support image input')
+      expect(read.description).toContain('If an image-understanding tool is available')
+      expect(read.description).toContain('otherwise explain that the current model cannot view images')
+      expect(tools.map(tool => tool.name)).toEqual(['Read'])
+    }
+  })
+})
+
+
 describe('removed builtin AskUserQuestion tool', () => {
   it('does not expose the legacy builtin even when requested', async () => {
     const piAi = await import('@earendil-works/pi-ai')

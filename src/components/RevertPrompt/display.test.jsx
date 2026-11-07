@@ -77,7 +77,10 @@ afterEach(() => {
   container.remove();
   vi.unstubAllGlobals();
 });
-const render = (element) => act(() => root.render(element));
+const formatMessageTime = () => '';
+const render = (element) => act(() => root.render(
+  element.type === MessageItem ? React.cloneElement(element, { formatMessageTime }) : element
+));
 const button = (title) => container.querySelector(`[data-tooltip="${title}"] button`);
 
 describe('字幕结果中的分镜链接', () => {
@@ -104,6 +107,28 @@ describe('字幕结果中的分镜链接', () => {
     render(<Link href="https://example.com">网页</Link>);
     expect(container.querySelector('a').getAttribute('target')).toBe('_blank');
     expect(container.querySelector('a').getAttribute('href')).toBe('https://example.com');
+  });
+});
+
+describe('快捷工具历史展示恢复', () => {
+  it.each([
+    ['draftRequest', { action: 'create', width: 1920, height: 1080, name: '1' }],
+    ['speechRequest', { text: '你好' }],
+    ['audioAddRequest', { draftId: 'draft', audioUrl: '/audio.mp3' }],
+    ['aiVideoRequest', { prompt: '日落' }],
+    ['imageGenerateRequest', { prompt: '日落' }],
+  ])('%s 标记回填后恢复切换，且不修改原文', (key, request) => {
+    const original = { id: 'restored', content: '快捷工具请求' };
+    render(<MessageItem message={original} role="user" hasConnectedExternalAgent />);
+    expect(button('API')).toBeNull();
+    const restored = { ...original, [key]: request };
+    render(<MessageItem message={restored} role="user" hasConnectedExternalAgent />);
+    for (const mode of ['文字', 'Agent', 'API', 'Coze']) expect(button(mode)).not.toBeNull();
+    act(() => button('Agent').click());
+    expect(container.querySelector('[data-testid="content"]').textContent).toContain('使用vectcut工具');
+    act(() => button('文字').click());
+    expect(container.querySelector('[data-testid="content"]').textContent).toBe(original.content);
+    expect(restored.content).toBe(original.content);
   });
 });
 

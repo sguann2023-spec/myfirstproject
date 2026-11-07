@@ -12,6 +12,8 @@ vi.mock('../sessionMessageRepository', () => ({
 
 import { canonicalEntryToPersisted, persistedToCanonicalInputs } from '../agentHistoryMapper'
 import { AgentHistoryService } from '../agentHistoryService'
+import { mergeLegacyHistory } from '../legacyHistoryOrder'
+import { DIRECT_REQUEST_METADATA_FIELDS, extractDirectRequestMetadata } from '../../../../../shared/directRequestMetadata'
 import type { AgentMessageWithParts } from '../repositories/agentTranscript.types'
 
 const entry = (id: string, sequence: number, status: AgentMessageWithParts['message']['status'] = 'completed'): AgentMessageWithParts => ({
@@ -29,6 +31,67 @@ const entry = (id: string, sequence: number, status: AgentMessageWithParts['mess
     id: `${id}-text`, sessionId: 'session-a', messageId: id, sequence: 0, type: 'text',
     data: { text: id }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:01.000Z'
   }]
+})
+
+describe('direct request metadata', () => {
+  it('extracts only own defined whitelist fields, preserving opaque and falsy payloads', () => {
+    const input = Object.assign(Object.create({ draftRequest: { inherited: true } }), {
+      speechRequest: null, seedAudioRequest: false, skillTemplateSource: '',
+      videoUnderstandRequest: { url: 'video' }, imageAddRequest: undefined,
+      status: 'error', blocks: ['stale'], visibility: 'hidden', unknownRequest: {}
+    })
+    expect(extractDirectRequestMetadata(input)).toEqual({
+      speechRequest: null, seedAudioRequest: false, skillTemplateSource: '', videoUnderstandRequest: { url: 'video' }
+    })
+    for (const value of [null, undefined, [], 'request', 42]) expect(extractDirectRequestMetadata(value)).toEqual({})
+    expect(Object.hasOwn(input, 'draftRequest')).toBe(false)
+  })
+
+  it.each(DIRECT_REQUEST_METADATA_FIELDS)('round-trips user %s through semantics.presentation', field => {
+    const source = canonicalEntryToPersisted(entry('request', 0))
+    const payload = { prompt: field, nested: { enabled: true } }
+    Object.assign(source.message, { [field]: payload, unknownRequest: {}, content: 'not presentation' })
+    const mapped = persistedToCanonicalInputs('session-a', source)!
+    expect(mapped.message.semantics?.presentation).toEqual({ [field]: payload })
+    const restored = canonicalEntryToPersisted({
+      message: { ...mapped.message, sequence: 0 } as AgentMessageWithParts['message'], parts: []
+    })
+    expect((restored.message as any)[field]).toEqual(payload)
+    expect(restored.message).not.toHaveProperty('unknownRequest')
+  })
+
+  it('sanitizes presentation and refuses non-user request metadata in both directions', () => {
+    const source = entry('request', 0)
+    source.message.semantics = { presentation: { speechRequest: {}, status: 'error', visibility: 'hidden' } }
+    expect(canonicalEntryToPersisted(source).message).not.toHaveProperty('visibility')
+    const mapped = persistedToCanonicalInputs('session-a', canonicalEntryToPersisted(source), {
+      semantics: { uiVisibility: 'hidden', presentation: { videoUnderstandRequest: {}, blocks: ['bad'] } }
+    })!
+    expect(mapped.message.semantics).toMatchObject({ uiVisibility: 'hidden', presentation: { speechRequest: {}, videoUnderstandRequest: {} } })
+    expect(mapped.message.semantics?.presentation).not.toHaveProperty('blocks')
+    source.message.role = 'assistant'
+    expect(canonicalEntryToPersisted(source).message).not.toHaveProperty('speechRequest')
+    const legacy = canonicalEntryToPersisted(source)
+    Object.assign(legacy.message, { speechRequest: {} })
+    expect(persistedToCanonicalInputs('session-a', legacy)?.message.semantics?.presentation).toEqual({})
+  })
+
+  it('supplements same-ID missing requests without overwriting canonical state or the final pass', () => {
+    const canonical = canonicalEntryToPersisted(entry('same', 0))
+    Object.assign(canonical.message, { speechRequest: { prompt: 'canonical' }, skillTemplateSource: null, visibility: 'hidden' })
+    const original = JSON.stringify(canonical)
+    const legacy = { message: { ...canonical.message, speechRequest: { prompt: 'stale' },
+      skillTemplateSource: 'stale', videoUnderstandRequest: { url: 'video' },
+      status: 'error', visibility: 'visible', content: 'stale', blocks: ['stale'], unknownRequest: {}
+    }, blocks: [{ id: 'stale', content: 'stale' }] } as any
+    const [merged] = mergeLegacyHistory([canonical], [legacy])
+    expect(merged.message).toEqual({ ...canonical.message, videoUnderstandRequest: { url: 'video' } })
+    expect(merged.blocks).toBe(canonical.blocks)
+    expect(JSON.stringify(canonical)).toBe(original)
+    expect(mergeLegacyHistory([], [legacy])).toEqual([legacy])
+    const assistant = canonicalEntryToPersisted(entry('same', 1))
+    expect(mergeLegacyHistory([assistant], [legacy])[0]).toBe(assistant)
+  })
 })
 
 describe('agent history mapper', () => {
@@ -82,6 +145,21 @@ describe('agent history mapper', () => {
 })
 
 describe('AgentHistoryService', () => {
+  it('hydrates legacy request cards on canonical users without reviving hidden messages', async () => {
+    const visible = entry('request', 0)
+    const hidden = entry('hidden-request', 2)
+    hidden.message.semantics = { uiVisibility: 'hidden', transcriptVisibility: 'hidden' }
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([visible, hidden]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([visible, hidden].map(source => ({
+      message: { id: source.message.id, role: 'user', speechRequest: { text: 'hello' }, status: 'error' },
+      blocks: [{ id: 'stale', content: 'stale' }]
+    }))) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a')
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0].message).toMatchObject({ id: 'request', status: 'success', speechRequest: { text: 'hello' } })
+    expect(result.messages[0].blocks[0]).toMatchObject({ id: 'request-text', content: 'request' })
+  })
+
   it('returns usable tokens from canonical history even when the legacy ID is deduplicated', async () => {
     const source = entry('same-usage', 1)
     source.message.usage = { inputTokens: 100, outputTokens: 50, totalTokens: 150 }
