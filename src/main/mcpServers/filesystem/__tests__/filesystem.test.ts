@@ -17,7 +17,7 @@ vi.mock('@logger', () => ({
 }))
 
 import { resolveFilesystemBaseDir } from '../config'
-import { handleDownloadTool } from '../tools/download'
+import { handleDownloadTool, downloadWithRetry, saveArtifactFile } from '../tools/download'
 import { handleGlobTool } from '../tools/glob'
 import { handleLsTool } from '../tools/ls'
 import { handleReadTool } from '../tools/read'
@@ -148,6 +148,41 @@ describe('filesystem MCP security', () => {
     expect(text).toContain('legit.txt')
     // The symlink entry itself may appear, but its children should not be listed
     expect(text).not.toContain('secret.txt')
+  })
+
+  it('retries downloads and reuses safely named artifact files', async () => {
+    const root = await createTempDir('artifact-retry-')
+    const fetch = vi.spyOn(net, 'fetch').mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(new Response('saved'))
+    const target = await saveArtifactFile({ workspaceRoot: root, url: 'https://example.com/a.mp3?secret=signature' })
+    expect(path.dirname(target)).toBe(path.join(root, 'artifact'))
+    expect(path.basename(target)).not.toContain('secret')
+    expect(await fs.readFile(target, 'utf8')).toBe('saved')
+    expect(await saveArtifactFile({ workspaceRoot: root, url: 'https://example.com/a.mp3?secret=signature' })).toBe(target)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects artifact directory symlink escapes and keeps copied sources', async () => {
+    const root = await createTempDir('artifact-copy-')
+    const outside = await createTempDir('artifact-outside-')
+    const source = path.join(root, 'source.md')
+    await fs.writeFile(source, 'original')
+    const target = await saveArtifactFile({ workspaceRoot: root, filePath: source })
+    expect(await fs.readFile(target, 'utf8')).toBe('original')
+    expect(await fs.readFile(source, 'utf8')).toBe('original')
+    expect(await saveArtifactFile({ workspaceRoot: root, filePath: target })).toBe(target)
+    await fs.rm(path.join(root, 'artifact'), { recursive: true })
+    await fs.symlink(outside, path.join(root, 'artifact'))
+    await expect(saveArtifactFile({ workspaceRoot: root, filePath: source })).rejects.toThrow()
+    expect(await fs.readdir(outside)).toEqual([])
+  })
+
+  it('limits failed downloads to five attempts', async () => {
+    const root = await createTempDir('artifact-limit-')
+    const fetch = vi.spyOn(net, 'fetch').mockClear().mockRejectedValue(new Error('offline'))
+    await expect(downloadWithRetry({ url: 'https://example.com/a.mp3', file_path: 'a.mp3' }, root)).rejects.toThrow('offline')
+    expect(fetch).toHaveBeenCalledTimes(5)
+    expect(await fs.readdir(root)).toEqual([])
   })
 
   it('downloads through Electron instead of Node fetch into the configured workspace root', async () => {

@@ -1,3 +1,5 @@
+const mockSaveArtifact = vi.hoisted(() => vi.fn(async () => '/workspace/artifact/generated'))
+vi.mock('../filesystem/tools/download', () => ({ saveArtifactFile: mockSaveArtifact }))
 vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: vi.fn(() => ({ isDestroyed: () => false, webContents: { send: mockVideoSend } })) } }))
 const { mockVideoSend } = vi.hoisted(() => ({ mockVideoSend: vi.fn() }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1408,17 +1410,17 @@ describe('video-generate completion notifications', () => {
     const server = new VideoGenerateServer({ runtimeSessionId: 'session-video' }) as any
     vi.spyOn(server, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status: 'succeeded', video_url: 'https://example.com/video.mp4' }))
     await server.getVideoTaskStatus('notify-task')
-    server.notifyCompleted('notify-task', 'https://example.com/video.mp4')
+    await server.notifyCompleted('notify-task', 'https://example.com/video.mp4')
     expect(mockVideoSend).toHaveBeenCalledTimes(2)
     expect(mockVideoSend.mock.calls[0]).toEqual(mockVideoSend.mock.calls[1])
-    expect(mockVideoSend.mock.calls[0][1]).toEqual({ id: 'video-generate:notify-task', source: 'video-generate', taskId: 'notify-task', runtimeSessionId: 'session-video', videoUrl: 'https://example.com/video.mp4', createdAt: expect.any(Number), status: 'completed' })
+    expect(mockVideoSend.mock.calls[0][1]).toEqual({ id: 'video-generate:notify-task', source: 'video-generate', taskId: 'notify-task', runtimeSessionId: 'session-video', videoUrl: 'https://example.com/video.mp4', filePath: '/workspace/artifact/generated', createdAt: expect.any(Number), status: 'completed' })
   })
   it('does not emit for failed status, missing session, external or invalid URL', async () => {
     for (const options of [{}, { external: true, runtimeSessionId: 'session-video' }, { runtimeSessionId: 'session-video' }]) {
       const server = new VideoGenerateServer(options) as any
       vi.spyOn(server, 'requestWithAuth').mockResolvedValue(mockJsonResponse({ status: 'failed', video_url: 'https://example.com/video.mp4' }))
       await server.getVideoTaskStatus('failed-task')
-      server.notifyCompleted('invalid-task', 'file:///tmp/video.mp4')
+      await server.notifyCompleted('invalid-task', 'file:///tmp/video.mp4')
       if (!options.runtimeSessionId || options.external) server.notifyCompleted('no-session', 'https://example.com/video.mp4')
     }
     expect(mockVideoSend).not.toHaveBeenCalled()
@@ -1435,9 +1437,35 @@ describe('video wait notification delivery', () => {
     vi.spyOn(server, 'queryVideoTaskStatus').mockResolvedValue({ status: 'succeeded', video_url: 'https://example.com/wait.mp4' })
     mockVideoSend.mockImplementationOnce(() => { throw new Error('window closed') })
     const result = await server.submitAndWaitVideoTask({})
-    expect(JSON.parse(result.content[0].text).output.video_url).toBe('https://example.com/wait.mp4')
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ filePath: '/workspace/artifact/generated', file_path: '/workspace/artifact/generated', output: { video_url: 'https://example.com/wait.mp4', file_path: '/workspace/artifact/generated' } })
     expect(mockVideoSend).toHaveBeenCalledTimes(1)
-    server.notifyCompleted('actual-wait', 'https://example.com/wait.mp4')
+    await server.notifyCompleted('actual-wait', 'https://example.com/wait.mp4')
     expect(mockVideoSend.mock.calls[0]).toEqual(mockVideoSend.mock.calls[1])
   })
 })
+
+ describe('VideoGenerateServer artifact persistence', () => {
+  it('awaits saving before returning a local file path', async () => {
+    const server = new VideoGenerateServer({ runtimeSessionId: 'save-session', workspaceRoot: '/workspace' }) as any
+    const result: any = { status: 'succeeded', video_url: 'https://example.com/result.mp4' }
+    let release!: (path: string) => void
+    mockSaveArtifact.mockImplementationOnce(() => new Promise<string>(resolve => { release = resolve }))
+    let settled = false
+    const pending = server.notifyCompleted('save-test', result.video_url).then((value: any) => { settled = true; return value })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(mockSaveArtifact).toHaveBeenLastCalledWith(expect.objectContaining({ workspaceRoot: '/workspace' }))
+    release('/workspace/artifact/result')
+    const response = await pending
+    expect(response).toMatchObject({ filePath: '/workspace/artifact/result', file_path: '/workspace/artifact/result' })
+  })
+  it('preserves completed remote output when saving fails without resubmitting', async () => {
+    const server = new VideoGenerateServer({ runtimeSessionId: 'save-session', workspaceRoot: '/workspace' }) as any
+    const result: any = { status: 'succeeded', video_url: 'https://example.com/result.mp4' }
+    const request = vi.spyOn(server, 'requestWithAuth')
+    mockSaveArtifact.mockRejectedValueOnce(new Error('download exhausted after 5 attempts'))
+    const response = await server.notifyCompleted('save-test', result.video_url)
+    expect(response).toMatchObject({ save_failed: true, remote_url: result.video_url })
+    expect(request).not.toHaveBeenCalled()
+  })
+ })

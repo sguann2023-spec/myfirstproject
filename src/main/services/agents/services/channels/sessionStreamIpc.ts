@@ -339,8 +339,8 @@ async function callDraftElementsTool(toolName: string, args: Record<string, unkn
   )
 }
 
-async function callSpeechTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
-  const server = new SpeechGenerateServer(runtimeSessionId)
+async function callSpeechTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string, workspaceRoot?: string) {
+  const server = new SpeechGenerateServer(runtimeSessionId, workspaceRoot)
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -358,8 +358,8 @@ async function callSpeechTool(toolName: string, args: Record<string, unknown>, r
   )
 }
 
-async function callSeedAudioTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
-  const server = new SeedAudioServer({ runtimeSessionId })
+async function callSeedAudioTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string, workspaceRoot?: string) {
+  const server = new SeedAudioServer({ runtimeSessionId, workspaceRoot })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -396,8 +396,8 @@ async function callVoiceConversionTool(toolName: string, args: Record<string, un
   )
 }
 
-async function callVideoTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string) {
-  const server = new VideoGenerateServer({ runtimeSessionId })
+async function callVideoTool(toolName: string, args: Record<string, unknown>, runtimeSessionId?: string, workspaceRoot?: string) {
+  const server = new VideoGenerateServer({ runtimeSessionId, workspaceRoot })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -415,8 +415,8 @@ async function callVideoTool(toolName: string, args: Record<string, unknown>, ru
   )
 }
 
-async function callImageGenerateTool(toolName: string, args: Record<string, unknown>, extra?: Record<string, unknown>, runtimeSessionId?: string) {
-  const server = new ImageGenerateServer({ runtimeSessionId })
+async function callImageGenerateTool(toolName: string, args: Record<string, unknown>, extra?: Record<string, unknown>, runtimeSessionId?: string, workspaceRoot?: string) {
+  const server = new ImageGenerateServer({ runtimeSessionId, workspaceRoot })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -464,9 +464,10 @@ async function callDigitalHumanTool(
   toolName: string,
   args: Record<string, unknown>,
   extra: Record<string, unknown> = {},
-  runtimeSessionId?: string
+  runtimeSessionId?: string,
+  workspaceRoot?: string
 ) {
-  const server = new DigitalHumanServer({ runtimeSessionId })
+  const server = new DigitalHumanServer({ runtimeSessionId, workspaceRoot })
   const handlers = (server.mcpServer.server as any)?._requestHandlers
   const callToolHandler = handlers?.get('tools/call')
   if (typeof callToolHandler !== 'function') {
@@ -1058,6 +1059,21 @@ function buildDirectPresetAddErrorAssistantText(input: {
   ].filter((line) => line !== null && line !== undefined).join(EOL)
 }
 
+function buildDirectWorkspaceFileText(response: Record<string, any>): string {
+  const sources = [response, response.output, response.result, response.artifact].filter(Boolean)
+  const failure = sources.find((value) => value.saveError || value.save_failed || value.save_error)
+  if (failure) return `- 工作区保存失败：${String(failure.saveError || failure.save_error || '文件未保存，请使用远程链接')}`
+  if (response.success === false || response.status === 'failed') return ''
+  const filePath = sources.map((value) => value.filePath || value.file_path).find((value) => typeof value === 'string' && value.trim())
+  if (!filePath) return ''
+  const normalized = filePath.trim().replace(/\\/g, '/')
+  if (!normalized.startsWith('/') && !/^[A-Za-z]:\//.test(normalized) && !normalized.startsWith('file://')) return ''
+  const href = normalized.startsWith('file://') ? normalized : `file://${normalized.startsWith('/') ? '' : '/'}${normalized}`
+  const encoded = encodeURI(href).replace(/[()#?]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+  const label = filePath.replace(/[\\[\]]/g, '\\$&')
+  return `- 工作区文件：[${label}](${encoded})`
+}
+
 function buildDirectSpeechAssistantText(input: {
   text?: string
   voiceId?: string
@@ -1080,6 +1096,7 @@ function buildDirectSpeechAssistantText(input: {
     text ? `- 文案：${text}` : '',
     provider ? `- 厂商：${provider}` : '',
     voiceId ? `- 音色 ID：${voiceId}` : '',
+    buildDirectWorkspaceFileText(input.toolResponse),
     audioUrl ? `- 音频链接：${audioUrl}` : '',
     draftId ? `- 草稿 ID：${draftId}` : '',
     draftUrl ? `- 草稿链接：${draftUrl}` : '',
@@ -1124,6 +1141,7 @@ function buildDirectSeedAudioAssistantText(input: {
     prompt ? `- 提示词：${prompt}` : '',
     model ? `- 模型：${model}` : '',
     Number.isFinite(duration) ? `- 时长：${duration.toFixed(2)}s` : '',
+    buildDirectWorkspaceFileText(input.toolResponse),
     audioUrl ? `- 音频链接：${audioUrl}` : '',
     '',
     '还需要继续生成其他音频，或者把这段音频添加到草稿里吗？'
@@ -1167,7 +1185,7 @@ function buildDirectVoiceConversionAssistantText(input: {
     String(toolArgs.audio_url || '').trim() ? `- 输入音频：${String(toolArgs.audio_url)}` : '',
     String(toolArgs.video_url || '').trim() ? `- 输入视频：${String(toolArgs.video_url)}` : '',
     String(toolArgs.voice_id || '').trim() ? `- 目标音色 ID：${String(toolArgs.voice_id)}` : '',
-    artifactPath ? `- 工作区文件：${artifactPath}` : '',
+    buildDirectWorkspaceFileText(toolResponse),
     outputUrl && outputUrl !== artifactPath ? `- 输出链接：${outputUrl}` : '',
     remoteUrl ? `- 远程链接：${remoteUrl}` : '',
     priceText ? `- 计费单价：${priceText}` : '',
@@ -1218,6 +1236,7 @@ function buildDirectAiVideoAssistantText(input: {
     toolArgs.resolution ? `- 分辨率：${String(toolArgs.resolution)}` : '',
     toolArgs.gen_duration ? `- 时长：${String(toolArgs.gen_duration)} 秒` : '',
     taskId ? `- 任务 ID：${taskId}` : '',
+    buildDirectWorkspaceFileText(input.toolResponse),
     videoUrl ? `- 视频链接：${videoUrl}` : '',
     draftId ? `- 草稿 ID：${draftId}` : '',
     draftUrl ? `- 草稿链接：${draftUrl}` : '',
@@ -1248,6 +1267,7 @@ function buildDirectImageGenerateAssistantText(input: {
     toolArgs.size ? `- 尺寸：${String(toolArgs.size)}` : '',
     toolArgs.outputFormat ? `- 格式：${String(toolArgs.outputFormat)}` : '',
     taskId ? `- 任务 ID：${taskId}` : '',
+    buildDirectWorkspaceFileText(input.toolResponse),
     imageUrl ? `- 图片链接：${imageUrl}` : '',
     draftId ? `- 草稿 ID：${draftId}` : '',
     draftUrl ? `- 草稿链接：${draftUrl}` : '',
@@ -1308,6 +1328,7 @@ function buildDirectDigitalHumanAssistantText(input: {
     packagingTemplate ? `${modeLabel}生成并完成智能包装！` : `${modeLabel}生成完成！`,
     '',
     taskId ? `- 任务 ID：${taskId}` : '',
+    buildDirectWorkspaceFileText(input.toolResponse),
     videoUrl ? `- 视频链接：${videoUrl}` : '',
     packagingTemplate ? `- 包装模板：${packagingTemplate}` : '',
     draftId ? `- 草稿 ID：${draftId}` : '',
@@ -4076,7 +4097,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `speech_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedSpeechRequest }
 
-      const toolResult = await callSpeechTool('generate_speech', toolArgs, session.id)
+      const toolResult = await callSpeechTool('generate_speech', toolArgs, session.id, await ensureSessionWorkspacePath(session))
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4201,7 +4222,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `seed_audio_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedSeedAudioRequest }
 
-      const toolResult = await callSeedAudioTool('generate_seed_audio', toolArgs, session.id)
+      const toolResult = await callSeedAudioTool('generate_seed_audio', toolArgs, session.id, await ensureSessionWorkspacePath(session))
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4449,7 +4470,7 @@ export function registerSessionStreamIpc(): void {
       const toolCallId = `ai_video_request_${requestId}`
       const toolArgs: Record<string, unknown> = { ...normalizedAiVideoRequest }
 
-      const toolResult = await callVideoTool('generate_video', toolArgs, session.id)
+      const toolResult = await callVideoTool('generate_video', toolArgs, session.id, await ensureSessionWorkspacePath(session))
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
       const responseSuccess = !toolResult?.isError && toolResponse?.success !== false && !errorCode
@@ -4577,7 +4598,8 @@ export function registerSessionStreamIpc(): void {
         'generate_or_edit_image',
         toolArgs,
         createDirectToolProgressExtra(toolCallId, 0.01, 0.99),
-        session.id
+        session.id,
+        await ensureSessionWorkspacePath(session)
       )
       const toolResponse = parseDraftResultText(toolResult)
       const errorCode = String(toolResponse?.error_code || toolResponse?.error || toolResponse?.rawText || '').trim()
@@ -4749,7 +4771,8 @@ export function registerSessionStreamIpc(): void {
         toolConfig.name,
         toolArgs,
         createDirectToolProgressExtra(toolCallId, 0.01, digitalHumanProgressEnd),
-        session.id
+        session.id,
+        await ensureSessionWorkspacePath(session)
       )
       const toolResponse = parseDraftResultText(toolResult)
       const hasCompletedStatus = isDirectDigitalHumanResponseComplete(mode, toolResponse)

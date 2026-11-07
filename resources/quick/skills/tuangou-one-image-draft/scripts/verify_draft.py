@@ -129,7 +129,7 @@ def main():
 
     # 7 音频
     aud = {tr.get("name", "?"): len(tr.get("segments") or []) for tr in d["tracks"] if tr["type"] == "audio"}
-    for must in ("口播", "BGM"):
+    for must in ("人物原生对白", "BGM"):
         if not any(k.startswith(must) for k in aud):
             fails.append(f"[音频] 缺 {must} 轨")
     notes.append(f"片长 {dur}s / 轨道 {len(d['tracks'])} / 读的是 {used}")
@@ -142,7 +142,7 @@ def main():
         for f in fails:
             print("  ✗", f)
         sys.exit(1)
-    print("\nPASS —— 全部硬规则通过")
+    print("\nPASS —— 工程结构检查通过；原生对白与口型还须实际试听/观看验收")
 
 
 if __name__ == "__main__":

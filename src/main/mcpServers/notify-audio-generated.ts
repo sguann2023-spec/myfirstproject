@@ -1,3 +1,4 @@
+import { saveArtifactFile } from './filesystem/tools/download'
 import { registerArtifact } from '../services/artifactIndex'
 import { loggerService } from '@logger'
 import { windowService } from '@main/services/WindowService'
@@ -12,14 +13,16 @@ export function asAudioNumber(value: unknown): number | undefined {
   return Number.isFinite(number) && number >= 0 ? number : undefined
 }
 
-export function notifyAudioGenerated(input: {
+export async function notifyAudioGenerated(input: {
+  workspaceRoot?: string
+  filePath?: string
   runtimeSessionId?: string
   audioUrl: unknown
   text: string
   durationSeconds?: unknown
   consumedPoints?: unknown
 }) {
-  if (!input.runtimeSessionId?.trim()) return
+  if (!input.runtimeSessionId?.trim() && !input.workspaceRoot && !process.env.WORKSPACE_ROOT) return
   const audioUrl = typeof input.audioUrl === 'string' ? input.audioUrl.trim() : ''
   try {
     const url = new URL(audioUrl)
@@ -27,16 +30,18 @@ export function notifyAudioGenerated(input: {
   } catch {
     return
   }
+  const filePath = await saveArtifactFile({ workspaceRoot: input.workspaceRoot, url: audioUrl, filePath: input.filePath, extension: '.mp3' })
+  if (!input.runtimeSessionId?.trim()) return filePath
   try {
-    registerArtifact({ type: 'audio', runtimeSessionId: input.runtimeSessionId, url: audioUrl, name: input.text })
+    registerArtifact({ filePath, type: 'audio', runtimeSessionId: input.runtimeSessionId, url: audioUrl, name: input.text })
     const mainWindow = windowService.getMainWindow()
-    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (!mainWindow || mainWindow.isDestroyed()) return filePath
     const durationSeconds = asAudioNumber(input.durationSeconds)
     const consumedPoints = asAudioNumber(input.consumedPoints)
     mainWindow.webContents.send(IpcChannel.App_AudioGenerated, {
       id: randomUUID(),
       runtimeSessionId: input.runtimeSessionId,
-      audioUrl,
+      audioUrl, filePath,
       text: input.text,
       createdAt: Date.now(),
       status: 'completed',
@@ -46,4 +51,5 @@ export function notifyAudioGenerated(input: {
   } catch (error) {
     logger.warn('Failed to notify audio generation', { error: error instanceof Error ? error.message : String(error) })
   }
+  return filePath
 }

@@ -54,6 +54,7 @@ import { app, net } from 'electron'
 import { EventEmitter } from 'events'
 import { v4 as uuidv4 } from 'uuid'
 
+import { mcpMetadataEvents } from '../apiServer/services/McpMetadataCache'
 import { CacheService } from './CacheService'
 import DxtService from './DxtService'
 import { CallBackServer } from './mcp/oauth/callback'
@@ -749,6 +750,7 @@ class McpService {
         logger.debug(`Tools list changed for server: ${server.name}`)
         // Clear tools cache
         CacheService.remove(`mcp:list_tool:${serverKey}`)
+        mcpMetadataEvents.emit('invalidate', server.id)
       })
 
       // Set up resources list changed notification handler
@@ -818,6 +820,7 @@ class McpService {
   }
 
   async closeClient(serverKey: string) {
+    mcpMetadataEvents.emit('invalidate', JSON.parse(serverKey).id)
     const client = this.clients.get(serverKey)
     if (client) {
       // Remove the client from the cache
@@ -845,6 +848,7 @@ class McpService {
   }
 
   async removeServer(_: Electron.IpcMainInvokeEvent, server: MCPServer) {
+    mcpMetadataEvents.emit('invalidate', server.id)
     const serverKey = this.getServerKey(server)
     const existingClient = this.clients.get(serverKey)
     if (existingClient) {

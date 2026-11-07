@@ -286,7 +286,7 @@ class VideoGenerateServer {
   private capabilitiesCache: CachedVideoCapabilities | null = null
   private videoModelListCache: CachedVideoModelList | null = null
 
-  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string; workspaceRoot?: string } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -961,7 +961,7 @@ class VideoGenerateServer {
     })
 
     if (this.isVideoTaskCompleted(result) && !this.isVideoTaskFailed(result)) {
-      this.notifyCompleted(taskId, result.video_url)
+      Object.assign(result, await this.notifyCompleted(taskId, result.video_url))
     }
 
     const format = this.options.external
@@ -1043,9 +1043,9 @@ class VideoGenerateServer {
     return String(status || '').trim().toLowerCase()
   }
 
-  private notifyCompleted(taskId: string, videoUrl: unknown) {
-    if (!this.options.external) notifyVideoGenerated({
-      source: 'video-generate', taskId, videoUrl, runtimeSessionId: this.options.runtimeSessionId
+  private async notifyCompleted(taskId: string, videoUrl: unknown) {
+    if (!this.options.external) return await notifyVideoGenerated({
+      source: 'video-generate', taskId, videoUrl, runtimeSessionId: this.options.runtimeSessionId, workspaceRoot: this.options.workspaceRoot
     })
   }
 
@@ -1095,7 +1095,7 @@ class VideoGenerateServer {
       attempt += 1
       const result = await this.queryVideoTaskStatus(taskId)
       if (this.isVideoTaskCompleted(result)) {
-        this.notifyCompleted(taskId, result.video_url)
+        Object.assign(result, await this.notifyCompleted(taskId, result.video_url))
         await this.reportProgress(extra, 100, '视频生成完成')
         return this.formatJsonResult({
           provider: 'vectcut',
@@ -1116,7 +1116,8 @@ class VideoGenerateServer {
           output: {
             draft_id: result.draft_id,
             draft_url: result.draft_url,
-            video_url: result.video_url
+            video_url: result.video_url,
+            ...((result as Record<string, unknown>).file_path ? { file_path: (result as Record<string, unknown>).file_path } : {})
           },
           ...result,
           ...(result.task_id ? {} : { task_id: taskId })

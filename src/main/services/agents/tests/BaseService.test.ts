@@ -15,7 +15,8 @@ import type { AgentModelField } from '../errors'
 
 vi.mock('@main/apiServer/services/mcp', () => ({
   mcpApiService: {
-    getServerInfo: vi.fn()
+    getServerInfo: vi.fn(),
+    getServerMetadata: vi.fn()
   }
 }))
 
@@ -28,6 +29,7 @@ vi.mock('@main/apiServer/utils', () => ({
   validateModelId: (...args: unknown[]) => mockValidateModelId(...args)
 }))
 
+import { mcpApiService } from '@main/apiServer/services/mcp'
 import { BaseService } from '../BaseService'
 import { AgentModelValidationError } from '../errors'
 
@@ -59,6 +61,25 @@ const buildMcpTool = (id: string): Tool => ({
   type: 'mcp',
   description: 'test tool',
   requirePermissions: true
+})
+
+describe('BaseService MCP metadata mode', () => {
+  it('does not call live discovery and preserves unresolved approvals', async () => {
+    vi.mocked(mcpApiService.getServerMetadata).mockReturnValue({ value: undefined, loading: true, error: false })
+    vi.mocked(mcpApiService.getServerInfo).mockClear()
+    const service = new TestBaseService()
+    const result = await service.listMcpTools('claude-code', ['slow'], 'metadata')
+    expect(result.tools_loading).toBe(true)
+    expect(result.tools_error).toBe(false)
+    expect(mcpApiService.getServerInfo).not.toHaveBeenCalled()
+    expect(service.normalize(['mcp_slow_tool'], result.tools, result.legacyIdMap)).toEqual(['mcp_slow_tool'])
+  })
+
+  it('keeps default mode blocking for execution callers', async () => {
+    vi.mocked(mcpApiService.getServerInfo).mockResolvedValue(null)
+    await new TestBaseService().listMcpTools('claude-code', ['live'])
+    expect(mcpApiService.getServerInfo).toHaveBeenCalledWith('live')
+  })
 })
 
 describe('BaseService.normalizeAllowedTools', () => {

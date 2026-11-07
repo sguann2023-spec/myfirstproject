@@ -326,7 +326,7 @@ class SpeechGenerateServer {
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 
-  constructor(private readonly runtimeSessionId?: string) {
+  constructor(private readonly runtimeSessionId?: string, private readonly workspaceRoot?: string) {
     this.mcpServer = new McpServer(
       {
         name: 'speech',
@@ -468,8 +468,8 @@ class SpeechGenerateServer {
     }
   }
 
-  private notifyAudioGenerated(result: SpeechGenerateResponse, text: string) {
-    if (!this.runtimeSessionId?.trim() || result.success !== true || result.error || result.error_code) return
+  private async notifyAudioGenerated(result: SpeechGenerateResponse, text: string) {
+    if (result.success !== true || result.error || result.error_code) return
     const asRecord = (value: unknown): Record<string, unknown> | undefined =>
       value !== null && typeof value === 'object' && !Array.isArray(value)
         ? value as Record<string, unknown>
@@ -477,7 +477,8 @@ class SpeechGenerateServer {
     const billingFields = ['total_consumed_points', 'points_consumed', 'deduct_points', 'consume']
     const billing = asRecord(result.billing) ?? asRecord(result.output?.billing) ??
       (billingFields.some(field => field in result) ? result : result.output)
-    notifyAudioGenerated({
+    return await notifyAudioGenerated({
+      workspaceRoot: this.workspaceRoot,
       runtimeSessionId: this.runtimeSessionId,
       audioUrl: result.output?.audio_url,
       text,
@@ -498,7 +499,10 @@ class SpeechGenerateServer {
       success: result.success
     })
 
-    this.notifyAudioGenerated(result, payload.text as string)
+    let filePath: string | undefined
+    let saveError: string | undefined
+    try { filePath = await this.notifyAudioGenerated(result, payload.text as string) }
+    catch (error) { saveError = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}` }
 
     return this.formatJsonResult({
       provider: 'vectcut',
@@ -508,7 +512,7 @@ class SpeechGenerateServer {
         model: payload.model,
         voice_id: payload.voice_id
       },
-      ...result
+      ...result, ...(filePath ? { filePath, file_path: filePath } : {}), ...(saveError ? { saveError } : {})
     })
   }
 }

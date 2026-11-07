@@ -1,3 +1,5 @@
+import { validatePath } from './filesystem/types'
+import { saveArtifactFile } from './filesystem/tools/download'
 import ipaddr from 'ipaddr.js'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
@@ -294,7 +296,9 @@ class VoiceConversionServer {
         if (typeof args.task_id !== 'string' || !args.task_id.trim()) throw new Error("'task_id' is required")
         taskId = args.task_id.trim()
         const result = await this.queryVoiceConversionTaskStatus(taskId)
-        return this.externalFormat({ ...result, task_id: taskId }, externalFailure(result))
+        const saved = this.options.runtimeSessionId && this.isVoiceConversionTaskCompleted(result)
+          ? await this.buildVoiceConversionTaskResultPayload({ result, action: 'status' }) : {}
+        return this.externalFormat({ ...result, ...saved, task_id: taskId }, externalFailure(result))
       }
       for (const field of ['audioUrl', 'audio_url', 'videoUrl', 'video_url']) {
         if (Object.prototype.hasOwnProperty.call(args, field)) publicMediaUrl(args[field], field)
@@ -540,7 +544,7 @@ class VoiceConversionServer {
     }
     const safeTaskId = sanitizePathSegment(taskId) || `result-${Date.now()}`
     const ext = this.inferResultExtension(source, mediaKind, contentType)
-    return path.join(workspaceRoot, `voice-conversion-${safeTaskId}${ext}`)
+    return path.join(workspaceRoot, 'artifact', `voice-conversion-${safeTaskId}${ext}`)
   }
 
   private async persistRemoteResultToWorkspace(input: {
@@ -548,55 +552,19 @@ class VoiceConversionServer {
     mediaKind: VoiceConversionOutputMediaKind
     url: string
   }): Promise<WorkspaceMediaArtifact | null> {
-    const response = await net.fetch(input.url)
-    if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      throw new Error(`Voice conversion result download failed (${response.status}): ${text || 'unknown error'}`)
-    }
-
-    const contentType = response.headers.get('content-type') || undefined
-    const outputPath = this.buildWorkspaceResultPath(input.taskId, input.mediaKind, input.url, contentType)
-    if (!outputPath) {
-      return null
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer())
-    await fsPromises.mkdir(path.dirname(outputPath), { recursive: true })
-    await fsPromises.writeFile(outputPath, buffer)
-
     const workspaceRoot = this.resolveWorkspaceRoot()
-    return {
-      contentType,
-      filePath: outputPath,
-      mediaKind: input.mediaKind,
-      relativePath: path.relative(workspaceRoot, outputPath) || path.basename(outputPath),
-      sizeBytes: buffer.length
-    }
+    if (!workspaceRoot) return null
+    const savedPath = await saveArtifactFile({ workspaceRoot, url: input.url, extension: input.mediaKind === 'video' ? '.mp4' : '.mp3' })
+    const filePath = path.join(workspaceRoot, path.relative(await fsPromises.realpath(workspaceRoot), await fsPromises.realpath(savedPath)))
+    return { filePath, mediaKind: input.mediaKind, relativePath: path.relative(workspaceRoot, filePath), sizeBytes: (await fsPromises.stat(filePath)).size }
   }
 
-  private async persistLocalResultToWorkspace(input: {
-    taskId: string
-    mediaKind: VoiceConversionOutputMediaKind
-    filePath: string
-  }): Promise<WorkspaceMediaArtifact | null> {
-    const normalizedPath = input.filePath.startsWith('file://') ? fileURLToPath(input.filePath) : input.filePath
-    const outputPath = this.buildWorkspaceResultPath(input.taskId, input.mediaKind, normalizedPath)
-    if (!outputPath) {
-      return null
-    }
-
-    await fsPromises.mkdir(path.dirname(outputPath), { recursive: true })
-    if (path.resolve(normalizedPath) !== path.resolve(outputPath)) {
-      await fsPromises.copyFile(normalizedPath, outputPath)
-    }
-    const stats = await fsPromises.stat(outputPath)
+  private async persistLocalResultToWorkspace(input: { taskId: string; mediaKind: VoiceConversionOutputMediaKind; filePath: string }): Promise<WorkspaceMediaArtifact | null> {
     const workspaceRoot = this.resolveWorkspaceRoot()
-    return {
-      filePath: outputPath,
-      mediaKind: input.mediaKind,
-      relativePath: path.relative(workspaceRoot, outputPath) || path.basename(outputPath),
-      sizeBytes: stats.size
-    }
+    if (!workspaceRoot) return null
+    const savedPath = await saveArtifactFile({ workspaceRoot, filePath: input.filePath.startsWith('file://') ? fileURLToPath(input.filePath) : input.filePath })
+    const filePath = path.join(workspaceRoot, path.relative(await fsPromises.realpath(workspaceRoot), await fsPromises.realpath(savedPath)))
+    return { filePath, mediaKind: input.mediaKind, relativePath: path.relative(workspaceRoot, filePath), sizeBytes: (await fsPromises.stat(filePath)).size }
   }
 
   private async persistResultToWorkspace(input: {
@@ -822,35 +790,43 @@ class VoiceConversionServer {
       return job.mergedVideoPath
     }
 
-    const outputPath = job.outputPath || await this.buildMergedVideoOutputPath(job.originalVideoPath, taskId)
-    await execFileAsync(
-      this.resolveFfmpegPath(),
-      [
-        '-nostdin',
-        '-y',
-        '-i',
-        job.originalVideoPath,
-        '-i',
-        convertedAudioUrl,
-        '-map',
-        '0:v:0',
-        '-map',
-        '1:a:0',
-        '-c:v',
-        'copy',
-        '-c:a',
-        'aac',
-        '-b:a',
-        '192k',
-        '-shortest',
-        outputPath
-      ],
-      { windowsHide: true, timeout: PROCESS_TIMEOUT_MS, maxBuffer: PROCESS_MAX_BUFFER }
-    )
+    const requestedPath = job.outputPath || await this.buildMergedVideoOutputPath(job.originalVideoPath, taskId)
+    const root = this.resolveWorkspaceRoot()
+    const outputPath = root ? await validatePath(requestedPath, root) : requestedPath
+    await fsPromises.mkdir(path.dirname(outputPath), { recursive: true })
+    const staging = await fsPromises.mkdtemp(path.join(path.dirname(outputPath), '.voice-merge-'))
+    const stagingPath = path.join(staging, 'result.mp4')
+    try {
+      await execFileAsync(
+        this.resolveFfmpegPath(),
+        [
+          '-nostdin',
+          '-y',
+          '-i',
+          job.originalVideoPath,
+          '-i',
+          convertedAudioUrl,
+          '-map',
+          '0:v:0',
+          '-map',
+          '1:a:0',
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '192k',
+          '-shortest',
+          stagingPath
+        ],
+        { windowsHide: true, timeout: PROCESS_TIMEOUT_MS, maxBuffer: PROCESS_MAX_BUFFER }
+      )
 
+      await fsPromises.rename(stagingPath, outputPath)
+    } finally { await fsPromises.rm(staging, { recursive: true, force: true }) }
     job.convertedAudioUrl = convertedAudioUrl
-    job.mergedVideoPath = outputPath
-    return outputPath
+    job.mergedVideoPath = requestedPath
+    return requestedPath
   }
 
   private async prepareSource(input: unknown, fieldName: 'audio_url' | 'video_url'): Promise<PreparedVoiceConversionSource> {
@@ -1000,30 +976,37 @@ class VoiceConversionServer {
     const taskId = String(result.task_id || result.id || '').trim()
     const convertedAudioUrl = String(result.result?.converted_url || '').trim()
     let localVideoMerge: Record<string, unknown> | undefined
+    let saveError: string | undefined
 
-    if (localVideoJob && convertedAudioUrl && taskId) {
-      const mergedVideoPath = await this.mergeConvertedAudioIntoVideo(taskId, localVideoJob, convertedAudioUrl)
-      localVideoMerge = {
-        converted_audio_url: convertedAudioUrl,
-        merged_video_path: mergedVideoPath,
-        original_video_path: localVideoJob.originalVideoPath,
-        status: 'merged'
+    try {
+      if (localVideoJob && convertedAudioUrl && taskId) {
+        const mergedVideoPath = await this.mergeConvertedAudioIntoVideo(taskId, localVideoJob, convertedAudioUrl)
+        localVideoMerge = {
+          converted_audio_url: convertedAudioUrl,
+          merged_video_path: mergedVideoPath,
+          original_video_path: localVideoJob.originalVideoPath,
+          status: 'merged'
+        }
+      } else if (localVideoJob) {
+        localVideoMerge = {
+          original_video_path: localVideoJob.originalVideoPath,
+          status: 'waiting_for_converted_audio'
+        }
       }
-    } else if (localVideoJob) {
-      localVideoMerge = {
-        original_video_path: localVideoJob.originalVideoPath,
-        status: 'waiting_for_converted_audio'
-      }
-    }
 
-    const workspaceArtifact = taskId
-      ? await this.persistResultToWorkspace({
-        convertedUrl: convertedAudioUrl,
-        localVideoMerge,
-        request,
-        taskId
-      })
-      : null
+    } catch (error) { saveError = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}` }
+    let workspaceArtifact: WorkspaceMediaArtifact | null = null
+    try {
+      if (this.isVoiceConversionTaskCompleted(result) && this.options.runtimeSessionId && !this.resolveWorkspaceRoot()) throw new Error('An absolute workspace root is required')
+      workspaceArtifact = !saveError && taskId && this.isVoiceConversionTaskCompleted(result)
+        ? await this.persistResultToWorkspace({
+          convertedUrl: convertedAudioUrl,
+          localVideoMerge,
+          request: request || (result.video_url ? { video_url: result.video_url } : undefined),
+          taskId
+        })
+        : null
+    } catch (error) { saveError = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}` }
     if (workspaceArtifact && localVideoMerge) {
       localVideoMerge.workspace_file_path = workspaceArtifact.filePath
       localVideoMerge.workspace_relative_path = workspaceArtifact.relativePath
@@ -1063,6 +1046,8 @@ class VoiceConversionServer {
       normalized.local_video_merge = localVideoMerge
     }
     if (workspaceArtifact) {
+      normalized.filePath = workspaceArtifact.filePath
+      normalized.file_path = workspaceArtifact.filePath
       normalized.artifact = {
         storage: 'workspace_file',
         file_path: workspaceArtifact.filePath,
@@ -1107,10 +1092,15 @@ class VoiceConversionServer {
       }
     }
 
+    if (saveError) normalized.saveError = saveError
+    if (!saveError && this.isVoiceConversionTaskCompleted(result) && workspaceArtifact?.mediaKind !== 'video') {
+      try { await this.notifyConvertedAudio(result, sourceSummary?.[0]?.original_input, request?.voice_id, workspaceArtifact?.filePath) }
+      catch (error) { normalized.saveError = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}` }
+    }
     return normalized
   }
 
-  private notifyConvertedAudio(result: VoiceConversionTaskStatusResponse, originalInput: unknown, voiceId: unknown) {
+  private async notifyConvertedAudio(result: VoiceConversionTaskStatusResponse, originalInput: unknown, voiceId: unknown, filePath?: string) {
     if (!this.options.runtimeSessionId?.trim() || result.success !== true || result.error || result.error_code) return
     let filename = '原文件'
     if (typeof originalInput === 'string' && originalInput.trim()) {
@@ -1133,7 +1123,8 @@ class VoiceConversionServer {
     }
     const targetVoiceId = typeof voiceId === 'string' && voiceId.trim() ? voiceId.trim() : '未知音色'
     const billing = result.result?.billing ?? result.billing
-    notifyAudioGenerated({
+    await notifyAudioGenerated({
+      workspaceRoot: this.workspacePath, filePath,
       runtimeSessionId: this.options.runtimeSessionId,
       audioUrl: result.result?.converted_url,
       text: `${filename} + ${targetVoiceId}`,
@@ -1185,7 +1176,6 @@ class VoiceConversionServer {
             sourceSummary,
             localVideoJob: pendingLocalVideoJob
           })
-          this.notifyConvertedAudio(statusResult, sourceSummary[0]?.original_input, payload.voice_id)
           return this.formatJsonResult(normalized)
         }
 

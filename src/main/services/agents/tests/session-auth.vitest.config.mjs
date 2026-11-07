@@ -12,6 +12,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/main/services/agents/tests/SessionService.test.ts', 'src/main/services/agents/tests/BaseService.test.ts', 'src/main/services/agents/tests/gatewayAuth.test.ts']
+    include: ['src/main/services/agents/tests/SessionService.test.ts', 'src/main/services/agents/tests/BaseService.test.ts', 'src/main/services/agents/tests/gatewayAuth.test.ts', 'src/main/apiServer/services/McpMetadataCache.test.ts']
   }
 })

@@ -87,13 +87,14 @@ export function buildLayers(c, t, rc) {
   ];
 }
 
-/** ⚠ volume 参数在草稿里不生效，混音电平必须预先烘进音频文件（见 bake_sfx.sh） */
+/** volume 当前API单位dB，人物对白+20dB；导出检查线性10 */
 export function buildAudios(a, t) {
   const list = [
-    { track: "口播", url: a.vo, target_start: 0, duration: t.voDur, fade_in_duration: 0, fade_out_duratioin: 0 },
+    { track: "人物原生对白", url: a.dialogue, target_start: 0, duration: t.end, fade_in_duration: 0, fade_out_duratioin: 0 },
     { track: "BGM", url: a.bgm, target_start: 0, duration: t.end, fade_in_duration: 0.3, fade_out_duratioin: 0.6 },
     { track: "品类环境声", url: a.ambient, target_start: 0, duration: t.end, fade_in_duration: 0.5, fade_out_duratioin: 0.8 },
   ];
+  if (!a.ambient) list.splice(2, 1);
   (t.whooshAt || []).forEach((s, i) => list.push({ track: `SFX_whoosh${i + 1}`, url: a.whoosh, target_start: s, duration: 0.6, fade_in_duration: 0, fade_out_duratioin: 0 }));
   (t.popAt || []).forEach((s, i) => list.push({ track: `SFX_pop${i + 1}`, url: a.pop, target_start: s, duration: 0.4, fade_in_duration: 0, fade_out_duratioin: 0 }));
   (t.dingAt || []).forEach((s, i) => list.push({ track: `SFX_ding${i + 1}`, url: a.ding, target_start: s, duration: 1.1, fade_in_duration: 0, fade_out_duratioin: 0 }));
@@ -110,19 +111,16 @@ export function plan(spec) {
   if (!rc.templates?.cta || !Number.isFinite(Number(rc.scales?.cta)) || Number(rc.scales.cta) <= 0) {
     throw new Error("缺少 CTA 标定：先预渲染比较候选效果，再填写 prerender_calibration.templates.cta 与 scales.cta");
   }
-  // 切点不是用户输入：始终根据首个价格爆点的 ASR 进场时间自动计算。
-  const firstPrice = t.promos.find((p) => p.max);
-  if (!firstPrice) throw new Error("timing.promos 缺少 max=true 的价格爆点");
-  t.cut = Math.max(0.1, Number((firstPrice.range[0] - 0.04).toFixed(2)));
+  if (!["audio_reference_dialogue", "native_dialogue"].includes(spec.audio_mode) || spec.dialogue_verified !== true || spec.lip_sync_verified !== true)
+    throw new Error("必须验收音频参考驱动的出镜对白和口型，不能后配旁白冒充");
+  const clips = spec.clips;
+  if (!Array.isArray(clips) || !clips.length) throw new Error("缺少按完整对白裁切的 clips");
   const calls = [];
   const layers = buildLayers(c, t, rc);
-
-  // 1) 视频两段：volume 0（AI 自带音轨是噪声）；切点压第一个爆点前
-  calls.push({ step: "video1", tool: T("add_video"), args: {
-    draft_id: id, video_url: a.clip1, target_start: 0, duration: t.cut, width: W, height: H, volume: 0, track_name: "主视频" } });
-  calls.push({ step: "video2", tool: T("add_video"), args: {
-    draft_id: id, video_url: a.clip2, target_start: t.cut, duration: t.end - t.cut, width: W, height: H, volume: 0,
-    track_name: "主视频2", transition: "叠化", transition_duration: 0.3 } });
+  for (const [i, clip] of clips.entries()) calls.push({ step: `video${i+1}`, tool: T("add_video"), args: {
+    draft_id: id, video_url: clip.url, target_start: clip.target_start, duration: clip.duration,
+    width: W, height: H, volume: 0, track_name: "主视频" } });
+  // 上面必须使用预裁切的静音副本；同步原声已独立抽取，不依赖 volume 静音。
 
   // 2) 文字 / 贴片（箭头放最后加，保证 z-order 在最上）
   const sorted = layers.filter((x) => x.kind !== "image");
@@ -137,21 +135,26 @@ export function plan(spec) {
   // 3) 音频
   for (const A of buildAudios(a, t)) calls.push({ step: A.track, tool: T("add_audio"), args: {
     draft_id: id, audio_url: A.url, target_start: A.target_start, duration: A.duration, track_name: A.track,
-    fade_in_duration: A.fade_in_duration, fade_out_duratioin: A.fade_out_duratioin } });
+    volume: A.track === "人物原生对白" ? 20 : 0, fade_in_duration: A.fade_in_duration, fade_out_duratioin: A.fade_out_duratioin } });
 
   return { calls, layers, audios: buildAudios(a, t), self_check: check(spec) };
 }
 
 // 自检：装配前挡住必然翻车的写法
-export function check({ assets: a, timing: t, copy: c, prerender_calibration: rc }) {
-  const bad = [], url = (x, n) => { if (!/^(https?:|file:)/.test(x || "")) bad.push(`${n} 不是云端 URL（本地路径会写坏素材记录）`); };
-  ["clip1","clip2","arrow","vo","bgm","whoosh","ding","pop","ambient"].forEach((k) => url(a[k], k));
-  if (t.cut <= 0 || t.cut >= t.end) bad.push("自动计算的 cut 必须落在 (0, end) 之间");
+export function check({ assets: a, timing: t, copy: c, prerender_calibration: rc, clips }) {
+  const bad = [], url = (x, n) => { if (!/^https?:/.test(x || "")) bad.push(`${n} 不是云端 URL（本地路径会写坏素材记录）`); };
+  ["arrow","dialogue","bgm","whoosh","ding","pop"].forEach((k) => url(a[k], k));
+  let cursor = 0;
+  for (const clip of clips || []) {
+    url(clip.url, "clip");
+    if (!Number.isFinite(clip.target_start) || !Number.isFinite(clip.duration) || clip.duration <= 0 || Math.abs(clip.target_start-cursor)>0.02) bad.push("画面片段必须无缝、时长为正并与原声同剪辑清单");
+    cursor = clip.target_start + clip.duration;
+  }
+  if (Math.abs(cursor-t.end)>0.02) bad.push("画面与原声总时长不一致");
   if (!Array.isArray(rc?.candidates) || rc.candidates.length < 2) bad.push("至少需要预渲染比较两套文字设计候选");
   if (!rc?.templates?.price) bad.push("价格爆点缺少剪映文字模版");
   if (!rc?.fonts?.title || !rc?.fonts?.sub || !rc?.fonts?.note) bad.push("缺少预渲染选中的标题/字幕/小字字体");
   if (!rc?.prerender_verified) bad.push("整套文字设计尚未通过真实背景预渲染验证");
-  if (t.end - t.cut > 5.2) bad.push("分镜2 只有 5s 素材，clip2 段时长超预算会被截断");
   const promos = [...t.promos, { range: t.ctaRange }];
   for (let i = 0; i < promos.length; i++) for (let j = i + 1; j < promos.length; j++) {
     const [a1, b1] = promos[i].range, [a2, b2] = promos[j].range;

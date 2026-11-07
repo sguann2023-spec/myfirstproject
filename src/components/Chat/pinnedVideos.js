@@ -5,13 +5,14 @@ export const normalizePinnedVideo = (payload) => {
   const source = string(payload?.source);
   const taskId = string(payload?.taskId);
   const runtimeSessionId = string(payload?.runtimeSessionId);
-  const videoUrl = string(payload?.videoUrl);
+  const videoUrl = string(payload?.filePath) || string(payload?.videoUrl);
+  const local = { ...(string(payload?.filePath) ? { filePath: string(payload.filePath) } : {}), ...(payload?.url ? { url: payload.url } : {}) };
   if (payload?.type === 'video' && id && runtimeSessionId && videoUrl && payload.status === 'completed' && Number.isFinite(payload.createdAt)) {
-    return { id, type: 'video', source, taskId, runtimeSessionId, videoUrl, createdAt: payload.createdAt, status: 'completed', ...(payload.restoredArtifact ? { restoredArtifact: true } : {}) };
+    return { ...local, id, type: 'video', source, taskId, runtimeSessionId, videoUrl, createdAt: payload.createdAt, status: 'completed', ...(payload.restoredArtifact ? { restoredArtifact: true } : {}) };
   }
   if (!id || !taskId || !['video-generate', 'digital-human'].includes(source) || id !== `${source}:${taskId}` || !runtimeSessionId || !videoUrl || payload.status !== 'completed'
     || typeof payload.createdAt !== 'number' || !Number.isFinite(payload.createdAt)) return null;
-  return { id, source, runtimeSessionId, taskId, videoUrl, createdAt: payload.createdAt, status: 'completed' };
+  return { ...local, id, source, runtimeSessionId, taskId, videoUrl, createdAt: payload.createdAt, status: 'completed' };
 };
 const upsert = (result, video) => {
   const index = result.findIndex((item) => item.id === video.id && item.runtimeSessionId === video.runtimeSessionId);

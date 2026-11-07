@@ -6,7 +6,7 @@ export const artifactTypes = ['draft', 'video', 'image', 'audio', 'document'] as
 export type ArtifactType = typeof artifactTypes[number]
 export type Artifact = {
   id: string; type: ArtifactType; runtimeSessionId: string; createdAt: number
-  url?: string; filePath?: string; draftId?: string; taskId?: string; source?: string; name?: string
+  url?: string; filePath?: string; draftId?: string; taskId?: string; source?: string; name?: string; aliases?: string[]
 }
 let store: Store | undefined
 function storage() { return store ??= new Store({ name: 'session-artifacts' }) }
@@ -33,8 +33,16 @@ export function registerArtifact(input: Omit<Artifact, 'id' | 'createdAt'> & Par
     (input.id && item.id === input.id && item.source === input.source) ||
     (input.draftId && item.draftId === input.draftId) ||
     (input.taskId && input.source && item.taskId === input.taskId && item.source === input.source) ||
-    (target && location(item) === target)))
-  if (existing) return existing
+    (target && location(item) === target) ||
+    (input.url && item.url === input.url) ||
+    (input.filePath && item.filePath === input.filePath) ||
+    ([input.url, input.filePath, ...(input.aliases || [])].filter(Boolean).some(value => [item.url, item.filePath, ...(item.aliases || [])].includes(value!)))))
+  if (existing) {
+    const aliases = [...new Set([...(existing.aliases || []), ...(input.aliases || []), existing.url, existing.filePath, input.url, input.filePath].filter((value): value is string => Boolean(value)))]
+    Object.assign(existing, input, { aliases, id: existing.id, createdAt: existing.createdAt })
+    storage().set(key(input.runtimeSessionId), items)
+    return existing
+  }
   const item: Artifact = { ...input, id: input.id || randomUUID(), createdAt: input.createdAt ?? Date.now() }
   storage().set(key(input.runtimeSessionId), [...items, item])
   return item

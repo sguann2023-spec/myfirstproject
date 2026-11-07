@@ -2,10 +2,11 @@
 export const normalizePinnedAudio = (payload) => {
   const id = typeof payload?.id === 'string' ? payload.id.trim() : '';
   const runtimeSessionId = typeof payload?.runtimeSessionId === 'string' ? payload.runtimeSessionId.trim() : '';
-  const audioUrl = typeof payload?.audioUrl === 'string' ? payload.audioUrl.trim() : '';
+  const filePath = typeof payload?.filePath === 'string' ? payload.filePath.trim() : '';
+  const audioUrl = filePath || (typeof payload?.audioUrl === 'string' ? payload.audioUrl.trim() : '');
   if (!id || !runtimeSessionId || !audioUrl || payload.status !== 'completed'
     || typeof payload.createdAt !== 'number' || !Number.isFinite(payload.createdAt)) return null;
-  const audio = { id, runtimeSessionId, audioUrl, createdAt: payload.createdAt, status: 'completed' };
+  const audio = { id, runtimeSessionId, audioUrl, ...(filePath ? { filePath } : {}), ...(payload?.url ? { url: payload.url } : {}), createdAt: payload.createdAt, status: 'completed' };
   if (typeof payload.durationSeconds === 'number' && Number.isFinite(payload.durationSeconds) && payload.durationSeconds > 0) {
     audio.durationSeconds = payload.durationSeconds;
   }

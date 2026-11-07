@@ -6,9 +6,10 @@ const state = vi.hoisted(() => ({ handlers: new Map(), data: new Map(), send: vi
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({ McpServer: class { server = { setRequestHandler(schema: unknown, handler: unknown) { state.handlers.set(schema, handler) } } } }))
 vi.mock('electron-store', () => ({ default: class { get(key: string, fallback: unknown) { return state.data.get(key) ?? fallback } set(key: string, value: unknown) { state.data.set(key, value) } } }))
 vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: () => ({ webContents: { send: state.send } }) } }))
-vi.mock('@logger', () => ({ loggerService: { withContext: () => ({}) } }))
+vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) } }))
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import ArtifactServer from '../artifact-server'
+vi.mock('electron', () => ({ net: { fetch: vi.fn(async () => new Response('media')) } }))
 describe('artifact MCP document authorization', () => {
   it('registers existing allowed files, rejects escapes, symlinks, remote and unsupported documents', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'artifact-test-'))
@@ -23,6 +24,12 @@ describe('artifact MCP document authorization', () => {
       const call = (args: object, name = 'add_artifact') => state.handlers.get(CallToolRequestSchema)({ params: { name, arguments: args } })
       expect((await call({ type: 'document', filePath: 'a.md' })).isError).toBeUndefined()
       expect((await call({ type: 'document', filePath: 'a.html' })).isError).toBeUndefined()
+      const registered = JSON.parse((await call({ type: 'document', filePath: 'a.md' })).content[0].text)
+      expect(await fs.realpath(path.dirname(registered.filePath))).toBe(await fs.realpath(path.join(root, 'artifact')))
+      expect(registered.name).toBe('a.md')
+      expect(await fs.readFile(registered.filePath, 'utf8')).toBe('hello')
+      expect(await fs.readFile(path.join(root, 'a.md'), 'utf8')).toBe('hello')
+      expect((await call({ type: 'document', filePath: registered.filePath })).isError).toBeUndefined()
       for (const filePath of ['missing.md', 'a.js', '.', 'link.md', path.join(outside, 'secret.md')]) {
         expect((await call({ type: 'document', filePath })).isError).toBe(true)
       }

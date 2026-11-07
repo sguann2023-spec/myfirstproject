@@ -335,7 +335,9 @@ export interface UpdateAgentRequest extends Partial<AgentBase> {}
 export type ReplaceAgentRequest = AgentBase
 
 export const GetAgentResponseSchema = AgentEntitySchema.extend({
-  tools: z.array(ToolSchema).optional() // All tools available to the agent (including built-in and custom)
+  tools: z.array(ToolSchema).optional(), // May be a cached, incomplete tool snapshot
+  tools_loading: z.boolean().optional(),
+  tools_error: z.boolean().optional()
 })
 
 export type GetAgentResponse = z.infer<typeof GetAgentResponseSchema>

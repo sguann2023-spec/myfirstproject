@@ -4,7 +4,7 @@ import { useMCPServers } from '@renderer/hooks/useMCPServers'
 import type { UpdateAgentBaseForm } from '@renderer/types'
 import { GLOBALLY_DISALLOWED_TOOLS, SOUL_MODE_DISALLOWED_TOOLS } from '@shared/agents/claudecode/constants'
 import type { CardProps } from 'antd'
-import { Card, Switch, Tag, Tooltip } from 'antd'
+import { Alert, Button, Card, Spin, Switch, Tag, Tooltip } from 'antd'
 import { uniq } from 'lodash'
 import { Wrench } from 'lucide-react'
 import type { FC } from 'react'
@@ -58,13 +58,41 @@ const useBuiltinToolDescription = () => {
   }
 }
 
-export const ToolsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase, update }) => {
+type ToolsSettingsProps = AgentOrSessionSettingsProps & {
+  toolsTimedOut?: boolean
+  toolsRequestError?: boolean
+  retryTools?: () => Promise<unknown>
+}
+
+export const ToolsSettings: FC<ToolsSettingsProps> = ({
+  agentBase,
+  update,
+  toolsTimedOut = false,
+  toolsRequestError = false,
+  retryTools
+}) => {
   const { t } = useTranslation()
   const getBuiltinToolDescription = useBuiltinToolDescription()
   const { mcpServers: allServers } = useMCPServers()
   const [searchTerm, setSearchTerm] = useState('')
   const [isUpdatingTools, setIsUpdatingTools] = useState(false)
   const [isUpdatingMcp, setIsUpdatingMcp] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
+  const metadata = agentBase as { tools_loading?: boolean; tools_error?: boolean } | null | undefined
+  const toolsFailed = toolsTimedOut || toolsRequestError || metadata?.tools_error === true
+  const toolsIncomplete = toolsFailed || metadata?.tools_loading === true
+
+  const handleRetry = async () => {
+    if (!retryTools || isRetrying) return
+    setIsRetrying(true)
+    try {
+      await retryTools()
+    } catch {
+      window.toast.error(t('agent.settings.tooling.loadError', 'Unable to load tools. Please retry.'))
+    } finally {
+      setIsRetrying(false)
+    }
+  }
 
   const selectedMode = useMemo(
     () => agentBase?.configuration?.permission_mode ?? defaultConfiguration.permission_mode,
@@ -75,10 +103,10 @@ export const ToolsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase, upda
   const autoToolIds = useMemo(() => computeModeDefaults(selectedMode, availableTools), [availableTools, selectedMode])
   const approvedToolIds = useMemo(() => {
     const allowed = agentBase?.allowed_tools ?? []
-    const sanitized = allowed.filter((id) => availableTools.some((tool) => tool.id === id))
-    const merged = uniq([...sanitized, ...autoToolIds])
+    // Discovery can omit offline MCP tools; never discard persisted permissions.
+    const merged = uniq([...allowed, ...autoToolIds])
     return merged
-  }, [agentBase?.allowed_tools, autoToolIds, availableTools])
+  }, [agentBase?.allowed_tools, autoToolIds])
   const selectedMcpIds = useMemo(() => agentBase?.mcps ?? [], [agentBase?.mcps])
   const isSoulEnabled = isSoulModeEnabled(agentBase?.configuration)
 
@@ -104,7 +132,7 @@ export const ToolsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase, upda
 
   const handleToggleTool = useCallback(
     async (toolId: string, isApproved: boolean) => {
-      if (!agentBase || isUpdatingTools) {
+      if (!agentBase || isUpdatingTools || toolsIncomplete) {
         return
       }
 
@@ -114,14 +142,14 @@ export const ToolsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase, upda
       }
       setIsUpdatingTools(true)
       const next = isApproved ? [...approvedToolIds, toolId] : approvedToolIds.filter((id) => id !== toolId)
-      const sanitized = uniq(next.filter((id) => availableTools.some((tool) => tool.id === id)).concat(autoToolIds))
+      const sanitized = uniq(next.concat(autoToolIds))
       try {
         await update({ id: agentBase.id, allowed_tools: sanitized } satisfies UpdateAgentBaseForm)
       } finally {
         setIsUpdatingTools(false)
       }
     },
-    [agentBase, isUpdatingTools, approvedToolIds, autoToolIds, availableTools, update]
+    [agentBase, isUpdatingTools, approvedToolIds, autoToolIds, toolsIncomplete, update]
   )
 
   const handleToggleMcp = useCallback(
@@ -164,7 +192,26 @@ export const ToolsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase, upda
           {t('agent.settings.toolsMcp.tools.title', 'Pre-approved Tools')}
         </SettingsTitle>
         <div className="mt-2 flex flex-col gap-3">
-          {filteredTools.length === 0 ? (
+          {toolsIncomplete && (
+            <Alert
+              type={toolsFailed ? 'warning' : 'info'}
+              showIcon
+              icon={toolsFailed ? undefined : <Spin size="small" />}
+              message={
+                toolsFailed
+                  ? t('agent.settings.tooling.loadError', 'Unable to load tools. Please retry.')
+                  : t('agent.settings.tooling.loading', 'Loading tools… Permissions cannot be edited until loading finishes.')
+              }
+              action={
+                toolsFailed && retryTools ? (
+                  <Button size="small" loading={isRetrying} onClick={handleRetry}>
+                    {t('common.retry', 'Retry')}
+                  </Button>
+                ) : undefined
+              }
+            />
+          )}
+          {filteredTools.length === 0 && toolsIncomplete ? null : filteredTools.length === 0 ? (
             <div className="rounded-medium border border-default-200 border-dashed px-4 py-10 text-center text-foreground-500 text-sm">
               {t('agent.settings.tooling.preapproved.empty', 'No tools match your filters.')}
             </div>
@@ -222,7 +269,7 @@ export const ToolsSettings: FC<AgentOrSessionSettingsProps> = ({ agentBase, upda
                             name: tool.name
                           })}
                           checked={isApproved}
-                          disabled={isAuto || isUpdatingTools}
+                          disabled={isAuto || isUpdatingTools || toolsIncomplete}
                           size="small"
                           onChange={(checked) => handleToggleTool(tool.id, checked)}
                         />

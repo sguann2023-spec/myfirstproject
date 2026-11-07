@@ -1,3 +1,12 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { saveArtifactFile } from '../filesystem/tools/download'
+vi.mock('../filesystem/tools/download', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../filesystem/tools/download')>()
+  return { ...actual, saveArtifactFile: vi.fn(async (input) => input.workspaceRoot
+    ? actual.saveArtifactFile(input) : '/workspace/artifact/test.mp3') }
+})
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockNetFetch, mockStoreGet, mockStoreSet, mockSend, mockGetMainWindow } = vi.hoisted(() => ({
@@ -93,13 +102,49 @@ describe('SeedAudioServer', () => {
     return callTool(new SeedAudioServer({ runtimeSessionId }), { prompt: '  actual request prompt  ' })
   }
 
+  it('saves actual seed output before returning its local path', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'seed-artifact-'))
+    try {
+      const actual = await vi.importActual<typeof import('../filesystem/tools/download')>('../filesystem/tools/download')
+      vi.mocked(saveArtifactFile).mockImplementationOnce(actual.saveArtifactFile)
+      mockNetFetch.mockResolvedValueOnce(mockJsonResponse({ access_token: 'access-token', expires_in: 3600 }))
+        .mockResolvedValueOnce(mockJsonResponse({ success: true, url: 'https://example.com/generated.wav' }))
+        .mockResolvedValueOnce(new Response('seed-bytes'))
+      const result = JSON.parse((await callTool(new SeedAudioServer({ runtimeSessionId: 'seed', workspaceRoot: root }), { prompt: 'hello' })).content[0].text)
+      expect(result.file_path).toBe(result.filePath)
+      expect(await fs.readFile(result.filePath, 'utf8')).toBe('seed-bytes')
+      expect(path.basename(path.dirname(result.filePath))).toBe('artifact')
+      expect(result.url).toBe('https://example.com/generated.wav')
+      expect(mockNetFetch).toHaveBeenCalledTimes(3)
+    } finally { await fs.rm(root, { recursive: true, force: true }) }
+  })
+
+  it('restores seed task saving without generating again', async () => {
+    const server = new SeedAudioServer({ external: true, runtimeSessionId: 'seed', workspaceRoot: '/workspace' })
+    const result = { success: true, url: 'https://example.com/generated.wav', saveError: 'old save error' }
+    ;(server as any).tasks.set('restored', { status: 'completed', updatedAt: Date.now(), result })
+    vi.mocked(saveArtifactFile).mockResolvedValueOnce('/workspace/artifact/restored.wav')
+    const response = JSON.parse((await (server.mcpServer.server as any)._requestHandlers.get('tools/call')({ method: 'tools/call', params: { name: 'task_status', arguments: { task_id: 'restored' } } }, {})).content[0].text)
+    expect(response).toMatchObject({ filePath: '/workspace/artifact/restored.wav', file_path: '/workspace/artifact/restored.wav' })
+    expect(response.saveError).toBeUndefined()
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
+  it('retains generated remote audio and exposes saving failures without regenerating', async () => {
+    vi.mocked(saveArtifactFile).mockRejectedValueOnce(new Error('disk unavailable'))
+    const result = await generateWithResult({ success: true, url: 'https://example.com/generated.wav' }, 'session-seed')
+    expect(JSON.parse(result.content[0].text)).toMatchObject({ success: true, url: 'https://example.com/generated.wav', saveError: expect.stringContaining('disk unavailable') })
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
   it('archives successful audio with runtime, actual payload prompt and duration, not resource credits', async () => {
     await generateWithResult({
       success: true, url: 'https://example.com/generated.wav', text_prompt: 'different response title',
       duration_seconds: 18.2, resource_amount: 99
     }, 'session-seed')
     expect(mockSend).toHaveBeenCalledExactlyOnceWith(IpcChannel.App_AudioGenerated, {
-      id: expect.any(String), runtimeSessionId: 'session-seed', audioUrl: 'https://example.com/generated.wav',
+      id: expect.any(String), runtimeSessionId: 'session-seed', filePath: '/workspace/artifact/test.mp3', audioUrl: 'https://example.com/generated.wav',
       text: 'actual request prompt', createdAt: expect.any(Number), status: 'completed', durationSeconds: 18.2
     })
   })

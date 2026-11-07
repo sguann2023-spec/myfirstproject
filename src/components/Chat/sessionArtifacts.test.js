@@ -16,6 +16,15 @@ it('routes all five registered types to owned UI state and keeps manual media ac
   expect(normalizePinnedVideos(session.pinnedVideos, 'r')).toHaveLength(1);
   expect(normalizePinnedImages(session.pinnedImages, 'r')).toHaveLength(1);
 });
+it('updates a remote artifact to local playback without duplicating it', () => {
+  const remote = { id: 'v', type: 'video', runtimeSessionId: 'r', url: 'https://example.com/a.mp4', createdAt: 1 };
+  const session = mergeSessionArtifact({ runtimeSessionId: 'r' }, remote);
+  const updated = mergeSessionArtifact(session, { ...remote, filePath: '/workspace/artifact/a.mp4' });
+  expect(updated.pinnedVideos).toHaveLength(1);
+  expect(updated.pinnedVideos[0].videoUrl).toBe('/workspace/artifact/a.mp4');
+  expect(updated.pinnedVideos[0].url).toBe(remote.url);
+  expect(normalizePinnedVideos(updated.pinnedVideos, 'r')[0].filePath).toBe('/workspace/artifact/a.mp4');
+});
 it('restored entries are marked to avoid preview activation', () => {
   const session = mergeSessionArtifact({ runtimeSessionId: 'r' }, { id: 'd', type: 'document', runtimeSessionId: 'r', filePath: '/a.md' }, true);
   expect(session.pinnedDocuments[0].restoredArtifact).toBe(true);

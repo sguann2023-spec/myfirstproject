@@ -274,14 +274,6 @@ export class SessionService extends BaseService {
 
     const sessions = result.map((row) => this.deserializeJsonFields(row)) as GetAgentSessionResponse[]
 
-    await Promise.all(
-      sessions.map(async (session) => {
-        const { tools, legacyIdMap } = await this.listMcpTools(session.agent_type, session.mcps)
-        session.tools = tools
-        session.allowed_tools = this.normalizeAllowedTools(session.allowed_tools, session.tools, legacyIdMap)
-      })
-    )
-
     return { sessions, total }
   }
 

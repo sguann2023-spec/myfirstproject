@@ -24,7 +24,7 @@ interface AgentSettingPopupParams extends AgentSettingPopupShowParams {
 
 const AgentSettingPopupContainer: React.FC<AgentSettingPopupParams> = ({ tab, agentId, resolve }) => {
   const { t } = useTranslation()
-  const { agent, isLoading, error } = useAgent(agentId)
+  const { agent, isLoading, error, toolsTimedOut, retryTools } = useAgent(agentId)
   const { updateAgent } = useUpdateAgent()
 
   const isSoul = isSoulModeEnabled(agent?.configuration)
@@ -53,7 +53,15 @@ const AgentSettingPopupContainer: React.FC<AgentSettingPopupParams> = ({ tab, ag
       case 'permission-mode':
         return <PermissionModeSettings agentBase={agent} update={updateAgent} />
       case 'tools-mcp':
-        return <ToolsSettings agentBase={agent} update={updateAgent} />
+        return (
+          <ToolsSettings
+            agentBase={agent}
+            update={updateAgent}
+            toolsTimedOut={toolsTimedOut}
+            toolsRequestError={Boolean(error)}
+            retryTools={retryTools}
+          />
+        )
       case 'installed':
         return <InstalledSkillsSettings agentBase={agent} update={updateAgent} />
       case 'advanced':
@@ -66,7 +74,7 @@ const AgentSettingPopupContainer: React.FC<AgentSettingPopupParams> = ({ tab, ag
   return (
     <BaseSettingsPopup
       isLoading={isLoading}
-      error={error}
+      error={agent ? null : error}
       initialTab={tab}
       onClose={resolve}
       titleContent={<AgentLabel agent={agent} />}

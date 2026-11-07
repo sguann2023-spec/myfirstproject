@@ -1,3 +1,5 @@
+> 2026-11-07：本文为历史文字/电平参考。如涉及删除原声、独立生成口播、强制两段5秒、价格点切割，一律作废，以 SKILL.md 的原生对白流程和新版 plan.mjs 为准。
+
 # 症状 → 根因 → 处置（每条都是真跑出来的，别再重蹈）
 
 ## 1. 预渲染报 `Local or unverifiable asset at materials.effects[0].path`

@@ -51,8 +51,11 @@ export abstract class BaseService {
 
   public async listMcpTools(
     agentType: AgentType,
-    ids?: string[]
-  ): Promise<{ tools: Tool[]; legacyIdMap: Map<string, string> }> {
+    ids?: string[],
+    mode: 'blocking' | 'metadata' = 'blocking'
+  ): Promise<{ tools: Tool[]; legacyIdMap: Map<string, string>; tools_loading: boolean; tools_error: boolean }> {
+    let tools_loading = false
+    let tools_error = false
     const tools: Tool[] = []
     const legacyIdMap = new Map<string, string>()
     if (agentType === 'claude-code') {
@@ -61,7 +64,10 @@ export abstract class BaseService {
     if (ids && ids.length > 0) {
       for (const id of ids) {
         try {
-          const server = await mcpApiService.getServerInfo(id)
+          const snapshot = mode === 'metadata' ? mcpApiService.getServerMetadata(id) : undefined
+          tools_loading ||= snapshot?.loading ?? false
+          tools_error ||= snapshot?.error ?? false
+          const server = mode === 'metadata' ? snapshot?.value : await mcpApiService.getServerInfo(id)
           if (server) {
             server.tools.forEach((tool: MCPTool) => {
               const canonicalId = buildFunctionCallToolName(server.name, tool.name)
@@ -90,7 +96,7 @@ export abstract class BaseService {
       }
     }
 
-    return { tools, legacyIdMap }
+    return { tools, legacyIdMap, tools_loading, tools_error }
   }
 
   /**

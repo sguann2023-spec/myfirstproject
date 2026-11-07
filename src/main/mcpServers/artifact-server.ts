@@ -5,12 +5,13 @@ import { windowService } from '@main/services/WindowService'
 import path from 'node:path'
 import { artifactTypes, listArtifacts, registerArtifact, type ArtifactType } from '../services/artifactIndex'
 import { validatePath } from './filesystem/types'
+import { saveArtifactFile } from './filesystem/tools/download'
 
 export default class ArtifactServer {
   public mcpServer = new McpServer({ name: 'artifact_server', version: '1.0.0' }, { capabilities: { tools: {} } })
   constructor(private cwd: string, private runtimeSessionId?: string, private accessiblePaths: string[] = []) {
     this.mcpServer.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [
-      { name: 'add_artifact', description: 'Register an existing session artifact. Does not create files. Documents must be local txt/html/md/markdown files in the authorized workspace. Skip temporary/test files and outputs already auto-registered; use list_artifacts when unsure. Register updated deliverables again to refresh the existing entry.', inputSchema: { type: 'object', properties: { type: { type: 'string', enum: [...artifactTypes] }, url: { type: 'string' }, filePath: { type: 'string' }, draftId: { type: 'string' }, taskId: { type: 'string' }, source: { type: 'string' }, name: { type: 'string' } }, required: ['type'], additionalProperties: false } },
+      { name: 'add_artifact', description: 'Save and register an existing session artifact in workspace/artifact; cloud drafts are registered without downloading. Documents must be local txt/html/md/markdown files in the authorized workspace. Skip temporary/test files and outputs already auto-registered; use list_artifacts when unsure. Register updated deliverables again to refresh the existing entry.', inputSchema: { type: 'object', properties: { type: { type: 'string', enum: [...artifactTypes] }, url: { type: 'string' }, filePath: { type: 'string' }, draftId: { type: 'string' }, taskId: { type: 'string' }, source: { type: 'string' }, name: { type: 'string' } }, required: ['type'], additionalProperties: false } },
       { name: 'list_artifacts', description: 'List current runtime session artifacts, including automatically generated artifacts.', inputSchema: { type: 'object', properties: { type: { type: 'string', enum: [...artifactTypes] } }, additionalProperties: false } }
     ] }))
     this.mcpServer.server.setRequestHandler(CallToolRequestSchema, async request => {
@@ -42,7 +43,13 @@ export default class ArtifactServer {
           if (type === 'document' && (!fields.filePath || fields.url || !['.txt', '.html', '.md', '.markdown'].includes(path.extname(fields.filePath).toLowerCase()))) throw new Error('Unsupported local document')
           if (fields.url && !['http:', 'https:'].includes(new URL(fields.url).protocol)) throw new Error('Unsupported URL protocol')
           if (type === 'draft' && !fields.draftId) throw new Error('draftId is required')
-          result = registerArtifact({ ...fields, type, runtimeSessionId: this.runtimeSessionId })
+          const originalPath = fields.filePath
+          if (type !== 'draft') {
+            if (type === 'document' && !fields.name) fields.name = path.basename(fields.filePath)
+            fields.filePath = await saveArtifactFile({ workspaceRoot: this.cwd, filePath: fields.filePath, url: fields.url,
+              extension: type === 'audio' ? '.mp3' : type === 'video' ? '.mp4' : '.png' })
+          }
+          result = registerArtifact({ ...fields, ...(originalPath ? { aliases: [originalPath] } : {}), type, runtimeSessionId: this.runtimeSessionId })
         } else throw new Error('Unknown artifact tool')
         if (request.params.name === 'add_artifact') {
           try { windowService.getMainWindow()?.webContents.send('app:artifact-registered', result) } catch { /* Index remains authoritative when the renderer is unavailable. */ }

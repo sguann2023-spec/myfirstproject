@@ -12,7 +12,9 @@ const seededHistory = new WeakSet<Database.Database>()
 
 export function configureDatabase(db: Database.Database): void {
   db.pragma('journal_mode=WAL')
-  db.pragma('synchronous=FULL')
+  // WAL + NORMAL avoids per-commit WAL syncs. Application crashes preserve
+  // committed transactions; OS crashes or power loss may lose recent commits.
+  db.pragma('synchronous=NORMAL')
   db.pragma('cache_size=-8192')
   db.pragma('mmap_size=0')
   db.pragma('temp_store=FILE')

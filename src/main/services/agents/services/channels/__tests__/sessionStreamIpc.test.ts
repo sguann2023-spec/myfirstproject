@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
+import { transpileModule } from 'typescript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { handleMock, publishMock, getSessionMock, listSessionsMock, createSessionMessageMock, sessionChangedMock, loggerError } = vi.hoisted(() => ({
@@ -372,5 +375,40 @@ describe('sessionStreamIpc abort handling', () => {
     ).toEqual(['first'])
     expect(streamCancelMock).not.toHaveBeenCalled()
     expect(sessionChangedMock).not.toHaveBeenCalled()
+  })
+})
+
+// Exercise the actual fixed-reply generators without starting Electron or an Agent.
+describe('direct generated media workspace links', () => {
+  const source = readFileSync(new URL('../sessionStreamIpc.ts', import.meta.url), 'utf8')
+  const names = ['Speech', 'SeedAudio', 'VoiceConversion', 'AiVideo', 'ImageGenerate', 'DigitalHuman']
+  const declarations = ['buildDirectWorkspaceFileText', 'getDirectDigitalHumanVideoUrl', ...names.map(name => `buildDirect${name}AssistantText`)]
+    .map(name => {
+      const start = source.indexOf(`function ${name}(`)
+      const end = source.indexOf('\nfunction ', start + 1)
+      return source.slice(start, end)
+    }).join('\n')
+  const context: Record<string, any> = { EOL: '\n' }
+  runInNewContext(transpileModule(declarations, { compilerOptions: { target: 99 } }).outputText, context)
+  const filePath = '/workspace/中文 [一] (二)#?.mp3'
+  it.each(names)('%s prefers a clickable workspace path and preserves remote output', name => {
+    for (const shape of [{ filePath }, { file_path: filePath }, { artifact: { file_path: filePath } }, { result: { file_path: filePath } }, { output: { file_path: filePath } }]) {
+      const response = { ...shape, url: 'https://example.com/media', output: { audio_url: 'https://example.com/media', video_url: 'https://example.com/media', image_url: 'https://example.com/media', ...shape.output } }
+      const text = context[`buildDirect${name}AssistantText`]({ toolArgs: {}, toolResponse: response })
+      expect(text).toContain('工作区文件：[')
+      expect(text).toContain('file:///workspace/%E4%B8%AD%E6%96%87%20%5B%E4%B8%80%5D%20%28%E4%BA%8C%29%23%3F.mp3')
+      expect(text).toContain('https://example.com/media')
+      expect(text.indexOf('工作区文件')).toBeLessThan(text.indexOf('https://example.com/media'))
+    }
+  })
+  it.each(names)('%s does not claim saving succeeded on failure or missing paths', name => {
+    for (const failure of [{ saveError: 'disk full' }, { save_failed: true, save_error: 'disk full' }]) {
+      const text = context[`buildDirect${name}AssistantText`]({ toolArgs: {}, toolResponse: { filePath, ...failure } })
+      expect(text).not.toContain('工作区文件：')
+      expect(text).toContain('工作区保存失败：disk full')
+    }
+    for (const response of [{}, { filePath: 'https://example.com/media' }, { filePath, success: false }]) {
+      expect(context[`buildDirect${name}AssistantText`]({ toolArgs: {}, toolResponse: response })).not.toContain('工作区文件：')
+    }
   })
 })

@@ -1,3 +1,4 @@
+import { saveArtifactFile } from './filesystem/tools/download'
 import { readFile, stat as fsStat } from 'node:fs/promises'
 import path from 'node:path'
 import ipaddr from 'ipaddr.js'
@@ -384,7 +385,7 @@ class ImageGenerateServer {
 
   private readonly completedTaskCreatedAt = new Map<string, number>()
 
-  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string; workspaceRoot?: string } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -637,7 +638,7 @@ class ImageGenerateServer {
     }
   }
 
-  private notifyImageGenerated(payload: Record<string, unknown>) {
+  private async notifyImageGenerated(payload: Record<string, unknown>) {
     const runtimeSessionId = this.options.runtimeSessionId?.trim()
     if (this.options.external || !runtimeSessionId || payload.success === false ||
         this.normalizeImageTaskStatus(payload.status) !== 'success') return
@@ -651,12 +652,23 @@ class ImageGenerateServer {
     } catch {
       return
     }
+    let filePath: string
+    try {
+      filePath = await saveArtifactFile({ workspaceRoot: this.options.workspaceRoot, url: imageUrl, extension: '.png' })
+      payload.filePath = filePath
+      payload.file_path = filePath
+      output!.file_path = filePath
+    } catch (error) {
+      payload.save_failed = true
+      payload.save_error = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}`
+      return
+    }
     try {
       // The status API has no documented creation timestamp. Keep the first
       // observed completion time stable for repeated queries on this server.
       const createdAt = this.completedTaskCreatedAt.get(taskId) ?? Date.now()
       this.completedTaskCreatedAt.set(taskId, createdAt)
-      registerArtifact({ type: 'image', runtimeSessionId, taskId, source: 'image-generate', url: imageUrl, createdAt })
+      registerArtifact({ type: 'image', runtimeSessionId, taskId, source: 'image-generate', url: imageUrl, filePath, createdAt })
       const mainWindow = windowService.getMainWindow()
       if (!mainWindow || mainWindow.isDestroyed()) return
       mainWindow.webContents.send(IpcChannel.App_ImageGenerated, {
@@ -664,6 +676,7 @@ class ImageGenerateServer {
         runtimeSessionId,
         taskId,
         imageUrl,
+        filePath,
         createdAt,
         status: 'completed'
       })
@@ -673,7 +686,7 @@ class ImageGenerateServer {
   }
 
   private async formatImageTaskResult(payload: Record<string, unknown>) {
-    this.notifyImageGenerated(payload)
+    await this.notifyImageGenerated(payload)
     const content: Array<
       | { type: 'text'; text: string }
       | { type: 'image'; data: string; mimeType: string }

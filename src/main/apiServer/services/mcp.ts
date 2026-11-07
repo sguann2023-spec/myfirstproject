@@ -10,7 +10,10 @@ import type { Request, Response } from 'express'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 import { loggerService } from '../../services/LoggerService'
+import { reduxService } from '../../services/ReduxService'
 import { createMcpServerForTransport, getMCPServersFromRedux } from '../utils/mcp'
+
+import { McpMetadataCache, mcpMetadataEvents } from './McpMetadataCache'
 
 const logger = loggerService.withContext('MCPApiService')
 const transports: Record<string, StreamableHTTPServerTransport> = {}
@@ -46,6 +49,7 @@ class MCPApiService extends EventEmitter {
   constructor() {
     super()
     this.initMcpServer()
+    mcpMetadataEvents.on('invalidate', (id: string) => this.invalidateServerMetadata(id))
     logger.debug('MCPApiService initialized')
   }
 
@@ -95,6 +99,27 @@ class MCPApiService extends EventEmitter {
       logger.error('Failed to get server', { id, error })
       throw new Error('Failed to retrieve server')
     }
+  }
+
+  private metadata = new McpMetadataCache(
+    async (id) => {
+      // Bypass the API's five-minute config cache, but only in background work.
+      const servers = await reduxService.select<MCPServer[]>('state.mcp.servers')
+      return servers?.find((server) => server.id === id) ?? null
+    },
+    async (server) => {
+      const client = await mcpService.initClient(server)
+      const result = await client.listTools()
+      return { id: server.id, name: server.name, tools: result.tools }
+    }
+  )
+
+  getServerMetadata(id: string) {
+    return this.metadata.snapshot(id)
+  }
+
+  invalidateServerMetadata(id: string) {
+    this.metadata.invalidate(id)
   }
 
   async getServerInfo(id: string): Promise<any> {

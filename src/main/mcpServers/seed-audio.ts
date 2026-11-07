@@ -253,7 +253,7 @@ class SeedAudioServer {
   // Bounded per-instance fallback: no upstream async endpoint is documented in this integration.
   private readonly tasks = new Map<string, { status: string; updatedAt: number; result?: Record<string, unknown> }>()
 
-  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string } = {}) {
+  constructor(private readonly options: { external?: boolean; runtimeSessionId?: string; workspaceRoot?: string } = {}) {
     this.mcpServer = this.createMcpServer()
   }
 
@@ -292,6 +292,7 @@ class SeedAudioServer {
             const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
             const task = this.tasks.get(taskId)
             if (!task || Date.now() - task.updatedAt > 3600_000) throw new Error('Unknown or expired process-local task_id; tasks do not survive restart')
+            if (task.status === 'completed' && task.result && !task.result.filePath) await this.saveExternalAudioResult(task.result)
             const failed = task.status === 'failed'
             return { ...this.formatJsonResult({ ...task.result, task_id: taskId, status: task.status, success: !failed, action: 'task_status', tracking: 'process_local' }), ...(failed ? { isError: true } : {}) }
           }
@@ -313,6 +314,15 @@ class SeedAudioServer {
         }
       }
     })
+  }
+
+  private async saveExternalAudioResult(result: Record<string, unknown>) {
+    try {
+      const filePath = await notifyAudioGenerated({ workspaceRoot: this.options.workspaceRoot,
+        runtimeSessionId: this.options.runtimeSessionId, audioUrl: result.url,
+        text: String(result.text_prompt || ''), durationSeconds: result.duration_seconds })
+      if (filePath) { result.filePath = filePath; result.file_path = filePath; delete result.saveError }
+    } catch (error) { result.saveError = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}` }
   }
 
   private async submitExternalTask(args: Record<string, unknown>) {
@@ -340,6 +350,7 @@ class SeedAudioServer {
         ])
         task.result = result
         task.status = !response.ok || result.success === false || ['failed', 'error', 'cancelled'].includes(String(result.status)) ? 'failed' : 'completed'
+        if (task.status === 'completed') await this.saveExternalAudioResult(result)
       } catch (error) {
         task.status = 'failed'
         task.result = { error: error instanceof Error ? error.message : String(error) }
@@ -869,13 +880,16 @@ class SeedAudioServer {
       speaker: payload.speaker || null
     })
 
+    let filePath: string | undefined
+    let saveError: string | undefined
     if (result.success === true && !result.error && !result.error_code) {
-      notifyAudioGenerated({
+      try { filePath = await notifyAudioGenerated({
+        workspaceRoot: this.options.workspaceRoot,
         runtimeSessionId: this.options.runtimeSessionId,
         audioUrl: result.url,
         text: payload.text_prompt as string,
         durationSeconds: result.duration_seconds
-      })
+      }) } catch (error) { saveError = `Generation succeeded but saving failed: ${error instanceof Error ? error.message : String(error)}` }
     }
 
     return this.formatJsonResult({
@@ -889,7 +903,7 @@ class SeedAudioServer {
         reference_audios: resolvedAudioUrls,
         reference_images: resolvedImageUrls
       },
-      ...result
+      ...result, ...(filePath ? { filePath, file_path: filePath } : {}), ...(saveError ? { saveError } : {})
     })
   }
 

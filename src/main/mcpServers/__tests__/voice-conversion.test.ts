@@ -1,3 +1,9 @@
+import { saveArtifactFile } from '../filesystem/tools/download'
+vi.mock('../filesystem/tools/download', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../filesystem/tools/download')>()
+  return { ...actual, saveArtifactFile: vi.fn(async (input) => input.workspaceRoot
+    ? actual.saveArtifactFile(input) : '/workspace/artifact/test.mp3') }
+})
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -96,18 +102,7 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
   } as Response
 }
 
-function mockBinaryResponse(data: string, contentType = 'audio/mpeg', ok = true, status = 200): Response {
-  const buffer = Buffer.from(data)
-  return {
-    ok,
-    status,
-    arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
-    headers: {
-      get: (key: string) => (key.toLowerCase() === 'content-type' ? contentType : null)
-    },
-    text: async () => data
-  } as Response
-}
+function mockBinaryResponse(data: string, contentType = 'audio/mpeg', ok = true, status = 200): Response { return new Response(data, { status, headers: { 'content-type': contentType } }) }
 
 function mockFfprobeProbe(
   options: { durationSeconds: number; hasAudio?: boolean; hasVideo?: boolean },
@@ -161,6 +156,8 @@ describe('VoiceConversionServer', () => {
         result: { converted_url: 'https://example.com/converted.mp3', duration: '12.5', billing: { consume: '2.5' } }
       }))
     const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
+    vi.spyOn(server as any, 'resolveWorkspaceRoot').mockReturnValue('/workspace')
+    vi.spyOn(server as any, 'persistResultToWorkspace').mockResolvedValue(null)
     const result = await callTool(server, 'submit_voice_conversion_task', {
       [sourceKey]: 'https://example.com/media/%E5%8E%9F%E5%A3%B0.mp3?signature=secret#fragment',
       [voiceKey]: 'voice-target'
@@ -182,9 +179,11 @@ describe('VoiceConversionServer', () => {
     ['https://example.com/?token=secret', '', '原文件 + 未知音色'],
     ['https://[invalid?token=secret', undefined, '原文件 + 未知音色'],
     [undefined, undefined, '原文件 + 未知音色']
-  ])('safely derives title from %s', (source, voice, title) => {
+  ])('safely derives title from %s', async (source, voice, title) => {
     const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
-    ;(server as any).notifyConvertedAudio({ success: true, result: { converted_url: 'https://example.com/a.mp3' } }, source, voice)
+    vi.spyOn(server as any, 'resolveWorkspaceRoot').mockReturnValue('/workspace')
+    vi.spyOn(server as any, 'persistResultToWorkspace').mockResolvedValue(null)
+    ;await (server as any).notifyConvertedAudio({ success: true, result: { converted_url: 'https://example.com/a.mp3' } }, source, voice)
     expect(mockSend.mock.calls[0][1].text).toBe(title)
   })
 
@@ -195,9 +194,11 @@ describe('VoiceConversionServer', () => {
     { success: true, result: { converted_url: 'file:///tmp/a.mp3' } },
     { success: true, result: { converted_url: 'not a URL' } },
     { success: true }
-  ])('does not notify unsuccessful or invalid results %j', (result) => {
+  ])('does not notify unsuccessful or invalid results %j', async (result) => {
     const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
-    ;(server as any).notifyConvertedAudio(result, '/tmp/source.mp3', 'voice-1')
+    vi.spyOn(server as any, 'resolveWorkspaceRoot').mockReturnValue('/workspace')
+    vi.spyOn(server as any, 'persistResultToWorkspace').mockResolvedValue(null)
+    ;await (server as any).notifyConvertedAudio(result, '/tmp/source.mp3', 'voice-1')
     expect(mockSend).not.toHaveBeenCalled()
   })
 
@@ -205,7 +206,7 @@ describe('VoiceConversionServer', () => {
     const result = { success: true, result: { converted_url: 'https://example.com/a.mp3' } }
     for (const options of [{}, { external: true }, { runtimeSessionId: '  ' }]) {
       const server = new VoiceConversionServer(undefined, options)
-      ;(server as any).notifyConvertedAudio(result, '/tmp/source.mp3', 'voice-1')
+      ;await (server as any).notifyConvertedAudio(result, '/tmp/source.mp3', 'voice-1')
     }
     expect(mockSend).not.toHaveBeenCalled()
     mockSend.mockImplementationOnce(() => { throw new Error('window unavailable') })
@@ -214,6 +215,8 @@ describe('VoiceConversionServer', () => {
       .mockResolvedValueOnce(mockJsonResponse({ task_id: 'notification-task' }))
       .mockResolvedValueOnce(mockJsonResponse({ ...result, status: 'completed', task_id: 'notification-task' }))
     const server = new VoiceConversionServer(undefined, { runtimeSessionId: 'session-123' })
+    vi.spyOn(server as any, 'resolveWorkspaceRoot').mockReturnValue('/workspace')
+    vi.spyOn(server as any, 'persistResultToWorkspace').mockResolvedValue(null)
     const response = await callTool(server, 'submit_voice_conversion_task', { audioUrl: 'https://example.com/source.mp3', voiceId: 'voice-1' })
     expect(response.isError).not.toBe(true)
     expect(JSON.parse(response.content[0].text).success).toBe(true)
@@ -328,9 +331,25 @@ describe('VoiceConversionServer', () => {
     })
   })
 
+  it('keeps completed remote results on save failure and retries saving on status recovery', async () => {
+    const server = new VoiceConversionServer('/workspace', { runtimeSessionId: 'session' })
+    const result = { success: true, status: 'success', task_id: 'task', result: { converted_url: 'https://example.com/a.mp3' } }
+    vi.mocked(saveArtifactFile).mockRejectedValueOnce(new Error('disk full'))
+    const payload = await (server as any).buildVoiceConversionTaskResultPayload({ result, action: 'status' })
+    expect(payload).toMatchObject({ success: true, remote_url: 'https://example.com/a.mp3', saveError: expect.stringContaining('disk full') })
+    expect(mockNetFetch).not.toHaveBeenCalled()
+    vi.spyOn(server as any, 'persistResultToWorkspace').mockResolvedValue({ filePath: '/workspace/artifact/a.mp3', relativePath: 'artifact/a.mp3', mediaKind: 'audio' })
+    vi.mocked(saveArtifactFile).mockResolvedValueOnce('/workspace/artifact/a.mp3')
+    const recovered = await (server as any).buildVoiceConversionTaskResultPayload({ result, action: 'status' })
+    expect(recovered).toMatchObject({ filePath: '/workspace/artifact/a.mp3', file_path: '/workspace/artifact/a.mp3' })
+    expect(recovered.saveError).toBeUndefined()
+    expect(saveArtifactFile).toHaveBeenLastCalledWith(expect.objectContaining({ filePath: '/workspace/artifact/a.mp3' }))
+    expect(mockNetFetch).not.toHaveBeenCalled()
+  })
+
   it('should save converted audio results into the workspace', async () => {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-conversion-workspace-'))
-    const expectedOutputPath = path.join(workspaceRoot, 'voice-conversion-task-workspace-audio.mp3')
+    let expectedOutputPath: string
 
     mockNetFetch
       .mockResolvedValueOnce(
@@ -368,12 +387,13 @@ describe('VoiceConversionServer', () => {
       )
       .mockResolvedValueOnce(mockBinaryResponse('converted-audio-bytes', 'audio/mpeg'))
 
-    const server = createServer(workspaceRoot)
+    const server = new VoiceConversionServer(workspaceRoot, { runtimeSessionId: 'audio-workspace' })
     const result = await callTool(server, 'submit_voice_conversion_task', {
       audio_url: 'https://example.com/source.mp3',
       voice_id: 'voice-elevenlabs-workspace'
     })
     const payload = JSON.parse(result.content[0].text)
+    expectedOutputPath = payload.filePath
 
     await expect(fs.readFile(expectedOutputPath, 'utf8')).resolves.toBe('converted-audio-bytes')
     expect(payload).toEqual(
@@ -381,9 +401,8 @@ describe('VoiceConversionServer', () => {
         artifact: {
           storage: 'workspace_file',
           file_path: expectedOutputPath,
-          relative_path: 'voice-conversion-task-workspace-audio.mp3',
+          relative_path: path.relative(workspaceRoot, expectedOutputPath),
           media_kind: 'audio',
-          content_type: 'audio/mpeg',
           size_bytes: 21
         },
         output: expect.objectContaining({
@@ -396,6 +415,9 @@ describe('VoiceConversionServer', () => {
       })
     )
 
+    expect(mockNetFetch).toHaveBeenCalledTimes(4)
+    expect(mockSend.mock.calls.at(-1)?.[1]).toMatchObject({ filePath: await fs.realpath(expectedOutputPath), audioUrl: 'https://example.com/converted-workspace.mp3' })
+    expect((await fs.readdir(path.join(workspaceRoot, 'artifact')))).toHaveLength(1)
     await fs.rm(workspaceRoot, { recursive: true, force: true })
   })
 
@@ -444,7 +466,7 @@ describe('VoiceConversionServer', () => {
 
   it('should save converted video results into the workspace', async () => {
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-conversion-video-workspace-'))
-    const expectedOutputPath = path.join(workspaceRoot, 'voice-conversion-task-workspace-video.mp4')
+    let expectedOutputPath: string
 
     mockNetFetch
       .mockResolvedValueOnce(
@@ -483,6 +505,7 @@ describe('VoiceConversionServer', () => {
       voice_id: 'voice-elevenlabs-video-workspace'
     })
     const payload = JSON.parse(result.content[0].text)
+    expectedOutputPath = payload.filePath
 
     await expect(fs.readFile(expectedOutputPath, 'utf8')).resolves.toBe('converted-video-bytes')
     expect(payload).toEqual(
@@ -490,9 +513,9 @@ describe('VoiceConversionServer', () => {
         artifact: expect.objectContaining({
           storage: 'workspace_file',
           file_path: expectedOutputPath,
-          relative_path: 'voice-conversion-task-workspace-video.mp4',
+          relative_path: path.relative(workspaceRoot, expectedOutputPath),
           media_kind: 'video',
-          content_type: 'video/mp4'
+          size_bytes: 21
         }),
         output: expect.objectContaining({
           remote_url: 'https://example.com/converted-workspace-video.mp4',
@@ -590,7 +613,7 @@ describe('VoiceConversionServer', () => {
   it('should extract local video audio before submitting and merge converted audio when complete', async () => {
     const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-conversion-video-test-'))
     const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'voice-conversion-video-workspace-'))
-    const expectedOutputPath = path.join(workspaceRoot, 'voice-conversion-task-local-video.mp4')
+    const expectedOutputPath = path.join(workspaceRoot, 'artifact', 'voice-conversion-task-local-video.mp4')
     const localVideoPath = path.join(tempRoot, 'source.mp4')
     await fs.writeFile(localVideoPath, 'demo-video', 'utf8')
     mockFfprobeProbe({ durationSeconds: 120, hasAudio: true, hasVideo: true }, true)
@@ -649,12 +672,12 @@ describe('VoiceConversionServer', () => {
           original_video_path: localVideoPath,
           status: 'merged',
           workspace_file_path: expectedOutputPath,
-          workspace_relative_path: 'voice-conversion-task-local-video.mp4'
+          workspace_relative_path: 'artifact/voice-conversion-task-local-video.mp4'
         },
         artifact: {
           storage: 'workspace_file',
           file_path: expectedOutputPath,
-          relative_path: 'voice-conversion-task-local-video.mp4',
+          relative_path: 'artifact/voice-conversion-task-local-video.mp4',
           media_kind: 'video',
           size_bytes: 17
         },

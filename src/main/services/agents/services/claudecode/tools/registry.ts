@@ -261,7 +261,7 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('image', {
       type: 'sdk',
       name: 'image',
-      instance: new ImageGenerateServer({ runtimeSessionId: session.id }).mcpServer,
+      instance: new ImageGenerateServer({ runtimeSessionId: session.id, workspaceRoot: cwd }).mcpServer,
       longRunning: true,
       timeout: 10 * 60
     })
@@ -274,7 +274,7 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('video', {
       type: 'sdk',
       name: 'video',
-      instance: new VideoGenerateServer({ runtimeSessionId: session.id }).createMcpServer(),
+      instance: new VideoGenerateServer({ runtimeSessionId: session.id, workspaceRoot: cwd }).createMcpServer(),
       longRunning: true,
       timeout: 35 * 60
     })
@@ -284,7 +284,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const speechGenerateServer = new SpeechGenerateServer(session.id)
+    const speechGenerateServer = new SpeechGenerateServer(session.id, cwd)
     mountMcpServer('speech', { type: 'sdk', name: 'speech', instance: speechGenerateServer.mcpServer })
     autoAllowTools.add(vt('speech', 'generate_speech'))
     allowMcpPattern(vp('speech'))
@@ -316,7 +316,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const seedAudioServer = new SeedAudioServer({ runtimeSessionId: session.id })
+    const seedAudioServer = new SeedAudioServer({ runtimeSessionId: session.id, workspaceRoot: cwd })
     mountMcpServer('seed-audio', { type: 'sdk', name: 'seed-audio', instance: seedAudioServer.mcpServer })
     autoAllowTools.add(vt('seed-audio', 'generate_seed_audio'))
     allowMcpPattern(vp('seed-audio'))
@@ -563,7 +563,7 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasAiMediaDomain) {
-    const digitalHumanServer = new DigitalHumanServer({ runtimeSessionId: session.id })
+    const digitalHumanServer = new DigitalHumanServer({ runtimeSessionId: session.id, workspaceRoot: cwd })
     mountMcpServer('digital-human', {
       type: 'sdk',
       name: 'digital-human',

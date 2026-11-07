@@ -1,6 +1,7 @@
 import fs from 'fs/promises'
 import { createWriteStream } from 'fs'
 import path from 'path'
+import { createHash } from 'node:crypto'
 import { Readable, Transform } from 'stream'
 import { pipeline } from 'stream/promises'
 import type { ReadableStream } from 'stream/web'
@@ -28,6 +29,48 @@ export const downloadToolDefinition = {
 - Parent directories will be created automatically if they do not exist
 - Prefer saving artifacts into the current workspace rather than the user's Downloads folder`,
   inputSchema: z.toJSONSchema(DownloadToolSchema)
+}
+
+export async function downloadWithRetry(args: unknown, baseDir: string) {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try { return await handleDownloadTool(args, baseDir) } catch (error) { lastError = error }
+    if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 250 * 2 ** attempt))
+  }
+  throw lastError
+}
+
+export async function saveArtifactFile(input: { workspaceRoot?: string; url?: string; filePath?: string; extension?: string }) {
+  const root = String(input.workspaceRoot || process.env.WORKSPACE_ROOT || '').trim()
+  if (!root || !path.isAbsolute(root)) throw new Error('An absolute workspace root is required to save artifact')
+  const artifactDir = await validatePath(path.join(root, 'artifact'), root)
+  await fs.mkdir(artifactDir, { recursive: true })
+  const realDir = await fs.realpath(artifactDir)
+  await validatePath(realDir, root)
+  if (input.filePath) {
+    const source = await fs.realpath(input.filePath)
+    if (!(await fs.stat(source)).isFile()) throw new Error('Artifact must be a regular file')
+    const relative = path.relative(realDir, source)
+    if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) return path.join(artifactDir, relative)
+    const hash = createHash('sha256').update(source).digest('hex')
+    const target = await validatePath(path.join(realDir, `${hash}${path.extname(source)}`), root)
+    const staging = await fs.mkdtemp(path.join(realDir, '.copy-'))
+    try {
+      await fs.copyFile(source, path.join(staging, 'data'))
+      await fs.rename(path.join(staging, 'data'), target)
+    } finally { await fs.rm(staging, { recursive: true, force: true }) }
+    return path.join(artifactDir, path.basename(target))
+  }
+  const url = new URL(input.url || '')
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Unsupported artifact URL')
+  const ext = path.extname(url.pathname).toLowerCase()
+  const extension = /^\.[a-z0-9]{1,8}$/.test(ext) ? ext : input.extension || '.bin'
+  const hash = createHash('sha256').update(url.href).digest('hex')
+  const target = await validatePath(path.join(realDir, `${hash}${extension}`), root)
+  try { if ((await fs.stat(target)).isFile()) return path.join(artifactDir, path.basename(target)) } catch {}
+  try { await downloadWithRetry({ url: url.href, file_path: target }, root) }
+  catch (error) { throw new Error(`Generation succeeded but artifact saving failed: ${error instanceof Error ? error.message : String(error)}`) }
+  return path.join(artifactDir, path.basename(target))
 }
 
 export async function handleDownloadTool(args: unknown, baseDir: string) {
@@ -90,7 +133,6 @@ export async function handleDownloadTool(args: unknown, baseDir: string) {
   const contentType = response.headers.get('content-type') || 'unknown'
 
   logger.info('File downloaded', {
-    url: parsed.data.url,
     path: validPath,
     size,
     contentType

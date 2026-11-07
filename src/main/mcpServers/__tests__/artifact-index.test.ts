@@ -40,6 +40,18 @@ describe('session artifact index', () => {
     expect(items[0]).not.toHaveProperty('malicious')
     expect(listArtifacts('b')).toEqual([])
   })
+  it('updates local paths and metadata while retaining original aliases', () => {
+    const first = registerArtifact({ runtimeSessionId: 'a', type: 'audio', url: 'https://example.com/a' })
+    const updated = registerArtifact({ runtimeSessionId: 'a', type: 'audio', url: 'https://example.com/a', filePath: '/workspace/artifact/a.mp3', name: 'updated' })
+    expect(updated.id).toBe(first.id)
+    expect(updated.filePath).toBe('/workspace/artifact/a.mp3')
+    expect(updated.name).toBe('updated')
+    registerArtifact({ runtimeSessionId: 'a', type: 'audio', url: 'https://example.com/a', name: 'again' })
+    expect(listArtifacts('a')).toHaveLength(1)
+    registerArtifact({ runtimeSessionId: 'a', type: 'document', filePath: '/workspace/artifact/a.md', aliases: ['/workspace/a.md'] })
+    registerArtifact({ runtimeSessionId: 'a', type: 'document', filePath: '/workspace/a.md', name: 'new' })
+    expect(listArtifacts('a', 'document')).toHaveLength(1)
+  })
   it('never falls back to an active session', () => {
     expect(() => listArtifacts('')).toThrow('runtime session')
     expect(() => registerArtifact({ runtimeSessionId: '', type: 'draft', draftId: 'd' })).toThrow('runtime session')

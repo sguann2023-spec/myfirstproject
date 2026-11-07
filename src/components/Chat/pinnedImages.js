@@ -4,13 +4,14 @@ export const normalizePinnedImage = (payload) => {
   const id = string(payload?.id);
   const taskId = string(payload?.taskId);
   const runtimeSessionId = string(payload?.runtimeSessionId);
-  const imageUrl = string(payload?.imageUrl);
+  const imageUrl = string(payload?.filePath) || string(payload?.imageUrl);
+  const local = { ...(string(payload?.filePath) ? { filePath: string(payload.filePath) } : {}), ...(payload?.url ? { url: payload.url } : {}) };
   if (payload?.type === 'image' && id && runtimeSessionId && imageUrl && payload.status === 'completed' && Number.isFinite(payload.createdAt)) {
-    return { id, type: 'image', taskId, runtimeSessionId, imageUrl, createdAt: payload.createdAt, status: 'completed', ...(payload.restoredArtifact ? { restoredArtifact: true } : {}) };
+    return { ...local, id, type: 'image', taskId, runtimeSessionId, imageUrl, createdAt: payload.createdAt, status: 'completed', ...(payload.restoredArtifact ? { restoredArtifact: true } : {}) };
   }
   if (!id || !taskId || id !== taskId || !runtimeSessionId || !imageUrl || payload.status !== 'completed'
     || typeof payload.createdAt !== 'number' || !Number.isFinite(payload.createdAt)) return null;
-  return { id, runtimeSessionId, taskId, imageUrl, createdAt: payload.createdAt, status: 'completed' };
+  return { ...local, id, runtimeSessionId, taskId, imageUrl, createdAt: payload.createdAt, status: 'completed' };
 };
 const upsert = (result, image) => {
   const index = result.findIndex((item) => item.id === image.id && item.runtimeSessionId === image.runtimeSessionId);

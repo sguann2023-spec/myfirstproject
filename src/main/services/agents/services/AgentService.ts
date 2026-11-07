@@ -126,8 +126,8 @@ export class AgentService extends BaseService {
     }
 
     const agent = this.deserializeJsonFields(row) as GetAgentResponse
-    const { tools, legacyIdMap } = await this.listMcpTools(agent.type, agent.mcps)
-    agent.tools = tools
+    const { tools, legacyIdMap, tools_loading, tools_error } = await this.listMcpTools(agent.type, agent.mcps, 'metadata')
+    Object.assign(agent, { tools, tools_loading, tools_error })
     agent.allowed_tools = this.normalizeAllowedTools(agent.allowed_tools, agent.tools, legacyIdMap)
 
     return agent
@@ -166,8 +166,8 @@ export class AgentService extends BaseService {
 
     await Promise.all(
       agents.map(async (agent) => {
-        const { tools, legacyIdMap } = await this.listMcpTools(agent.type, agent.mcps)
-        agent.tools = tools
+        const { tools, legacyIdMap, tools_loading, tools_error } = await this.listMcpTools(agent.type, agent.mcps, 'metadata')
+        Object.assign(agent, { tools, tools_loading, tools_error })
         agent.allowed_tools = this.normalizeAllowedTools(agent.allowed_tools, agent.tools, legacyIdMap)
       })
     )

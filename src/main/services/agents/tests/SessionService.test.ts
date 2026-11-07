@@ -12,6 +12,7 @@ vi.mock('../BaseService', () => ({
   BaseService: class {
     validateAgentModels = mocks.validate
     serializeJsonFields = mocks.serialize
+    deserializeJsonFields = (value: unknown) => value
     getDatabase = async () => ({ update: mocks.update })
   }
 }))
@@ -29,6 +30,20 @@ vi.mock('../services/claudecode/commands', () => ({ builtinSlashCommands: [] }))
 
 import { SessionService } from '../services/SessionService'
 import type { GetAgentSessionResponse, UpdateSessionRequest } from '@types'
+
+describe('SessionService.listSessions metadata', () => {
+  it('preserves persisted tools and approvals without discovery', async () => {
+    const service = new SessionService()
+    const row = { id: 'session', tools: [{ id: 'saved' }], allowed_tools: ['mcp_legacy_tool'] }
+    const query = { orderBy: vi.fn().mockResolvedValue([row]) }
+    const select = vi.fn()
+      .mockReturnValueOnce({ from: () => ({ where: async () => [{ count: 1 }] }) })
+      .mockReturnValueOnce({ from: () => ({ where: () => query }) })
+    vi.spyOn(service, 'getDatabase').mockResolvedValue({ select } as never)
+    const result = await service.listSessions()
+    expect(result).toEqual({ sessions: [row], total: 1 })
+  })
+})
 
 describe('SessionService.updateSession auth validation', () => {
   let service: SessionService

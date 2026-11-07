@@ -1,3 +1,5 @@
+const mockSaveArtifact = vi.hoisted(() => vi.fn(async () => '/workspace/artifact/generated'))
+vi.mock('../filesystem/tools/download', () => ({ saveArtifactFile: mockSaveArtifact }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockNetFetch, mockStat, mockStoreGet, mockStoreSet, mockUploadLocalFile, mockUploadImageBase64 } = vi.hoisted(() => ({
@@ -130,8 +132,8 @@ describe('ImageGenerateServer', () => {
       const status = await callTool(server, { action: 'status', taskId: 'task-a' })
       expect(JSON.parse(status.content[0].text).task_id).toBe('task-a')
       expect(mockSend.mock.calls).toEqual([
-        ['app:image-generated', { id: 'task-a', runtimeSessionId: 'session-a', taskId: 'task-a', imageUrl: completed.result.image, createdAt: 1000, status: 'completed' }],
-        ['app:image-generated', { id: 'task-a', runtimeSessionId: 'session-a', taskId: 'task-a', imageUrl: completed.result.image, createdAt: 1000, status: 'completed' }]
+        ['app:image-generated', { id: 'task-a', runtimeSessionId: 'session-a', taskId: 'task-a', imageUrl: completed.result.image, filePath: '/workspace/artifact/generated', createdAt: 1000, status: 'completed' }],
+        ['app:image-generated', { id: 'task-a', runtimeSessionId: 'session-a', taskId: 'task-a', imageUrl: completed.result.image, filePath: '/workspace/artifact/generated', createdAt: 1000, status: 'completed' }]
       ])
       expect(request).toHaveBeenCalledTimes(3)
     } finally {
@@ -898,3 +900,29 @@ describe('ImageGenerateServer', () => {
     })).rejects.toThrow('Unknown image model')
   })
 })
+
+ describe('ImageGenerateServer artifact persistence', () => {
+  it('awaits saving before returning a local file path', async () => {
+    const server = new ImageGenerateServer({ runtimeSessionId: 'save-session', workspaceRoot: '/workspace' }) as any
+    const result: any = { success: true, status: 'success', task_id: 'save-test', output: { image_url: 'https://example.com/result.png' } }
+    let release!: (path: string) => void
+    mockSaveArtifact.mockImplementationOnce(() => new Promise<string>(resolve => { release = resolve }))
+    let settled = false
+    const pending = server.formatImageTaskResult(result).then((value: any) => { settled = true; return value })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(mockSaveArtifact).toHaveBeenLastCalledWith(expect.objectContaining({ workspaceRoot: '/workspace' }))
+    release('/workspace/artifact/result')
+    const response = await pending
+    expect(JSON.parse(response.content[0].text)).toMatchObject({ filePath: '/workspace/artifact/result', file_path: '/workspace/artifact/result' })
+  })
+  it('preserves completed remote output when saving fails without resubmitting', async () => {
+    const server = new ImageGenerateServer({ runtimeSessionId: 'save-session', workspaceRoot: '/workspace' }) as any
+    const result: any = { success: true, status: 'success', task_id: 'save-test', output: { image_url: 'https://example.com/result.png' } }
+    const request = vi.spyOn(server, 'requestWithAuth')
+    mockSaveArtifact.mockRejectedValueOnce(new Error('download exhausted after 5 attempts'))
+    const response = await server.formatImageTaskResult(result)
+    expect(JSON.parse(response.content[0].text)).toMatchObject({ save_failed: true, output: { image_url: 'https://example.com/result.png' } })
+    expect(request).not.toHaveBeenCalled()
+  })
+ })
