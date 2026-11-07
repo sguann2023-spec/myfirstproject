@@ -78,7 +78,7 @@ const ArtifactPreview = ({
 
     return {
       ...draft,
-      key: draft.id || draft.draftId || `${draft.title || draft.name || 'draft'}-${index}`,
+      key: draft.draftId || draft.id || `${draft.title || draft.name || 'draft'}-${index}`,
       title: getDraftTitle({ ...draft, status: normalizedStatus }, index, sessionActive),
       status: normalizedStatus,
       statusTone: normalizedStatus === 'completed' ? 'completed' : 'processing'

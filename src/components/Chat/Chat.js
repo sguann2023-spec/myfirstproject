@@ -135,7 +135,8 @@ const hasRegisteredExternalAgent = (agents = []) => (
 
 const ARTIFACT_PREVIEW_KEY = 'chat-artifact:pinned-drafts';
 
-const buildPinnedDraftKey = (draft, index = 0) => draft?.id || draft?.draftId || `${draft?.title || draft?.name || 'draft'}-${index}`;
+// draftId 是服务端可查询的草稿 ID；id 可能是产物索引的内部 UUID，不能用于服务端调用
+const buildPinnedDraftKey = (draft, index = 0) => draft?.draftId || draft?.id || `${draft?.title || draft?.name || 'draft'}-${index}`;
 
 const parseQueryScriptOutput = (response) => {
   const output = response?.output || response?.data?.output || response?.result?.output;
@@ -143,7 +144,7 @@ const parseQueryScriptOutput = (response) => {
 };
 
 const enqueuePinnedDraftDownload = (draft) => {
-  const draftId = String(draft?.id || draft?.draftId || '').trim();
+  const draftId = String(draft?.draftId || draft?.id || '').trim();
   if (!draftId) return;
 
   try {
@@ -289,7 +290,7 @@ const Chat = ({
   const pinnedDraftPendingPreviewRef = React.useRef(new Set());
 
   const handlePinnedDraftPreviewItem = React.useCallback(async (draft) => {
-    const draftId = String(draft?.id || draft?.draftId || '').trim();
+    const draftId = String(draft?.draftId || draft?.id || '').trim();
     const targetKey = buildPinnedDraftKey(draft);
     const cacheKey = JSON.stringify([ownerId, draftId]);
     if (!draftId) {
