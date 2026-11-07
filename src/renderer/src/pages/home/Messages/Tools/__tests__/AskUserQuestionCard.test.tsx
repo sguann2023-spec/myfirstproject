@@ -1000,3 +1000,31 @@ it.each(['mcp__user-interaction__AskUserQuestion', 'mcp__vectcut__user-interacti
     expect(container.querySelector('[role="heading"]')?.textContent).toBe('Original question?')
   }
 )
+
+
+it('normalizes a wrapped rich question without losing options or answer metadata', () => {
+  const question = { question: 'What next?', header: 'Next', type: 'single_select', required: true,
+    options: [{ id: 'a', label: 'First' }, { id: 'b', label: 'Second' }, { id: 'c', label: 'Third' }] }
+  const input = { question, answers: { 'What next?': 'First' } }
+  expect(parseAskUserQuestionToolInput(input)).toMatchObject({
+    questions: [{ id: 'question-0', ...question }], answers: input.answers
+  })
+  expect(input).not.toHaveProperty('questions')
+})
+
+it('renders wrapped question options while awaiting an answer, not permission', async () => {
+  const input = { question: { question: 'What next?', header: 'Next', type: 'single_select',
+    options: [{ id: 'a', label: 'First' }, { id: 'b', label: 'Second' }, { id: 'c', label: 'Third' }] } }
+  mocks.state.toolPermissions.requests.request.input = input
+  await render({ ...toolResponse, arguments: input })
+  expect(container.querySelector('[role="heading"]')?.textContent).toBe('What next?')
+  for (const label of ['First', 'Second', 'Third']) expect(container.textContent).toContain(label)
+  expect(container.textContent).not.toContain('agent.toolPermission.waiting')
+})
+
+it('uses question loading copy for an unparsed pending question', async () => {
+  mocks.state.toolPermissions.requests.request.input = {}
+  await render({ ...toolResponse, arguments: {} })
+  expect(container.textContent).toContain('agent.askUserQuestion.loading')
+  expect(container.textContent).not.toContain('agent.toolPermission.waiting')
+})

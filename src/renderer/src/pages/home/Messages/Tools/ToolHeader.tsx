@@ -127,7 +127,8 @@ const LabelContainer = styled.div`
 `
 
 const ToolName = styled(Flex)`
-  font-weight: 500;
+  /* 与思考行、工具组头部保持同字号同字重：此前是 500，单条工具行看起来比相邻过程行“大一号”。 */
+  font-weight: 400;
   color: var(--color-text);
   flex-shrink: 0;
   align-items: center;

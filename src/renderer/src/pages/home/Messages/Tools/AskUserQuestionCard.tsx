@@ -787,7 +787,7 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   ])
 
   if (isPending && (questions.length === 0 || !currentQuestion)) {
-    return <div className="ask-user-question-waiting">{t('agent.toolPermission.waiting')}</div>
+    return <div className="ask-user-question-waiting">{t('agent.askUserQuestion.loading')}</div>
   }
 
   const answeredCount = Object.keys(displayAnswers).length
