@@ -35,21 +35,10 @@ const FILE_UPLOAD_SIGN_EXPIRES_SECONDS = 60 * 60
 const VIDEO_GENERATE_TOOL: Tool = {
   name: PRIMARY_VIDEO_TOOL_NAME,
   description:
-    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Model selection priority: MiniMax series first, then Wan 3.0, then Seedance Mini, then Seedance Fast, and finally standard Seedance. Choose the highest-priority available model that supports the required inputs and generation settings; use get_video_capabilities to confirm exact model IDs and capabilities. If the prompt or any input/reference involves human faces or copyright-sensitive content, NEVER use any Seedance model, including Mini, Fast, and standard variants, even if explicitly requested; use an eligible non-Seedance model instead. If no eligible model supports the request, explain the limitation rather than falling back to Seedance. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. The default behavior is submit-and-wait. The legacy action="submit" and action="status" forms remain available only for backward compatibility. Submission payloads must use the unified content array format, with items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"image_url", image_url:{url:"..."}, role:"first_frame"}, {type:"image_url", image_url:{url:"..."}, role:"last_frame"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside the nested url fields are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot, base64/data URL, or other inline attachment payload without a stable local file path, or when the user explicitly wants a reusable public URL.',
+    'Create, generate, or extend AI videos via VectCut and wait until the same tool call finishes with the final video result. Model selection priority: MiniMax series first, then Wan 3.0, then Seedance Mini, then Seedance Fast, and finally standard Seedance. Choose the highest-priority available model that supports the required inputs and generation settings; use get_video_capabilities to confirm exact model IDs and capabilities. If the prompt or any input/reference involves human faces or copyright-sensitive content, NEVER use any Seedance model, including Mini, Fast, and standard variants, even if explicitly requested; use an eligible non-Seedance model instead. If no eligible model supports the request, explain the limitation rather than falling back to Seedance. Use this for text-to-video, image-to-video, first-frame or first-last-frame guided generation, multimodal reference-driven generation, or related video generation workflows. This tool always submits and waits for the final result; do not poll separately or use shell sleep commands. Submission payloads must use the unified content array format, with items such as {type:"text", text:"..."}, {type:"image_url", image_url:{url:"..."}, role:"reference_image"}, {type:"image_url", image_url:{url:"..."}, role:"first_frame"}, {type:"image_url", image_url:{url:"..."}, role:"last_frame"}, {type:"video_url", video_url:{url:"..."}, role:"reference_video"}, or {type:"audio_url", audio_url:{url:"..."}, role:"reference_audio"}. If the user provides a reference video, preserve it as a video reference via video_url/reference_video. Do not silently decompose a reference video into extracted frames plus audio unless the user explicitly asks for frame extraction or audio separation. Remote references are accepted directly, and local file URLs or absolute local paths inside the nested url fields are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot, base64/data URL, or other inline attachment payload without a stable local file path, or when the user explicitly wants a reusable public URL.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: {
-        type: 'string',
-        enum: ['submit', 'submit_and_wait', 'status'],
-        description:
-          'Optional backward-compatible override. Omit this field to submit and wait for the final result. submit returns immediately after task creation, submit_and_wait waits until completion, and status queries an existing task.'
-      },
-      taskId: {
-        type: 'string',
-        description:
-          'Backward-compatible task ID returned by the legacy submit mode. Required only when action is status.'
-      },
       model: {
         type: 'string',
         description:
@@ -334,7 +323,7 @@ class VideoGenerateServer {
         }
         switch (toolName) {
           case PRIMARY_VIDEO_TOOL_NAME:
-            return await this.generateVideo(args as Record<string, unknown>, extra as ToolExecutionExtra)
+            return await this.submitAndWaitVideoTask(args as Record<string, unknown>, extra as ToolExecutionExtra)
           case 'get_video_capabilities':
             return await this.getVideoCapabilities(args as Record<string, unknown>)
           default:
@@ -1223,34 +1212,6 @@ class VideoGenerateServer {
         silent_video_supported: Boolean(generate_audio_supported)
       }))
     })
-  }
-
-  private async generateVideo(args: Record<string, unknown>, extra?: ToolExecutionExtra) {
-    const actionRaw = typeof args.action === 'string' ? args.action.trim().toLowerCase() : ''
-    const action = actionRaw || 'submit_and_wait'
-
-    if (action === 'status') {
-      const taskId =
-        typeof args.taskId === 'string' && args.taskId.trim()
-          ? args.taskId.trim()
-          : typeof args.task_id === 'string' && args.task_id.trim()
-            ? args.task_id.trim()
-            : ''
-
-      if (!taskId) {
-        throw new McpError(ErrorCode.InvalidParams, "'taskId'/'task_id' is required for video task status queries")
-      }
-      return this.getVideoTaskStatus(taskId)
-    }
-
-    if (action !== 'submit') {
-      if (action !== 'submit_and_wait') {
-        throw new McpError(ErrorCode.InvalidParams, `Unsupported action: ${action}`)
-      }
-      return this.submitAndWaitVideoTask(args, extra)
-    }
-
-    return this.submitVideoTask(args)
   }
 }
 

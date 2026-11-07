@@ -98,6 +98,10 @@ function mockJsonResponse(data: unknown, ok = true, status = 200): Response {
 describe('VideoGenerateServer', () => {
   beforeEach(() => {
     mockNetFetch.mockReset()
+    mockNetFetch.mockImplementation(async (url: string) => {
+      if (!url.includes('/aivideo/task_status?')) throw new Error(`Unexpected fetch: ${url}`)
+      return mockJsonResponse({ status: 'succeeded', video_url: 'https://example.com/result.mp4' })
+    })
     mockStat.mockReset()
     mockStoreGet.mockReset()
     mockStoreSet.mockReset()
@@ -128,11 +132,27 @@ describe('VideoGenerateServer', () => {
 
     const properties = generateVideoTool.inputSchema?.properties ?? {}
     expect(properties.content.description).toContain('uploaded internally before submission')
+    expect(properties.action).toBeUndefined()
+    expect(properties.taskId).toBeUndefined()
+    expect(generateVideoTool.description).not.toContain('backward compatibility')
     expect(properties.prompt).toBeUndefined()
     expect(properties.images).toBeUndefined()
     expect(properties.referenceImages).toBeUndefined()
     expect(properties.referenceVideos).toBeUndefined()
     expect(properties.referenceAudios).toBeUndefined()
+  })
+
+  it.each(['submit', 'status'])('does not let stale action=%s bypass internal waiting', async (action) => {
+    const server = createServer() as any
+    const completed = { content: [{ type: 'text', text: 'completed video' }] }
+    const wait = vi.spyOn(server, 'submitAndWaitVideoTask').mockResolvedValue(completed)
+    const submit = vi.spyOn(server, 'submitVideoTask')
+    const status = vi.spyOn(server, 'getVideoTaskStatus')
+
+    expect(await callTool(server, { action, content: [{ type: 'text', text: 'test' }] })).toEqual(completed)
+    expect(wait).toHaveBeenCalledOnce()
+    expect(submit).not.toHaveBeenCalled()
+    expect(status).not.toHaveBeenCalled()
   })
 
   it('should return filtered video capabilities', async () => {
@@ -500,7 +520,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       content: [
         {
           type: 'text',
@@ -556,7 +575,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
-      action: 'submit',
       content: [
         {
           type: 'text',
@@ -618,7 +636,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     const result = await callTool(server, {
-      action: 'submit',
       model: 'seedance-2.0',
       content: [
         {
@@ -726,7 +743,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       model: 'seedance-1.5-pro',
       content: [
         {
@@ -796,7 +812,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       model: 'seedance-2.0',
       content: [
         {
@@ -880,7 +895,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       model: 'seedance-2.0',
       generationMode: 'first_last_frame',
       content: [
@@ -967,7 +981,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       model: 'seedance-1.5-pro',
       content: [
         {
@@ -1079,7 +1092,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       model: 'seedance-1.5-pro',
       content: [
         {
@@ -1117,7 +1129,6 @@ describe('VideoGenerateServer', () => {
   it('should reject legacy prompt and convenience media fields', async () => {
     const server = createServer()
     const result = await callTool(server, {
-      action: 'submit',
       prompt: '做一个产品宣传视频',
       referenceImages: ['https://example.com/ref-1.png'],
       referenceVideos: ['https://example.com/ref-2.mp4'],
@@ -1163,7 +1174,6 @@ describe('VideoGenerateServer', () => {
 
     const server = createServer()
     await callTool(server, {
-      action: 'submit',
       model: 'minimax-h3',
       generation_mode: 'reference',
       content: [
@@ -1203,7 +1213,7 @@ describe('VideoGenerateServer', () => {
     })
   })
 
-  it('should query video generation task status', async () => {
+  it('should query video generation task status through the external tool', async () => {
     mockNetFetch
       .mockResolvedValueOnce(
         mockJsonResponse({
@@ -1222,11 +1232,10 @@ describe('VideoGenerateServer', () => {
         })
       )
 
-    const server = createServer()
+    const server = new VideoGenerateServer({ external: true })
     const result = await callTool(server, {
-      action: 'status',
-      taskId: 'video-task-789'
-    })
+      task_id: 'video-task-789'
+    }, 'task_status')
 
     expect(mockNetFetch).toHaveBeenNthCalledWith(
       2,
