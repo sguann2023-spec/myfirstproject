@@ -22,7 +22,14 @@ export function fileExtensions(extensions?: string[]): string[] {
 export function normalizeAskUserQuestionInput<T>(input: T): T | (T & { questions: Question[] }) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input
   const value = input as Record<string, unknown>
-  if ('questions' in value || typeof value.question !== 'string' || !value.question.trim()) return input
+  if ('questions' in value) return input
+  // Accept models wrapping a single rich question without discarding its options.
+  if (value.question && typeof value.question === 'object' && !Array.isArray(value.question)) {
+    const question = value.question as Record<string, unknown>
+    if (typeof question.question !== 'string' || !question.question.trim()) return input
+    return { ...input, questions: [{ id: 'question-0', header: '问题', ...question } as unknown as Question] }
+  }
+  if (typeof value.question !== 'string' || !value.question.trim()) return input
   return {
     ...input,
     questions: [{ id: 'question-0', header: '问题', question: value.question, type: 'text' }]
