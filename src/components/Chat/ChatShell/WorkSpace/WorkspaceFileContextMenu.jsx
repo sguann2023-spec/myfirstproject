@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { FileText, FolderOpen, MessageSquarePlus } from 'lucide-react';
 import './WorkspaceFileContextMenu.css';
 
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
@@ -57,11 +58,18 @@ export default function WorkspaceFileContextMenu({ state, onClose, onAddToChat }
         const index = items.indexOf(document.activeElement);
         items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
       }}>
-      <button type="button" role="menuitem" onClick={() => run(state.onOpen)}>{t('workspaceFileMenu.open')}</button>
-      <button type="button" role="menuitem" onClick={() => run(() => window.api.file.showInFolder(state.absolutePath))}>
-        {t(isWindows ? 'workspaceFileMenu.revealWindows' : 'workspaceFileMenu.revealMac')}
+      <button type="button" role="menuitem" onClick={() => run(state.onOpen)}>
+        <FileText size={13} strokeWidth={2.2} />
+        <span>{t('workspaceFileMenu.open')}</span>
       </button>
-      <button type="button" role="menuitem" onClick={() => run(() => onAddToChat?.({ rootPath: state.rootPath, node: state.node }))}>{t('workspaceFileMenu.addToChat')}</button>
+      <button type="button" role="menuitem" onClick={() => run(() => window.api.file.showInFolder(state.absolutePath))}>
+        <FolderOpen size={13} strokeWidth={2.2} />
+        <span>{t(isWindows ? 'workspaceFileMenu.revealWindows' : 'workspaceFileMenu.revealMac')}</span>
+      </button>
+      <button type="button" role="menuitem" onClick={() => run(() => onAddToChat?.({ rootPath: state.rootPath, node: state.node }))}>
+        <MessageSquarePlus size={13} strokeWidth={2.2} />
+        <span>{t('workspaceFileMenu.addToChat')}</span>
+      </button>
     </div>, document.body
   );
 }

@@ -95,3 +95,49 @@ describe('workspace file reference controller', () => {
     expect(insert).not.toHaveBeenCalled();
   });
 });
+
+describe('draft reference controller', () => {
+  const start = source.indexOf('      insertDraftReference: (draft) => {');
+  const end = source.indexOf('      },', start);
+  const invoke = new Function('editor', 'draft', 'insertFileReferenceAtView', 'toMediaSrc',
+    source.slice(start + '      insertDraftReference: (draft) => {'.length, end));
+
+  it('inserts a draft-id reference chip labeled by the draft title at the current selection', () => {
+    const editor = { state: { selection: { from: 4, to: 9 } }, view: {} };
+    const insert = vi.fn(() => true);
+    expect(invoke(editor, { draftId: '123', title: '我的草稿' }, insert, vi.fn())).toBe(true);
+    expect(insert).toHaveBeenCalledWith(editor.view, { start: 4, end: 9 }, {
+      uid: 'draft:123',
+      name: '我的草稿',
+      sourcePath: '123',
+      sourceType: 'draft',
+      sourceLabel: '草稿',
+    });
+  });
+
+  it('falls back to the draft id as the label and attaches the cover when present', () => {
+    const editor = { state: { selection: { from: 0, to: 0 } }, view: {} };
+    const insert = vi.fn(() => true);
+    invoke(editor, { draftId: '123', cover: '/workspace/cover.png' }, insert, (value) => `file://${value}`);
+    expect(insert).toHaveBeenCalledWith(editor.view, { start: 0, end: 0 }, {
+      uid: 'draft:123',
+      name: '123',
+      sourcePath: '123',
+      sourceType: 'draft',
+      sourceLabel: '草稿',
+      fileType: 'image/png',
+      thumbnailUrl: 'file:///workspace/cover.png',
+      previewUrl: 'file:///workspace/cover.png',
+    });
+  });
+
+  it('ignores unavailable editors and drafts without an id', () => {
+    const insert = vi.fn();
+    for (const editor of [null, { isDestroyed: true }, {}]) {
+      expect(invoke(editor, { title: 'no id' }, insert, vi.fn())).toBe(false);
+    }
+    const editor = { state: { selection: { from: 0, to: 0 } }, view: {} };
+    expect(invoke(editor, { title: 'no id' }, insert, vi.fn())).toBe(false);
+    expect(insert).not.toHaveBeenCalled();
+  });
+});

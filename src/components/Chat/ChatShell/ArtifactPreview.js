@@ -4,23 +4,25 @@ import React from 'react';
 import { FileChartLine } from 'lucide-react';
 import MediaPreviewModal from '../MediaPreviewModal';
 
-const VideoItem = ({ video, onOpen }) => {
+const VideoItem = ({ video, onOpen, onContextMenu }) => {
   const [duration, setDuration] = React.useState(null);
   const src = toMediaSrc(video.videoUrl);
   React.useEffect(() => setDuration(null), [src]);
   const label = Number.isFinite(duration) && duration > 0
     ? `${String(Math.floor(duration / 60)).padStart(2, '0')}:${String(Math.floor(duration % 60)).padStart(2, '0')}` : '--:--';
-  return <button type="button" className="artifact-preview__video-item" aria-label="预览生成视频" onClick={onOpen}>
+  return <button type="button" className="artifact-preview__video-item" aria-label="预览生成视频" onClick={onOpen}
+    onContextMenu={onContextMenu}>
     <video src={src} muted playsInline preload="metadata"
       onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
       onDurationChange={(event) => setDuration(event.currentTarget.duration)} onError={() => setDuration(null)} />
     <span className="artifact-preview__video-duration">{label}</span>
   </button>;
 };
-import { Image, Typography } from 'antd';
+import { Image, Tooltip, Typography } from 'antd';
 import DraftIcon from '../../../../public/draft_icon.svg';
 import { toMediaSrc } from '../../../shared/mediaSrc.js';
 import PinnedDraftTrackView from '@renderer/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
+import ArtifactContextMenu from './ArtifactContextMenu';
 import './ArtifactPreview.css';
 import { formatDraftUpdatedAt } from '../pinnedDraftMetadata';
 
@@ -66,11 +68,29 @@ const ArtifactPreview = ({
   onDownloadItem,
   previewLoadingKey = null,
   previewErrorKey = null,
-  previewErrorMessage = ''
+  previewErrorMessage = '',
+  onSaveAs,
+  onAddToChat,
+  onAddDraftToChat
 }) => {
   const [previewVideo, setPreviewVideo] = React.useState(null);
   React.useEffect(() => setPreviewVideo(null), [videos]);
   const [previewDraftKey, setPreviewDraftKey] = React.useState(null);
+  const [contextMenu, setContextMenu] = React.useState(null);
+
+  const openContextMenu = React.useCallback((item) => (event) => {
+    if (!item || (typeof onSaveAs !== 'function' && typeof onAddToChat !== 'function')) return;
+    event.preventDefault();
+    setContextMenu({ visible: true, x: event.clientX, y: event.clientY, item });
+  }, [onSaveAs, onAddToChat]);
+
+  const openDraftContextMenu = React.useCallback((draft) => (event) => {
+    if (!draft || (typeof onDownloadItem !== 'function' && typeof onAddDraftToChat !== 'function')) return;
+    event.preventDefault();
+    setContextMenu({ visible: true, x: event.clientX, y: event.clientY, item: draft, kind: 'draft' });
+  }, [onDownloadItem, onAddDraftToChat]);
+
+  const closeContextMenu = React.useCallback(() => setContextMenu(null), []);
 
   const displayDrafts = React.useMemo(() => drafts.map((draft, index) => {
     const status = draft.status === 'completed' ? 'completed' : 'in_progress';
@@ -111,6 +131,7 @@ const ArtifactPreview = ({
                 tabIndex={0}
                 aria-expanded={previewDraftKey === draft.key}
                 onClick={() => openPreviewItem(draft)}
+                onContextMenu={openDraftContextMenu(draft)}
                 onKeyDown={(event) => {
                   if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
                     event.preventDefault();
@@ -122,16 +143,18 @@ const ArtifactPreview = ({
                   <Text className="artifact-preview__item-title" title={draft.title}>{draft.title}</Text>
                   <div className="artifact-preview__item-time">{formatDraftUpdatedAt(draft.updated_at)}</div>
                 </div>
-                <button
-                  type="button"
-                  className="artifact-preview__export"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDownloadItem?.(draft);
-                  }}
-                  aria-label={`导出草稿 ${draft.title}`}>
-                  导出
-                </button>
+                <Tooltip title="导出到剪映里查看">
+                  <button
+                    type="button"
+                    className="artifact-preview__export"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDownloadItem?.(draft);
+                    }}
+                    aria-label={`导出草稿 ${draft.title}`}>
+                    导出
+                  </button>
+                </Tooltip>
               </div>
               {previewDraftKey === draft.key && (
                 <div className="artifact-preview__track">
@@ -155,7 +178,7 @@ const ArtifactPreview = ({
         {videos.length > 0 && <section aria-label="视频">
           <h3 className="artifact-preview__section-title">视频</h3>
           <div className="artifact-preview__video-grid">
-            {videos.map((video) => <VideoItem key={`${video.runtimeSessionId}:${video.id}`} video={video} onOpen={() => setPreviewVideo(video)} />)}
+            {videos.map((video) => <VideoItem key={`${video.runtimeSessionId}:${video.id}`} video={video} onOpen={() => setPreviewVideo(video)} onContextMenu={openContextMenu(video)} />)}
           </div>
         </section>}
         <MediaPreviewModal src={previewVideo ? toMediaSrc(previewVideo.videoUrl) : ''} kind="video" name="生成视频" onClose={() => setPreviewVideo(null)} />
@@ -167,6 +190,7 @@ const ArtifactPreview = ({
                 key={image.id}
                 src={toMediaSrc(image.imageUrl)}
                 alt={`生成图片 ${index + 1}`}
+                onContextMenu={openContextMenu(image)}
               />)}
             </div>
           </Image.PreviewGroup>
@@ -174,14 +198,14 @@ const ArtifactPreview = ({
         {audios.length > 0 && <section aria-label="音频" className="artifact-preview__audio-section">
           <h3 className="artifact-preview__section-title">音频</h3>
           <div className="artifact-preview__list">
-            {audios.map((audio) => <div className="artifact-preview__card" key={audio.id}>
+            {audios.map((audio) => <div className="artifact-preview__card" key={audio.id} onContextMenu={openContextMenu(audio)}>
               <AudioGenerationToolBody output={pinnedAudioToOutput(audio)} title={audio.text} isRunning={false} compact />
             </div>)}
           </div>
         </section>}
         {documents.length > 0 && <section aria-label="文档">
           <h3 className="artifact-preview__section-title">文档</h3>
-          <div className="artifact-preview__list">{documents.map((item) => <div className="artifact-preview__card" key={item.id}>
+          <div className="artifact-preview__list">{documents.map((item) => <div className="artifact-preview__card" key={item.id} onContextMenu={openContextMenu(item)}>
             <div className="artifact-preview__item">
               <div className="artifact-preview__cover is-placeholder"><FileChartLine size={28} strokeWidth={1} /></div>
               <div className="artifact-preview__item-main">
@@ -193,6 +217,13 @@ const ArtifactPreview = ({
           </div>)}</div>
         </section>}
       </div>
+      <ArtifactContextMenu
+        state={contextMenu}
+        onClose={closeContextMenu}
+        onSaveAs={onSaveAs}
+        onExport={onDownloadItem}
+        onAddToChat={contextMenu?.kind === 'draft' ? onAddDraftToChat : onAddToChat}
+      />
     </div>
   );
 };

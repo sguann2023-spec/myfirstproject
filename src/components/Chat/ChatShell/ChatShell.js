@@ -27,6 +27,7 @@ import WorkSpace from './WorkSpace/WorkSpace';
 import { claimNewguiderReward } from '../../../api/newguiderReward';
 import { DownloadController } from '../../../shared/DownloadController.js';
 import { parseDraftDownloaderUrl } from '../../../shared/draftDownloaderUrl';
+import { getArtifactFileSource, getArtifactFileName } from '../artifactFileTarget';
 import { loggerService } from '@logger';
 import {
   BEGINNER_GUIDE_COMPLETED_KEY,
@@ -134,11 +135,11 @@ const getSelectedWorkspacePath = (session) => {
   return normalizePath(session?.accessible_paths?.[0] || '');
 };
 const WEB_PREVIEW_WIDTH_STORE_KEY = 'chat-web-preview-width:v1';
-const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v1';
+const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v2';
 const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
 const TREE_LIST_MAX_ENTRIES = 20000;
 const DEFAULT_PREVIEW_PANE_WIDTH = 400;
-const DEFAULT_MEMBERS_PANEL_WIDTH = 180;
+const DEFAULT_MEMBERS_PANEL_WIDTH = 260;
 const MIN_MEMBERS_PANEL_WIDTH = 160;
 const MAX_MEMBERS_PANEL_WIDTH = 360;
 const MEMBERS_PANEL_RESIZER_WIDTH = 8;
@@ -363,6 +364,8 @@ const ChatShell = ({
   onModifySkill,
   onSubmitFileComment,
   onAddWorkspaceFile,
+  onAddArtifactToChat,
+  onAddDraftToChat,
   onSubmitToolTask,
   sessionSending = false,
   webPreview = null,
@@ -1132,6 +1135,17 @@ const ChatShell = ({
     }
   }, []);
 
+  const saveArtifactAs = React.useCallback(async (item) => {
+    const source = getArtifactFileSource(item);
+    if (!source) return;
+    try {
+      const savedPath = await window.api.file.saveAs(source, getArtifactFileName(item));
+      if (savedPath) message.success('文件已保存');
+    } catch (error) {
+      message.error(error?.message || '另存为失败');
+    }
+  }, []);
+
   const closeInlinePreviewPane = React.useCallback(() => {
     pendingFilePreviewKeysRef.current.forEach((previewKey) => {
       closedFilePreviewKeysRef.current.add(previewKey);
@@ -1803,6 +1817,9 @@ const ChatShell = ({
               videos: pinnedVideos,
               documents: pinnedDocuments,
               onOpenDocument: (item) => loadFilePreviewByPath(item.filePath, item.name),
+              onSaveAs: saveArtifactAs,
+              onAddToChat: (item) => onAddArtifactToChat?.(item),
+              onAddDraftToChat: (draft) => onAddDraftToChat?.(draft),
               sessionActive: pinnedDraftSessionActive,
               sessionFulfilled: pinnedDraftSessionFulfilled,
               onPreviewItem: onPinnedDraftPreviewItem,

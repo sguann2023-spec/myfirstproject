@@ -1,0 +1,33 @@
+.artifact-context-menu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 136px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  user-select: none;
+}
+
+.artifact-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f2937;
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-context-menu button:hover,
+.artifact-context-menu button:focus-visible {
+  background: rgba(15, 23, 42, 0.06);
+  outline: none;
+}

@@ -1480,6 +1480,42 @@ class FileStorage {
     }
   }
 
+  // Save a generated artifact (local path or remote URL) to a user-chosen location.
+  public saveAs = async (
+    _: Electron.IpcMainInvokeEvent,
+    source: string,
+    fileName?: string
+  ): Promise<string | null> => {
+    const normalizedSource = String(source || '').trim()
+    if (!normalizedSource) return null
+
+    try {
+      const defaultPath = String(fileName || '').trim() || normalizedSource.split(/[?#]/)[0].split(/[\\/]/).pop() || 'download'
+      const result: SaveDialogReturnValue = await dialog.showSaveDialog({
+        title: t('dialog.save_file'),
+        defaultPath
+      })
+
+      if (result.canceled || !result.filePath) return null
+
+      if (/^https?:/i.test(normalizedSource)) {
+        const response = await net.fetch(normalizedSource)
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        const buffer = Buffer.from(await response.arrayBuffer())
+        await fs.promises.writeFile(result.filePath, buffer)
+      } else {
+        await fs.promises.copyFile(normalizedSource, result.filePath)
+      }
+
+      return result.filePath
+    } catch (error) {
+      logger.error('[IPC - Error] An error occurred saving the file as:', error as Error)
+      throw error
+    }
+  }
+
   public saveImage = async (_: Electron.IpcMainInvokeEvent, name: string, data: string): Promise<boolean> => {
     try {
       const filePath = dialog.showSaveDialogSync({

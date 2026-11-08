@@ -13,16 +13,23 @@
 }
 
 .workspace-file-context-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   border: none;
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   background: transparent;
   color: #1f2937;
   text-align: left;
   font-size: 12px;
+  line-height: 1;
   cursor: pointer;
+}
+
+.workspace-file-context-menu button svg {
+  flex-shrink: 0;
 }
 
 .workspace-file-context-menu button:hover,

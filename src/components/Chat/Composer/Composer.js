@@ -6,6 +6,7 @@ import { buildTextStyleRanges } from '../../../shared/textTypography';
 import { buildTextEffectParams } from '../../../shared/textEffects';
 import { buildTextPlacementParams } from '../../../shared/textPlacement';
 import { buildDigitalHumanRequestTextPrompt } from '../../../shared/digitalHumanRequest';
+import { toMediaSrc } from '../../../shared/mediaSrc.js';
 import { mergeAttributes, Node } from '@tiptap/core';
 import Mention from '@tiptap/extension-mention';
 import { Fragment } from '@tiptap/pm/model';
@@ -3198,6 +3199,21 @@ const Composer = ({
         if (!editor || editor.isDestroyed || !entry?.rootPath || !entry?.node) return false;
         const { from, to } = editor.state.selection;
         return insertFileReferenceAtView(editor.view, { start: from, end: to }, createLocalReferenceFile(entry));
+      },
+      insertDraftReference: (draft) => {
+        if (!editor || editor.isDestroyed || !String(draft?.draftId || '').trim()) return false;
+        const title = String(draft?.title || '').trim() || String(draft.draftId);
+        const cover = draft?.cover ? toMediaSrc(draft.cover) : '';
+        const { from, to } = editor.state.selection;
+        return insertFileReferenceAtView(editor.view, { start: from, end: to }, {
+          uid: `draft:${draft.draftId}`,
+          name: title,
+          // The draft id is the reference text; the title only labels the chip.
+          sourcePath: String(draft.draftId),
+          sourceType: 'draft',
+          sourceLabel: '草稿',
+          ...(cover ? { fileType: 'image/png', thumbnailUrl: cover, previewUrl: cover } : {}),
+        });
       },
       focus: () => {
         if (!editor || editor.isDestroyed) return;

@@ -243,6 +243,7 @@ export enum IpcChannel {
   File_Open = 'file:open',
   File_OpenPath = 'file:openPath',
   File_Save = 'file:save',
+  File_SaveAs = 'file:saveAs',
   File_Select = 'file:select',
   File_Upload = 'file:upload',
   File_Clear = 'file:clear',

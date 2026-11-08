@@ -12,6 +12,7 @@ import { ChatTaskContext } from './ChatShell/ChatTaskContext';
 import MessagePane from './MessagePane/MessagePane';
 import Composer from './Composer/Composer';
 import { sendQueue } from './sendQueue';
+import { createArtifactChatReference } from './artifactFileTarget';
 import { useArtifactAutoPreview } from './useArtifactAutoPreview';
 import SendQueuePanel from './SendQueuePanel';
 import {
@@ -556,6 +557,11 @@ const Chat = ({
       onModifySkill={insertSkillModifyPrompt}
       onCreateSkill={insertCreateSkillPrompt}
       onAddWorkspaceFile={(file) => inputRef.current?.insertLocalFileReference(file)}
+      onAddArtifactToChat={(item) => {
+        const entry = createArtifactChatReference(item);
+        if (entry) inputRef.current?.insertLocalFileReference(entry);
+      }}
+      onAddDraftToChat={(draft) => inputRef.current?.insertDraftReference(draft)}
       onSubmitFileComment={handleSubmitFileComment}
       onSubmitToolTask={handleSend}
       sessionSending={sessionSending}
