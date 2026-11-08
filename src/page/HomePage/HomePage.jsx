@@ -75,6 +75,7 @@ import { subscribeTaskNotificationPreferences } from '../../renderer/src/utils/t
 import { isFocused } from '../../renderer/src/utils/window';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
+import { buildProvidersState, toModelOption } from './chatProviders';
 import { useChatModelPreference } from './useChatModelPreference';
 const logger = loggerService.withContext('HomePage');
 const logPreviewWindowResizeError = (error) => logger.warn('Failed to resize window for preview.', error);
@@ -1170,54 +1171,6 @@ const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
   if (!resourcesPath || !normalizedSkillName) return '';
   return joinLocalPath(resourcesPath, 'quick', 'skills', normalizedSkillName);
 };
-const resolveProviderIdByModel = (modelId = '') => {
-  const lower = String(modelId || '').toLowerCase();
-  if (lower.startsWith('claude-')) return { id: 'anthropic', type: 'anthropic', name: 'Anthropic' };
-  if (lower.startsWith('qwen-') || lower.startsWith('qvq-') || lower.startsWith('qwq-')) return { id: 'bailian', type: 'openai', name: 'Aliyun Bailian' };
-  if (lower.startsWith('gemini-')) return { id: 'gemini', type: 'openai', name: 'Google Gemini' };
-  return { id: 'openai', type: 'openai', name: 'OpenAI' };
-};
-
-const buildProvidersState = (modelIds = [], apiKey = '') => {
-  const providersMap = new Map();
-  const normalizedApiKey = String(apiKey || '').trim();
-  modelIds.forEach((rawModelId) => {
-    const modelId = String(rawModelId || '').trim();
-    if (!modelId) return;
-    const p = resolveProviderIdByModel(modelId);
-    if (!providersMap.has(p.id)) {
-      providersMap.set(p.id, { id: p.id, name: p.name, type: p.type, enabled: true, apiKey: normalizedApiKey, apiHost: '', models: [] });
-    }
-    const provider = providersMap.get(p.id);
-    provider.models.push({ id: modelId, name: modelId, provider: p.id });
-  });
-  return { llm: { providers: Array.from(providersMap.values()) } };
-};
-
-const toModelOption = (
-  model_id,
-  name,
-  icon = '',
-  readImage = false,
-  pricing = undefined,
-  priceText = '',
-  description = '',
-  badges = [],
-  tokenLimits = {}
-) => ({
-  value: model_id,
-  label: name,
-  icon,
-  read_image: Boolean(readImage),
-  context_window_tokens: tokenLimits.context_window_tokens,
-  max_input_tokens: tokenLimits.max_input_tokens,
-  max_output_tokens: tokenLimits.max_output_tokens,
-  compaction_trigger_tokens: tokenLimits.compaction_trigger_tokens,
-  pricing: pricing && typeof pricing === 'object' ? { ...pricing } : undefined,
-  price_text: String(priceText || '').trim(),
-  description: String(description || '').trim(),
-  badges: Array.isArray(badges) ? badges.map((badge) => String(badge || '').trim()).filter(Boolean) : [],
-});
 
 const canonicalizeChatModelId = (modelId = '') => {
   const normalized = String(modelId || '').trim();
@@ -3199,7 +3152,7 @@ const HomePage = () => {
             .filter(Boolean)
           : (
             (Array.isArray(payload?.models) && payload.models.length > 0 ? payload.models : CHAT_MODELS)
-              .map((name) => toModelOption(name, name, iconMap?.[name] || '', false))
+              .map((name) => toModelOption(name, name, iconMap?.[name] || ''))
           );
         setChatModelOptions(nextOptions);
         setChatDefaultModel(String(payload?.defaultModel || '').trim());
@@ -3220,9 +3173,9 @@ const HomePage = () => {
   }, []);
 
   useEffect(() => {
-    const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
+    const models = chatModelOptions?.length > 0 ? chatModelOptions : CHAT_MODELS;
     const initialApiKey = String(electronStore.get('auth.vectcut_api_key') || '').trim();
-    const state = buildProvidersState(modelIds.length > 0 ? modelIds : CHAT_MODELS, initialApiKey);
+    const state = buildProvidersState(models, initialApiKey);
     window.store = {
       getState: () => state,
       dispatch: () => undefined
@@ -4297,8 +4250,8 @@ const HomePage = () => {
       }
 
       const vectcutApiKey = await getAgentApiKeyFromLoginState();
-      const modelIds = (chatModelOptions || []).map((item) => String(item?.value || '').trim()).filter(Boolean);
-      const runtimeState = buildProvidersState(modelIds.length > 0 ? modelIds : CHAT_MODELS, vectcutApiKey);
+      const models = chatModelOptions?.length > 0 ? chatModelOptions : CHAT_MODELS;
+      const runtimeState = buildProvidersState(models, vectcutApiKey);
       window.store = {
         getState: () => runtimeState,
         dispatch: () => undefined

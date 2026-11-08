@@ -336,6 +336,8 @@ export type Model = {
   group: string
   owned_by?: string
   description?: string
+  /** Backend-declared image input support; absent uses model-name detection. */
+  read_image?: boolean
   capabilities?: ModelCapability[]
   /**
    * @deprecated

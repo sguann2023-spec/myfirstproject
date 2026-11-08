@@ -13,14 +13,15 @@ const PROVIDERS_CACHE_TTL = 10 * 1000 // 10 seconds
 
 export async function getAvailableProviders(): Promise<Provider[]> {
   try {
-    // Try to get from cache first (faster)
+    // Read current metadata before reusing formatted providers: model capabilities
+    // can change while the provider IDs and the cache TTL stay unchanged.
+    const providers = await reduxService.select('state.llm.providers')
+    const sourceSnapshot = JSON.stringify(providers)
     const cachedSupportedProviders = CacheService.get<Provider[]>(PROVIDERS_CACHE_KEY)
-    if (cachedSupportedProviders && cachedSupportedProviders.length > 0) {
+    if (cachedSupportedProviders?.length &&
+      CacheService.get<string>(`${PROVIDERS_CACHE_KEY}:source`) === sourceSnapshot) {
       return cachedSupportedProviders
     }
-
-    // If cache is not available, get fresh data from Redux
-    const providers = await reduxService.select('state.llm.providers')
     if (!providers || !Array.isArray(providers)) {
       logger.warn('No providers found in Redux store')
       return []
@@ -47,6 +48,7 @@ export async function getAvailableProviders(): Promise<Provider[]> {
 
     // Cache the formatted results
     CacheService.set(PROVIDERS_CACHE_KEY, formattedProviders, PROVIDERS_CACHE_TTL)
+    CacheService.set(`${PROVIDERS_CACHE_KEY}:source`, sourceSnapshot, PROVIDERS_CACHE_TTL)
 
     logger.info('Providers filtered and formatted', {
       supported: formattedProviders.length,

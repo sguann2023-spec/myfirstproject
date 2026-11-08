@@ -105,26 +105,14 @@ const VISION_MODEL_REGEX = new RegExp(
   'i'
 )
 
-function getUserSelectedVisionCapability(model: Record<string, unknown> | undefined): boolean | undefined {
-  const capabilities = Array.isArray(model?.capabilities) ? model.capabilities : []
-  for (const capability of capabilities) {
-    if (!capability || typeof capability !== 'object') continue
-    const record = capability as Record<string, unknown>
-    if (record.type === 'vision') {
-      return typeof record.isUserSelected === 'boolean' ? record.isUserSelected : undefined
-    }
-  }
-  return undefined
-}
-
 export function modelSupportsImageInput(runtimeEnvironment: ClaudeRuntimeEnvironment): boolean {
   const provider = runtimeEnvironment.modelInfo.provider
   const modelId = String(runtimeEnvironment.modelInfo.modelId || '').trim()
   const providerModels = Array.isArray(provider?.models) ? provider.models : []
   const configuredModel = providerModels.find((model) => model?.id === modelId) as Record<string, unknown> | undefined
 
-  const explicitVision = getUserSelectedVisionCapability(configuredModel)
-  if (explicitVision !== undefined) return explicitVision
+  // Backend metadata is authoritative, including an explicit false.
+  if (typeof configuredModel?.read_image === 'boolean') return configuredModel.read_image
 
   const candidates = [
     modelId,

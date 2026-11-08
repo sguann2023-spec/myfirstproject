@@ -14,6 +14,9 @@ export default defineConfig({
     environment: 'node',
     testTimeout: 60000,
     include: [
+      'src/main/services/agents/services/claudecode/__tests__/model-image-input.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/model-metadata-cache.test.ts',
+      'src/main/services/agents/services/claudecode/__tests__/model-api-metadata.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/tool-permissions.test.ts',
       'src/main/services/agents/services/claudecode/__tests__/tool-surface.test.ts',
       'src/preload/__tests__/requestReuse.test.ts',
