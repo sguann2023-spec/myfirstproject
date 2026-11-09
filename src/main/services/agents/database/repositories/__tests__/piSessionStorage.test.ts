@@ -1389,6 +1389,63 @@ describe('SqlitePiSessionStorage', () => {
     ).toBe(false)
   })
 
+  it.each([
+    ['invalid JSON', '{broken', 'error'],
+    ['missing message', JSON.stringify({ blocks: [] }), 'error'],
+    ['missing message ID', JSON.stringify({ message: { role: 'user' } }), 'error'],
+    ['scalar message', JSON.stringify({ message: 'not a message' }), 'error'],
+    ['invalid role', JSON.stringify({ message: { id: 'bad', role: 'event' } }), 'error'],
+    ['system record', JSON.stringify({ message: { id: 'system', role: 'system' } }), 'empty'],
+    ['tool without result', JSON.stringify({ message: { id: 'tool', role: 'tool' }, blocks: [] }), 'empty'],
+    ['completed tool result', JSON.stringify({ message: { id: 'tool', role: 'tool' }, blocks: [
+      { type: 'tool', status: 'success', content: 'result' }
+    ] }), 'present']
+  ])('validates lightweight legacy probe: %s', async (_label, content, outcome) => {
+    await client.execute({ sql: 'INSERT INTO session_messages(id,session_id,role,content,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+      args: [1, 'topic-a', 'user', content, '2026-01-01', '2026-01-01'] })
+    await useOverlay()
+    const run = vi.spyOn(database, 'run')
+    const probe = SqlitePiSessionStorage.hasDurableConversation({ topicId: 'topic-a', database })
+    if (outcome === 'error') await expect(probe).rejects.toThrow('invalid or unsupported message payload')
+    else await expect(probe).resolves.toBe(outcome === 'present')
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('does not hide corrupt legacy records behind valid canonical history', async () => {
+    await addCanonical('valid-user', 'question')
+    await client.execute({ sql: 'INSERT INTO session_messages(id,session_id,role,content,created_at,updated_at) VALUES (?,?,?,?,?,?)',
+      args: [1, 'topic-a', 'user', '{broken', '2026-01-01', '2026-01-01'] })
+    await useOverlay()
+    await expect(SqlitePiSessionStorage.hasDurableConversation({ topicId: 'topic-a', database }))
+      .rejects.toThrow('invalid or unsupported message payload')
+  })
+
+  it.each(['system', 'tool'])('does not count unconvertible canonical %s records', async role => {
+    await new AgentTranscriptRepository(database).upsertMessage({
+      id: 'nonchat', sessionId: 'topic-a', role: role as 'system' | 'tool', status: 'completed'
+    })
+    await expect(SqlitePiSessionStorage.hasDurableConversation({ topicId: 'topic-a', database })).resolves.toBe(false)
+  })
+
+  it('probes unopened overlay history without restoring bodies or requiring a valid workspace', async () => {
+    const now = '2026-01-01T00:00:00.000Z'
+    await client.execute(`INSERT INTO agent_messages(id, session_id, sequence, role, status, created_at, updated_at)
+      VALUES ('previous-user', 'topic-a', 0, 'user', 'completed', '${now}', '${now}')`)
+    await useOverlay()
+    const all = vi.spyOn(database, 'all')
+    const run = vi.spyOn(database, 'run')
+    expect(await SqlitePiSessionStorage.hasDurableConversation({
+      topicId: 'topic-a', database, workspacePath: '/nonexistent/history-probe-workspace'
+    })).toBe(true)
+    // The old probe invoked readOverlayPrefix -> image projection TEMP writes,
+    // scanned all bodies, and even tried publishing images during startup.
+    expect(run).not.toHaveBeenCalled()
+    expect(all.mock.calls.length).toBeLessThan(10)
+    expect(await SqlitePiSessionStorage.hasDurableConversation({
+      topicId: 'topic-a', database, excludeMessageIds: ['previous-user']
+    })).toBe(false)
+  })
+
   it('serializes concurrent appends and deduplicates stable invocation user messages', async () => {
     const first = await open()
     const second = await open()

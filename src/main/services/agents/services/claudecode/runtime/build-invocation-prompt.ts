@@ -1,3 +1,4 @@
+import { loggerService } from '@logger'
 import { USER_INTERACTION_GUIDANCE } from '@shared/userInteraction'
 import { CHANNEL_SECURITY_PROMPT } from '@shared/agents/claudecode/constants'
 
@@ -90,13 +91,32 @@ export async function buildInvocationPromptState(input: {
     invocationIds
   } = input
 
-  const linkedChannel = await channelService.findBySessionId(session.id)
+  const logger = loggerService.withContext('InvocationPrompt')
+  const step = async <T>(stage: string, operation: () => Promise<T>): Promise<T> => {
+    const startedAt = Date.now()
+    const context = { sessionId: session.id, traceId: invocationIds.traceId, stage }
+    const timer = setTimeout(() => logger.warn('Pre-harness prompt stage still pending', {
+      ...context, elapsedMs: Date.now() - startedAt
+    }), 3000)
+    try {
+      return await operation()
+    } catch (error) {
+      logger.error('Pre-harness prompt stage failed', {
+        ...context, elapsedMs: Date.now() - startedAt,
+        error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error)
+      })
+      throw error
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const linkedChannel = await step('channel', () => channelService.findBySessionId(session.id))
   const channelSecurityBlock = linkedChannel ? CHANNEL_SECURITY_PROMPT : ''
 
   let assistantSystemPrompt: string | undefined
   if (isAssistant) {
     try {
-      const context = await buildAssistantContext()
+      const context = await step('assistant_context', () => buildAssistantContext())
       assistantSystemPrompt = session.instructions ? `${session.instructions}\n\n${context}` : context
     } catch {
       assistantSystemPrompt = session.instructions
@@ -106,7 +126,7 @@ export async function buildInvocationPromptState(input: {
   if (isAssistant) assistantSystemPrompt = [assistantSystemPrompt, USER_INTERACTION_GUIDANCE].filter(Boolean).join('\n\n')
 
   const clawSystemPrompt = !isAssistant
-    ? [await promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions), USER_INTERACTION_GUIDANCE].join('\n\n')
+    ? [await step('workspace_instructions', () => promptBuilder.buildSystemPrompt(cwd, agentConfig, toolGuidanceOptions)), USER_INTERACTION_GUIDANCE].join('\n\n')
     : undefined
 
   const finalSystemPrompt = assistantSystemPrompt
@@ -116,22 +136,22 @@ export async function buildInvocationPromptState(input: {
         .join('\n\n')
 
   const traceId = invocationIds.traceId
-  let activeSegment = await conversationSegmentService.getActiveSegment(session.id)
+  let activeSegment = await step('active_segment', () => conversationSegmentService.getActiveSegment(session.id))
   if (!activeSegment) {
-    activeSegment = await conversationSegmentService.createRootSegment({
+    activeSegment = await step('create_root_segment', () => conversationSegmentService.createRootSegment({
       topicId: session.id,
       sdkSessionId: lastAgentSessionId,
       systemPromptVersion: 'v1',
       systemPromptHash: 'bootstrap_pending',
       basePromptSnapshot: String(finalSystemPrompt || '')
-    })
+    }))
   }
 
-  const durablePiHistoryAvailable = await SqlitePiSessionStorage.hasDurableConversation({
+  const durablePiHistoryAvailable = await step('durable_history_probe', () => SqlitePiSessionStorage.hasDurableConversation({
     topicId: session.id,
     workspacePath: input.cwd,
     excludeMessageIds: [invocationIds.userMessageId, invocationIds.assistantMessageId]
-  })
+  }))
   const recentTurnLimit = getSegmentRecentTurnLimit(activeSegment?.continuationSummary)
   const recentTurns = durablePiHistoryAvailable
     ? []
@@ -163,7 +183,7 @@ export async function buildInvocationPromptState(input: {
   const composedPrompt = composePromptViewText(promptEnvelope.promptView)
 
   const currentTurn = activeSegment
-    ? await agentTurnRepository.save({
+    ? await step('save_current_turn', () => agentTurnRepository.save({
         id: invocationIds.turnId,
         topicId: session.id,
         segmentId: activeSegment.id,
@@ -173,7 +193,7 @@ export async function buildInvocationPromptState(input: {
         userText: requestPrompt,
         startedAt: new Date().toISOString(),
         status: 'running'
-      })
+      }))
     : null
 
   return {

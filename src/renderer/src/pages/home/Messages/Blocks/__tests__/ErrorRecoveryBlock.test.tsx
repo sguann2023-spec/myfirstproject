@@ -8,9 +8,7 @@ import zhCN from '@renderer/i18n/locales/zh-cn.json'
 import enUS from '@renderer/i18n/locales/en-us.json'
 import zhTW from '@renderer/i18n/locales/zh-tw.json'
 import type { ErrorMessageBlock, Message } from '@renderer/types/newMessage'
-import { classifyError } from '@renderer/utils/errorClassifier'
-
-import ErrorRecoveryBlock from '../ErrorRecoveryBlock'
+import ErrorBlock from '../ErrorBlock'
 
 const mocks = vi.hoisted(() => ({
   state: {
@@ -62,7 +60,7 @@ async function render(errorBlock = block, response = message) {
   await act(async () => {
     root.render(
       <I18nextProvider i18n={i18n}>
-        <ErrorRecoveryBlock block={errorBlock} message={response} classification={classifyError(errorBlock.error)} />
+        <ErrorBlock block={errorBlock} message={response} />
       </I18nextProvider>
     )
   })
@@ -104,6 +102,33 @@ afterEach(async () => {
 })
 
 describe('ErrorRecoveryBlock', () => {
+  it.each(['zh-CN', 'en-US', 'zh-TW'])('shows startup timeout recovery without network checks in %s', async language => {
+    await i18n.changeLanguage(language)
+    await render({ ...block, error: {
+      name: 'Error', code: 'SESSION_MESSAGE_START_TIMEOUT',
+      message: 'Session message stream did not start within 15000ms', stack: null
+    } })
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(i18n.t('error.diagnosis.startup_timeout'))
+    expect(container.textContent).toContain('SESSION_MESSAGE_START_TIMEOUT')
+    expect(container.textContent).not.toContain(i18n.t('error.diagnosis.stream'))
+    expect(container.querySelector('.error-recovery__network')).toBeNull()
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    expect([...container.querySelectorAll('.error-recovery__actions button')].map(item => item.textContent))
+      .toEqual([i18n.t('common.retry')])
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
+    await act(async () => button(i18n.t('common.retry')).click())
+    expect(mocks.regenerate).toHaveBeenCalledOnce()
+  })
+
+  it('corrects persisted cards whose startup code survives only in detail', async () => {
+    await render({ ...block, error: {
+      name: 'Error', message: 'Response stream interrupted',
+      detail: 'SESSION_MESSAGE_START_TIMEOUT', stack: null
+    } })
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(zhCN.error.diagnosis.startup_timeout)
+    expect(container.querySelector('.error-recovery__network')).toBeNull()
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
+  })
   it.each([
     { name: 'AbortError', message: 'Stopped' },
     { name: 'Error', message: 'Request aborted by client' },

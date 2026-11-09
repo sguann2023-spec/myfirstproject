@@ -1875,6 +1875,7 @@
       "buy_credits": "Buy credits",
       "quota": "Account quota exhausted, please recharge or switch provider",
       "server": "Server error, please retry later",
+      "startup_timeout": "The session timed out while starting. Please retry later; if this persists, restart the client.",
       "stream": "Response interrupted, check network stability or retry",
       "tool_schema": "Tool parameter configuration error. Please update the client or contact support.",
       "unknown": "An error occurred",

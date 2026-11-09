@@ -2,12 +2,36 @@ import type { SerializedError } from '@renderer/types/error'
 import { describe, expect, it } from 'vitest'
 
 import { classifyError, getHttpErrorStatus, isInsufficientBalanceError } from '../errorClassifier'
+import { normalizeChatError } from '../../../../shared/chatError'
 
 function makeError(overrides: Partial<SerializedError> = {}): SerializedError {
   return { name: 'Error', message: 'test error', stack: null, ...overrides }
 }
 
 describe('classifyError', () => {
+  it.each([
+    { code: 'SESSION_MESSAGE_START_TIMEOUT', message: 'Session message stream did not start within 15000ms' },
+    { code: 'SESSION_MESSAGE_START_TIMEOUT', message: '' },
+    { message: 'SESSION_MESSAGE_START_TIMEOUT' },
+    { message: 'Session message stream did not start within 15000ms' },
+    { message: 'Response stream interrupted', detail: 'SESSION_MESSAGE_START_TIMEOUT' },
+    { message: '', detail: 'Session message stream did not start within 15000ms' }
+  ])('recognizes startup timeouts before stream/network heuristics: %j', fields => {
+    const error = makeError(fields)
+    expect(classifyError(error)).toEqual({
+      category: 'startup_timeout', i18nKey: 'error.diagnosis.startup_timeout', navTarget: null
+    })
+    const normalized = normalizeChatError(error)
+    expect(normalized.category).toBe('startup_timeout')
+    expect(normalized.code).toBe('SESSION_MESSAGE_START_TIMEOUT')
+    expect(classifyError(makeError(normalized)).category).toBe('startup_timeout')
+  })
+
+  it('keeps actual interrupted streams and ordinary timeouts distinct', () => {
+    expect(classifyError(makeError({ message: 'Response stream interrupted' })).category).toBe('stream')
+    expect(classifyError(makeError({ message: 'Request timed out' })).i18nKey).toBe('error.diagnosis.timeout')
+    expect(normalizeChatError({ message: 'Request timeout' }).category).toBe('network')
+  })
   it('returns unknown for undefined error', () => {
     const result = classifyError(undefined)
     expect(result.category).toBe('unknown')

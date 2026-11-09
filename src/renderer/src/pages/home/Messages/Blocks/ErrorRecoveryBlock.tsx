@@ -175,12 +175,12 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
               {retrying && <LoaderCircle size={13} className="error-recovery__spinner" aria-hidden="true" />}
               {t('common.retry')}
             </button>
-            <button
+            {classification.category !== 'startup_timeout' && <button
               type="button"
               className="error-recovery__retry error-recovery__network"
               onClick={() => needsCredits ? void openCreditsPayment() : setNetworkCheckOpen(true)}>
               {t(needsCredits ? 'error.diagnosis.buy_credits' : 'network_check.button')}
-            </button>
+            </button>}
           </div>
         </div>
       )}

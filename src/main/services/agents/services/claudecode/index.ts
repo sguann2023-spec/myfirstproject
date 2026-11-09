@@ -244,6 +244,21 @@ class ClaudeCodeService implements AgentServiceInterface {
     const throwIfCancelled = () => {
       if (abortController.signal.aborted) throw new DOMException('Request was aborted', 'AbortError')
     }
+    const startupStep = async <T>(stage: string, operation: () => Promise<T>): Promise<T> => {
+      throwIfCancelled()
+      const startedAt = Date.now()
+      const timer = setTimeout(() => logger.warn('Pre-harness startup stage still pending', {
+        sessionId: session.id, traceId: invocationIds?.traceId, stage,
+        elapsedMs: Date.now() - startedAt, cancelled: abortController.signal.aborted
+      }), 3000)
+      try {
+        const result = await operation()
+        throwIfCancelled()
+        return result
+      } finally {
+        clearTimeout(timer)
+      }
+    }
     throwIfCancelled()
     const aiStream = new ClaudeCodeStream()
 
@@ -402,7 +417,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     // Provision built-in agent workspace (copy skills/plugins to working directory)
     if (builtinRole && cwd && !isProvisioned(cwd)) {
-      const agentConfig = await provisionBuiltinAgent(cwd, builtinRole)
+      const agentConfig = await startupStep('provision_workspace', () => provisionBuiltinAgent(cwd, builtinRole))
       if (agentConfig?.instructions && !session.instructions) {
         session = { ...session, instructions: agentConfig.instructions }
       }
@@ -417,7 +432,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       composedPrompt,
       clawSystemPrompt,
       assistantSystemPrompt
-    } = await buildInvocationPromptState({
+    } = await startupStep('invocation_prompt', () => buildInvocationPromptState({
       session,
       cwd,
       sdkPrompt,
@@ -429,7 +444,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       agentConfig,
       lastAgentSessionId,
       invocationIds: invocationIds ?? allocateAgentInvocationIds()
-    })
+    }))
 
     // Build SDK options from session configuration.
     // If thinking is not explicitly configured, leave it unset so the runtime
@@ -541,7 +556,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       options.additionalDirectories = additionalDirectories
     }
 
-    const { mountedRuntimeMcpServers } = await mountRuntimeMcpServers({
+    const { mountedRuntimeMcpServers } = await startupStep('mount_mcp_servers', () => mountRuntimeMcpServers({
       options,
       session,
       apiConfig,
@@ -553,7 +568,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       videoGenerateServer: this.videoGenerateServer,
       getOrCreateBrowserServer: (sessionId) => this.getOrCreateBrowserServer(sessionId),
       resolveSourceChannel: (agentId, sessionId) => this.resolveSourceChannel(agentId, sessionId)
-    })
+    }))
 
     logPromptBudgetProbe({
       agentId: session.agent_id,

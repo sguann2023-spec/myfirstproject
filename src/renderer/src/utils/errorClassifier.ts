@@ -1,4 +1,5 @@
 import type { SerializedError } from '@renderer/types/error'
+import { isSessionStartTimeout } from '../../../shared/chatError'
 
 export interface ErrorClassification {
   category:
@@ -13,6 +14,7 @@ export interface ErrorClassification {
     | 'network'
     | 'proxy'
     | 'stream'
+    | 'startup_timeout'
     | 'content'
     | 'server'
     | 'deprecated'
@@ -69,6 +71,12 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     msg.includes('operation was aborted')
   ) {
     return { category: 'aborted', i18nKey: 'error.diagnosis.aborted', navTarget: null }
+  }
+
+  // Startup watchdog failures are not interrupted responses or network timeouts.
+  // Match persisted detail as well as code/message before generic stream heuristics.
+  if (isSessionStartTimeout(error)) {
+    return { category: 'startup_timeout', i18nKey: 'error.diagnosis.startup_timeout', navTarget: null }
   }
 
   // OAuth refresh-token rejection means the user must authorize the provider again.

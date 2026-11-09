@@ -399,13 +399,58 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     const [entry] = await db.select({ id: piSessionEntriesTable.entry_id }).from(piSessionEntriesTable)
       .where(and(eq(piSessionEntriesTable.topic_id, input.topicId), eq(piSessionEntriesTable.entry_type, 'message'))).limit(1)
     if (entry) return true
-    const excluded = new Set(input.excludeMessageIds ?? [])
-    if (await isPiOverlay(db)) {
-      const boundary = await captureOverlayBoundary(db, input.topicId)
-      const prefix = await readOverlayPrefix(db, input.topicId, boundary, messageId => messageId, input.workspacePath)
-      return prefix.some(item => !excluded.has(item.id) && !(item as any).__providerHidden)
-    }
-    return (await new AgentTranscriptRepository(db).listMessages(input.topicId)).some(message => !excluded.has(message.id))
+    // This is a startup existence probe, not history restoration. Never transfer
+    // message bodies or project/offload images here; openOrCreate owns that work.
+    const tables = await resolveMessageProjectionTables(db, input.topicId)
+    const excluded = input.excludeMessageIds ?? []
+    const exclusions = excluded.length
+      ? sql`AND id NOT IN (${sql.join(excluded.map(id => sql`${id}`), sql`, `)})`
+      : sql``
+    // Mirror hasToolResult without transferring tool outputs across the worker.
+    const toolResult = (data: ReturnType<typeof sql>) => sql`
+      (lower(coalesce(json_extract(${data},'$.status'),'')) IN
+        ('success','completed','complete','error','failed','cancelled') OR json_extract(${data},'$.isError')=1)
+      AND (json_type(${data},'$.rawOutput') NOT IN ('null') OR json_type(${data},'$.output') NOT IN ('null')
+        OR json_type(${data},'$.content') NOT IN ('null') OR json_type(${data},'$.result') NOT IN ('null')
+        OR json_type(${data},'$.error') NOT IN ('null')
+        OR json_type(${data},'$.metadata.rawMcpToolResponse.responseRaw') IS NOT NULL)`
+    const canonicalTable = sql.identifier(tables.agent_messages)
+    const [canonical] = await db.all(sql`SELECT id FROM ${canonicalTable}
+      WHERE session_id=${input.topicId} ${exclusions}
+        AND coalesce(json_extract(semantics_json,'$.providerVisibility'),'')<>'hidden'
+        AND (role IN ('user','assistant') OR (role='tool' AND EXISTS (
+          SELECT 1 FROM ${sql.identifier(tables.agent_message_parts)} AS part
+          WHERE part.session_id=${input.topicId} AND part.message_id=${canonicalTable}.id
+            AND part.type='tool' AND ${toolResult(sql`part.data_json`)}))) LIMIT 1`)
+    const overlay = await isPiOverlay(db)
+    if (!overlay) return Boolean(canonical)
+    const legacy = sql.identifier(tables.session_messages)
+    const payload = sql`CASE WHEN json_valid(${legacy}.content) THEN ${legacy}.content ELSE '{}' END`
+    const legacyExclusions = excluded.length
+      ? sql`AND coalesce(CAST(json_extract(${payload},'$.message.id') AS TEXT),'') NOT IN
+          (${sql.join(excluded.map(id => sql`${id}`), sql`, `)})`
+      : sql``
+    const eligibleLegacy = sql`session_id=${input.topicId} ${legacyExclusions}
+      AND NOT EXISTS (SELECT 1 FROM ${canonicalTable} AS canonical
+        WHERE canonical.session_id=${input.topicId}
+          AND canonical.id=CAST(json_extract(${payload},'$.message.id') AS TEXT))`
+    // Validate metadata in SQLite, even if a valid canonical row already exists.
+    // Do not silently treat corrupt/non-message legacy payloads as conversation.
+    const [invalid] = await db.all(sql`SELECT id FROM ${legacy} WHERE ${eligibleLegacy}
+      AND (NOT json_valid(content) OR json_type(${payload},'$.message') IS NOT 'object'
+        OR trim(coalesce(CAST(json_extract(${payload},'$.message.id') AS TEXT),''))=''
+        OR coalesce(json_extract(${payload},'$.message.role'),'') NOT IN ('user','assistant','agent','system','tool')) LIMIT 1`)
+    if (invalid) throw new Error('PI overlay legacy history has an invalid or unsupported message payload')
+    if (canonical) return true
+    const blockData = sql`CASE WHEN block.type='object' THEN block.value ELSE '{}' END`
+    const [previous] = await db.all(sql`SELECT id FROM ${legacy} WHERE ${eligibleLegacy}
+      AND coalesce(json_extract(${payload},'$.message.visibility'),'')<>'hidden'
+      AND (json_extract(${payload},'$.message.role') IN ('user','assistant','agent')
+        OR (json_extract(${payload},'$.message.role')='tool' AND EXISTS (
+          SELECT 1 FROM json_each(CASE WHEN json_type(${payload},'$.blocks')='array'
+            THEN json_extract(${payload},'$.blocks') ELSE '[]' END) AS block
+          WHERE json_extract(${blockData},'$.type')='tool' AND ${toolResult(blockData)}))) LIMIT 1`)
+    return Boolean(previous)
   }
 
   setInvocationId(invocationId: string | undefined): void {
