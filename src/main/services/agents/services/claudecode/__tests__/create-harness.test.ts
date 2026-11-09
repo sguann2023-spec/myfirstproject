@@ -71,9 +71,11 @@ vi.mock('@shared/sessionPayloadLimits', () => {
   }
 })
 
+import { SqlitePiSessionStorage } from '../../../database/repositories/piSessionStorage'
+
 import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
-import { buildBuiltinTools, resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
+import { buildPiRuntimeBridge, createClaudeCodeHarness, buildBuiltinTools, resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
@@ -773,5 +775,120 @@ describe('user interaction MCP lifecycle', () => {
     expect(events.filter(e => e.type === 'start')).toHaveLength(1)
     expect(events.at(-1).type).toBe(denied ? 'error' : 'success')
     expect(execute).toHaveBeenCalledTimes(denied ? 0 : 1)
+  })
+})
+
+
+describe('bootstrap cancellation', () => {
+  const context = { runtime: { workspacePath: os.tmpdir(), traceId: 'safe-trace' }, projection: { topicId: 'safe-topic' } } as any
+  const build = (signal: AbortSignal, servers: any) => buildMcpTools({ packageBridge: {} as any, invokeContext: context, options: { mcpServers: servers }, signal })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it('rejects a pre-aborted harness without wrapping or logging an ordinary failure', async () => {
+    const controller = new AbortController()
+    const reason = new DOMException('cancelled', 'AbortError')
+    controller.abort(reason)
+    await expect(createClaudeCodeHarness({ invokeContext: context, signal: controller.signal } as any)).rejects.toBe(reason)
+    expect(logMocks.error).not.toHaveBeenCalled()
+  })
+
+  it('preserves cancellation while native import is pending and never opens storage', async () => {
+    const controller = new AbortController()
+    const open = vi.spyOn(SqlitePiSessionStorage, 'openOrCreate')
+    const run = createClaudeCodeHarness({ invokeContext: context, signal: controller.signal } as any)
+    const reason = new DOMException('cancelled', 'AbortError')
+    controller.abort(reason)
+    await expect(run).rejects.toBe(reason)
+    expect(open).not.toHaveBeenCalled()
+    expect(logMocks.error).not.toHaveBeenCalled()
+    expect(logMocks.info).toHaveBeenCalledWith('[AgentCore] bootstrap timing', expect.objectContaining({ stage: 'pi-import', cancelled: true }))
+  })
+
+  it('checks cancellation after storage recovery and does not start MCP requests', async () => {
+    const controller = new AbortController()
+    const reason = new DOMException('cancelled', 'AbortError')
+    vi.spyOn(SqlitePiSessionStorage, 'openOrCreate').mockImplementationOnce(async () => {
+      controller.abort(reason)
+      return {} as any
+    })
+    const connect = vi.spyOn(Client.prototype, 'connect')
+    const piAi = await import('@earendil-works/pi-ai')
+    await expect(buildPiRuntimeBridge({
+      packageBridge: { agentCore, agentNode, piAi, openAiCompletionsApi: { stream() {}, streamSimple() {} } },
+      invokeContext: { ...context, runtime: { ...context.runtime, model: { id: 'test' } } },
+      runtimeEnvironment: { env: {}, modelInfo: { provider: { type: 'openai', apiHost: 'https://example.com', apiKey: 'secret' } } },
+      options: {}, pendingFileChanges: new Map(), signal: controller.signal
+    } as any)).rejects.toBe(reason)
+    expect(connect).not.toHaveBeenCalled()
+    expect(logMocks.error).not.toHaveBeenCalled()
+    expect(logMocks.info).toHaveBeenCalledWith('[AgentCore] bootstrap timing', expect.objectContaining({ stage: 'storage', cancelled: true }))
+  })
+
+  it('propagates signal to connect and listTools and logs only safe timing fields', async () => {
+    const controller = new AbortController()
+    const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue()
+    const list = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] })
+    vi.spyOn(Client.prototype, 'close').mockResolvedValue()
+    const result = await build(controller.signal, { remote: { type: 'http', url: 'https://example.com/private', headers: { Authorization: 'secret' } } })
+    expect(connect.mock.calls[0][1]).toEqual({ signal: controller.signal })
+    expect(list).toHaveBeenCalledWith(undefined, { signal: controller.signal })
+    const timings = logMocks.info.mock.calls.filter(([message]) => message === '[AgentCore] bootstrap timing')
+    expect(timings.map(([, data]) => data.stage)).toEqual(['mcp-connect', 'mcp-listTools'])
+    expect(timings.every(([, data]) => data.status === 'success')).toBe(true)
+    const starts = logMocks.info.mock.calls.filter(([message]) => message === '[AgentCore] bootstrap start')
+    expect(starts.map(([, data]) => data.stage)).toEqual(['mcp-connect', 'mcp-listTools'])
+    expect(JSON.stringify([...starts, ...timings])).not.toMatch(/secret|example.com|private/)
+    await result.clients[0].close()
+  })
+
+  it.each(['connect', 'listTools'] as const)('cleans clients on cancellation during %s and does not start the next server', async stage => {
+    const controller = new AbortController()
+    const reason = new DOMException('cancelled', 'AbortError')
+    const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue()
+    const list = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] })
+    const close = vi.spyOn(Client.prototype, 'close').mockResolvedValue()
+    const target = stage === 'connect' ? connect : list
+    target.mockImplementationOnce(async () => { controller.abort(reason); throw reason })
+    await expect(build(controller.signal, { first: { type: 'http', url: 'https://example.com' }, second: { type: 'http', url: 'https://example.org' } })).rejects.toBe(reason)
+    expect(close).toHaveBeenCalled()
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect(logMocks.warn).not.toHaveBeenCalled()
+    expect(logMocks.info).toHaveBeenCalledWith('[AgentCore] bootstrap timing', expect.objectContaining({ status: 'cancelled' }))
+  })
+
+  it('closes earlier clients when a later connection fails', async () => {
+    vi.spyOn(Client.prototype, 'connect').mockResolvedValueOnce().mockRejectedValueOnce(new Error('connect failed'))
+    vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] })
+    const close = vi.spyOn(Client.prototype, 'close').mockResolvedValue()
+    await expect(build(new AbortController().signal, { first: { type: 'http', url: 'https://example.com' }, second: { type: 'http', url: 'https://example.org' } })).rejects.toThrow('connect failed')
+    expect(new Set(close.mock.instances).size).toBe(2)
+    expect(logMocks.info).toHaveBeenCalledWith('[AgentCore] bootstrap timing', expect.objectContaining({ status: 'error' }))
+  })
+
+  it('cleans MCP clients if harness construction fails after successful setup', async () => {
+    vi.spyOn(SqlitePiSessionStorage, 'openOrCreate').mockResolvedValue({} as any)
+    vi.spyOn(Client.prototype, 'connect').mockResolvedValue()
+    vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] })
+    const close = vi.spyOn(Client.prototype, 'close').mockResolvedValue()
+    const piAi = await import('@earendil-works/pi-ai')
+    const failure = new Error('harness failed')
+    await expect(buildPiRuntimeBridge({
+      packageBridge: { agentCore: { ...agentCore, Session: class {}, AgentHarness: class { constructor() { throw failure } } }, agentNode, piAi, openAiCompletionsApi: {} },
+      invokeContext: { ...context, runtime: { ...context.runtime, model: { id: 'test' } }, tools: { activeToolNames: [] }, prompt: { resources: { skills: [], promptTemplates: [] } } },
+      runtimeEnvironment: { env: {}, modelInfo: { provider: { type: 'openai', apiHost: 'https://example.com', apiKey: 'secret' } } },
+      options: { mcpServers: { remote: { type: 'http', url: 'https://example.com' } } }, pendingFileChanges: new Map()
+    } as any)).rejects.toBe(failure)
+    expect(close).toHaveBeenCalled()
+  })
+
+  it('checks cancellation after a non-cancellable SDK connect before requesting initialization', async () => {
+    const controller = new AbortController()
+    const clientConnect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue()
+    const close = vi.fn(async () => {})
+    const reason = new DOMException('cancelled', 'AbortError')
+    await expect(build(controller.signal, { sdk: { type: 'sdk', instance: { connect: async () => { controller.abort(reason) }, close } } })).rejects.toBe(reason)
+    expect(clientConnect).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalled()
   })
 })

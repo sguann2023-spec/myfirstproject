@@ -1,4 +1,6 @@
+import { normalizeChatError } from '../../../../../../shared/chatError'
 import { readFileSync } from 'node:fs'
+import { getEventListeners } from 'node:events'
 import { runInNewContext } from 'node:vm'
 import { transpileModule } from 'typescript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -227,6 +229,79 @@ describe('sessionStreamIpc abort handling', () => {
     expect(listSessionsMock).not.toHaveBeenCalled()
   })
 
+  it.each(['stuck', 'settles'])('aborts timed-out startup and only retries after it exits: %s', async outcome => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    const startup = deferred<any>()
+    createSessionMessageMock.mockImplementationOnce((_session, _message, controller) => {
+      if (outcome === 'settles') controller.signal.addEventListener('abort', () => startup.reject(new Error('aborted')))
+      return startup.promise
+    }).mockResolvedValue(createMockStream(new ReadableStream({ start(c) { c.close() } })))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const pending = handlers.get('CherryChatStream_MessageCreate')(null, {
+      sessionId: 'session-1', content: 'hello', requestId: 'startup-timeout'
+    })
+    await vi.runAllTimersAsync()
+    const result = await pending
+    expect(createSessionMessageMock.mock.calls[0][2].signal.aborted).toBe(true)
+    expect(createSessionMessageMock).toHaveBeenCalledTimes(outcome === 'stuck' ? 1 : 2)
+    if (outcome === 'stuck') {
+      expect(result).toMatchObject({ ok: false, code: 'SESSION_MESSAGE_START_TIMEOUT', error: expect.any(String) })
+      expect(normalizeChatError(result).category).toBe('startup_timeout')
+    } else expect(result.ok).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('aborts non-retriable startup failures', async () => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    createSessionMessageMock.mockRejectedValue(new Error('invalid API key'))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const result = await handlers.get('CherryChatStream_MessageCreate')(null, {
+      sessionId: 'session-1', content: 'hello', requestId: 'bad-key'
+    })
+    expect(result.ok).toBe(false)
+    expect(createSessionMessageMock.mock.calls[0][2].signal.aborted).toBe(true)
+    expect(createSessionMessageMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['startup', 'cleanup', 'backoff'])('cancels promptly during %s without retrying', async phase => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    createSessionMessageMock.mockImplementation(() => phase === 'backoff'
+      ? Promise.reject(new Error('fetch failed')) : new Promise(() => {}))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const pending = handlers.get('CherryChatStream_MessageCreate')(null, {
+      sessionId: 'session-1', content: 'hello', requestId: `cancel-${phase}`
+    })
+    await vi.advanceTimersByTimeAsync(phase === 'cleanup' ? 15_000 : 0)
+    await handlers.get('AgentSessionStream_Abort')(null, { sessionId: 'session-1' })
+    expect(await pending).toEqual({ ok: true, requestId: `cancel-${phase}` })
+    expect(createSessionMessageMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(publishMock.mock.calls.filter(([, event]) => event.type === 'error')).toHaveLength(0)
+  })
+
+  it('aborts the final failed attempt after exhausting retries', async () => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    createSessionMessageMock.mockRejectedValue(new Error('fetch failed'))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const pending = handlers.get('CherryChatStream_MessageCreate')(null, {
+      sessionId: 'session-1', content: 'hello', requestId: 'exhausted'
+    })
+    await vi.runAllTimersAsync()
+    expect((await pending).ok).toBe(false)
+    expect(createSessionMessageMock).toHaveBeenCalledTimes(6)
+    expect(createSessionMessageMock.mock.calls.every(call => call[2].signal.aborted)).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('reuses stable invocation IDs across startup retries', async () => {
     const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any> | any>()
     handleMock.mockImplementation((channel: string, handler: (event: unknown, payload?: any) => Promise<any> | any) => {
@@ -251,6 +326,7 @@ describe('sessionStreamIpc abort handling', () => {
     expect(createSessionMessageMock).toHaveBeenCalledTimes(2)
     const firstIds = createSessionMessageMock.mock.calls[0]?.[3]?.invocationIds
     const secondIds = createSessionMessageMock.mock.calls[1]?.[3]?.invocationIds
+    expect(getEventListeners(createSessionMessageMock.mock.calls[1][2].signal, 'abort')).toHaveLength(0)
     expect(secondIds).toEqual(firstIds)
     expect(firstIds).toMatchObject({ traceId: 'request-stable' })
   })
@@ -300,9 +376,9 @@ describe('sessionStreamIpc abort handling', () => {
     expect(events().some((event) => event.type === 'error')).toBe(false)
     expect(sessionChangedMock).toHaveBeenCalledTimes(outcome === 'success' ? 1 : 0)
     if (outcome === 'success') {
-      expect(sessionChangedMock).toHaveBeenCalledWith('AgentSession_Changed', {
+      expect(sessionChangedMock).toHaveBeenCalledWith('AgentSession_Changed', expect.objectContaining({
         agentId: 'agent-1', sessionId: 'session-1', headless: true
-      })
+      }))
     }
     if (outcome === 'failure') {
       expect(loggerError).toHaveBeenCalledExactlyOnceWith('[SessionStreamIpc] Background history persistence failed', {
@@ -375,6 +451,27 @@ describe('sessionStreamIpc abort handling', () => {
     ).toEqual(['first'])
     expect(streamCancelMock).not.toHaveBeenCalled()
     expect(sessionChangedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('startup error frontend mapping', () => {
+  it.each([
+    { code: 'SESSION_MESSAGE_START_TIMEOUT', message: 'startup failed' },
+    { error: 'Session message stream did not start within 15000ms' },
+    'Session message stream did not start within 15000ms',
+    new Error('SESSION_MESSAGE_START_TIMEOUT')
+  ])('maps structured and legacy startup errors accurately: %j', error => {
+    expect(normalizeChatError(error)).toMatchObject({
+      category: 'startup_timeout', code: 'SESSION_MESSAGE_START_TIMEOUT',
+      title: expect.stringContaining('会话启动超时')
+    })
+  })
+
+  it('retains ordinary network and user cancellation classifications', () => {
+    expect(normalizeChatError(new Error('network timeout')).category).toBe('network')
+    expect(normalizeChatError({ code: 'ABORTED' }).category).toBe('aborted')
+    const home = readFileSync(new URL('../../../../../../page/HomePage/HomePage.jsx', import.meta.url), 'utf8')
+    expect(home).toContain("throw Object.assign(new Error(result?.error || 'agent createMessage failed'), { code: result?.code })")
   })
 })
 

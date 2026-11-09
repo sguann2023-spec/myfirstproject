@@ -35,6 +35,37 @@ import { createReadImageContextProjector } from './read-image-context'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
+function throwIfCancelled(signal?: AbortSignal): void {
+  signal?.throwIfAborted()
+}
+
+function isCancellation(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
+}
+
+async function timedBootstrap<T>(stage: string, context: ClaudeCodeInvokeContext, signal: AbortSignal | undefined, run: () => Promise<T>, serverKey?: string): Promise<T> {
+  const startedAt = Date.now()
+  const fields = {
+    stage, traceId: context.runtime.traceId, topicId: context.projection.topicId,
+    piSessionId: context.projection.piSessionId, serverKey
+  }
+  let status: 'success' | 'error' | 'cancelled' = 'success'
+  logger.info('[AgentCore] bootstrap start', fields)
+  try {
+    throwIfCancelled(signal)
+    const result = await run()
+    throwIfCancelled(signal)
+    return result
+  } catch (error) {
+    status = isCancellation(error, signal) ? 'cancelled' : 'error'
+    throw error
+  } finally {
+    logger.info('[AgentCore] bootstrap timing', {
+      ...fields, status, elapsedMs: Date.now() - startedAt, cancelled: status === 'cancelled'
+    })
+  }
+}
+
 const MAX_RECORDED_PROJECTION_EVENTS = 200
 const WORKSPACE_UPLOAD_TOOL_NAME = buildVectcutMcpToolName('file-upload', 'upload_file_to_oss')
 const IMAGE_UNDERSTAND_TOOL_NAME = buildVectcutMcpToolName('image-understand', 'inspect_image')
@@ -783,190 +814,190 @@ export function buildBuiltinTools(input: {
     .filter((tool): tool is PiAgentHarnessTool => Boolean(tool))
 }
 
-async function createMcpClientBridge(serverKey: string, config: NonNullable<Options['mcpServers']>[string]): Promise<PiMcpClientBridge | null> {
+async function createMcpClientBridge(serverKey: string, config: NonNullable<Options['mcpServers']>[string], signal?: AbortSignal): Promise<PiMcpClientBridge | null> {
+  throwIfCancelled(signal)
+  if (config.type !== 'http' && config.type !== 'sdk') return null
   const client = new Client({ name: 'CapCutHelper', version: 'pi-bridge' }, { capabilities: {} })
-  const timeoutSeconds =
-    typeof (config as { timeout?: unknown }).timeout === 'number' ? Number((config as { timeout?: number }).timeout) : undefined
+  const timeoutSeconds = typeof (config as { timeout?: unknown }).timeout === 'number' ? Number((config as { timeout?: number }).timeout) : undefined
   const timeoutMs = timeoutSeconds && timeoutSeconds > 0 ? timeoutSeconds * 1000 : undefined
   const longRunning = (config as { longRunning?: unknown }).longRunning === true
-
-  if (config.type === 'http') {
-    const transport = new StreamableHTTPClientTransport(new URL(config.url), {
-      requestInit: {
-        headers: config.headers ?? {}
-      }
-    })
-    await client.connect(transport)
-    return {
-      serverKey,
-      client,
-      timeoutMs,
-      longRunning,
-      async close() {
-        await Promise.allSettled([client.close(), transport.close()])
-      }
+  const closers: Array<() => Promise<void>> = [() => client.close()]
+  const close = async () => { await Promise.allSettled(closers.map((fn) => Promise.resolve().then(fn))) }
+  // Also close a transport stuck in its non-cancellable start/connect implementation.
+  const onAbort = () => { void close() }
+  signal?.addEventListener('abort', onAbort, { once: true })
+  try {
+    if (config.type === 'http') {
+      const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers ?? {} } })
+      closers.push(() => transport.close())
+      await client.connect(transport, { signal })
+    } else {
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+      closers.push(() => clientTransport.close(), () => serverTransport.close())
+      const server = (config as { instance?: { connect?: (transport: unknown) => Promise<void>; close?: () => Promise<void> } }).instance
+      if (!server?.connect) { await close(); return null }
+      if (server.close) closers.push(() => server.close!())
+      await server.connect(serverTransport)
+      throwIfCancelled(signal)
+      await client.connect(clientTransport, { signal })
     }
+    throwIfCancelled(signal)
+    return { serverKey, client, timeoutMs, longRunning, close }
+  } catch (error) {
+    await close()
+    throwIfCancelled(signal)
+    throw error
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
   }
-
-  if (config.type === 'sdk') {
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
-    const serverInstance = (config as {
-      instance?: { connect?: (transport: unknown) => Promise<void>; close?: () => Promise<void> }
-    }).instance
-    if (!serverInstance || typeof serverInstance.connect !== 'function') return null
-    await serverInstance.connect(serverTransport)
-    await client.connect(clientTransport)
-    return {
-      serverKey,
-      client,
-      timeoutMs,
-      longRunning,
-      async close() {
-        await Promise.allSettled([
-          client.close(),
-          clientTransport.close(),
-          serverTransport.close(),
-          typeof serverInstance.close === 'function' ? serverInstance.close() : Promise.resolve()
-        ])
-      }
-    }
-  }
-
-  return null
 }
 
 export async function buildMcpTools(input: {
   packageBridge: PiPackageBridge
   invokeContext: ClaudeCodeInvokeContext
   options: Options
+  signal?: AbortSignal
 }): Promise<{ tools: PiAgentHarnessTool[]; clients: PiMcpClientBridge[] }> {
-  const { packageBridge, invokeContext, options } = input
+  const { packageBridge, invokeContext, options, signal } = input
   const tools: PiAgentHarnessTool[] = []
   const clients: PiMcpClientBridge[] = []
   const imageInspectionState = new ImageInspectionState(invokeContext.runtime.workspacePath)
 
-  for (const [serverKey, config] of Object.entries(options.mcpServers ?? {})) {
-    const bridge = await createMcpClientBridge(serverKey, config)
-    if (!bridge) continue
-    clients.push(bridge)
-    const runtimeNamespace = resolveRuntimeMcpNamespace(serverKey)
+  try {
+    throwIfCancelled(signal)
+    for (const [serverKey, config] of Object.entries(options.mcpServers ?? {})) {
+      const bridge = await timedBootstrap('mcp-connect', invokeContext, signal, async () => {
+        const created = await createMcpClientBridge(serverKey, config, signal)
+        if (created) clients.push(created)
+        return created
+      }, serverKey)
+      if (!bridge) continue
+      const runtimeNamespace = resolveRuntimeMcpNamespace(serverKey)
 
-    let listedTools: McpTool[] = []
-    try {
-      const response = await bridge.client.listTools()
-      listedTools = response.tools ?? []
-    } catch (error) {
-      logger.warn('[AgentCore] failed to list tools for bridged MCP server', {
-        serverKey,
-        error: error instanceof Error ? error.message : String(error)
-      })
-      continue
-    }
-
-    for (const tool of listedTools) {
-      const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
-      if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model?.supportsImageInput === true) {
-        logger.info('[AgentCore] skipped image-understand MCP tool for multimodal model', {
-          traceId: invokeContext.runtime.traceId,
-          topicId: invokeContext.projection.topicId,
-          piSessionId: invokeContext.projection.piSessionId,
-          modelId: invokeContext.runtime.model.id,
+      let listedTools: McpTool[] = []
+      try {
+        const response = await timedBootstrap('mcp-listTools', invokeContext, signal, () => bridge.client.listTools(undefined, { signal }), serverKey)
+        listedTools = response.tools ?? []
+      } catch (error) {
+        if (isCancellation(error, signal)) { throwIfCancelled(signal); throw error }
+        await bridge.close()
+        clients.splice(clients.indexOf(bridge), 1)
+        logger.warn('[AgentCore] failed to list tools for bridged MCP server', {
           serverKey,
-          toolName: namespacedName
+          error: error instanceof Error ? error.message : String(error)
         })
         continue
       }
 
-      const mcpTool: PiAgentHarnessTool = {
-        name: namespacedName,
-        label: namespacedName,
-        description: tool.description ? `[${serverKey}] ${tool.description}` : `[${serverKey}] ${tool.name}`,
-        parameters: (tool.inputSchema as any) ?? packageBridge.piAi.Type.Any(),
-        async execute(
-          toolCallId: string,
-          rawParams: unknown,
-          signal?: AbortSignal,
-          onUpdate?: (value: { content: Array<PiTextContent | PiImageContent>; details: unknown }) => void
-        ) {
-          const originalParams = (rawParams ?? {}) as Record<string, unknown>
-          const params =
-            namespacedName === WORKSPACE_UPLOAD_TOOL_NAME
-              ? resolveWorkspaceUploadArguments(invokeContext, originalParams)
-              : normalizeImageGenerationArguments(namespacedName, originalParams)
-          const requestTimeoutMs =
-            namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : bridge.timeoutMs
-          let result
-          try {
-            result = await bridge.client.callTool(
-              { name: tool.name, arguments: params },
-              undefined,
-              {
-                signal,
-                timeout: requestTimeoutMs,
-                resetTimeoutOnProgress: bridge.longRunning,
-                maxTotalTimeout: bridge.longRunning ? requestTimeoutMs : undefined,
-                onprogress(progress) {
-                  const total = Number((progress as { total?: unknown }).total || 1)
-                  const current = Number((progress as { progress?: unknown }).progress || 0)
-                  const normalizedProgress = total > 0 ? current / total : 0
-                  const progressTargets = resolveMcpProgressCallIds(toolCallId)
-                  const mainWindow = windowService.getMainWindow()
-                  if (mainWindow && progressTargets.length > 0) {
-                    for (const progressCallId of progressTargets) {
-                      mainWindow.webContents.send(IpcChannel.Mcp_Progress, {
-                        callId: progressCallId,
-                        progress: normalizedProgress,
-                        message: typeof progress.message === 'string' ? progress.message : undefined
-                      } satisfies MCPProgressEvent)
+      for (const tool of listedTools) {
+        const namespacedName = buildVectcutMcpToolName(runtimeNamespace, tool.name)
+        if (namespacedName === IMAGE_UNDERSTAND_TOOL_NAME && invokeContext.runtime.model?.supportsImageInput === true) {
+          logger.info('[AgentCore] skipped image-understand MCP tool for multimodal model', {
+            traceId: invokeContext.runtime.traceId,
+            topicId: invokeContext.projection.topicId,
+            piSessionId: invokeContext.projection.piSessionId,
+            modelId: invokeContext.runtime.model.id,
+            serverKey,
+            toolName: namespacedName
+          })
+          continue
+        }
+
+        const mcpTool: PiAgentHarnessTool = {
+          name: namespacedName,
+          label: namespacedName,
+          description: tool.description ? `[${serverKey}] ${tool.description}` : `[${serverKey}] ${tool.name}`,
+          parameters: (tool.inputSchema as any) ?? packageBridge.piAi.Type.Any(),
+          async execute(
+            toolCallId: string,
+            rawParams: unknown,
+            signal?: AbortSignal,
+            onUpdate?: (value: { content: Array<PiTextContent | PiImageContent>; details: unknown }) => void
+          ) {
+            const originalParams = (rawParams ?? {}) as Record<string, unknown>
+            const params =
+              namespacedName === WORKSPACE_UPLOAD_TOOL_NAME
+                ? resolveWorkspaceUploadArguments(invokeContext, originalParams)
+                : normalizeImageGenerationArguments(namespacedName, originalParams)
+            const requestTimeoutMs =
+              namespacedName === WORKSPACE_UPLOAD_TOOL_NAME ? WORKSPACE_UPLOAD_TIMEOUT_MS : bridge.timeoutMs
+            let result
+            try {
+              result = await bridge.client.callTool(
+                { name: tool.name, arguments: params },
+                undefined,
+                {
+                  signal,
+                  timeout: requestTimeoutMs,
+                  resetTimeoutOnProgress: bridge.longRunning,
+                  maxTotalTimeout: bridge.longRunning ? requestTimeoutMs : undefined,
+                  onprogress(progress) {
+                    const total = Number((progress as { total?: unknown }).total || 1)
+                    const current = Number((progress as { progress?: unknown }).progress || 0)
+                    const normalizedProgress = total > 0 ? current / total : 0
+                    const progressTargets = resolveMcpProgressCallIds(toolCallId)
+                    const mainWindow = windowService.getMainWindow()
+                    if (mainWindow && progressTargets.length > 0) {
+                      for (const progressCallId of progressTargets) {
+                        mainWindow.webContents.send(IpcChannel.Mcp_Progress, {
+                          callId: progressCallId,
+                          progress: normalizedProgress,
+                          message: typeof progress.message === 'string' ? progress.message : undefined
+                        } satisfies MCPProgressEvent)
+                      }
+                    }
+                    if (typeof progress.message === 'string' && progress.message.trim()) {
+                      const progressPayload = buildLimitedPiToolPayload(
+                        {
+                          content: [{ type: 'text', text: progress.message }],
+                          structuredContent: progress
+                        },
+                        `${namespacedName} 进度`
+                      )
+                      onUpdate?.({
+                        content: progressPayload.content,
+                        details: progressPayload.details
+                      })
                     }
                   }
-                  if (typeof progress.message === 'string' && progress.message.trim()) {
-                    const progressPayload = buildLimitedPiToolPayload(
-                      {
-                        content: [{ type: 'text', text: progress.message }],
-                        structuredContent: progress
-                      },
-                      `${namespacedName} 进度`
-                    )
-                    onUpdate?.({
-                      content: progressPayload.content,
-                      details: progressPayload.details
-                    })
-                  }
                 }
+              )
+
+              if ((result as { isError?: boolean }).isError) {
+                const failedOutput = extractToolText((result as { content?: unknown }).content)
+                logger.warn('[AgentCore] mcp tool execute failed', {
+                  traceId: invokeContext.runtime.traceId,
+                  topicId: invokeContext.projection.topicId,
+                  piSessionId: invokeContext.projection.piSessionId,
+                  toolName: namespacedName,
+                  toolCallId,
+                  serverKey,
+                  outputPreview: failedOutput.slice(0, 500)
+                })
+                throw new Error(failedOutput)
               }
-            )
-
-            if ((result as { isError?: boolean }).isError) {
-              const failedOutput = extractToolText((result as { content?: unknown }).content)
-              logger.warn('[AgentCore] mcp tool execute failed', {
-                traceId: invokeContext.runtime.traceId,
-                topicId: invokeContext.projection.topicId,
-                piSessionId: invokeContext.projection.piSessionId,
-                toolName: namespacedName,
-                toolCallId,
-                serverKey,
-                outputPreview: failedOutput.slice(0, 500)
-              })
-              throw new Error(failedOutput)
+            } catch (error) {
+              if (signal?.aborted) throw error
+              throw imageInspectionState.inspectionError(namespacedName, params, error)
             }
-          } catch (error) {
-            if (signal?.aborted) throw error
-            throw imageInspectionState.inspectionError(namespacedName, params, error)
+            imageInspectionState.recordSuccess(namespacedName, params, result)
+            const preservedPayload = await preserveMcpResult(result, invokeContext.runtime.workspacePath)
+            return {
+              content: toPiContentArray(preservedPayload.content),
+              details: preservedPayload.details
+            }
           }
-          imageInspectionState.recordSuccess(namespacedName, params, result)
-          const preservedPayload = await preserveMcpResult(result, invokeContext.runtime.workspacePath)
-          return {
-            content: toPiContentArray(preservedPayload.content),
-            details: preservedPayload.details
-          }
-        }
-      } as any
-      tools.push(mcpTool)
+        } as any
+        tools.push(mcpTool)
+      }
     }
-  }
 
-  return { tools, clients }
+    throwIfCancelled(signal)
+    return { tools, clients }
+  } catch (error) {
+    await Promise.allSettled(clients.map((client) => client.close()))
+    throw error
+  }
 }
 
 export function buildCodemodeTool(input: {
@@ -1327,15 +1358,17 @@ export function resolvePiRuntimeApiKey(runtimeEnvironment: ClaudeRuntimeEnvironm
     : String(runtimeEnvironment.modelInfo.provider?.apiKey || '').trim()
 }
 
-async function buildPiRuntimeBridge(input: {
+export async function buildPiRuntimeBridge(input: {
   packageBridge: PiPackageBridge
   invokeContext: ClaudeCodeInvokeContext
   runtimeEnvironment: ClaudeRuntimeEnvironment
   options: Options
+  signal?: AbortSignal
   canUseTool?: CanUseTool
   pendingFileChanges: Map<string, PendingFileChangeSnapshot[]>
 }): Promise<PiRuntimeBridge> {
   const { packageBridge, invokeContext, runtimeEnvironment, options, canUseTool, pendingFileChanges } = input
+  throwIfCancelled(input.signal)
   const providerApiType = mapProviderApiType(runtimeEnvironment)
   const providerId = `capcuthelper-claudecode-${providerApiType}`
   const modelId = invokeContext.runtime.model.id || 'claudecode-bootstrap-model'
@@ -1410,7 +1443,7 @@ async function buildPiRuntimeBridge(input: {
 
   // Await database recovery only. Runtime storage is shared topic memory;
   // background persistence must never become a prompt/completion barrier.
-  const storage = await SqlitePiSessionStorage.openOrCreate({
+  const storage = await timedBootstrap('storage', invokeContext, input.signal, () => SqlitePiSessionStorage.openOrCreate({
     topicId: invokeContext.projection.topicId,
     requestedSessionId: invokeContext.projection.piSessionId,
     invocationId: invokeContext.projection.userMessageId ?? invokeContext.runtime.traceId,
@@ -1418,7 +1451,7 @@ async function buildPiRuntimeBridge(input: {
       agentId: invokeContext.runtime.agentId,
       workspacePath: invokeContext.runtime.workspacePath
     }
-  })
+  }))
   const session = new packageBridge.agentCore.Session(storage)
 
   const model = models.getModel(providerId, modelId) as PiModel | undefined
@@ -1441,124 +1474,132 @@ async function buildPiRuntimeBridge(input: {
   const mcpTools = await buildMcpTools({
     packageBridge,
     invokeContext,
-    options
+    options,
+    signal: input.signal
   })
-  const codemodeTool = buildCodemodeTool({
-    packageBridge,
-    mcpTools: mcpTools.tools,
-    invokeContext,
-    canUseTool,
-    pendingFileChanges,
-    emitNestedToolEvent
-  })
-  const tools = [...builtinTools, codemodeTool, ...mcpTools.tools]
-  const activeToolNames = [...builtinTools.map((tool) => tool.name), codemodeTool.name]
+  try {
+    throwIfCancelled(input.signal)
+    const codemodeTool = buildCodemodeTool({
+      packageBridge,
+      mcpTools: mcpTools.tools,
+      invokeContext,
+      canUseTool,
+      pendingFileChanges,
+      emitNestedToolEvent
+    })
+    const tools = [...builtinTools, codemodeTool, ...mcpTools.tools]
+    const activeToolNames = [...builtinTools.map((tool) => tool.name), codemodeTool.name]
 
-  const harness = new packageBridge.agentCore.AgentHarness({
-    session,
-    models,
-    model,
-    systemPrompt: invokeContext.prompt.systemPrompt,
-    tools,
-    activeToolNames,
-    resources: {
-      skills: invokeContext.prompt.resources.skills.map((skill) => ({
-        name: skill.name,
-        description: skill.description,
-        content: skill.content,
-        filePath: skill.filePath
-      })),
-      promptTemplates: invokeContext.prompt.resources.promptTemplates.map((template) => ({
-        name: template.name,
-        description: template.description,
-        content: template.content
-      }))
-    }
-  })
-
-  const mcpToolNames = new Set(mcpTools.tools.map((tool) => tool.name))
-  const projectReadImageContext = createReadImageContextProjector(invokeContext.runtime.workspacePath, undefined, { beginNewTurn: true })
-  harness.on('context', async (context: any) => ({
-    messages: await projectReadImageContext(context.messages)
-  }))
-  harness.on('tool_result', (context: any) => {
-    if (!mcpToolNames.has(context.toolName) || context.isError) return undefined
-    return projectMcpArtifactForContext(context, invokeContext.runtime.workspacePath)
-  })
-
-  harness.on('tool_call', async (context: any) => {
-    await capturePendingFileChangeSnapshots({
-      toolName: context.toolName,
-      toolInput: context.input,
-      toolCallId: context.toolCallId,
-      cwd: invokeContext.runtime.workspacePath,
-      pendingFileChanges
+    const harness = new packageBridge.agentCore.AgentHarness({
+      session,
+      models,
+      model,
+      systemPrompt: invokeContext.prompt.systemPrompt,
+      tools,
+      activeToolNames,
+      resources: {
+        skills: invokeContext.prompt.resources.skills.map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+          content: skill.content,
+          filePath: skill.filePath
+        })),
+        promptTemplates: invokeContext.prompt.resources.promptTemplates.map((template) => ({
+          name: template.name,
+          description: template.description,
+          content: template.content
+        }))
+      }
     })
 
-    if (!canUseTool) return undefined
-
-    const decision = await canUseTool(context.toolName, context.input, {
-      signal: new AbortController().signal,
-      suggestions: [],
-      toolUseID: context.toolCallId
+    const mcpToolNames = new Set(mcpTools.tools.map((tool) => tool.name))
+    const projectReadImageContext = createReadImageContextProjector(invokeContext.runtime.workspacePath, undefined, { beginNewTurn: true })
+    harness.on('context', async (context: any) => ({
+      messages: await projectReadImageContext(context.messages)
+    }))
+    harness.on('tool_result', (context: any) => {
+      if (!mcpToolNames.has(context.toolName) || context.isError) return undefined
+      return projectMcpArtifactForContext(context, invokeContext.runtime.workspacePath)
     })
 
-    if (decision.behavior === 'deny') {
-      return {
-        block: true,
-        reason: decision.message
+    harness.on('tool_call', async (context: any) => {
+      await capturePendingFileChangeSnapshots({
+        toolName: context.toolName,
+        toolInput: context.input,
+        toolCallId: context.toolCallId,
+        cwd: invokeContext.runtime.workspacePath,
+        pendingFileChanges
+      })
+
+      if (!canUseTool) return undefined
+
+      const decision = await canUseTool(context.toolName, context.input, {
+        signal: new AbortController().signal,
+        suggestions: [],
+        toolUseID: context.toolCallId
+      })
+
+      if (decision.behavior === 'deny') {
+        return {
+          block: true,
+          reason: decision.message
+        }
+      }
+
+      if (
+        decision.behavior === 'allow' &&
+        decision.updatedInput &&
+        typeof decision.updatedInput === 'object' &&
+        !Array.isArray(decision.updatedInput)
+      ) {
+        interactiveUpdatedInputs.set(context.toolCallId, decision.updatedInput as Record<string, unknown>)
+      }
+
+      return undefined
+    })
+
+    persistSessionEntry(
+      session.appendSessionName(`ClaudeCode ${invokeContext.runtime.sessionId}`),
+      'session_name',
+      invokeContext.runtime.traceId
+    )
+    persistSessionEntry(
+      session.appendCustomEntry('claudecode_invoke_context', {
+        runtime: invokeContext.runtime,
+        skills: invokeContext.skills,
+        tools: {
+          activeToolNames: invokeContext.tools.activeToolNames,
+          bridgedActiveToolNames: activeToolNames,
+          toolLayer: invokeContext.tools.toolLayer,
+          mountedMcpServers: invokeContext.tools.mountedMcpServers
+        },
+        projection: invokeContext.projection
+      }),
+      'claudecode_invoke_context',
+      invokeContext.runtime.traceId
+    )
+
+    throwIfCancelled(input.signal)
+    return {
+      storage,
+      session,
+      models,
+      provider,
+      model,
+      tokenLimits: runtimeEnvironment.modelTokenLimits,
+      harness,
+      tools,
+      mcpClients: mcpTools.clients,
+      subscribeNestedToolEvents(listener) {
+        nestedToolListeners.add(listener)
+        return () => {
+          nestedToolListeners.delete(listener)
+        }
       }
     }
-
-    if (
-      decision.behavior === 'allow' &&
-      decision.updatedInput &&
-      typeof decision.updatedInput === 'object' &&
-      !Array.isArray(decision.updatedInput)
-    ) {
-      interactiveUpdatedInputs.set(context.toolCallId, decision.updatedInput as Record<string, unknown>)
-    }
-
-    return undefined
-  })
-
-  persistSessionEntry(
-    session.appendSessionName(`ClaudeCode ${invokeContext.runtime.sessionId}`),
-    'session_name',
-    invokeContext.runtime.traceId
-  )
-  persistSessionEntry(
-    session.appendCustomEntry('claudecode_invoke_context', {
-      runtime: invokeContext.runtime,
-      skills: invokeContext.skills,
-      tools: {
-        activeToolNames: invokeContext.tools.activeToolNames,
-        bridgedActiveToolNames: activeToolNames,
-        toolLayer: invokeContext.tools.toolLayer,
-        mountedMcpServers: invokeContext.tools.mountedMcpServers
-      },
-      projection: invokeContext.projection
-    }),
-    'claudecode_invoke_context',
-    invokeContext.runtime.traceId
-  )
-
-  return {
-    storage,
-    session,
-    models,
-    provider,
-    model,
-    tokenLimits: runtimeEnvironment.modelTokenLimits,
-    harness,
-    tools,
-    mcpClients: mcpTools.clients,
-    subscribeNestedToolEvents(listener) {
-      nestedToolListeners.add(listener)
-      return () => {
-        nestedToolListeners.delete(listener)
-      }
-    }
+  } catch (error) {
+    await Promise.allSettled(mcpTools.clients.map((client) => client.close()))
+    throw error
   }
 }
 
@@ -1566,10 +1607,13 @@ export async function createClaudeCodeHarness(input: {
   invokeContext: ClaudeCodeInvokeContext
   runtimeEnvironment: ClaudeRuntimeEnvironment
   options: Options
+  signal?: AbortSignal
   canUseTool?: CanUseTool
   pendingFileChanges: Map<string, PendingFileChangeSnapshot[]>
 }): Promise<ClaudeCodeHarnessAdapter> {
   const { invokeContext } = input
+  const startedAt = Date.now()
+  throwIfCancelled(input.signal)
   const projectionEvents: ClaudeCodeHarnessProjectionEvent[] = []
 
   const createAdapter = (
@@ -1652,15 +1696,17 @@ export async function createClaudeCodeHarness(input: {
   })
 
   try {
-    const packageBridge = await tryLoadPiPackageBridge()
+    const packageBridge = await timedBootstrap('pi-import', invokeContext, input.signal, tryLoadPiPackageBridge)
     const runtimeBridge = await buildPiRuntimeBridge({
       packageBridge,
       invokeContext,
       runtimeEnvironment: input.runtimeEnvironment,
       options: input.options,
       canUseTool: input.canUseTool,
+      signal: input.signal,
       pendingFileChanges: input.pendingFileChanges
     })
+    logger.info('[AgentCore] bootstrap timing', { stage: 'harness-ready', elapsedMs: Date.now() - startedAt, traceId: invokeContext.runtime.traceId, topicId: invokeContext.projection.topicId, piSessionId: invokeContext.projection.piSessionId })
     const packageStatus = {
       agentCoreLoaded: true,
       piAiLoaded: true,
@@ -1679,6 +1725,7 @@ export async function createClaudeCodeHarness(input: {
       packageStatus
     })
   } catch (error) {
+    if (isCancellation(error, input.signal)) { throwIfCancelled(input.signal); throw error }
     const loaderError = error instanceof Error ? error.message : String(error)
     logger.error('[AgentCore] failed to bootstrap mandatory pi harness', {
       traceId: invokeContext.runtime.traceId,

@@ -2310,6 +2310,7 @@ async function ensureSessionWorkspacePath(session: any): Promise<string> {
 function createSessionMessageStartTimeoutError(timeoutMs: number): Error {
   const error = new Error(`Session message stream did not start within ${timeoutMs}ms`)
   error.name = 'SessionMessageStartTimeoutError'
+  Object.assign(error, { code: 'SESSION_MESSAGE_START_TIMEOUT' })
   return error
 }
 
@@ -2374,6 +2375,8 @@ async function createSessionMessageWithTimeout<T>(
   abortSignal?: AbortSignal
 ): Promise<T> {
   let timeoutHandle: NodeJS.Timeout | undefined
+  const onAbort = () => rejectAbort?.(new DOMException('Request was aborted', 'AbortError'))
+  let rejectAbort: ((reason: unknown) => void) | undefined
   try {
     return await Promise.race<T>([
       factory,
@@ -2381,17 +2384,14 @@ async function createSessionMessageWithTimeout<T>(
         timeoutHandle = setTimeout(() => {
           reject(createSessionMessageStartTimeoutError(timeoutMs))
         }, timeoutMs)
-        abortSignal?.addEventListener(
-          'abort',
-          () => {
-            reject(new DOMException('Request was aborted', 'AbortError'))
-          },
-          { once: true }
-        )
+        rejectAbort = reject
+        if (abortSignal?.aborted) onAbort()
+        else abortSignal?.addEventListener('abort', onAbort, { once: true })
       })
     ])
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle)
+    abortSignal?.removeEventListener('abort', onAbort)
   }
 }
 
@@ -2837,9 +2837,9 @@ export function registerSessionStreamIpc(): void {
         const abortController = new AbortController()
         activeAbortControllers.set(sessionId, { controller: abortController, requestId })
 
+        let startupPromise: ReturnType<typeof sessionMessageService.createSessionMessage> | undefined
         try {
-          const startedStream = await createSessionMessageWithTimeout(
-            sessionMessageService.createSessionMessage(
+          startupPromise = sessionMessageService.createSessionMessage(
               skillTemplateSource ? { ...session, configuration: { ...session.configuration,
                 quick_skill_source: skillTemplateSource } } : session,
               {
@@ -2861,7 +2861,9 @@ export function registerSessionStreamIpc(): void {
                 },
                 invocationIds
               }
-            ),
+            )
+          const startedStream = await createSessionMessageWithTimeout(
+            startupPromise,
             SESSION_MESSAGE_START_TIMEOUT_MS,
             abortController.signal
           )
@@ -2872,7 +2874,8 @@ export function registerSessionStreamIpc(): void {
           break
         } catch (error) {
           const errorObj = error instanceof Error ? error : new Error(String(error))
-          const requestCancelled = isRequestCancelled(requestId) || abortController.signal.aborted
+          const requestCancelled = isRequestCancelled(requestId)
+          abortController.abort()
           if (requestCancelled) {
             const activeRequest = activeAbortControllers.get(sessionId)
             if (activeRequest?.requestId === requestId) {
@@ -2888,8 +2891,22 @@ export function registerSessionStreamIpc(): void {
             throw errorObj
           }
 
-          if (!abortController.signal.aborted) {
-            abortController.abort()
+          // Keep cancellation reachable during cleanup and backoff, independently of
+          // the attempt controller which was aborted above.
+          const retryController = new AbortController()
+          activeAbortControllers.set(sessionId, { controller: retryController, requestId })
+          try {
+            if (startupPromise) {
+              await createSessionMessageWithTimeout(
+                startupPromise.then(() => undefined, () => undefined),
+                2_000,
+                retryController.signal
+              )
+            }
+          } catch {
+            if (isRequestCancelled(requestId)) return { ok: true, requestId }
+            // Do not overlap a new startup with an attempt that ignored abort.
+            throw errorObj
           }
           logger.warn('[SessionStreamIpc] createSessionMessage startup failed before first stream, scheduling retry', {
             sessionId,
@@ -2910,7 +2927,11 @@ export function registerSessionStreamIpc(): void {
               text: buildRetryStatusText(attemptNumber, SESSION_MESSAGE_START_RETRY_LIMIT)
             } as any
           })
-          await waitForRetryDelay(SESSION_MESSAGE_START_RETRY_BASE_DELAY_MS * attemptNumber)
+          try {
+            await waitForRetryDelay(SESSION_MESSAGE_START_RETRY_BASE_DELAY_MS * attemptNumber, retryController.signal)
+          } catch (error) {
+            if (!isRequestCancelled(requestId)) throw error
+          }
           if (isRequestCancelled(requestId)) {
             const activeRequest = activeAbortControllers.get(sessionId)
             if (activeRequest?.requestId === requestId) {
@@ -3021,7 +3042,11 @@ export function registerSessionStreamIpc(): void {
       if (activeRequest && (!requestId || activeRequest.requestId === requestId)) {
         activeAbortControllers.delete(sessionId)
       }
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+        ...((error as any)?.code ? { code: String((error as any).code) } : {})
+      }
     }
   }
 

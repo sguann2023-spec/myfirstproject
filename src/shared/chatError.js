@@ -1,4 +1,4 @@
-const toMessage = (error) => String(error?.message || '').trim();
+const toMessage = (error) => String(typeof error === 'string' ? error : error?.message || error?.error || '').trim();
 
 const parseHttpStatus = (errorMessage = '') => {
   const matched = String(errorMessage).match(/http\s*(\d{3})/i);
@@ -139,6 +139,19 @@ export const normalizeChatError = (error) => {
   const rawMessage = toMessage(error) || 'Unknown error';
   const status = Number(error?.status || error?.statusCode || parseHttpStatus(rawMessage) || 0) || undefined;
   const code = error?.code ? String(error.code) : undefined;
+
+  if (String(code || '').toUpperCase() === 'SESSION_MESSAGE_START_TIMEOUT'
+    || /session message stream did not start within \d+ms/i.test(rawMessage)
+    || rawMessage.includes('SESSION_MESSAGE_START_TIMEOUT')) {
+    return {
+      category: 'startup_timeout',
+      title: '会话启动超时，请稍后重试；如持续出现，请重启客户端。',
+      message: rawMessage,
+      detail: rawMessage,
+      status,
+      code: 'SESSION_MESSAGE_START_TIMEOUT',
+    };
+  }
 
   if (isAbortError(error)) {
     return {

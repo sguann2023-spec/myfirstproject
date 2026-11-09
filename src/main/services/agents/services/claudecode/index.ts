@@ -611,6 +611,7 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     throwIfCancelled()
     const piHarness = await createClaudeCodeHarness({
+      signal: abortController.signal,
       invokeContext,
       runtimeEnvironment,
       options,
@@ -618,7 +619,10 @@ class ClaudeCodeService implements AgentServiceInterface {
       pendingFileChanges
     })
 
-    throwIfCancelled()
+    if (abortController.signal.aborted) {
+      await Promise.allSettled(piHarness.runtimeBridge?.mcpClients.map((client) => client.close()) ?? [])
+      throwIfCancelled()
+    }
 
     let resolveRuntimeFinished!: () => void
     aiStream.runtimeFinished = new Promise<void>((resolve) => { resolveRuntimeFinished = resolve })

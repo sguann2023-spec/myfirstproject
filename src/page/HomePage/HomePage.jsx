@@ -6992,7 +6992,7 @@ const HomePage = () => {
         ...(draftInspectRequest ? { draftInspectRequest: normalizeDraftInspectRequestPayload(draftInspectRequest, requestId) } : {})
       });
       if (!result?.ok) {
-        throw new Error(result?.error || 'agent createMessage failed');
+        throw Object.assign(new Error(result?.error || 'agent createMessage failed'), { code: result?.code });
       }
     } catch (error) {
       const normalizedError = normalizeChatError(error);
