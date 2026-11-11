@@ -1,2 +1,2 @@
-export { default } from './SkillStorePage';
+export { default } from './TemplateMarketPage';
 

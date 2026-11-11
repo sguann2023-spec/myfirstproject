@@ -2617,6 +2617,16 @@ const HomePage = () => {
     // Skills that ship an example.json usage template fill the chat input with
     // the example prompt and attach the example videos to the composer.
     const example = await loadSkillExample(skill);
+    if (skill?.origin === 'template-market') {
+      if (!example) throw new Error('该模板缺少有效的 example.json');
+      // The composer snapshots the original input before replacing it with this template.
+      const detail = { ...buildSkillExampleApplyDetail(example, name),
+        originalInput: chatDraftInputRef.current, title: skill.name, fromHomepage: false };
+      stashPendingSkillExample(detail);
+      dispatchSkillExampleApply(detail);
+      setSelectedPane('chat');
+      return;
+    }
     if (example) {
       const mention = name ? `@${name}` : '';
       setChatDraftInput([mention, example.prompt].filter(Boolean).join('\n'));

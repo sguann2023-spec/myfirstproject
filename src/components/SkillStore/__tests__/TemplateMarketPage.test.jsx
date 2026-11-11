@@ -1,0 +1,85 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fixture from '../../../../resources/skill-template-marketplace/mock/templates.json';
+import { trackEvent } from '../../../shared/analytics';
+import { installMarketTemplate, listMarketTemplates } from '../templateMarketService';
+import TemplateMarketPage from '../TemplateMarketPage';
+
+vi.mock('../../../shared/analytics', () => ({ trackEvent: vi.fn() }));
+vi.mock('../templateMarketService', async () => {
+  const original = await vi.importActual('../templateMarketService');
+  return { ...original, listMarketTemplates: vi.fn(), installMarketTemplate: vi.fn() };
+});
+vi.mock('../../Chat/ChatShell/WebPagePreview', () => ({ default: ({ preview, onClose }) => <div data-testid="web-preview">{preview.url}<button onClick={onClose}>关闭网页</button></div> }));
+let container, root;
+beforeEach(() => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  vi.clearAllMocks();
+  listMarketTemplates.mockImplementation(async ({ offset }) => ({ ...fixture, data: fixture.data.slice(offset, offset + 3) }));
+  installMarketTemplate.mockResolvedValue({ id: 'local', name: '模板', origin: 'template-market', directoryPath: '/global/template' });
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+});
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+const render = async (props = {}) => act(async () => root.render(<TemplateMarketPage {...props} />));
+const hover = async (card) => act(async () => card.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+const click = async (element) => act(async () => element.click());
+
+describe('template marketplace interactions', () => {
+  it('shows three columns and loads a second page without duplicating cards', async () => {
+    await render();
+    expect(container.querySelectorAll('.template-market-column')).toHaveLength(3);
+    expect(container.querySelectorAll('article')).toHaveLength(3);
+    expect(container.textContent).not.toContain('我安装的');
+    expect(container.querySelector('input')).toBeNull();
+    await act(async () => container.querySelector('.template-market-scroll').dispatchEvent(new Event('scroll', { bubbles: true })));
+    expect(container.querySelectorAll('article')).toHaveLength(6);
+  });
+  it('exposes hover actions once and opens the original in an embedded webpage', async () => {
+    await render();
+    const card = container.querySelector('article');
+    await hover(card); await hover(card);
+    expect(trackEvent).toHaveBeenCalledWith('skill_market_do_same_explore', { skill_name: fixture.data[0].name });
+    expect(trackEvent.mock.calls.filter(([event]) => event === 'skill_market_watch_explore')).toHaveLength(1);
+    await click(card.querySelector('[aria-label^="查看"]'));
+    expect(container.querySelector('[data-testid="web-preview"]').textContent).toContain(fixture.data[0].web_share);
+    expect(trackEvent).toHaveBeenCalledWith('skill_market_watch_click', { skill_name: fixture.data[0].name });
+  });
+  it('installs before applying the template to chat', async () => {
+    const onGoChat = vi.fn();
+    await render({ onGoChat });
+    const card = container.querySelector('article'); await hover(card);
+    await click(card.querySelector('.template-market-apply'));
+    expect(installMarketTemplate).toHaveBeenCalledWith(fixture.data[0]);
+    expect(onGoChat).toHaveBeenCalledWith(expect.objectContaining({ origin: 'template-market' }));
+    expect(installMarketTemplate.mock.invocationCallOrder[0]).toBeLessThan(onGoChat.mock.invocationCallOrder[0]);
+  });
+  it('mounts a muted hover video only for the active card and unloads it on leaving', async () => {
+    await render();
+    const cards = [...container.querySelectorAll('article')];
+    const video = cards.find((card) => card.getAttribute('aria-label') === `预览 ${fixture.data[1].name}`);
+    expect(container.querySelectorAll('video')).toHaveLength(0);
+    await hover(video);
+    expect(container.querySelectorAll('video')).toHaveLength(1);
+    expect(container.querySelector('video').muted).toBe(true);
+    await act(async () => video.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
+    expect(container.querySelectorAll('video')).toHaveLength(0);
+  });
+  it('opens a centered image preview and closes it through the close button', async () => {
+    await render();
+    await click(container.querySelector('article'));
+    const modal = document.querySelector('.template-market-preview');
+    expect(modal.querySelector('img').getAttribute('src')).toBe(fixture.data[0].preview.url);
+    expect(modal.querySelector('.ant-modal-header, .ant-modal-footer')).toBeNull();
+    await click(modal.querySelector('.ant-modal-close'));
+    expect(document.querySelector('.template-market-preview .ant-modal-wrap')?.style.display || 'none').toBe('none');
+  });
+  it('keeps chat untouched if template installation fails', async () => {
+    installMarketTemplate.mockRejectedValueOnce(new Error('安装失败'));
+    const onGoChat = vi.fn();
+    await render({ onGoChat });
+    const card = container.querySelector('article'); await hover(card);
+    await click(card.querySelector('.template-market-apply'));
+    expect(onGoChat).not.toHaveBeenCalled();
+  });
+});

@@ -67,6 +67,7 @@
         "to": "resources",
         "filter": [
           "**/*",
+          "!skill-template-marketplace/mock/**",
           "!gitbash/**/*.7z.exe",
           "!python/**/.*",
           "!python/**/.*/**",
