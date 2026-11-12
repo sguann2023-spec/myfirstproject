@@ -4,6 +4,7 @@ import { MessageBlockStatus, MessageBlockType, type ThinkingMessageBlock } from 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ThinkingBlock from '../ThinkingBlock'
+import { hasMeaningfulThinkingContent } from '../thinkingContent'
 import LegacyThinkingBlock from '../../../../../../../components/Chat/MessagePane/Blocks/ThinkingBlock'
 
 vi.mock('../../../Markdown/Markdown', () => ({
@@ -14,6 +15,17 @@ const makeBlock = (overrides: Partial<ThinkingMessageBlock> = {}): ThinkingMessa
   id: 'thinking-1', messageId: 'message-1', type: MessageBlockType.THINKING,
   status: MessageBlockStatus.STREAMING, createdAt: '2026-11-05T00:00:00Z',
   content: 'First thought', thinking_millsec: 5000, ...overrides
+})
+
+describe('hasMeaningfulThinkingContent', () => {
+  it('rejects blank placeholders without hiding real text or modifying it', () => {
+    for (const content of [null, undefined, '', ' ', '\n\r\t', '\u200B\u200C\u200D\uFEFF']) {
+      expect(hasMeaningfulThinkingContent(content)).toBe(false)
+    }
+    for (const content of ['思考', 'Reasoning', '  text\n', '👩\u200D💻', '\u200Breal']) {
+      expect(hasMeaningfulThinkingContent(content)).toBe(true)
+    }
+  })
 })
 
 // Use React DOM directly: this focused suite needs no testing-library installation.
@@ -98,11 +110,26 @@ describe.each([['renderer', ThinkingBlock], ['legacy', LegacyThinkingBlock]] as 
     expect(host.textContent).toContain('用时 5 秒')
   })
 
-  it('renders nothing for empty or whitespace-only reasoning', () => {
-    for (const content of ['', undefined, ' \r\n\t']) {
-      render(makeBlock({ content: content as any }))
+  it.each([MessageBlockStatus.PROCESSING, MessageBlockStatus.STREAMING, MessageBlockStatus.SUCCESS, MessageBlockStatus.PAUSED, MessageBlockStatus.ERROR])('hides empty reasoning and its timer with status %s', (status) => {
+    for (const content of ['', undefined, ' ', '\n', ' \r\n\t', '\u200B\u200C\u200D\uFEFF\n ']) {
+      render(makeBlock({ content: content as any, status }))
       expect(host.firstChild).toBeNull()
+      expect(host.textContent).not.toMatch(/深度思考|用时|秒/)
     }
+  })
+
+  it('reveals real streamed reasoning after whitespace and retains it on completion', () => {
+    render(makeBlock({ content: ' \n\u200B' }))
+    expect(host.firstChild).toBeNull()
+    const content = ' \n\u200B\n真实思考\n\u200B'
+    render(makeBlock({ content }))
+    expect(host.textContent).toContain('深度思考')
+    expect(host.firstElementChild?.getAttribute('data-thinking')).toBe('true')
+    expect(host.querySelector('button')?.children[2].firstElementChild?.textContent).toBe('真实思考')
+    render(makeBlock({ content, status: MessageBlockStatus.SUCCESS }))
+    expect(host.textContent).toContain('用时 5 秒')
+    act(() => host.querySelector('button')!.click())
+    expect(host.querySelector('[data-testid="thinking-markdown"]')?.textContent).toBe(content)
   })
 
   it('uses CSS-only motion, fixed single-line clipping and reduced-motion overrides', () => {

@@ -2847,7 +2847,8 @@ export function registerSessionStreamIpc(): void {
                 model: effectiveModel || undefined,
                 createdAt,
                 effort: payload?.effort,
-                thinking: payload?.thinking
+                thinking: payload?.thinking,
+                thinkingLevel: typeof payload?.thinkingLevel === 'string' ? payload.thinkingLevel : undefined
               },
               abortController,
               {

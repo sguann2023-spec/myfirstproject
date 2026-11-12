@@ -31,7 +31,7 @@ import { resolveMcpProgressCallIds } from './mcp-progress-call-id-map'
 import { preserveMcpResult, projectMcpArtifactForContext } from './mcp-result-storage'
 import { ImageInspectionState } from './image-inspection-state'
 import { normalizeImageGenerationArguments } from './image-generation-action'
-import { createReadImageContextProjector } from './read-image-context'
+import { buildImageInputGuidance, createReadImageContextProjector } from './read-image-context'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -1301,6 +1301,7 @@ function normalizeProviderPayload(input: {
   payload: unknown
   providerApiType: 'anthropic-messages' | 'openai-completions'
   invokeContext: ClaudeCodeInvokeContext
+  baseUrl?: string
 }): void {
   const { payload } = input
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
@@ -1311,6 +1312,29 @@ function normalizeProviderPayload(input: {
   delete record.reasoning
   delete record.reasoning_effort
   delete record.chat_template_kwargs
+  if (record.output_config && typeof record.output_config === 'object' && !Array.isArray(record.output_config)) {
+    const { effort: _effort, ...rest } = record.output_config as Record<string, unknown>
+    if (Object.keys(rest).length) record.output_config = rest
+    else delete record.output_config
+  }
+
+  const level = input.invokeContext.thinkingLevel
+  const provider = input.invokeContext.runtime?.provider
+  if (typeof level === 'string' && ['off', 'on', 'low', 'medium', 'high', 'xhigh', 'max', 'none'].includes(level)
+    && provider && !provider.id.startsWith('custom-') && isVectcutGatewayUrl(input.baseUrl || '')) {
+    const enabled = level === 'on' || (level !== 'off' && level !== 'none'
+      && /deepseek/i.test(input.invokeContext.runtime.model.id))
+    // /messages reads thinking + output_config.effort, not the OpenAI extension fields.
+    if (input.providerApiType === 'anthropic-messages') {
+      if (level === 'off' || enabled) record.thinking = { type: enabled ? 'enabled' : 'disabled' }
+      if (level !== 'off' && level !== 'on') {
+        record.output_config = { ...(record.output_config as Record<string, unknown> || {}), effort: level }
+      }
+    } else {
+      if (level === 'off' || enabled) record.enable_thinking = enabled
+      if (level !== 'off' && level !== 'on') record.reasoning_effort = level
+    }
+  }
 
   if (input.providerApiType === 'openai-completions' && Array.isArray(record.messages)) {
     record.messages = normalizeOpenAiMessages(record.messages)
@@ -1327,8 +1351,9 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
   apiModule: PiApiModule
   invokeContext: ClaudeCodeInvokeContext
   providerApiType: 'anthropic-messages' | 'openai-completions'
+  baseUrl?: string
 }): PiApiModule {
-  const { apiModule, invokeContext, providerApiType } = input
+  const { apiModule, invokeContext, providerApiType, baseUrl } = input
   const normalizeOptions = (options: unknown) => {
     const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
     return {
@@ -1336,7 +1361,22 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
       onPayload: async (payload: unknown, payloadModel: unknown) => {
         const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
         const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
-        normalizeProviderPayload({ payload: replacement ?? payload, providerApiType, invokeContext })
+        const effectivePayload = replacement ?? payload
+        normalizeProviderPayload({ payload: effectivePayload, providerApiType, invokeContext, baseUrl })
+        // Whitelist scalar controls only: never log messages, URLs, headers or keys.
+        const body = effectivePayload as Record<string, any> | null
+        logger.info('[AgentCore] thinking payload', {
+          traceId: invokeContext.runtime?.traceId,
+          model: invokeContext.runtime?.model?.id,
+          protocol: providerApiType,
+          selectedLevel: typeof invokeContext.thinkingLevel === 'string' ? invokeContext.thinkingLevel : null,
+          gatewayEligible: Boolean(invokeContext.runtime?.provider && !invokeContext.runtime.provider.id.startsWith('custom-') && isVectcutGatewayUrl(baseUrl || '')),
+          // Explicit null survives JSON logging and means the control was omitted.
+          enableThinking: typeof body?.enable_thinking === 'boolean' ? body.enable_thinking : null,
+          thinkingType: typeof body?.thinking?.type === 'string' ? body.thinking.type : null,
+          effort: typeof body?.reasoning_effort === 'string' ? body.reasoning_effort
+            : typeof body?.output_config?.effort === 'string' ? body.output_config.effort : null
+        })
         return replacement
       }
     }
@@ -1353,7 +1393,7 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
 
 export function resolvePiRuntimeApiKey(runtimeEnvironment: ClaudeRuntimeEnvironment, baseUrl: string): string {
   // Login credentials may only follow the actual request destination to our gateway.
-  return isVectcutGatewayUrl(baseUrl)
+  return !runtimeEnvironment.modelInfo.provider?.id?.startsWith('custom-') && isVectcutGatewayUrl(baseUrl)
     ? String(runtimeEnvironment.env.ANTHROPIC_API_KEY || runtimeEnvironment.env.ANTHROPIC_AUTH_TOKEN || '').trim()
     : String(runtimeEnvironment.modelInfo.provider?.apiKey || '').trim()
 }
@@ -1374,8 +1414,9 @@ export async function buildPiRuntimeBridge(input: {
   const modelId = invokeContext.runtime.model.id || 'claudecode-bootstrap-model'
   const providerApiHost = String(runtimeEnvironment.modelInfo.provider?.apiHost || '').trim()
   const providerAnthropicHost = String(runtimeEnvironment.modelInfo.provider?.anthropicApiHost || '').trim()
-  const baseUrl =
-    providerApiType === 'openai-completions'
+  const baseUrl = runtimeEnvironment.modelInfo.provider?.id?.startsWith('custom-')
+    ? providerApiHost
+    : providerApiType === 'openai-completions'
       ? ensureOpenAiApiVersionBaseUrl(providerApiHost)
       : String(providerAnthropicHost || providerApiHost || '').trim()
   const runtimeGatewayToken = resolvePiRuntimeApiKey(runtimeEnvironment, baseUrl)
@@ -1389,7 +1430,8 @@ export async function buildPiRuntimeBridge(input: {
   const apiModule = wrapPiApiModuleWithPayloadNormalization({
     apiModule: rawApiModule,
     invokeContext,
-    providerApiType
+    providerApiType,
+    baseUrl
   })
 
   const models = packageBridge.piAi.createModels()
@@ -1494,7 +1536,10 @@ export async function buildPiRuntimeBridge(input: {
       session,
       models,
       model,
-      systemPrompt: invokeContext.prompt.systemPrompt,
+      systemPrompt: [
+        invokeContext.prompt.systemPrompt,
+        buildImageInputGuidance(invokeContext.runtime.model?.supportsImageInput === true)
+      ].filter(Boolean).join('\n\n'),
       tools,
       activeToolNames,
       resources: {
@@ -1513,7 +1558,10 @@ export async function buildPiRuntimeBridge(input: {
     })
 
     const mcpToolNames = new Set(mcpTools.tools.map((tool) => tool.name))
-    const projectReadImageContext = createReadImageContextProjector(invokeContext.runtime.workspacePath, undefined, { beginNewTurn: true })
+    const projectReadImageContext = createReadImageContextProjector(invokeContext.runtime.workspacePath, undefined, {
+      beginNewTurn: true,
+      supportsImageInput: invokeContext.runtime.model?.supportsImageInput === true
+    })
     harness.on('context', async (context: any) => ({
       messages: await projectReadImageContext(context.messages)
     }))

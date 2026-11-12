@@ -77,7 +77,7 @@ const billedSearchRaw = (consume: number) => ({ content: [{ type: 'text', text: 
 
 const assertBadge = (html: string) => {
   expect(html).toContain('本次渲染消耗 6.00 点')
-  expect(html).toContain('video-understand-tool-billing-icon')
+  expect(html).toContain('tool-header-billing-badge')
   expect(html).not.toContain('private.example')
 }
 

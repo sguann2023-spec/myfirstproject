@@ -103,7 +103,7 @@ describe('DigitalHumanServer', () => {
     mockStoreGet.mockImplementation((key: string) => (key === 'auth.refresh_token' ? 'refresh-token' : undefined))
   })
 
-  it('should expose background and recovery tools alongside legacy create tools', async () => {
+  it('should expose only create tools internally without status or background job tools', async () => {
     const server = createServer()
     const result = await listTools(server)
 
@@ -111,13 +111,7 @@ describe('DigitalHumanServer', () => {
       'create_lip_sync_digital_human',
       'create_image_driven_digital_human',
       'create_omni_image_driven_digital_human',
-      'create_default_image_driven_digital_human',
-      'start_digital_human_task',
-      'get_digital_human_job',
-      'get_lip_sync_digital_human_status',
-      'get_image_driven_digital_human_status',
-      'get_omni_image_driven_digital_human_status',
-      'get_default_image_driven_digital_human_status'
+      'create_default_image_driven_digital_human'
     ])
   })
 
@@ -131,9 +125,8 @@ describe('DigitalHumanServer', () => {
     expect(tool('create_omni_image_driven_digital_human').description).toContain('10x')
     expect(tool('create_omni_image_driven_digital_human').description).toContain('explicit informed user choice')
     expect(tool('create_lip_sync_digital_human').description).toContain('original person video')
-    const modeDescription = tool('start_digital_human_task').inputSchema.properties.mode.description
-    expect(modeDescription).toContain('seedance is its legacy mode key')
-    expect(modeDescription).toContain('never auto-upgrade')
+    expect(tool('start_digital_human_task')).toBeUndefined()
+    expect(tool('get_digital_human_job')).toBeUndefined()
   })
 
   it.each(['get_default_image_driven_digital_human_status', 'get_seedance_digital_human_status'])('routes status via %s without changing persisted mode', async (toolName) => {

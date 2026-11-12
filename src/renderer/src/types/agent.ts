@@ -513,7 +513,8 @@ export const CreateSessionMessageRequestSchema = z.object({
   model: z.string().trim().min(1).optional(),
   createdAt: z.number().refine(Number.isFinite, 'createdAt must be a finite number').optional(),
   effort: AgentEffortSchema.optional(),
-  thinking: AgentThinkingConfigSchema.optional()
+  thinking: AgentThinkingConfigSchema.optional(),
+  thinkingLevel: z.string().optional()
 })
 
 export type PermissionModeCard = {

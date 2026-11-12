@@ -71,10 +71,16 @@ async function saveImageReference(image: ImageContent, workspacePath: string): P
   return filePath
 }
 
+export function buildImageInputGuidance(supportsImageInput: boolean): string {
+  return supportsImageInput
+    ? ''
+    : 'This model does not support image input. When the user provides an image path or URL or asks about image contents, first discover image-understand / inspect_image via codemode and call it with image set to that path or URL and question set to the visual question. Use its text analysis to answer. A file:// link is an image reference, not image contents; decode it to a local file path for the tool. Do not use Read, ReadImageAsContent, shell commands, or base64 output to visually inspect images, and do not infer image contents from filenames. If the image-understanding tool is unavailable or fails, explain the limitation instead of claiming to have seen the image.'
+}
+
 export function createReadImageContextProjector(
   workspacePath: string,
   onSummary?: (summary: Record<string, number>) => void,
-  options: { beginNewTurn?: boolean } = {}
+  options: { beginNewTurn?: boolean; supportsImageInput?: boolean } = {}
 ) {
   const cached = new WeakMap<object, Promise<AgentMessage>>()
   const normalized = new WeakMap<object, AgentMessage>()
@@ -125,7 +131,9 @@ export function createReadImageContextProjector(
             references.push(filePath)
             content.push({
               type: 'text' as const,
-              text: `Previously loaded image: ${JSON.stringify(filePath)}. Raw image omitted from this later response or conversation turn. Use ReadImageAsContent with this file_path if visual inspection is needed again.`
+              text: `Previously loaded image: ${JSON.stringify(filePath)}. Raw image omitted from this later response or conversation turn. ${options.supportsImageInput === false
+                ? 'Discover image-understand / inspect_image via codemode and call it with image set to this file path and question set to the visual question if visual inspection is needed again. This model cannot view images directly.'
+                : 'Use ReadImageAsContent with this file_path if visual inspection is needed again.'}`
             })
           }
           const details = message.details as { mimeType?: unknown; byteLength?: unknown } | undefined

@@ -16,6 +16,24 @@ function Get-BlockingProcesses {
   foreach ($process in @(Get-CimInstance Win32_Process)) {
     if ($process.ProcessId -eq $PID -or $process.ProcessId -eq $InstallerProcessId) { continue }
     $exe = $process.ExecutablePath
+    if (!$exe) {
+      # CIM can omit ExecutablePath even when Get-Process can resolve it.
+      $inspected = $null
+      try {
+        $inspected = Get-Process -Id $process.ProcessId -ErrorAction Stop
+        $exe = $inspected.Path
+      } catch { } finally { if ($inspected) { $inspected.Dispose() } }
+      if ($exe) { $process.ExecutablePath = $exe }
+    }
+    if ($expectedPid -and $process.ProcessId -eq $expectedPid) {
+      if (!$exe) { throw "Cannot inspect original app PID=$expectedPid; run as administrator." }
+      $created = ([DateTime]$process.CreationDate).ToUniversalTime()
+      if (![string]::Equals($exe, $expectedPath, [StringComparison]::OrdinalIgnoreCase) -or
+          [Math]::Abs(($created - $expectedCreated).TotalMilliseconds) -ge 1) {
+        throw "Original app PID=$expectedPid identity changed; refusing to terminate it."
+      }
+      Write-PreflightLog "Original app identified PID=$expectedPid exe=$exe created=$created"
+    }
     # Separator boundary prevents C:\App matching C:\AppOther.
     if ($exe -and $exe.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
       if ([string]::Equals($exe, $installerPath, [StringComparison]::OrdinalIgnoreCase)) { continue }
@@ -23,6 +41,24 @@ function Get-BlockingProcesses {
     } elseif (!$exe -and $process.Name -eq $ExecutableName) {
       throw "Cannot inspect $ExecutableName (PID $($process.ProcessId)); run the installer as administrator."
     }
+  }
+  # Do not trust a successful CIM directory scan alone: explicitly inspect the
+  # handed-off main PID as well (it can be absent from that snapshot).
+  if ($expectedPid -and !@($blocked | Where-Object { $_.ProcessId -eq $expectedPid }).Count) {
+    $main = Get-Process -Id $expectedPid -ErrorAction SilentlyContinue
+    if ($main) {
+      try {
+        if (!$main.HasExited) {
+          $path = $main.Path
+          $created = $main.StartTime.ToUniversalTime()
+          if (!$path -or ![string]::Equals($path, $expectedPath, [StringComparison]::OrdinalIgnoreCase) -or
+              [Math]::Abs(($created - $expectedCreated).TotalMilliseconds) -ge 1) {
+            throw "Original app PID=$expectedPid cannot be safely identified."
+          }
+          $blocked += [PSCustomObject]@{ ProcessId = $main.Id; Name = $main.ProcessName; ExecutablePath = $path; CreationDate = $created }
+        }
+      } finally { $main.Dispose() }
+    } else { Write-PreflightLog "Original app PID=$expectedPid already exited; no main-process kill needed" }
   }
   return $blocked
 }
@@ -36,6 +72,23 @@ try {
   $installerPath = (Get-Process -Id $InstallerProcessId -ErrorAction Stop).Path
   if (!$installerPath) { throw 'Cannot identify installer executable.' }
   Write-PreflightLog "Resolved root=$root installer=$installerPath"
+  $expectedPid = 0
+  $expectedPath = $env:VECTCUT_UPDATE_APP_PATH
+  if ($env:VECTCUT_UPDATE_APP_PID) {
+    if (![int]::TryParse($env:VECTCUT_UPDATE_APP_PID, [ref]$expectedPid) -or $expectedPid -le 0) {
+      throw 'Invalid original app PID handoff.'
+    }
+    $expectedCreated = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$env:VECTCUT_UPDATE_APP_CREATED).UtcDateTime
+    if (!$expectedPath -or !$expectedPath.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+      # A machine/current-user uninstall can check more than one old root.
+      Write-PreflightLog "Original app belongs to another installation; directory scan only for $root"
+      $expectedPid = 0
+    } elseif ($expectedPid -eq $PID -or $expectedPid -eq $InstallerProcessId -or
+        [string]::Equals($expectedPath, $installerPath, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Original app handoff identifies the installer or preflight.'
+    }
+    Write-PreflightLog "Handoff PID=$expectedPid exe=$expectedPath created=$expectedCreated"
+  }
 
   # Give Electron time to quit normally before terminating bundled services.
   $deadline = [DateTime]::UtcNow.AddSeconds(5)

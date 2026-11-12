@@ -124,6 +124,7 @@ export function modelSupportsImageInput(runtimeEnvironment: ClaudeRuntimeEnviron
 }
 
 export async function buildClaudeCodeInvokeContext(input: {
+  thinkingLevel?: string
   traceId: string
   prompt: string
   sdkPrompt: string
@@ -220,6 +221,7 @@ export async function buildClaudeCodeInvokeContext(input: {
   })
 
   return {
+    thinkingLevel: input.thinkingLevel,
     runtime,
     skills,
     tools,

@@ -96,6 +96,7 @@ export type ProjectionContext = {
 }
 
 export type ClaudeCodeInvokeContext = {
+  thinkingLevel?: string
   runtime: RuntimeSnapshot
   skills: SkillRuntimeSnapshot
   tools: ToolRuntimeSnapshot

@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AgentHarness, InMemorySessionStorage, Session } from '@earendil-works/pi-agent-core'
-import { createReadImageContextProjector } from '../harness/read-image-context'
+import { buildImageInputGuidance, createReadImageContextProjector } from '../harness/read-image-context'
 
 const base64 = Buffer.from('original image bytes').toString('base64')
 const imageResult = (id = 'image-1', toolName = 'ReadImageAsContent'): any => ({
@@ -19,6 +19,34 @@ const assistant = (stopReason = 'stop', content: unknown[] = [{ type: 'text', te
 let directory: string
 beforeEach(async () => { directory = await mkdtemp(path.join(os.tmpdir(), 'read-image-context-')) })
 afterEach(async () => { await rm(directory, { recursive: true, force: true }) })
+
+it('guides text-only models to discover image understanding for user image references', () => {
+  const guidance = buildImageInputGuidance(false)
+  expect(guidance).toContain('image-understand / inspect_image via codemode')
+  expect(guidance).toContain('image set to that path or URL')
+  expect(guidance).toContain('question set to the visual question')
+  expect(guidance).toContain('file://')
+  expect(guidance).toContain('Do not use Read, ReadImageAsContent, shell commands, or base64')
+  expect(buildImageInputGuidance(true)).toBe('')
+})
+
+it.each([false, true])('matches historical image reload guidance to model capability=%s', async supportsImageInput => {
+  const result = imageResult()
+  const projected = await createReadImageContextProjector(directory, undefined, {
+    beginNewTurn: true, supportsImageInput
+  })([result])
+  const message = projected[0] as any
+  const text = message.content[1].text
+  if (supportsImageInput) {
+    expect(text).toContain('Use ReadImageAsContent')
+    expect(text).not.toContain('inspect_image')
+  } else {
+    expect(text).toContain('image-understand / inspect_image via codemode')
+    expect(text).not.toContain('ReadImageAsContent')
+  }
+  expect(await readFile(message.details.source)).toEqual(Buffer.from(base64, 'base64'))
+  expect(result.content[1].data).toBe(base64)
+})
 
 it('keeps images for the immediately following model call', async () => {
   const result = imageResult()

@@ -1,5 +1,6 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
+import { createServer } from 'node:http'
 import path from 'node:path'
 import sharp from 'sharp'
 import { net } from 'electron'
@@ -98,6 +99,156 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+describe('real Pi adapters against loopback HTTP (no paid services)', () => {
+  it.each([
+    ['openai-completions', undefined], ['anthropic-messages', undefined],
+    ['openai-completions', 'off'], ['anthropic-messages', 'off'],
+    ['openai-completions', 'on'], ['anthropic-messages', 'on']
+  ] as const)('sends and parses %s (%s) through production provider/auth/adapter chain', async (api, thinkingLevel) => {
+    const requests: Array<{ url: string; headers: any; body: any }> = []
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      requests.push({ url: req.url!, headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString()) })
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      if (api === 'openai-completions') {
+        res.end(`data: ${JSON.stringify({ id: 'local', object: 'chat.completion.chunk', created: 1, model: 'local-model', choices: [{ index: 0, delta: { role: 'assistant', content: 'local-ok' }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'local', object: 'chat.completion.chunk', created: 1, model: 'local-model', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
+      } else {
+        const events = [
+          { type: 'message_start', message: { id: 'local', type: 'message', role: 'assistant', content: [], model: 'local-model', stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'local-ok' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } },
+          { type: 'message_stop' }
+        ]
+        res.end(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''))
+      }
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    try {
+      const port = (server.address() as import('node:net').AddressInfo).port
+      // OpenAI expects the configured /v1; Anthropic SDK appends /v1/messages itself.
+      const baseUrl = `http://127.0.0.1:${port}/explicit${api === 'openai-completions' ? '/v1' : ''}`
+      const pi = await import('@earendil-works/pi-ai')
+      const realAdapter = api === 'openai-completions'
+        ? await import('@earendil-works/pi-ai/api/openai-completions')
+        : await import('@earendil-works/pi-ai/api/anthropic-messages')
+      const environment = { env: { ANTHROPIC_API_KEY: 'must-not-use-login-token' }, modelInfo: { provider: { id: 'custom-local', type: api === 'openai-completions' ? 'openai' : 'anthropic', apiHost: baseUrl, apiKey: 'local-only-key' } } } as any
+      const key = resolvePiRuntimeApiKey(environment, baseUrl)
+      const models = pi.createModels()
+      const model = { id: 'local-model', name: 'Local', api, provider: 'local-test', baseUrl, reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 64 } as any
+      models.setProvider(pi.createProvider({
+        id: 'local-test', baseUrl,
+        auth: { apiKey: { name: 'local', async resolve() { return { auth: { headers: { Authorization: `Bearer ${key}` } } } } } },
+        models: [model],
+        api: wrapPiApiModuleWithPayloadNormalization({
+          apiModule: realAdapter as any,
+          invokeContext: { thinkingLevel, runtime: { provider: { id: 'bailian' }, model: { id: 'qwen3.8-flash' } } } as any,
+          providerApiType: api,
+          // Only the adapter's transport is redirected to loopback. Exercise the
+          // real gateway eligibility guard without sending credentials off-host.
+          baseUrl: 'https://open.vectcut.com/v1'
+        })
+      }))
+      const result = await models.completeSimple(model, { messages: [{ role: 'user', content: 'hello-local', timestamp: 1 }] }, { maxTokens: 32 })
+      expect(result.stopReason).toBe('stop')
+      expect(result.content).toContainEqual({ type: 'text', text: 'local-ok' })
+      expect(requests).toHaveLength(1)
+      expect(requests[0].url).toBe(api === 'openai-completions' ? '/explicit/v1/chat/completions' : '/explicit/v1/messages')
+      expect(requests[0].headers.authorization).toBe('Bearer local-only-key')
+      expect(requests[0].body.model).toBe('local-model')
+      expect(requests[0].body.stream).toBe(true)
+      expect(JSON.stringify(requests[0].body.messages)).toContain('hello-local')
+      if (api === 'anthropic-messages') expect(requests[0].headers['anthropic-version']).toBe('2023-06-01')
+      const body = requests[0].body
+      const diagnostic = logMocks.info.mock.calls.find(([event]) => event === '[AgentCore] thinking payload')?.[1]
+      expect(diagnostic).toMatchObject({ model: 'qwen3.8-flash', protocol: api, selectedLevel: thinkingLevel ?? null, gatewayEligible: true })
+      expect(Object.keys(diagnostic).sort()).toEqual(['traceId', 'model', 'protocol', 'selectedLevel', 'gatewayEligible', 'enableThinking', 'thinkingType', 'effort'].sort())
+      const serializedDiagnostic = JSON.stringify(diagnostic)
+      expect(serializedDiagnostic).not.toContain('local-only-key')
+      expect(serializedDiagnostic).not.toContain('hello-local')
+      expect(JSON.parse(serializedDiagnostic)).toMatchObject({
+        selectedLevel: thinkingLevel ?? null,
+        enableThinking: thinkingLevel && api === 'openai-completions' ? thinkingLevel === 'on' : null,
+        thinkingType: thinkingLevel && api === 'anthropic-messages' ? thinkingLevel === 'on' ? 'enabled' : 'disabled' : null,
+        effort: null
+      })
+      if (thinkingLevel) {
+        if (api === 'openai-completions') {
+          expect(body.enable_thinking).toBe(thinkingLevel === 'on')
+          expect(body.thinking).toBeUndefined()
+        } else {
+          expect(body.thinking).toEqual({ type: thinkingLevel === 'on' ? 'enabled' : 'disabled' })
+          expect(body.enable_thinking).toBeUndefined()
+        }
+      } else {
+        expect(body.enable_thinking).toBeUndefined()
+        expect(body.thinking).toBeUndefined()
+      }
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    }
+  })
+})
+
+describe('gateway thinking selection', () => {
+  async function payloadFor(level: unknown, protocol: 'anthropic-messages' | 'openai-completions', model = 'deepseek-v4', providerId = 'builtin', baseUrl = 'https://open.vectcut.com/v1', method = 'stream') {
+    const underlying = vi.fn((_model, _context, options) => options)
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({
+      apiModule: { stream: underlying, streamSimple: underlying } as any,
+      invokeContext: { thinkingLevel: level, runtime: { provider: { id: providerId }, model: { id: model } } } as any,
+      providerApiType: protocol, baseUrl
+    })
+    const payload: any = { enable_thinking: true, thinking: {}, reasoning: {}, reasoning_effort: 'stale', chat_template_kwargs: {}, output_config: { effort: 'stale', format: 'json' } }
+    const options = (wrapper as any)[method]({}, {}, { onPayload: () => payload })
+    await options.onPayload({}, {})
+    return payload
+  }
+
+  for (const protocol of ['anthropic-messages', 'openai-completions'] as const) {
+    it.each(['off', 'on', 'low', 'medium', 'high', 'xhigh', 'max', 'none'])(`${protocol} maps %s to backend fields`, async level => {
+      const payload = await payloadFor(level, protocol)
+      const enabled = level !== 'off' && level !== 'none'
+      if (protocol === 'openai-completions') {
+        expect(payload.enable_thinking).toBe(level === 'none' ? undefined : enabled)
+        expect(payload.reasoning_effort).toBe(['off', 'on'].includes(level) ? undefined : level)
+        expect(payload.thinking).toBeUndefined()
+        expect(payload.output_config).toEqual({ format: 'json' })
+      } else {
+        expect(payload.thinking).toEqual(level === 'none' ? undefined : { type: enabled ? 'enabled' : 'disabled' })
+        expect(payload.output_config).toEqual(['off', 'on'].includes(level) ? { format: 'json' } : { format: 'json', effort: level })
+        expect(payload.enable_thinking).toBeUndefined()
+        expect(payload.reasoning_effort).toBeUndefined()
+      }
+      expect(payload.reasoning).toBeUndefined()
+      expect(payload.chat_template_kwargs).toBeUndefined()
+    })
+
+    it('cleans invalid, absent, custom and foreign destination selections', async () => {
+      for (const [level, provider, url] of [
+        [undefined, 'builtin', 'https://open.vectcut.com/v1'],
+        ['invalid', 'builtin', 'https://open.vectcut.com/v1'],
+        ['high', 'custom-123', 'https://open.vectcut.com/v1'],
+        ['high', 'builtin', 'https://foreign.example/v1'],
+        ['high', 'builtin', 'https://open.vectcut.com.evil.example/v1']
+      ]) {
+        const payload = await payloadFor(level, protocol, 'deepseek-v4', provider, url, 'streamSimple')
+        expect(payload.output_config).toEqual({ format: 'json' })
+        for (const key of ['thinking', 'enable_thinking', 'reasoning_effort']) expect(payload[key]).toBeUndefined()
+      }
+    })
+
+    it('does not force thinking for non-DeepSeek effort selections', async () => {
+      const payload = await payloadFor('high', protocol, 'gpt-5', undefined, undefined, 'streamSimple')
+      expect(payload.enable_thinking).toBeUndefined()
+      expect(payload.thinking).toBeUndefined()
+      expect(protocol === 'anthropic-messages' ? payload.output_config.effort : payload.reasoning_effort).toBe('high')
+    })
+  }
+})
+
 describe('Pi runtime authentication', () => {
   const runtime = (apiKey?: string) => ({
     modelInfo: { provider: { type: 'openai', apiKey, anthropicApiHost: 'https://open.vectcut.com' } },
@@ -119,6 +270,12 @@ describe('Pi runtime authentication', () => {
   ])('keeps custom endpoint credentials scoped to the actual destination %s', baseUrl => {
     expect(resolvePiRuntimeApiKey(runtime('custom-api-key'), baseUrl)).toBe('custom-api-key')
     expect(resolvePiRuntimeApiKey(runtime(), baseUrl)).toBe('')
+  })
+
+  it('honors explicit custom keys even when the URL is the built-in gateway', () => {
+    const environment = runtime('explicit-custom-key')
+    environment.modelInfo.provider.id = 'custom-123'
+    expect(resolvePiRuntimeApiKey(environment, 'https://open.vectcut.com/v1')).toBe('explicit-custom-key')
   })
 
   it('does not fall back to a stale provider key when gateway runtime credentials are absent', () => {
@@ -212,7 +369,7 @@ describe('OpenAI tool message normalization', () => {
     }
   })
 
-  it.each(['stream', 'streamSimple'] as const)('%s forwards fetch and response callbacks without diagnostic logging', async method => {
+  it.each(['stream', 'streamSimple'] as const)('%s forwards fetch and response callbacks with only scalar thinking diagnostics', async method => {
     const underlying = vi.fn((_model, _context, options) => options)
     const wrapper = wrapPiApiModuleWithPayloadNormalization({
       apiModule: { stream: underlying, streamSimple: underlying } as any,
@@ -228,7 +385,7 @@ describe('OpenAI tool message normalization', () => {
     await options.onPayload({ messages: [] }, model)
     const success = { status: 200 }
     await options.onResponse(success, model)
-    expect(logMocks.info).not.toHaveBeenCalled()
+    expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
     expect(logMocks.warn).not.toHaveBeenCalled()
     expect(onResponse).toHaveBeenLastCalledWith(success, model)
 
@@ -237,10 +394,10 @@ describe('OpenAI tool message normalization', () => {
     expect(logMocks.warn).not.toHaveBeenCalled()
     expect(onResponse).toHaveBeenLastCalledWith(failure, model)
     expect(onResponse).toHaveBeenCalledTimes(2)
-    expect(logMocks.info).not.toHaveBeenCalled()
+    expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
   })
 
-  it('preserves installed SDK HTTP 400 error events without diagnostic logging', async () => {
+  it('preserves installed SDK HTTP 400 error events with only scalar thinking diagnostics', async () => {
     const moduleName = '@earendil-works/pi-ai/api/openai-completions'
     const apiModule = await import(moduleName)
     const wrapper = wrapPiApiModuleWithPayloadNormalization({
@@ -264,7 +421,7 @@ describe('OpenAI tool message normalization', () => {
     expect(events.some(event => event.type === 'error')).toBe(true)
     expect(onResponse).not.toHaveBeenCalled()
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(logMocks.info).not.toHaveBeenCalled()
+    expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
     expect(logMocks.warn).not.toHaveBeenCalled()
   })
 

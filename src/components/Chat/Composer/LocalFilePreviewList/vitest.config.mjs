@@ -6,7 +6,7 @@ export default defineConfig({
     name: 'local-file-preview-jsx',
     enforce: 'pre',
     transform(code, id) {
-      if (/\/ChatShell\/TextFilePreview\.js$/.test(id.split('?')[0])) {
+      if (/\/(ChatShell\/TextFilePreview|MessagePane\/Markdown\/[^/]+)\.js$/.test(id.split('?')[0])) {
         return transformWithEsbuild(code, id, { loader: 'jsx', jsx: 'automatic' });
       }
       if (!/\/LocalFilePreviewList\/index\.js$/.test(id.split('?')[0])) return null;

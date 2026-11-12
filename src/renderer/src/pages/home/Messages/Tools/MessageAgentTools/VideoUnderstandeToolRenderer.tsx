@@ -3,12 +3,12 @@ import { Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { MediaGenBillingBadge } from './billingTools'
 import { ClickableFilePath } from './ClickableFilePath'
 import { getMcpToolDisplayName, parseMcpToolName } from '../shared/mcpToolDisplay'
 import {
   extractVideoUnderstandeBillingSummary,
   extractVideoUnderstandeOutputSummary,
-  getVideoUnderstandePointIconUrl,
   type VideoUnderstandeBillingSummary
 } from './videoUnderstandeTool'
 import './VideoUnderstandeTool.css'
@@ -50,10 +50,11 @@ function renderBillingBadge(summary: VideoUnderstandeBillingSummary | null): Rea
   if (!summary) return undefined
 
   return (
-    <span className="video-understand-tool-billing-badge" title={`${summary.billingComplete ? '总消耗' : '已知消耗（账单不完整）'} ${summary.displayText}`}>
-      <img className="video-understand-tool-billing-icon" src={getVideoUnderstandePointIconUrl()} alt="" aria-hidden="true" />
-      <span className="video-understand-tool-billing-text">{summary.billingComplete ? '' : '已知 '}{summary.displayText}</span>
-    </span>
+    <MediaGenBillingBadge
+      centered
+      displayText={`${summary.billingComplete ? '' : '已知 '}${summary.displayText}`}
+      title={`${summary.billingComplete ? '总消耗' : '已知消耗（账单不完整）'} ${summary.displayText}`}
+    />
   )
 }
 

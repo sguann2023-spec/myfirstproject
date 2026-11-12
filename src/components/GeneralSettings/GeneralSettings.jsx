@@ -521,7 +521,6 @@ const GeneralSettings = () => {
             <div className="gs-save-text">下载完成后自动打开剪映</div>
           </div>
           <Switch
-            className="gs-download-auto-open-switch"
             checked={autoOpenEditingAppAfterDownload}
             onChange={updateAutoOpenEditingAppAfterDownload}
           />
@@ -530,33 +529,35 @@ const GeneralSettings = () => {
 
       <div className="gs-section">
         <div className="gs-section-title">任务通知</div>
-        <div className="gs-save-row">
-          <div className="gs-save-desc">
-            <div className="gs-save-text">任务完成或失败时通知</div>
+        <div className="gs-card-group">
+          <div className="gs-save-row gs-row-divider">
+            <div className="gs-save-desc">
+              <div className="gs-save-text">任务完成或失败时通知</div>
+            </div>
+            <Switch
+              aria-label="任务通知"
+              checked={taskNotificationEnabled}
+              onChange={updateTaskNotificationEnabled}
+            />
           </div>
-          <Switch
-            aria-label="任务通知"
-            checked={taskNotificationEnabled}
-            onChange={updateTaskNotificationEnabled}
-          />
-        </div>
-        <div className="gs-save-row">
-          <div className="gs-save-desc">
-            <div className="gs-save-text">通知提示音</div>
+          <div className="gs-save-row">
+            <div className="gs-save-desc">
+              <div className="gs-save-text">通知提示音</div>
+            </div>
+            <Switch
+              aria-label="通知提示音"
+              checked={taskSoundEnabled}
+              disabled={!taskNotificationEnabled}
+              onChange={updateTaskSoundEnabled}
+            />
           </div>
-          <Switch
-            aria-label="通知提示音"
-            checked={taskSoundEnabled}
-            disabled={!taskNotificationEnabled}
-            onChange={updateTaskSoundEnabled}
-          />
         </div>
       </div>
 
       <div className="gs-section">
         <div className="gs-section-title">存储管理</div>
-        <div className="gs-storage-card">
-          <div className="gs-save-row gs-storage-row-divider">
+        <div className="gs-card-group">
+          <div className="gs-save-row gs-row-divider">
             <div className="gs-save-desc">
               <div className="gs-save-text">默认工作空间位置</div>
               <div
@@ -576,7 +577,7 @@ const GeneralSettings = () => {
             </button>
           </div>
 
-          <div className="gs-save-row gs-storage-row-divider">
+          <div className="gs-save-row gs-row-divider">
             <div className="gs-save-desc">
               <div className="gs-save-text">缓存数据</div>
               <div className="gs-storage-size">

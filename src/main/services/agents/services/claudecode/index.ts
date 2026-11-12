@@ -596,6 +596,7 @@ class ClaudeCodeService implements AgentServiceInterface {
     })
 
     const invokeContext = await buildClaudeCodeInvokeContext({
+      thinkingLevel: thinkingOptions?.thinkingLevel,
       traceId,
       prompt,
       sdkPrompt,

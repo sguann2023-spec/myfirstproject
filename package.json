@@ -4,7 +4,7 @@
   "description": "VectCut Application",
   "main": "./out/main/index.js",
   "scripts": {
-    "start": "electron-vite preview",
+    "start": "NODE_OPTIONS=--max-old-space-size=8192 electron-vite preview",
     "dev": "pnpm run rebuild:sqlite:electron && electron-vite",
     "debug:vite": "electron-vite -- --inspect --sourcemap --remote-debugging-port=9222",
     "prepare:portable-git:win": "node ./util/prepare-portable-git.js",
@@ -512,7 +512,8 @@
       ]
     },
     "patchedDependencies": {
-      "@libsql/client@0.17.3": "patches/@libsql__client@0.17.3.patch"
+      "@libsql/client@0.17.3": "patches/@libsql__client@0.17.3.patch",
+      "app-builder-lib@26.8.1": "patches/app-builder-lib@26.8.1.patch"
     }
   }
 }

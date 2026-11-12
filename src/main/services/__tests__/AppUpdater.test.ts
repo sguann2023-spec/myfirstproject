@@ -454,11 +454,52 @@ describe('AppUpdater', () => {
 
     beforeEach(() => {
       vi.useFakeTimers()
+      const testProcess = Object.assign(Object.create(process), {
+        getCreationTime: vi.fn(() => 1_700_000_000_123)
+      })
+      Object.defineProperty(testProcess, 'platform', { value: originalPlatform, configurable: true })
+      vi.stubGlobal('process', testProcess)
+      for (const key of ['VECTCUT_UPDATE_APP_PID', 'VECTCUT_UPDATE_APP_PATH', 'VECTCUT_UPDATE_APP_CREATED']) {
+        vi.stubEnv(key, undefined)
+      }
     })
 
     afterEach(() => {
       vi.useRealTimers()
       Object.defineProperty(process, 'platform', { value: originalPlatform })
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    })
+
+    it('should hand off the Windows main PID, executable and creation identity before installer launch', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      for (const key of ['VECTCUT_UPDATE_APP_PID', 'VECTCUT_UPDATE_APP_PATH', 'VECTCUT_UPDATE_APP_CREATED']) {
+        vi.stubEnv(key, undefined)
+      }
+      vi.mocked(autoUpdater.quitAndInstall).mockImplementationOnce(() => {
+        expect(process.env.VECTCUT_UPDATE_APP_PID).toBe(String(process.pid))
+        expect(process.env.VECTCUT_UPDATE_APP_PATH).toBe('/test/path/VectCut.exe')
+        expect(process.env.VECTCUT_UPDATE_APP_CREATED).toBe('1700000000123')
+      })
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+    })
+
+    it('should refuse Windows installation without a creation identity', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      vi.mocked(process.getCreationTime).mockReturnValueOnce(null)
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+      expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled()
+      expect(app.isQuitting).toBe(false)
+    })
+
+    it('should not add a process handoff on non-Windows', () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin' })
+      vi.stubEnv('VECTCUT_UPDATE_APP_PID', undefined)
+      appUpdater.quitAndInstall()
+      vi.runAllTimers()
+      expect(process.env.VECTCUT_UPDATE_APP_PID).toBeUndefined()
     })
 
     it('should show installer progress on Windows', () => {

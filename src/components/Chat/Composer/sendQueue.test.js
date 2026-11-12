@@ -96,16 +96,55 @@ describe('queue draft restoration', () => {
   });
 });
 describe('session send queue', () => {
-  it('sends a fresh submission after stopping an empty queue without resuming it', async () => {
+  it('clears pause after stopping an empty queue before a fresh submission', async () => {
     const q = new SendQueue(); const callbacks = [];
     const send = vi.fn((text, opts) => callbacks.push(opts.onQueueComplete));
     q.submit('a', 'first', {}); q.pump('a', send);
     q.pause('a'); callbacks[0]('aborted'); await flush();
     expect(q.state('a').items).toEqual([]);
+    expect(q.state('a').paused).toBe(false);
     q.submit('a', 'fresh', {}); q.pump('a', send);
     expect(send.mock.calls.map(x => x[0])).toEqual(['first', 'fresh']);
     callbacks[1]('complete'); await flush();
+    expect(q.state('a').paused).toBe(false);
+  });
+  it.each(['complete', 'aborted', 'error'])('clears an empty queue pause on termination (%s)', async outcome => {
+    const q = new SendQueue(); let done;
+    q.submit('a', 'active', {});
+    q.pump('a', (text, opts) => { done = opts.onQueueComplete; });
+    q.enqueue('a', 'pending', {}); q.pause('a');
+    q.remove('a', q.state('a').items[0].id);
     expect(q.state('a').paused).toBe(true);
+    expect(q.state('a').active.text).toBe('active');
+    done(outcome); await flush();
+    expect(q.state('a').paused).toBe(false);
+    expect(q.state('a').active).toBe(null);
+  });
+  it('clears pause when the final pending item is removed or restored', () => {
+    for (const restore of [false, true]) {
+      const q = new SendQueue(); q.enqueue('a', 'pending', {}); q.pause('a');
+      const id = q.state('a').items[0].id;
+      if (restore) q.restore('a', id, () => true);
+      else q.remove('a', id);
+      expect(q.state('a').paused).toBe(false);
+      q.enqueue('a', 'fresh', {}); const send = vi.fn(); q.pump('a', send);
+      expect(send).toHaveBeenCalledOnce();
+    }
+  });
+  it('does not retain a pause on an idle session', () => {
+    const q = new SendQueue(); q.pause('a');
+    expect(q.state('a').paused).toBe(false);
+    q.state('a').paused = true;
+    q.submit('a', 'fresh', {});
+    expect(q.state('a').paused).toBe(false);
+    expect(q.state('a').items[0].independent).toBe(false);
+  });
+  it('clears pause after synchronous termination removes the accepted final item', async () => {
+    const q = new SendQueue(); q.enqueue('a', 'last', {});
+    q.pump('a', (text, opts) => { q.pause('a'); opts.onQueueComplete('aborted'); return true; });
+    await flush();
+    expect(q.state('a').items).toEqual([]);
+    expect(q.state('a').paused).toBe(false);
   });
   it('bypasses only the paused backlog, snapshots options and retains its original order', async () => {
     const q = new SendQueue(); const callbacks = [];
@@ -155,11 +194,20 @@ describe('session send queue', () => {
   it('wires user submissions separately and does not treat abort rejection as termination', () => {
     const chat = fs.readFileSync(`${process.cwd()}/src/components/Chat/Chat.js`, 'utf8');
     const home = fs.readFileSync(`${process.cwd()}/src/page/HomePage/HomePage.jsx`, 'utf8');
-    expect(chat).toContain('sendQueue.submit(ownerId, text, { ...options, queueModel: options.queueModel ?? model })');
+    expect(chat).toContain('sendQueue.submit(ownerId, text, { ...options, queueModel: options.queueModel ?? options.model ?? model })');
     const stop = home.slice(home.indexOf('const handleStopChatMessage ='), home.indexOf('const handleCopyAssistantMessage ='));
     expect(stop).toContain('cherryChatStream.abort');
     expect(stop).not.toContain('finishQueuedRequest');
     expect(home).toContain('queueCompletionRef.current.delete(requestId);\n    done?.(outcome)');
+  });
+  it('keeps the composer model and thinking snapshot together across an async send', () => {
+    const chat = fs.readFileSync(`${process.cwd()}/src/components/Chat/Chat.js`, 'utf8');
+    const source = chat.slice(chat.indexOf('const handleSend ='), chat.indexOf('const handleSend =') + 650);
+    const expression = source.match(/queueModel: ([^}]+) \}\);/)[1];
+    const resolve = new Function('options', 'model', `return (${expression});`);
+    expect(resolve({ model: 'qwen3.8-flash', thinkingLevel: 'off' }, 'other-model')).toBe('qwen3.8-flash');
+    expect(resolve({ queueModel: 'restored-model', model: 'qwen3.8-flash' }, 'other-model')).toBe('restored-model');
+    expect(resolve({}, 'fallback-model')).toBe('fallback-model');
   });
   it('snapshots attachments and options, FIFO only after actual completion, ignores duplicate finish', async () => {
     const q = new SendQueue(); const callbacks = [];

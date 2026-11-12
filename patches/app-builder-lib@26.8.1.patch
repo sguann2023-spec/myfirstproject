@@ -1,0 +1,63 @@
+diff --git a/templates/nsis/include/extractAppPackage.nsh b/templates/nsis/include/extractAppPackage.nsh
+index f5470bf52e923dc47266cea4684c76ef78ced451..db5d37c3322637266d57d7c05addc24b4386255d 100644
+--- a/templates/nsis/include/extractAppPackage.nsh
++++ b/templates/nsis/include/extractAppPackage.nsh
+@@ -104,11 +104,23 @@
+   LoopExtract7za:
+     IntOp $R1 $R1 + 1
+ 
+-    # Attempt to copy files in atomic way
+-    CopyFiles /SILENT "$PLUGINSDIR\7z-out\*" $OUTDIR
+-    IfErrors 0 DoneExtract7za
++    # Attempt to copy files in atomic way.
++    # Robocopy copies per file without going through the Windows Shell, so
++    # Explorer holding directory handles on the installation root cannot
++    # break it. Exit codes 0-7 mean success (1 = files were copied).
++    # If robocopy itself cannot be launched, degrade to the stock shell copy.
++    nsExec::ExecToLog `"$SYSDIR\Robocopy.exe" "$PLUGINSDIR\7z-out" "$OUTDIR" /E /COPY:DAT /DCOPY:DAT /R:1 /W:1 /NFL /NDL /NP /NJH`
++    Pop $R0
++    ${if} $R0 == ""
++      DetailPrint "robocopy unavailable, falling back to CopyFiles"
++      ClearErrors
++      CopyFiles /SILENT "$PLUGINSDIR\7z-out\*" $OUTDIR
++      IfErrors 0 DoneExtract7za
++    ${elseif} $R0 < 8
++      Goto DoneExtract7za
++    ${endif}
+ 
+-    DetailPrint `Can't modify "${PRODUCT_NAME}"'s files.`
++    DetailPrint `Can't modify "${PRODUCT_NAME}"'s files (robocopy exit code $R0).`
+     ${if} $R1 < 5
+       # Try copying a few times before asking for a user action.
+       Goto RetryExtract7za
+diff --git a/templates/nsis/uninstaller.nsh b/templates/nsis/uninstaller.nsh
+index c3f4f11982689baa220de5051bbf144adbd9accc..57ee59fc636b0b0c55b07610da97c97e8ce959c8 100644
+--- a/templates/nsis/uninstaller.nsh
++++ b/templates/nsis/uninstaller.nsh
+@@ -183,8 +183,24 @@ Section "un.${UNINSTALL_SECTION_NAME}"
+ 
+     # Move out of $INSTDIR so it can be removed
+     SetOutPath $TEMP
+-    # Remove all files (or remaining shallow directories from the block above)
+-    RMDir /r $INSTDIR
++    ${if} ${isUpdated}
++      # On updates keep the installation root directory: removing it while
++      # Explorer holds a directory handle leaves it delete-pending and breaks
++      # the subsequent file copy of the new version. The old files were
++      # already moved out above for rollback, so purge only the remaining
++      # (empty) directory tree while keeping the root itself.
++      CreateDirectory "$PLUGINSDIR\empty-for-purge"
++      nsExec::ExecToLog `"$SYSDIR\Robocopy.exe" "$PLUGINSDIR\empty-for-purge" "$INSTDIR" /MIR /R:1 /W:1 /NFL /NDL /NP /NJH`
++      Pop $R0
++      ${if} $R0 == ""
++      ${orif} $R0 >= 8
++        # Robocopy unavailable or failed: degrade to the stock full removal.
++        RMDir /r $INSTDIR
++      ${endif}
++    ${else}
++      # Remove all files (or remaining shallow directories from the block above)
++      RMDir /r $INSTDIR
++    ${endif}
+   !endif
+ 
+   ${ifNot} ${isKeepShortcuts}

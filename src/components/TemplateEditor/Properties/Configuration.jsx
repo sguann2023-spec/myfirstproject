@@ -2,6 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { readConfigurationProperty, templateConfigurationFor } from '../../../shared/templateProperties';
 import { templateFonts } from '../../../shared/templatePropertyResources';
 import { templateAudioEffects } from '../../../shared/templateAudioEffects';
+import { TextSettingSection } from '../../TextAddDetail/TextSettingsPanel';
+
+const SLIDER_KEYS = ['volume', 'speed', 'fade_in_duration', 'fade_out_duration', 'transition_duration'];
+const suffixOf = (property, volume) => {
+  if (volume) return 'dB';
+  if (property.key === 'speed') return '倍';
+  if (property.key.startsWith('effect_param_')) return '%';
+  if (property.unit === 'seconds' || property.key.endsWith('_duration')) return '秒';
+  return '';
+};
 
 function ConfigurationRow({ property, clip, value, readError, disabled, onAction }) {
   const [draft, setDraft] = useState(value);
@@ -35,29 +45,52 @@ function ConfigurationRow({ property, clip, value, readError, disabled, onAction
   };
   const label = property.label;
   const commitBlur = () => { if (draft !== display) save(draft); };
-  return <div className="template-property" data-configuration={property.key}>
-    <label htmlFor={`configuration-${clip.id}-${property.key}`}>{label}<small>{volume ? 'dB' : property.unit === 'seconds' ? '秒' : property.unit === 'ratio' ? '倍' : ''}</small></label>
-    {property.valueType === 'enum' ? <select id={`configuration-${clip.id}-${property.key}`} aria-label={label} value={draft ?? ''} disabled={blocked}
-      onChange={event => {
-        const next = property.choices.find(choice => String(choice) === event.target.value);
-        setDraft(next); save(next);
-      }}>
-      {property.choices.map(choice => <option key={String(choice)} value={String(choice)}>{choice === '' ? '无 / 默认' : property.key === 'font' ? templateFonts.find(font => font.value === choice)?.label ?? choice : property.key === 'align' ? ['左对齐', '居中', '右对齐'][choice] : choice}</option>)}
-    </select> : property.valueType === 'boolean' ? <input id={`configuration-${clip.id}-${property.key}`} aria-label={label} role="switch" type="checkbox"
-      checked={!!draft} disabled={blocked} onChange={event => { setDraft(event.target.checked); save(event.target.checked); }} />
-      : property.key === 'text' ? <textarea id={`configuration-${clip.id}-${property.key}`} aria-label={label} value={draft ?? ''} disabled={blocked}
-        onChange={event => setDraft(event.target.value)} onBlur={commitBlur} />
-        : <input id={`configuration-${clip.id}-${property.key}`} aria-label={label} disabled={blocked}
-          type={property.valueType === 'color' ? 'color' : property.valueType === 'number' ? 'number' : 'text'} value={draft ?? ''}
-          min={volume ? -60 : property.min} max={volume ? 20 : property.key === 'speed' ? 5 : property.max}
-          step={property.valueType === 'number' ? 0.1 : undefined} onChange={event => setDraft(event.target.value)} onBlur={commitBlur}
-          onKeyDown={event => {
-            if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
-            if (event.key === 'Escape') { event.stopPropagation(); setDraft(display); }
-          }} />}
+  const slider = property.valueType === 'number' && (SLIDER_KEYS.includes(property.key) || property.key.startsWith('effect_param_') || property.key.endsWith('_duration'));
+  const min = volume ? -60 : property.min;
+  const max = volume ? 20 : property.key === 'speed' ? 5 : property.max;
+  const suffix = suffixOf(property, volume);
+  const percent = slider && Number(draft) >= min && Number(draft) <= max ? ((Number(draft) - min) / (max - min)) * 100 : 0;
+  return <div className="template-property-row" data-configuration={property.key}>
+    <div className="chat-panel__text-settings-row">
+      <div className="chat-panel__text-settings-label">{label}</div>
+      <div className={`chat-panel__text-settings-control${slider ? ' chat-panel__text-settings-control--size' : ''}`}>
+        {property.valueType === 'enum' ? <select className="template-setting-select" aria-label={label} value={draft ?? ''} disabled={blocked}
+          onChange={event => {
+            const next = property.choices.find(choice => String(choice) === event.target.value);
+            setDraft(next); save(next);
+          }}>
+          {property.choices.map(choice => <option key={String(choice)} value={String(choice)}>{choice === '' ? '无 / 默认' : property.key === 'font' ? templateFonts.find(font => font.value === choice)?.label ?? choice : property.key === 'align' ? ['左对齐', '居中', '右对齐'][choice] : choice}</option>)}
+        </select> : property.valueType === 'boolean' ? <input className="template-setting-switch" aria-label={label} role="switch" type="checkbox"
+          checked={!!draft} disabled={blocked} onChange={event => { setDraft(event.target.checked); save(event.target.checked); }} />
+          : property.valueType === 'color' ? <span className="template-setting-color-wrap"><input className="template-setting-color" aria-label={label} type="color"
+            value={draft ?? '#000000'} disabled={blocked} onChange={event => { setDraft(event.target.value); save(event.target.value); }} /></span>
+            : property.key === 'text' ? <textarea className="template-setting-textarea" aria-label={label} value={draft ?? ''} disabled={blocked}
+              onChange={event => setDraft(event.target.value)} onBlur={commitBlur} />
+              : <>
+                {slider && <input className="template-setting-slider" type="range" aria-label={`${label} 滑块`}
+                  min={min} max={max} step={0.1} value={draft === '' ? min : draft}
+                  style={{ background: `linear-gradient(to right, #888888 0%, #888888 ${percent}%, #f5f5f5 ${percent}%, #f5f5f5 100%)` }}
+                  disabled={blocked} onChange={event => setDraft(event.target.value)}
+                  onPointerUp={event => save(event.currentTarget.value)}
+                  onKeyUp={event => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) save(event.currentTarget.value); }} />}
+                <span className="template-setting-number-wrap">
+                  <input aria-label={label} disabled={blocked} type="number" value={draft ?? ''}
+                    min={min} max={max} step={0.1} onChange={event => setDraft(event.target.value)} onBlur={commitBlur}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+                      if (event.key === 'Escape') { event.stopPropagation(); setDraft(display); }
+                    }} />
+                  {suffix ? <span className="template-setting-unit">{suffix}</span> : null}
+                </span>
+              </>}
+      </div>
+    </div>
     {(error || readError) && <p role="alert">{error || readError}</p>}
   </div>;
 }
+
+const ANIMATION_KEYS = ['intro_animation', 'intro_animation_duration', 'outro_animation', 'outro_animation_duration',
+  'combo_animation', 'combo_animation_duration'];
 
 export default function Configuration({ clip, native, nativeIndex, disabled, onAction }) {
   const definitions = templateConfigurationFor(clip.type);
@@ -74,16 +107,25 @@ export default function Configuration({ clip, native, nativeIndex, disabled, onA
   const effect = templateAudioEffects.find(item => item.value === values.get('effect_type')?.value);
   const visible = definitions.filter(property => !property.key.startsWith('effect_param_') || effect?.params[Number(property.key.slice(-1))]);
   if (!definitions.length) return null;
-  return <section aria-label="静态配置" className="template-configuration">
-    <h3>设置</h3>
-    {visible.map(property => {
-      const animation = property.key.endsWith('_duration') && !property.key.startsWith('fade_') && property.key !== 'transition_duration'
-        ? property.key.replace(/_animation_duration$|_duration$/, '_animation') : property.key === 'transition_duration' ? 'transition' : null;
-      const param = property.key.startsWith('effect_param_') ? effect?.params[Number(property.key.slice(-1))] : null;
-      const label = param ? ({ change_voice_param_quantity: '数量', change_voice_param_strength: '强度' }[param.name] ?? param.name)
-        : animation ? `${definitions.find(item => item.key === animation)?.label ?? '动画'}时长` : property.label;
-      return <ConfigurationRow key={`${clip.id}:${property.key}`} property={{ ...property, label }} clip={clip} {...values.get(property.key)}
-        disabled={disabled || !!(animation && !values.get(animation)?.value)} onAction={onAction} />;
-    })}
-  </section>;
+  const row = property => {
+    const animation = property.key.endsWith('_duration') && !property.key.startsWith('fade_') && property.key !== 'transition_duration'
+      ? property.key.replace(/_animation_duration$|_duration$/, '_animation') : property.key === 'transition_duration' ? 'transition' : null;
+    const param = property.key.startsWith('effect_param_') ? effect?.params[Number(property.key.slice(-1))] : null;
+    const label = param ? ({ change_voice_param_quantity: '数量', change_voice_param_strength: '强度' }[param.name] ?? param.name)
+      : animation ? `${definitions.find(item => item.key === animation)?.label ?? '动画'}时长` : property.label;
+    return <ConfigurationRow key={`${clip.id}:${property.key}`} property={{ ...property, label }} clip={clip} {...values.get(property.key)}
+      disabled={disabled || !!(animation && !values.get(animation)?.value)} onAction={onAction} />;
+  };
+  const groups = clip.type === 'audio' ? [
+    ['音量与变速', visible.filter(property => ['volume', 'speed'].includes(property.key))],
+    ['淡入淡出', visible.filter(property => property.key.startsWith('fade_'))],
+    ['音效', visible.filter(property => property.key === 'effect_type' || property.key.startsWith('effect_param_'))],
+  ] : [
+    ['动画', visible.filter(property => ANIMATION_KEYS.includes(property.key))],
+    ['转场', visible.filter(property => ['transition', 'transition_duration'].includes(property.key))],
+    ['音量', visible.filter(property => property.key === 'volume')],
+  ];
+  return <>{groups.filter(([, rows]) => rows.length).map(([label, rows]) => (
+    <TextSettingSection key={label} label={label} defaultExpanded>{rows.map(row)}</TextSettingSection>
+  ))}</>;
 }

@@ -3,6 +3,7 @@ import { loggerService } from '@logger'
 import { MessageBlockType, type MessageBlock } from '@renderer/types/newMessage'
 import { isVideoBlock } from '@renderer/utils/messageUtils/is'
 import { groupConsecutiveTools } from './toolGrouping'
+import { hasMeaningfulThinkingContent } from './thinkingContent'
 
 const logger = loggerService.withContext('MessageBlockRenderer')
 
@@ -12,7 +13,7 @@ export const groupSimilarBlocks = (blocks: MessageBlock[], t?: TFunction): Group
   return groupConsecutiveTools(blocks, t).reduce((acc: GroupedBlock[], currentBlock) => {
     if (Array.isArray(currentBlock)) {
       acc.push(currentBlock)
-    } else if (currentBlock.type === MessageBlockType.THINKING && currentBlock.content?.trim()) {
+    } else if (currentBlock.type === MessageBlockType.THINKING && hasMeaningfulThinkingContent(currentBlock.content)) {
       const previous = acc[acc.length - 1]
       if (Array.isArray(previous) && previous[0].type === MessageBlockType.THINKING && previous[0].messageId === currentBlock.messageId) {
         previous.push(currentBlock)

@@ -1,3 +1,5 @@
+import ThinkingLevelSlider from './ThinkingLevelSlider';
+import { thinkingSendOptions } from './thinkingLevels';
 import { useAgent } from '@renderer/hooks/agents/useAgent';
 import { CloseOutlined } from '@ant-design/icons';
 import React from 'react';
@@ -14,7 +16,7 @@ import { TextSelection } from '@tiptap/pm/state';
 import { StarterKit } from '@tiptap/starter-kit';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
-import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
+import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Flame, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
 import { getVideoGenerationCapabilities } from '../../../api/chat';
 import { getProjectPricing } from '../../../api/pricing';
@@ -37,7 +39,7 @@ import TemplatePickerDialog from '../../../page/TemplateEditPage/TemplatePickerD
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
-import { filterTreeNodesByQuery, replaceLazyTreeChildren, loadReferenceRoots } from './referenceTree';
+import { filterTreeNodesByQuery, replaceLazyTreeChildren, scheduleReferenceRoots, collectVisibleReferenceNodes, flatReferencePathsToTree } from './referenceTree';
 import {
   SKILL_EXAMPLE_APPLY_EVENT,
   SKILL_EXAMPLE_RESET_EVENT,
@@ -125,7 +127,7 @@ const MAX_UPLOAD_COUNT = 100;
 const SKILL_MENTION_CLOSE_DELAY = 120;
 const MENTION_PANEL_DEFAULT_WIDTH = 180;
 const MENTION_PANEL_EDGE_OFFSET = 4;
-const MODEL_HOVER_CARD_WIDTH = 180;
+const MODEL_HOVER_CARD_WIDTH = 240;
 const MODEL_HOVER_CARD_GAP = 20;
 const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
 const TOOL_BAR_SCROLL_STEP = 220;
@@ -247,26 +249,8 @@ const collectVisibleTreeFiles = (
   expandedKeys,
   { forceExpanded = false, sourceType = 'workspace', sourceLabel = '' } = {}
 ) => {
-  const results = [];
-
-  (Array.isArray(nodes) ? nodes : []).forEach((node) => {
-    const compositeKey = `${scopeKey}:${node.path}`;
-    if (node?.type === 'file' || node?.type === 'directory') {
-      results.push(createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel }));
-    }
-
-    if (node?.type === 'directory' && (forceExpanded || expandedKeys.has(compositeKey))) {
-      results.push(
-        ...collectVisibleTreeFiles(node.children, rootPath, compositeKey, expandedKeys, {
-          forceExpanded,
-          sourceType,
-          sourceLabel,
-        })
-      );
-    }
-  });
-
-  return results;
+  return collectVisibleReferenceNodes(nodes, scopeKey, expandedKeys, forceExpanded)
+    .map((node) => createLocalReferenceFile({ rootPath, node, sourceType, sourceLabel }));
 };
 const DIGITAL_HUMAN_VIDEO_SLOT_ID = 'digital-human-video';
 const DIGITAL_HUMAN_SELECTED_VOICE_ID_SLOT_ID = 'digital-human-selected-voice-id';
@@ -2194,6 +2178,36 @@ const getDigitalHumanToolSendState = ({
   return { canSend: true, isComplete: true };
 };
 
+// 后端以「热度N」字符串徽章下发热度；前端拆出热度值渲染为红色 Flame 图标，其余徽章仍按促销文本展示。
+const HEAT_BADGE_PATTERN = /^热度\s*(\d+)$/;
+const MAX_HEAT_FLAMES = 5;
+const parseModelHeatBadges = (badges) => {
+  let heat = 0;
+  const promoBadges = [];
+  (Array.isArray(badges) ? badges : []).forEach((badge) => {
+    const text = String(badge || '').trim();
+    if (!text) return;
+    const matched = text.match(HEAT_BADGE_PATTERN);
+    if (matched) heat = Math.max(heat, Number(matched[1]));
+    else promoBadges.push(text);
+  });
+  return { heat: Math.min(heat, MAX_HEAT_FLAMES), badges: promoBadges };
+};
+
+const renderHeatFlames = (heat) => (heat > 0 ? (
+  <span className="chat-panel__model-option-heat" title={`热度${heat}`} aria-label={`热度${heat}`}>
+    {Array.from({ length: heat }, (_, index) => (
+      <Flame key={index} className="chat-panel__model-option-heat-icon" fill="currentColor" strokeWidth={1} aria-hidden="true" />
+    ))}
+  </span>
+) : null);
+
+// 悬浮卡行内关键对齐样式走 inline，确保不受客户端 CSS 缓存差异影响，文字确定性垂直居中。
+const POPOVER_ROW_STYLE = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 };
+const POPOVER_CELL_STYLE = { display: 'inline-flex', alignItems: 'center', height: 18, lineHeight: '18px' };
+// 数字墨迹重心天然偏上，客户端观感偏高；按验收用 margin 将数值下移 2px 做光学补偿。
+const POPOVER_VALUE_STYLE = { ...POPOVER_CELL_STYLE, marginTop: 4 };
+
 const Composer = ({
   agentId,
   runtimeSessionId,
@@ -2211,8 +2225,11 @@ const Composer = ({
   sessionSending = false,
   model,
   modelOptions = [],
+  modelThinkingLevels = {},
+  onModelThinkingLevelChange,
   modelListLoading = false,
   onModelChange,
+  onOpenModelSettings,
   formatModelDisplayName,
 }) => {
   const { agent } = useAgent(agentId || null);
@@ -2349,6 +2366,9 @@ const Composer = ({
   const inputWrapRef = React.useRef(null);
   const mentionPanelRef = React.useRef(null);
   const modelHoverCardRef = React.useRef(null);
+  const modelHoverCloseTimer = React.useRef(null);
+  const cancelModelHoverClose = React.useCallback(() => clearTimeout(modelHoverCloseTimer.current), []);
+  React.useEffect(() => () => clearTimeout(modelHoverCloseTimer.current), []);
   const toolContentScrollRef = React.useRef(null);
   const toolBarRef = React.useRef(null);
   const toolLeftPrefixRef = React.useRef(null);
@@ -2421,7 +2441,7 @@ const Composer = ({
           ? '选择音频/视频和音色ID后发送'
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
-            : '@查看技能，#引用文件,Enter发送。\r\n想找今天的爆款视频？试试：我想看看河北邯郸驴肉火烧店的热门引流视频，不超过30秒';
+            : '@查看技能，#引用文件，Enter发送。\r\n想找今天的爆款视频？试试：我想看看河北邯郸驴肉火烧店的热门引流视频，不超过30秒';
   const showVoiceSquareTextTemplates = activeTool === 'voice-square' && !String(input || '').trim();
 
   requestUploadPickerRef.current = (slotId = '') => {
@@ -2710,6 +2730,12 @@ const Composer = ({
 
   const loadLocalReferenceTree = React.useCallback(async (rootPath, options = {}) => {
     if (!rootPath || !window?.api?.file?.listDirectory) return [];
+    if (options.query) {
+      const paths = await window.api.file.listDirectory(rootPath, {
+        referenceSearch: true, searchPattern: options.query, maxEntries: TREE_LIST_MAX_ENTRIES,
+      });
+      return flatReferencePathsToTree(paths);
+    }
     const entries = await window.api.file.listDirectory(rootPath, {
       recursive: false, includeHidden: false, includeFiles: true,
       includeDirectories: true, typed: true, maxEntries: TREE_LIST_MAX_ENTRIES,
@@ -2728,22 +2754,23 @@ const Composer = ({
     setReferenceFolderStatus({});
     setReferenceTreesLoading(true);
     setReferenceTreesError('');
+    const query = String(mentionState.query || '').trim();
     const roots = [
       ...(primarySkillWorkdir ? [{
         key: `workspace-root:${primarySkillWorkdir}`,
         id: primarySkillWorkdir,
         setter: setWorkspaceReferenceTrees,
-        load: () => loadLocalReferenceTree(primarySkillWorkdir, { excludeClaude: true }),
+        load: () => loadLocalReferenceTree(primarySkillWorkdir, { excludeClaude: true, query }),
       }] : []),
       ...skills.filter((skill) => skill.__skillRoot).map((skill) => ({
         key: `skill-root:${getSkillStableId(skill)}`,
         id: getSkillStableId(skill),
         setter: setSkillReferenceTrees,
-        load: () => loadLocalReferenceTree(skill.__skillRoot),
+        load: () => loadLocalReferenceTree(skill.__skillRoot, { query }),
       })),
     ];
     setReferenceRootStatus(Object.fromEntries(roots.map((root) => [root.key, '加载中...'])));
-    void loadReferenceRoots(roots, {
+    const cancel = scheduleReferenceRoots(roots, {
       isCurrent: () => generation === referenceGeneration.current,
       publish: (key, nodes) => {
         const root = roots.find((item) => item.key === key);
@@ -2756,9 +2783,9 @@ const Composer = ({
         setReferenceTreesError((prev) => prev ? `${prev}；${text}` : text);
       },
       complete: () => setReferenceTreesLoading(false),
-    });
-    return () => { referenceGeneration.current += 1; };
-  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, primarySkillWorkdir, skills]);
+    }, query ? 200 : 0);
+    return () => { cancel(); referenceGeneration.current += 1; };
+  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, mentionState.query, primarySkillWorkdir, skills]);
 
   const loadReferenceFolder = React.useCallback(async (node, rootPath, key, sourceType) => {
     if (node.children !== undefined || pendingReferenceFolders.current.has(key)) return;
@@ -3429,7 +3456,7 @@ const Composer = ({
           <div className="chat-panel__reference-empty">{referenceRootStatus[rootNodeKey]}</div>
         ) : null}
         {isExpanded && !hasNodes && referenceRootStatus[rootNodeKey] === '' ? (
-          <div className="chat-panel__reference-empty">没有可引用的文件</div>
+          <div className="chat-panel__reference-empty">{referenceQuery ? '没有匹配的文件' : '没有可引用的文件'}</div>
         ) : null}
       </React.Fragment>
     );
@@ -3479,8 +3506,11 @@ const Composer = ({
     );
   };
 
-  const renderModelOptionPopoverContent = (text, description = '', priceMultiplier = '') => {
-    if (!description && !priceMultiplier) {
+  const renderModelOptionPopoverContent = (text, description = '', priceMultiplier = '', option) => {
+    const parsed = parseModelHeatBadges(option?.badges);
+    const heat = Math.min(MAX_HEAT_FLAMES, Math.max(Number(option?.heat) || 0, parsed.heat));
+    const badges = parsed.badges;
+    if (!description && !priceMultiplier && !option?.thinking_levels?.length && !heat && !badges.length) {
       return null;
     }
     return (
@@ -3489,17 +3519,39 @@ const Composer = ({
         {description ? (
           <div className="chat-panel__model-option-popover-description">{description}</div>
         ) : null}
-        {priceMultiplier ? (
-          <div className="chat-panel__model-option-popover-multiplier">
-            <span>消耗速度</span>
-            <span>{priceMultiplier} 倍率</span>
+        {badges.length ? (
+          <div className="chat-panel__model-option-popover-tags">
+            {badges.map((badge) => (
+              <span
+                key={badge}
+                className="chat-panel__model-option-tag chat-panel__model-option-tag--promo"
+              >
+                {badge}
+              </span>
+            ))}
           </div>
         ) : null}
+        {heat > 0 ? (
+          <div className="chat-panel__model-option-popover-heat" style={POPOVER_ROW_STYLE}>
+            <span style={POPOVER_CELL_STYLE}>热度</span>
+            {renderHeatFlames(heat)}
+          </div>
+        ) : null}
+        {priceMultiplier ? (
+          <div className="chat-panel__model-option-popover-multiplier" style={POPOVER_ROW_STYLE}>
+            <span style={POPOVER_CELL_STYLE}>消耗速度</span>
+            <span style={POPOVER_VALUE_STYLE}>{priceMultiplier} 倍率</span>
+          </div>
+        ) : null}
+        <ThinkingLevelSlider option={option} value={modelThinkingLevels[option?.value]} onChange={(modelId, level) => {
+          onModelThinkingLevelChange?.(modelId, level);
+          if (modelId !== model) onModelChange?.(modelId);
+        }} />
       </div>
     );
   };
 
-  const renderModelOptionInner = (text, icon, supportsReadImage = false, badges = [], priceMultiplier = '') => (
+  const renderModelOptionInner = (text, icon, badges = [], priceMultiplier = '', heat = 0) => (
     <span className="chat-panel__model-option">
       <span className="chat-panel__model-option-leading">
         <span className="chat-panel__model-option-main">
@@ -3507,7 +3559,7 @@ const Composer = ({
           <span className="chat-panel__model-option-text">{text}</span>
         </span>
         <span className="chat-panel__model-option-tags">
-          {supportsReadImage ? <span className="chat-panel__model-option-tag">识图</span> : null}
+          {renderHeatFlames(heat)}
           {Array.isArray(badges) ? badges.map((badge) => (
             <span
               key={badge}
@@ -3551,11 +3603,20 @@ const Composer = ({
   }, []);
 
   const clearHoveredModelCard = React.useCallback(() => {
+    clearTimeout(modelHoverCloseTimer.current);
     setHoveredModelCard(null);
+  }, []);
+
+  const scheduleModelHoverClose = React.useCallback(() => {
+    clearTimeout(modelHoverCloseTimer.current);
+    modelHoverCloseTimer.current = setTimeout(() => {
+      if (!modelHoverCardRef.current?.contains(document.activeElement)) setHoveredModelCard(null);
+    }, 300);
   }, []);
 
   const showHoveredModelCard = React.useCallback((optionMeta, currentTarget) => {
     if (!optionMeta?.value || !currentTarget) return;
+    cancelModelHoverClose();
     const anchorRect = currentTarget.getBoundingClientRect();
     const normalizedAnchorRect = {
       top: anchorRect.top,
@@ -3566,6 +3627,7 @@ const Composer = ({
     const nextPosition = computeModelHoverCardPosition(normalizedAnchorRect, { width: MODEL_HOVER_CARD_WIDTH });
     setHoveredModelCard({
       key: String(optionMeta.value),
+      option: optionMeta,
       text: String(optionMeta.displayText || optionMeta.value || '').trim(),
       description: String(optionMeta.description || '').trim(),
       priceMultiplier: String(optionMeta.priceMultiplier || '').trim(),
@@ -3573,7 +3635,7 @@ const Composer = ({
       left: nextPosition.left,
       top: nextPosition.top,
     });
-  }, [computeModelHoverCardPosition]);
+  }, [computeModelHoverCardPosition, cancelModelHoverClose]);
 
   React.useLayoutEffect(() => {
     if (!hoveredModelCard || !modelHoverCardRef.current) return;
@@ -3604,6 +3666,18 @@ const Composer = ({
     };
   }, [clearHoveredModelCard, modelPickerOpen]);
 
+  React.useEffect(() => {
+    if (!modelPickerOpen) return undefined;
+    const closeFromOutside = (event) => {
+      if (modelHoverCardRef.current?.contains(event.target)
+        || event.target?.closest?.('.ant-select, .ant-select-dropdown, .chat-panel__model-option-trigger')) return;
+      clearHoveredModelCard();
+      setModelPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', closeFromOutside, true);
+    return () => document.removeEventListener('pointerdown', closeFromOutside, true);
+  }, [modelPickerOpen, clearHoveredModelCard]);
+
   const availableModelOptions = React.useMemo(() => (
     (Array.isArray(modelOptions) ? modelOptions : [])
       .map((item) => {
@@ -3614,7 +3688,7 @@ const Composer = ({
             label: displayText,
             displayText,
             icon: '',
-            supportsReadImage: false,
+            heat: 0,
             description: '',
             badges: [],
             selectedLabel: renderSelectedModelLabel(displayText, null),
@@ -3624,16 +3698,19 @@ const Composer = ({
         const labelText = item?.label || item?.name || item?.value || item?.id || '';
         const displayText = formatModelDisplayName(labelText);
         const icon = item?.icon || item?.iconUrl || item?.black_icon || '';
-        const supportsReadImage = Boolean(item?.read_image);
-        const priceMultiplier = resolveModelOptionPriceMultiplier(item);
+        const priceMultiplier = item?.isCustom ? '' : resolveModelOptionPriceMultiplier(item);
+        const { heat, badges } = parseModelHeatBadges(item?.badges);
         return value ? {
+          thinking_levels: item?.thinking_levels,
+          thinking_default: item?.thinking_default,
+          isCustom: Boolean(item?.isCustom),
           value,
           label: displayText,
           displayText,
           icon,
-          supportsReadImage,
+          heat,
           description: String(item?.description || '').trim(),
-          badges: Array.isArray(item?.badges) ? item.badges : [],
+          badges,
           priceMultiplier,
           selectedLabel: renderSelectedModelLabel(displayText, icon),
         } : null;
@@ -3876,9 +3953,14 @@ const Composer = ({
             </span>
           ),
           title: '内置模型',
-          options: availableModelOptions,
+          options: availableModelOptions.filter(option => !option.isCustom),
         },
-      ]
+        {
+          label: '自定义模型',
+          title: '自定义模型',
+          options: availableModelOptions.filter(option => option.isCustom),
+        },
+      ].filter(group => group.options.length > 0)
       : []
   ), [availableModelOptions]);
   const buildMarkdownFileLink = (name, url) => {
@@ -4381,6 +4463,10 @@ const Composer = ({
 
   const handleSendWithAttachments = async () => {
     if (isSendDisabled) return;
+    const thinkingSnapshot = {
+      model,
+      ...thinkingSendOptions(selectedModelConfig, modelThinkingLevels[model], restoredQueueOptionsRef.current),
+    };
     if (restoredQueueOptionsRef.current && (restoredQueueOwnerRef.current?.runtimeSessionId !== runtimeSessionId
       || restoredQueueOwnerRef.current?.agentId !== agentId)) {
       message.warning('恢复的队列任务属于其他会话，请返回原会话或清除恢复的任务参数');
@@ -4669,6 +4755,7 @@ const Composer = ({
       imageAttachmentPreviews,
       pendingLocalAttachments,
     }) : {
+      ...thinkingSnapshot,
       composerDraft,
       skillTemplateSource: skillExample?.quickSource || null,
       videoUnderstandRequest: activeTool === 'video-understand'
@@ -5628,6 +5715,7 @@ const Composer = ({
                   onModelChange && onModelChange(value);
                 }}
                 onOpenChange={(open) => {
+                  if (!open && modelHoverCardRef.current?.contains(document.activeElement)) return;
                   setModelPickerOpen(open);
                   if (open) {
                     const availableModelIds = new Set(availableModelOptions.map((item) => String(item?.value || '').trim().toLowerCase()));
@@ -5639,7 +5727,19 @@ const Composer = ({
                   }
                   if (!open) clearHoveredModelCard();
                 }}
-                disabled={sessionSending || modelListLoading || availableModelOptions.length === 0}
+                open={modelPickerOpen}
+                popupRender={(menu) => (
+                  <>
+                    {menu}
+                    <div className="chat-panel__model-popup-footer" onMouseDown={event => event.preventDefault()}>
+                      <Button type="text" onClick={() => {
+                        setModelPickerOpen(false);
+                        clearHoveredModelCard();
+                        onOpenModelSettings?.();
+                      }}>自定义模型</Button>
+                    </div>
+                  </>
+                )}
                 popupMatchSelectWidth={false}
                 getPopupContainer={(trigger) => trigger.parentElement}
                 optionRender={(option) => {
@@ -5647,15 +5747,17 @@ const Composer = ({
                   const optionValue = String(optionMeta?.value || '').trim();
                   const displayText = String(optionMeta?.displayText || optionValue).trim();
                   const icon = optionMeta?.icon || '';
-                  const supportsReadImage = Boolean(optionMeta?.supportsReadImage);
                   const badges = Array.isArray(optionMeta?.badges) ? optionMeta.badges : [];
                   const priceMultiplier = String(optionMeta?.priceMultiplier || '').trim();
-                  const optionContent = renderModelOptionInner(displayText, icon, supportsReadImage, badges, priceMultiplier);
+                  const heat = Number(optionMeta?.heat) || 0;
+                  const optionContent = renderModelOptionInner(displayText, icon, badges, priceMultiplier, heat);
                   return (
                     <div
                       className="chat-panel__model-option-trigger"
                       onPointerEnter={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
-                      onPointerLeave={optionValue ? clearHoveredModelCard : undefined}
+                      onPointerLeave={optionValue ? scheduleModelHoverClose : undefined}
+                      onFocus={optionValue ? (event) => showHoveredModelCard(optionMeta, event.currentTarget) : undefined}
+                      tabIndex={optionValue ? 0 : undefined}
                     >
                       {optionContent}
                     </div>
@@ -5884,6 +5986,14 @@ const Composer = ({
         <div
           ref={modelHoverCardRef}
           className="chat-panel__model-hover-card"
+          onPointerEnter={cancelModelHoverClose}
+          onPointerLeave={scheduleModelHoverClose}
+          onPointerDown={(event) => { event.stopPropagation(); event.nativeEvent.stopImmediatePropagation(); }}
+          onMouseDown={(event) => { if (event.target.tagName !== 'INPUT') event.preventDefault(); event.stopPropagation(); }}
+          onClick={(event) => event.stopPropagation()}
+          onFocus={cancelModelHoverClose}
+          onBlur={scheduleModelHoverClose}
+          onKeyDown={(event) => { if (event.key === 'Escape') { clearHoveredModelCard(); setModelPickerOpen(false); } }}
           style={{
             left: `${hoveredModelCard.left}px`,
             top: `${hoveredModelCard.top}px`,
@@ -5893,6 +6003,7 @@ const Composer = ({
             hoveredModelCard.text,
             hoveredModelCard.description,
             hoveredModelCard.priceMultiplier,
+            hoveredModelCard.option,
           )}
         </div>
       ) : null}

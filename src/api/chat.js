@@ -266,6 +266,8 @@ const parseModelItems = (payload) => {
         provider_name: String(item.provider_name || '').trim(),
         provider_model_id: String(item.provider_model_id || '').trim(),
         id: String(item.id || '').trim(),
+        thinking_levels: Array.isArray(item.thinking_levels) ? item.thinking_levels.filter((level) => typeof level === 'string').map((level) => level.trim().toLowerCase()).filter(Boolean) : [],
+        thinking_default: typeof item.thinking_default === 'string' ? item.thinking_default.trim().toLowerCase() : undefined,
         read_image: parseBooleanFlag(item.read_image ?? item.readImage),
         context_window_tokens: parsePositiveInteger(item.context_window_tokens),
         max_input_tokens: parsePositiveInteger(item.max_input_tokens),

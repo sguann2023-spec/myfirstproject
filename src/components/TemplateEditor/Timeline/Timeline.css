@@ -1,6 +1,6 @@
 .template-edit-timeline { min-height: 170px; max-height: calc(100vh - 150px); flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid #dcdfe5; position: relative; user-select: none; }
 .template-timeline-resize { position: absolute; top: -4px; left: 0; right: 0; height: 7px; z-index: 6; cursor: ns-resize; touch-action: none; }
-.template-timeline-heading { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 12px; border-bottom: 1px solid #f3f3f5; }
+.template-timeline-heading { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 0 12px; border-bottom: 1px solid #f3f3f5; }
 .template-timeline-heading strong { font-size: 12px; font-weight: 550; }
 .template-timeline-duration { margin-left: auto; color: #93969d; font-size: 11px; white-space: nowrap; }
 .template-scene-path { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: auto; }
@@ -34,6 +34,31 @@
 .template-time-controls { position: sticky; left: 0; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 0 16px; background: white; color: #a5a8ae; }
 .template-time-controls button { display: grid; place-items: center; background: none; border: none; color: #5d626c; padding: 0; }
 .template-time-controls input { border: none; background: #ddd; border-radius: 3px; width: 73px; outline: none; padding: 4px 6px; font: 11px Menlo, monospace; color: #35373c; }
+/* Creatomate 式播放运输条：蓝色圆形播放键 + 回起点 + 循环 + 百分秒时间。 */
+.template-transport { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.template-transport button { display: grid; place-items: center; background: none; border: none; color: #5d626c; padding: 0; }
+.template-transport .template-transport-play {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #2f7ff7;
+  color: #ffffff;
+  flex-shrink: 0;
+  transition: background-color .12s ease, transform .12s ease;
+}
+.template-transport .template-transport-play:hover:not(:disabled) { background: #1f6fe0; }
+.template-transport .template-transport-play:active:not(:disabled) { transform: scale(.94); }
+.template-transport .template-transport-play:disabled { background: #c9ccd3; color: #ffffff; }
+.template-transport .template-transport-loop { width: 26px; height: 26px; border-radius: 6px; }
+.template-transport .template-transport-loop:hover:not(:disabled) { background: #eef1f6; }
+.template-transport .template-transport-loop.is-active { color: #2f7ff7; background: #e8f1ff; }
+.template-transport-time {
+  min-width: 64px;
+  color: #25262a;
+  font: 600 13px/1 Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .02em;
+}
 .template-ruler { position: relative; height: 52px; cursor: crosshair; touch-action: none; }
 .template-ruler:focus, .template-ruler:focus-visible { outline: none; box-shadow: none; }
 .template-ruler-marks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }

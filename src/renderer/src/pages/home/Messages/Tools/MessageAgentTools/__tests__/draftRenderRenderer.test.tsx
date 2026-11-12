@@ -46,7 +46,7 @@ describe('draft render dedicated card routing', () => {
   it.each(['mcp__vectcut__draft-render__render_draft', 'mcp__draft-render__render_draft'])('routes %s and preserves failure billing', toolName => {
     const html = markup(McpServerToolRenderer({ toolName, output: { response: { ...payload, billing: null }, responseRaw: `Error: ${JSON.stringify(payload)}` } }))
     expect(html).toContain('本次渲染消耗 12.50 点')
-    expect(html).toContain('video-understand-tool-billing-icon')
+    expect(html).toContain('tool-header-billing-badge')
     expect(html).toContain('dfd_test')
     expect(html).toContain('task-1')
     expect(html).toContain('FAILED')

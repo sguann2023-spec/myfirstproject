@@ -32,6 +32,7 @@ import { PDFDocument } from 'pdf-lib'
 import { v4 as uuidv4 } from 'uuid'
 import WordExtractor from 'word-extractor'
 import { spawn } from 'child_process'
+import { searchReferenceFiles } from './referenceSearch'
 import { contentDispositionFilename } from './network/responseHeaders'
 
 const logger = loggerService.withContext('FileStorage')
@@ -125,6 +126,7 @@ const DEFAULT_WATCHER_CONFIG: Required<FileWatcherConfig> = {
 }
 
 interface DirectoryListOptions {
+  referenceSearch?: boolean
   typed?: boolean
   recursive?: boolean
   maxDepth?: number
@@ -137,6 +139,7 @@ interface DirectoryListOptions {
 }
 
 const DEFAULT_DIRECTORY_LIST_OPTIONS: Required<DirectoryListOptions> = {
+  referenceSearch: false,
   typed: false,
   recursive: true,
   maxDepth: 10,
@@ -913,6 +916,10 @@ class FileStorage {
 
     if (!stat.isDirectory()) {
       throw new Error(`Path is not a directory: ${resolvedPath}`)
+    }
+
+    if (mergedOptions.referenceSearch) {
+      return searchReferenceFiles(resolvedPath, mergedOptions.searchPattern, mergedOptions.maxEntries)
     }
 
     // Typed shallow browsing uses Dirents: no recursive walk or per-entry IPC/stat.
