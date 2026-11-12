@@ -1,67 +1,69 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { listMarketTemplates, installMarketTemplate, distributeTemplateColumns, validateTemplatePage } from '../templateMarketService';
-import fixture from '../../../../resources/skill-template-marketplace/mock/templates.json';
+import { templates, templatePage } from './fixtures/marketTemplates';
 
-afterEach(() => { delete window.api; vi.restoreAllMocks(); vi.unstubAllEnvs(); });
-const template = fixture.data[0];
-describe('isolated template marketplace', () => {
-  it('paginates mock data without calling either old or new backends', async () => {
-    window.api = { getAppInfo: vi.fn().mockResolvedValue({ version: '1.7.27' }) };
-    const fetch = vi.spyOn(globalThis, 'fetch');
-    const first = await listMarketTemplates({ offset: 0, limit: 3 });
-    const second = await listMarketTemplates({ offset: 3, limit: 3 });
-    const empty = await listMarketTemplates({ offset: 6, limit: 3 });
-    expect(first.data).toHaveLength(3); expect(second.data).toHaveLength(3); expect(empty.data).toEqual([]);
-    expect(new Set([...first.data, ...second.data].map((item) => item.id)).size).toBe(6);
-    expect(fetch).not.toHaveBeenCalled();
-  });
+afterEach(() => { delete window.api; vi.restoreAllMocks(); });
+const template = templates[0];
+const fetchOk = (payload) => {
+  const body = JSON.stringify(payload);
+  return { ok: true, status: 200, headers: { get: (h) => h.toLowerCase() === 'content-type' ? 'application/json' : '' }, text: async () => body, json: async () => JSON.parse(body) };
+};
+
+describe('template marketplace', () => {
   it('keeps every template in exactly one column', () => {
-    const columns = distributeTemplateColumns(fixture.data);
+    const columns = distributeTemplateColumns(templates);
     expect(columns).toHaveLength(3);
-    expect(new Set(columns.flat().map((item) => item.id)).size).toBe(6);
-    expect(columns.flat()).toHaveLength(6);
+    expect(new Set(columns.flat().map((item) => item.id)).size).toBe(templates.length);
+    expect(columns.flat()).toHaveLength(templates.length);
   });
   it('rejects malformed media and unsafe installation folders', () => {
-    expect(() => validateTemplatePage({ ...fixture, data: [{ ...template, folder_name: '../old' }] })).toThrow();
-    expect(() => validateTemplatePage({ ...fixture, data: [{ ...template, preview: { ...template.preview, width: 0 } }] })).toThrow();
+    expect(() => validateTemplatePage({ ...templatePage(), data: [{ ...template, folder_name: '../old' }] })).toThrow();
+    expect(() => validateTemplatePage({ ...templatePage(), data: [{ ...template, preview: { ...template.preview, width: 0 } }] })).toThrow();
   });
-  it('requests only the new endpoint when mock is disabled and passes the current app version', async () => {
-    vi.stubEnv('VITE_SKILL_TEMPLATE_MARKETPLACE_MOCK', '0');
-    vi.resetModules();
-    const service = await import('../templateMarketService');
+  it('requests the templates endpoint with pagination and app version, and caches the page', async () => {
     window.api = { getAppInfo: vi.fn().mockResolvedValue({ version: '1.7.27' }), getVectcutApiKey: vi.fn().mockResolvedValue('test-key') };
-    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ ...fixture, limit: 20, offset: 0 }) });
-    await service.listMarketTemplates();
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(fetchOk(templatePage(0, 20)));
+    await listMarketTemplates();
+    await listMarketTemplates();
     const [request, options] = fetch.mock.calls[0];
-    expect(request.pathname).toBe('/skill_template_marketplace/templates');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(request.pathname).toBe('/skill_marketplace/templates');
     expect(request.searchParams.get('app_version')).toBe('1.7.27');
     expect(request.searchParams.get('limit')).toBe('20');
-    expect(request.searchParams.has('version')).toBe(false);
     expect(options.headers.Authorization).toBe('Bearer test-key');
   });
-  it('copies a new mock package from its isolated resources directory and resolves the registered path', async () => {
+  it('installs a template from its remote package and resolves the registered path', async () => {
     const installed = { id: 'local', folderName: template.folder_name, name: template.name, path: '/global/' + template.folder_name };
-    window.api = { getAppInfo: vi.fn().mockResolvedValue({ resourcesPath: '/resources' }), skill: {
+    window.api = { skill: {
       list: vi.fn().mockResolvedValueOnce({ success: true, data: [] }).mockResolvedValueOnce({ success: true, data: [installed] }),
-      installFromDirectory: vi.fn().mockResolvedValue({ success: true, data: { id: 'local' } }),
-      installFromRemotePackage: vi.fn(),
+      installFromRemotePackage: vi.fn().mockResolvedValue({ success: true, data: { id: 'local' } }),
     } };
     const result = await installMarketTemplate(template);
-    expect(window.api.skill.installFromDirectory).toHaveBeenCalledWith(expect.objectContaining({
-      directoryPath: `/resources/skill-template-marketplace/mock/skills/${template.folder_name}`, folderName: template.folder_name,
+    expect(window.api.skill.installFromRemotePackage).toHaveBeenCalledWith(expect.objectContaining({
+      packageUrl: template.package.download_url, folderName: template.folder_name, remoteId: template.id,
     }));
-    expect(window.api.skill.installFromRemotePackage).not.toHaveBeenCalled();
     expect(result.directoryPath).toBe(installed.path);
     expect(result.origin).toBe('template-market');
   });
-  it.each([['1.0.0', false], ['2.0.0', false], [null, false], ['0.9.0', true]])('compares local version %s before replacing: %s', async (version, replace) => {
+  it('strips wrap characters from urls returned by the backend', () => {
+    const wrapped = { ...templatePage(), data: [{ ...template,
+      web_share: ` ${template.web_share} `,
+      preview: { ...template.preview, url: `\`${template.preview.url}\``, cover_url: `\`${template.preview.cover_url}\`` },
+      package: { download_url: `\`${template.package.download_url}\`` } }] };
+    const page = validateTemplatePage(wrapped);
+    expect(page.data[0].preview.url).toBe(template.preview.url);
+    expect(page.data[0].preview.cover_url).toBe(template.preview.cover_url);
+    expect(page.data[0].package.download_url).toBe(template.package.download_url);
+    expect(page.data[0].web_share).toBe(template.web_share);
+  });
+  it('reuses an already installed skill instead of overwriting it', async () => {
     const installed = { name: template.name, folderName: template.folder_name, id: 'local', path: '/global/template' };
-    window.api = { getAppInfo: vi.fn().mockResolvedValue({ resourcesPath: '/resources' }), skill: {
+    window.api = { skill: {
       list: vi.fn().mockResolvedValue({ success: true, data: [installed] }),
-      readSkillFile: vi.fn().mockResolvedValue({ success: true, data: version }),
-      installFromDirectory: vi.fn().mockResolvedValue({ success: true, data: installed }),
+      installFromRemotePackage: vi.fn(),
     } };
-    await installMarketTemplate(template);
-    expect(window.api.skill.installFromDirectory).toHaveBeenCalledTimes(replace ? 1 : 0);
+    const result = await installMarketTemplate(template);
+    expect(window.api.skill.installFromRemotePackage).not.toHaveBeenCalled();
+    expect(result.directoryPath).toBe(installed.path);
   });
 });

@@ -5,9 +5,26 @@ import { trackEvent } from '../../shared/analytics';
 import { formatTemplateCount } from '../Chat/MessagePane/WelcomePage/formatCount';
 import WebPagePreview from '../Chat/ChatShell/WebPagePreview';
 import SkillImportModal from './SkillImportModal';
-import { distributeTemplateColumns, installMarketTemplate, listMarketTemplates, TEMPLATE_MARKET_MOCK } from './templateMarketService';
+import { distributeTemplateColumns, installMarketTemplate, listMarketTemplates } from './templateMarketService';
 import './TemplateMarketPage.css';
 import './SkillStorePage.css';
+
+const FULLSCREEN_EVENT = 'fullscreen-status-changed';
+function useFullscreen() {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (window.api?.isFullScreen) void window.api.isFullScreen().then((v) => { if (active) setIsFullscreen(v); });
+    const emitter = window.electron?.ipcRenderer;
+    if (typeof emitter?.on === 'function') {
+      const handler = (_evt, v) => setIsFullscreen(v);
+      emitter.on(FULLSCREEN_EVENT, handler);
+      return () => { active = false; try { emitter.removeListener(FULLSCREEN_EVENT, handler); } catch {} };
+    }
+    return () => { active = false; };
+  }, []);
+  return isFullscreen;
+}
 
 const TemplateCard = ({ item, active, onHover, onPreview, onWatch, onApply, busy, onExposure }) => {
   const ref = useRef(null);
@@ -51,6 +68,8 @@ const TemplateCard = ({ item, active, onHover, onPreview, onWatch, onApply, busy
 };
 
 const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
+  const isFullscreen = useFullscreen();
+  const gridColumns = isFullscreen ? 5 : 3;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -111,7 +130,7 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
     return () => document.removeEventListener('visibilitychange', hide);
   }, []);
 
-  const columns = useMemo(() => distributeTemplateColumns(items), [items]);
+  const columns = useMemo(() => distributeTemplateColumns(items, gridColumns), [items, gridColumns]);
   const handleExposure = useCallback((item) => {
     if (exposureRef.current.has(item.id)) return;
     exposureRef.current.add(item.id);
@@ -160,7 +179,8 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
         const element = event.currentTarget;
         if (!error && element.scrollHeight - element.scrollTop - element.clientHeight < 160) void loadMore();
       }}>
-        <div className="template-market-columns">{columns.map((column, i) => <div className="template-market-column" key={i}>
+        <div className="template-market-columns" data-columns={gridColumns}
+          style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>{columns.map((column, i) => <div className="template-market-column" key={i}>
           {column.map((item) => <TemplateCard key={item.id} item={item} active={hoveredId === item.id && !preview}
             onHover={setHoveredId} onPreview={openPreview} onWatch={watch} onApply={apply}
             busy={Boolean(busyId)} onExposure={handleExposure} />)}
@@ -170,7 +190,6 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
         <div ref={sentinelRef} className="template-market-state" aria-live="polite">
           {loading ? '加载中…' : items.length && !hasMore ? '没有更多了' : null}
         </div>
-        {TEMPLATE_MARKET_MOCK ? <div className="template-market-mock-label">开发预览 · 示例素材与演示数据</div> : null}
       </div>
     </main>
     {webPreview ? <aside className="template-market-web"><WebPagePreview preview={webPreview} onClose={() => setWebPreview(null)} /></aside> : null}

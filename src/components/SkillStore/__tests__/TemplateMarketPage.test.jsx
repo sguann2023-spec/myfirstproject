@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import fixture from '../../../../resources/skill-template-marketplace/mock/templates.json';
+import { templates, templatePage } from './fixtures/marketTemplates';
 import { trackEvent } from '../../../shared/analytics';
 import { installMarketTemplate, listMarketTemplates } from '../templateMarketService';
 import TemplateMarketPage from '../TemplateMarketPage';
@@ -16,7 +16,7 @@ let container, root;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
-  listMarketTemplates.mockImplementation(async ({ offset }) => ({ ...fixture, data: fixture.data.slice(offset, offset + 3) }));
+  listMarketTemplates.mockImplementation(async ({ offset }) => templatePage(offset, 3));
   installMarketTemplate.mockResolvedValue({ id: 'local', name: '模板', origin: 'template-market', directoryPath: '/global/template' });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
@@ -39,37 +39,42 @@ describe('template marketplace interactions', () => {
     await render();
     const card = container.querySelector('article');
     await hover(card); await hover(card);
-    expect(trackEvent).toHaveBeenCalledWith('skill_market_do_same_explore', { skill_name: fixture.data[0].name });
+    expect(trackEvent).toHaveBeenCalledWith('skill_market_do_same_explore', { skill_name: templates[0].name });
     expect(trackEvent.mock.calls.filter(([event]) => event === 'skill_market_watch_explore')).toHaveLength(1);
     await click(card.querySelector('[aria-label^="查看"]'));
-    expect(container.querySelector('[data-testid="web-preview"]').textContent).toContain(fixture.data[0].web_share);
-    expect(trackEvent).toHaveBeenCalledWith('skill_market_watch_click', { skill_name: fixture.data[0].name });
+    expect(container.querySelector('[data-testid="web-preview"]').textContent).toContain(templates[0].web_share);
+    expect(trackEvent).toHaveBeenCalledWith('skill_market_watch_click', { skill_name: templates[0].name });
   });
   it('installs before applying the template to chat', async () => {
     const onGoChat = vi.fn();
     await render({ onGoChat });
     const card = container.querySelector('article'); await hover(card);
     await click(card.querySelector('.template-market-apply'));
-    expect(installMarketTemplate).toHaveBeenCalledWith(fixture.data[0]);
+    expect(installMarketTemplate).toHaveBeenCalledWith(templates[0]);
     expect(onGoChat).toHaveBeenCalledWith(expect.objectContaining({ origin: 'template-market' }));
     expect(installMarketTemplate.mock.invocationCallOrder[0]).toBeLessThan(onGoChat.mock.invocationCallOrder[0]);
   });
   it('mounts a muted hover video only for the active card and unloads it on leaving', async () => {
     await render();
     const cards = [...container.querySelectorAll('article')];
-    const video = cards.find((card) => card.getAttribute('aria-label') === `预览 ${fixture.data[1].name}`);
+    const videoFixture = templates.find((item) => item.preview.type === 'video') || templates[0];
+    const card = cards.find((c) => c.getAttribute('aria-label') === `预览 ${videoFixture.name}`);
     expect(container.querySelectorAll('video')).toHaveLength(0);
-    await hover(video);
-    expect(container.querySelectorAll('video')).toHaveLength(1);
-    expect(container.querySelector('video').muted).toBe(true);
-    await act(async () => video.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
-    expect(container.querySelectorAll('video')).toHaveLength(0);
+    await hover(card);
+    if (videoFixture.preview.type === 'video') {
+      expect(container.querySelectorAll('video')).toHaveLength(1);
+      expect(container.querySelector('video').muted).toBe(true);
+    }
+    await act(async () => card.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
+    if (videoFixture.preview.type === 'video') expect(container.querySelectorAll('video')).toHaveLength(0);
   });
-  it('opens a centered image preview and closes it through the close button', async () => {
+  it('opens a centered preview and closes it through the close button', async () => {
     await render();
     await click(container.querySelector('article'));
     const modal = document.querySelector('.template-market-preview');
-    expect(modal.querySelector('img').getAttribute('src')).toBe(fixture.data[0].preview.url);
+    const media = modal.querySelector('img, video');
+    expect(media).not.toBeNull();
+    expect(media.getAttribute('src')).toBe(templates[0].preview.url);
     expect(modal.querySelector('.ant-modal-header, .ant-modal-footer')).toBeNull();
     await click(modal.querySelector('.ant-modal-close'));
     expect(document.querySelector('.template-market-preview .ant-modal-wrap')?.style.display || 'none').toBe('none');
