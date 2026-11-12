@@ -12,6 +12,6 @@ export default defineConfig({
   }],
   test: {
     environment: 'jsdom',
-    include: ['src/components/Chat/Composer/{skillExample,skillExampleInstallation,templatePromptSync,referenceTree,sendQueue}.test.js', 'src/components/Chat/Composer/SendQueuePanel.test.jsx', 'src/shared/quickSkillManifest.test.ts'],
+    include: ['src/components/Chat/Composer/{skillExample,skillExampleInstallation,templatePromptSync,referenceTree,sendQueue}.test.js', 'src/components/Chat/Composer/SendQueuePanel.test.jsx', 'src/components/Chat/Composer/CustomModelsDialog.test.jsx', 'src/components/Chat/Composer/ThinkingLevelSlider.test.jsx', 'src/shared/quickSkillManifest.test.ts'],
   },
 });

@@ -4,6 +4,7 @@ import { createHighlighter } from 'shiki';
 import { Plus, RefreshCw, X } from 'lucide-react';
 import { Button, Input, Popover } from 'antd';
 import ImageContextMenu from './ImageContextMenu';
+import Markdown from '../MessagePane/Markdown/Markdown';
 import './TextFilePreview.css';
 
 const PREVIEW_THEME = 'one-light';
@@ -207,6 +208,10 @@ const TextFilePreview = ({
   const isError = status === 'error';
   const isUnsupported = status === 'unsupported' || kind === 'unsupported';
   const isMediaPreview = kind === 'image' || kind === 'video' || kind === 'audio';
+  const isMarkdown = !isMediaPreview && (
+    kind === 'markdown' || /^(markdown|md|mdx)$/i.test(language) ||
+    /\.(md|markdown|mdx)$/i.test(name) || /\.(md|markdown|mdx)$/i.test(path)
+  );
   const supportsContentPreview = !isLoading && !isError && !isUnsupported;
   const supportsEditing = supportsContentPreview && !isMediaPreview && Boolean(path);
   const modelIcon = String(currentModelMeta?.icon || '').trim();
@@ -230,7 +235,7 @@ const TextFilePreview = ({
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [mediaError, setMediaError] = React.useState(false);
   const [imageContextMenu, setImageContextMenu] = React.useState(null);
-  const supportsLineComments = supportsContentPreview && !isMediaPreview && !isEditing;
+  const supportsLineComments = supportsContentPreview && !isMediaPreview && !isEditing && !isMarkdown;
   const [commentPopover, setCommentPopover] = React.useState({
     open: false,
     lineNumber: null,
@@ -388,7 +393,7 @@ const TextFilePreview = ({
         <div className="chat-file-preview__meta">
           <div className="chat-file-preview__name" title={name}>{name}</div>
           <div className="chat-file-preview__subline" title={path}>
-            <span className="chat-file-preview__kind">{getKindLabel(kind)}</span>
+            <span className="chat-file-preview__kind">{getKindLabel(isMarkdown ? 'markdown' : kind)}</span>
             <span className="chat-file-preview__path">{path}</span>
           </div>
         </div>
@@ -497,7 +502,11 @@ const TextFilePreview = ({
           </div>
         )}
         {supportsContentPreview && !isEditing && !isMediaPreview && (
-          <CodePreview content={content} language={language} />
+          isMarkdown ? (
+            <div className="chat-file-preview__markdown-content">
+              <Markdown content={content} />
+            </div>
+          ) : <CodePreview content={content} language={isMarkdown ? 'markdown' : language} />
         )}
         {supportsLineComments && (
           <Popover

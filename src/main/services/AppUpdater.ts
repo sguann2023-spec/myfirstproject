@@ -684,6 +684,15 @@ export default class AppUpdater {
     return new Promise((resolve) => {
       setImmediate(() => {
         try {
+          if (isWin) {
+            // NsisUpdater inherits process.env but has no custom installerArgs API.
+            // Keep this handoff alive for its asynchronous spawn/elevation fallback.
+            const created = process.getCreationTime()
+            if (created === null) throw new Error('Cannot identify original Windows app creation time')
+            process.env.VECTCUT_UPDATE_APP_PID = String(process.pid)
+            process.env.VECTCUT_UPDATE_APP_PATH = app.getPath('exe')
+            process.env.VECTCUT_UPDATE_APP_CREATED = String(created)
+          }
           this.autoUpdater.quitAndInstall(isSilent, true)
           resolve(this.isInstallingUpdate)
         } catch (error) {

@@ -1,31 +1,152 @@
 .template-properties { min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid #e9eaed; background: #fff; }
 .template-properties *, .template-properties *::before, .template-properties *::after { box-sizing: border-box; }
-.template-property p, .template-properties-unsupported { overflow-wrap: anywhere; }
-.template-property select, .template-property textarea { min-width: 0; max-width: 100%; }
-.template-properties-heading { display: flex; justify-content: space-between; gap: 8px; padding: 14px 16px; }
+.template-properties-heading { display: flex; justify-content: space-between; gap: 8px; padding: 14px 16px 6px; }
 .template-properties-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.template-properties-heading span, .template-property small { color: #92959c; font-size: 10px; }
-.template-property { padding: 8px 14px; }
-.template-property.is-focused { background: #f6f7f8; }
-.template-property label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px; }
-.template-property-controls { display: flex; align-items: center; gap: 2px; }
-.template-property input { width: 100%; min-width: 0; height: 30px; padding: 0 8px; border: 0; border-radius: 6px; outline: none; background: #ddd; color: #25262a; font: inherit; }
-.template-property button { display: grid; place-items: center; flex: 0 0 22px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #666; }
-.template-property button:hover:not(:disabled) { background: #edf0f4; }
-.template-property button.is-current { color: #497ef5; }
-.template-property p { margin: 6px 0; color: #d33; font-size: 11px; }
+.template-properties-heading span { color: #92959c; font-size: 10px; }
 .template-properties-empty { padding: 16px; color: #92959c; }
-.template-properties-unsupported { margin: 0; padding: 8px 14px; color: #92959c; font-size: 11px; line-height: 1.6; }
-.template-property input.template-property-slider { height: 18px; margin: 0 0 4px; padding: 0; background: transparent; accent-color: #497ef5; }
-.template-property select, .template-property textarea { width: 100%; box-sizing: border-box; min-height: 30px; padding: 6px 8px; border: 0; border-radius: 6px; outline: none; background: #ddd; color: #25262a; font: inherit; }
-.template-property textarea { min-height: 72px; resize: vertical; }
-.template-property input[type="checkbox"] { width: 30px; height: 18px; accent-color: #497ef5; }
-.template-configuration h3 { margin: 12px 14px 4px; font-size: 12px; }
+.template-properties-unsupported { margin: 0; padding: 8px 14px 14px; color: #92959c; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.template-properties-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 14px 14px; min-width: 0; }
+.template-properties-body .chat-panel__text-settings-row { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
+.template-properties .chat-panel__text-settings-label { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.template-properties .chat-panel__text-settings-label small { color: #92959c; font-size: 10px; line-height: 1.3; }
+.template-property-row { min-width: 0; border-radius: 6px; }
+.template-property-row.is-focused { background: #f6f7f8; box-shadow: 0 0 0 4px #f6f7f8; }
+.template-property-row p[role="alert"] { margin: 4px 0 0; color: #d33; font-size: 11px; overflow-wrap: anywhere; }
+.template-property-control--rotation { display: flex; align-items: center; gap: 10px; width: fit-content; max-width: 100%; }
+.template-uniform-scale { display: contents; }
+.template-position-row { display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.template-position-cell { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.template-position-cell p[role="alert"] { position: absolute; top: 100%; left: 0; margin: 2px 0 0; color: #d33; font-size: 10px; white-space: nowrap; }
+.template-position-input { display: flex; min-width: 0; }
+.template-position-input .chat-panel__text-settings-number.ant-input-number { width: 84px; flex: none; }
+.template-position-cell .chat-panel__text-settings-number.ant-input-number { width: 84px; flex: none; }
+
+/* 与 TextAddDetail / ImageAddDetailTool 相同的灰底数值框（#ddd、6px 圆角、居中 12px）。 */
+.template-setting-number-wrap {
+  display: flex;
+  align-items: center;
+  flex: 0 0 104px;
+  width: 104px;
+  height: 32px;
+  padding: 0 6px;
+  background: #dddddd;
+  border-radius: 6px;
+}
+.template-setting-number-wrap input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: #000;
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+.template-setting-number-wrap input::-webkit-outer-spin-button,
+.template-setting-number-wrap input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.template-setting-number-wrap input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.template-setting-number-wrap input:disabled { color: #8a8a8a; }
+.template-setting-unit { flex-shrink: 0; color: #000; font-size: 12px; }
+
+/* 灰色滑轨 + 白心灰环滑钮，与 antd 标定一致。 */
+.template-setting-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: 4px;
+  margin: 0;
+  border: 0;
+  border-radius: 2px;
+  background: #f5f5f5;
+  outline: none;
+}
+.template-setting-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: transparent; }
+.template-setting-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 8px;
+  height: 8px;
+  margin-top: -2px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px #888888;
+  cursor: pointer;
+}
+.template-setting-slider::-moz-range-track { height: 4px; border-radius: 2px; background: transparent; }
+.template-setting-slider::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border: none;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px #888888;
+  cursor: pointer;
+}
+.template-setting-slider:disabled::-webkit-slider-thumb { box-shadow: 0 0 0 2px #d9d9d9; cursor: default; }
+.template-setting-slider:disabled::-moz-range-thumb { box-shadow: 0 0 0 2px #d9d9d9; cursor: default; }
+.template-setting-slider:focus-visible { outline: 2px solid #497ef5; outline-offset: 4px; }
+
+.template-setting-select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: #dddddd;
+  color: #000;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.template-setting-select:disabled { color: #8a8a8a; }
+.template-setting-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border: 0;
+  border-radius: 10px;
+  background: #dddddd;
+  cursor: pointer;
+  outline: none;
+  transition: background-color .15s ease;
+}
+.template-setting-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: left .15s ease;
+}
+.template-setting-switch:checked { background: #888888; }
+.template-setting-switch:checked::after { left: 18px; }
+.template-setting-switch:disabled { opacity: .5; cursor: default; }
+.template-setting-switch:focus-visible { outline: 2px solid #497ef5; outline-offset: 2px; }
+.template-setting-color-wrap { display: flex; flex: 0 0 104px; width: 104px; height: 32px; padding: 4px; background: #dddddd; border-radius: 6px; }
+.template-setting-color { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.template-setting-color::-webkit-color-swatch-wrapper { padding: 0; }
+.template-setting-color::-webkit-color-swatch { border: none; border-radius: 4px; }
+.template-setting-color::-moz-color-swatch { border: none; border-radius: 4px; }
+.template-setting-textarea { width: 100%; min-height: 64px; resize: vertical; background: #dddddd; border: 0; border-radius: 6px; padding: 8px; font: inherit; font-size: 12px; outline: none; }
+
 .template-text-settings { padding: 14px; min-width: 0; }
 .template-text-settings textarea { width: 100%; min-height: 64px; resize: vertical; background: #ddd; border: 0; border-radius: 6px; padding: 8px; }
 .template-text-settings .chat-panel__text-settings-control { min-width: 0; }
 .template-text-settings [role="alert"] { color: #d33; font-size: 11px; overflow-wrap: anywhere; }
-.template-text-property .template-property-controls { justify-content: flex-end; margin-top: 4px; }
-.template-text-property .template-property-controls button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; background: transparent; border-radius: 4px; color: #666; }
-.template-text-property .template-property-controls .is-current { color: #497ef5; }
-.template-text-property.is-focused { background: #f6f7f8; }
+
+/* 面板滚动条沿用编辑器视觉语言。 */
+.template-properties::-webkit-scrollbar { width: 8px; }
+.template-properties::-webkit-scrollbar-track { background: transparent; }
+.template-properties::-webkit-scrollbar-thumb { background: #e3e5e9; border-radius: 4px; }
+.template-properties::-webkit-scrollbar-thumb:hover { background: #c9ccd3; }

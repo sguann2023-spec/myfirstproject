@@ -6,13 +6,30 @@ const resolveProviderIdByModel = (modelId = '') => {
   return { id: 'openai', type: 'openai', name: 'OpenAI' };
 };
 
-export const buildProvidersState = (modelIds = [], apiKey = '') => {
+export const customModelToOption = (config) => ({
+  value: `${config.id}:${config.modelId}`,
+  label: config.name,
+  read_image: config.read_image,
+  isCustom: true
+});
+
+export const buildProvidersState = (modelIds = [], apiKey = '', customModels = []) => {
   const providersMap = new Map();
   const normalizedApiKey = String(apiKey || '').trim();
   modelIds.forEach((rawModelId) => {
     const option = rawModelId && typeof rawModelId === 'object' ? rawModelId : undefined;
     const modelId = String(option ? option.value || '' : rawModelId || '').trim();
     if (!modelId) return;
+    if (option?.isCustom) {
+      const config = customModels.find((item) => `${item.id}:${item.modelId}` === modelId);
+      if (!config) return;
+      providersMap.set(config.id, {
+        id: config.id, name: config.name, type: config.protocol, enabled: true,
+        apiHost: config.baseUrl, apiKey: config.apiKey,
+        models: [{ id: config.modelId, name: config.name, provider: config.id, read_image: config.read_image }]
+      });
+      return;
+    }
     const p = resolveProviderIdByModel(modelId);
     if (!providersMap.has(p.id)) {
       providersMap.set(p.id, { id: p.id, name: p.name, type: p.type, enabled: true, apiKey: normalizedApiKey, apiHost: '', models: [] });
@@ -35,8 +52,11 @@ export const toModelOption = (
   priceText = '',
   description = '',
   badges = [],
-  tokenLimits = {}
+  tokenLimits = {},
+  thinking = tokenLimits
 ) => ({
+  thinking_levels: Array.isArray(thinking?.thinking_levels) ? [...thinking.thinking_levels] : [],
+  thinking_default: thinking?.thinking_default,
   value: model_id,
   label: name,
   icon,

@@ -8,6 +8,9 @@ patchedDependencies:
   '@libsql/client@0.17.3':
     hash: cda48391e7256aaf3c59d35a594ea96a6df47b6703d06aa6a4a1f40abb067145
     path: patches/@libsql__client@0.17.3.patch
+  app-builder-lib@26.8.1:
+    hash: 331516af4bb52f25a7950c8d39398a4f992fe850b1a010e9937d0b28b99ff2f5
+    path: patches/app-builder-lib@26.8.1.patch
 
 importers:
 
@@ -16725,7 +16728,7 @@ snapshots:
 
   app-builder-bin@5.0.0-alpha.12: {}
 
-  app-builder-lib@26.8.1(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1):
+  app-builder-lib@26.8.1(patch_hash=331516af4bb52f25a7950c8d39398a4f992fe850b1a010e9937d0b28b99ff2f5)(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1):
     dependencies:
       '@develar/schema-utils': 2.6.5
       '@electron/asar': 3.4.1
@@ -17983,7 +17986,7 @@ snapshots:
 
   dmg-builder@26.8.1(electron-builder-squirrel-windows@26.8.1):
     dependencies:
-      app-builder-lib: 26.8.1(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
+      app-builder-lib: 26.8.1(patch_hash=331516af4bb52f25a7950c8d39398a4f992fe850b1a010e9937d0b28b99ff2f5)(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
       builder-util: 26.8.1
       fs-extra: 10.1.0
       iconv-lite: 0.6.3
@@ -18123,7 +18126,7 @@ snapshots:
 
   electron-builder-squirrel-windows@26.8.1(dmg-builder@26.8.1):
     dependencies:
-      app-builder-lib: 26.8.1(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
+      app-builder-lib: 26.8.1(patch_hash=331516af4bb52f25a7950c8d39398a4f992fe850b1a010e9937d0b28b99ff2f5)(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
       builder-util: 26.8.1
       electron-winstaller: 5.4.0
     transitivePeerDependencies:
@@ -18132,7 +18135,7 @@ snapshots:
 
   electron-builder@26.8.1(electron-builder-squirrel-windows@26.8.1):
     dependencies:
-      app-builder-lib: 26.8.1(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
+      app-builder-lib: 26.8.1(patch_hash=331516af4bb52f25a7950c8d39398a4f992fe850b1a010e9937d0b28b99ff2f5)(dmg-builder@26.8.1)(electron-builder-squirrel-windows@26.8.1)
       builder-util: 26.8.1
       builder-util-runtime: 9.5.1
       chalk: 4.1.2

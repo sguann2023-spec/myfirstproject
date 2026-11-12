@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronRight, Circle, GripVertical, Layers, LockKeyhole, Minus, Plus, SkipBack, Trash2, UnlockKeyhole } from 'lucide-react';
+import { ChevronRight, Circle, GripVertical, Layers, LockKeyhole, Minus, Pause, Play, Plus, Repeat, SkipBack, Trash2, UnlockKeyhole } from 'lucide-react';
 import { snapTime } from '../editorView';
+import { formatPreviewTime } from '../Preview/previewModel';
 import ClipTiming from '../ClipTiming';
 import TimingIcon, { clipTimingModes } from '../ClipTiming/TimingIcon';
 import TimeInput, { formatClipTime, parseClipTime } from '../ClipTiming/TimeInput';
@@ -18,7 +19,8 @@ const timeLabel = value => Number(value.toFixed(3)).toString();
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex, onSelect, onEnter, onAction, onAddScene,
-  rootLabel = '模版', disabled, lockedTracks, onLock, cursor, onCursorChange: setCursor, onFocusProperty, isLocked }) {
+  rootLabel = '模版', disabled, lockedTracks, onLock, cursor, onCursorChange: setCursor, onFocusProperty, isLocked,
+  playing = false, onTogglePlay, loop = false, onToggleLoop }) {
   const snap = true;
   const [height, setHeight] = useState(260);
   const [preview, setPreview] = useState(null);
@@ -185,6 +187,16 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
       onPointerDown={event => { gesture.current = { kind: 'height', y: event.clientY, height }; event.currentTarget.setPointerCapture?.(event.pointerId); }}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={event => finish(event, true)} />
     <div className="template-timeline-heading">
+      <div className="template-transport">
+        <button className="template-transport-play" aria-label={playing ? '暂停' : '播放'}
+          title={playing ? '暂停（空格）' : '播放（空格）'} disabled={disabled || !view.duration} onClick={onTogglePlay}>
+          {playing ? <Pause size={17} /> : <Play size={17} />}
+        </button>
+        <button aria-label="游标回到开始" onClick={() => setTime(0)}><SkipBack size={15} /></button>
+        <button className={`template-transport-loop${loop ? ' is-active' : ''}`} aria-label="循环播放"
+          aria-pressed={loop} title="循环播放" disabled={disabled} onClick={onToggleLoop}><Repeat size={15} /></button>
+        <span className="template-transport-time" aria-label="播放时间">{formatPreviewTime(cursor)}</span>
+      </div>
       <nav className="template-scene-path" aria-label="分镜路径">
         <button aria-label="打开模版时间轴" aria-current={sceneId === null ? 'page' : undefined} title={rootLabel}
           onClick={() => onEnter(null)}><Layers size={14} />{rootLabel}</button>
@@ -200,7 +212,6 @@ export default function EditorTimeline({ view, selectedId, sceneId, nativeIndex,
       <div className="template-timeline-inner" style={{ width: canvasWidth + 164 }}>
         <div className="template-ruler-row">
           <div className="template-time-controls">
-            <button aria-label="游标回到开始" onClick={() => setTime(0)}><SkipBack size={15} /></button>
             <input aria-label="当前时间（秒）" type="number" step="0.1" min={0} max={axisEnd}
               value={Number(cursor.toFixed(3))} onChange={event => setTime(event.currentTarget.valueAsNumber)} />
             <span>s</span>

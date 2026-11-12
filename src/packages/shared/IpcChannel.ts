@@ -1,4 +1,9 @@
 export enum IpcChannel {
+  CustomChatModels_List = 'custom-chat-models:list',
+  CustomChatModels_Save = 'custom-chat-models:save',
+  CustomChatModels_ListProviders = 'custom-chat-models:list-providers',
+  CustomChatModels_SaveProviders = 'custom-chat-models:save-providers',
+  CustomChatModels_Changed = 'custom-chat-models:changed',
   CherryChatStream_WorkspaceRename = 'cherry-chat-stream:workspace-rename',
   App_GetCacheSize = 'app:get-cache-size',
   App_ClearCache = 'app:clear-cache',

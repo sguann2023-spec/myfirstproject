@@ -11,7 +11,7 @@ import { loggerService } from '@logger'
 import { ossUploadService } from '@main/services/OssUploadService'
 import { getResourcePath } from '@main/utils'
 import { generateSpeechAudio } from './speech-generate'
-import { BackgroundJobStore, BACKGROUND_REQUEST_ID_PROPERTY, backgroundStatusTool } from './background-job'
+import { BackgroundJobStore } from './background-job'
 import type { BackgroundJob, JobUpdate } from './background-job'
 import { getVectcutBackgroundAccountId, requestWithVectcutAuth } from './vectcut-auth'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -75,22 +75,6 @@ const CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL: Tool = {
   }
 }
 
-const GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
-  name: 'get_lip_sync_digital_human_status',
-  description: 'Backward-compatible status query for a lip-sync digital human task.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'Required lip-sync digital human task ID.'
-      }
-    },
-    required: ['taskId'],
-    additionalProperties: false
-  }
-}
-
 const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_image_driven_digital_human',
   description:
@@ -125,22 +109,6 @@ const CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   }
 }
 
-const GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
-  name: 'get_image_driven_digital_human_status',
-  description: 'Backward-compatible status query for a Jimeng Omni image-driven digital human task.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'Required image-driven digital human task ID.'
-      }
-    },
-    required: ['taskId'],
-    additionalProperties: false
-  }
-}
-
 const CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
   name: 'create_omni_image_driven_digital_human',
   description: CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL.description!.replace(
@@ -148,12 +116,6 @@ const CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
     'Explicit Omni image-driven tool; create_image_driven_digital_human is its legacy alias, not the default image-driven tool.'
   ),
   inputSchema: CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL.inputSchema
-}
-
-const GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
-  name: 'get_omni_image_driven_digital_human_status',
-  description: GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL.description,
-  inputSchema: GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL.inputSchema
 }
 
 const CREATE_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
@@ -180,47 +142,6 @@ const CREATE_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL: Tool = {
     additionalProperties: false
   }
 }
-
-const GET_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL: Tool = {
-  name: 'get_default_image_driven_digital_human_status',
-  description: 'Query default 图片驱动数字人 status (seedance is its legacy mode key).',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      taskId: {
-        type: 'string',
-        description: 'Required image-driven digital human task ID.'
-      }
-    },
-    required: ['taskId'],
-    additionalProperties: false
-  }
-}
-
-const START_DIGITAL_HUMAN_TASK_TOOL: Tool = {
-  name: 'start_digital_human_task',
-  description: 'Prefer lip_sync for original person video (TTS then lip sync). For only a photo prefer default 图片驱动数字人: seedance is its legacy mode key, requires script and ElevenLabs voice ID, cannot accept arbitrary audio. Omni supports photo + audio + prompt, costs 10x default; never auto-upgrade, require explicit informed choice. Internal Omni and lip_sync synthesize TTS automatically; do not prepare separate audio. Start a durable background digital-human task and immediately return job_id. Speech synthesis, uploads, submission and rendering run in the background. Poll get_digital_human_job with jobId. Reuse requestId after timeout to prevent duplicate generation and billing.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      requestId: BACKGROUND_REQUEST_ID_PROPERTY,
-      mode: { type: 'string', enum: ['lip_sync', 'omni', 'seedance'], description: 'Prefer lip_sync for original person video (TTS then lip sync). For only a photo prefer default 图片驱动数字人: seedance is its legacy mode key, requires script and ElevenLabs voice ID, cannot accept arbitrary audio. Omni supports photo + audio + prompt, costs 10x default; never auto-upgrade, require explicit informed choice.' },
-      copywriting: { type: 'string', description: 'Original spoken script.' },
-      voiceId: { type: 'string', description: 'Selected voice ID.' },
-      videoUrl: { type: 'string', description: 'Required for lip_sync: portrait video URL or absolute local path.' },
-      imageUrl: { type: 'string', description: 'Required for omni/seedance: portrait image URL or absolute local path.' },
-      prompt: { type: 'string', description: 'Required for omni: scene/action prompt.' },
-      outputResolution: { type: 'integer', enum: [720, 1080] },
-      provider: { type: 'string', description: 'Optional selected voice provider.' }
-    },
-    required: ['requestId', 'mode', 'copywriting', 'voiceId'],
-    additionalProperties: false
-  }
-}
-const GET_DIGITAL_HUMAN_JOB_TOOL: Tool = backgroundStatusTool(
-  'get_digital_human_job',
-  'Immediately read a background digital-human job. running: wait poll_after_seconds then query again; success: use result.video_url; failed/interrupted: inspect message and task_id, never resubmit with a new requestId. Known upstream tasks resume polling after Desktop restarts.'
-)
 
 // Lexical validation only; backend owns DNS, redirects and download policy.
 function validateExternalMedia(value: unknown, field = '') {
@@ -370,13 +291,7 @@ class DigitalHumanServer {
         CREATE_LIP_SYNC_DIGITAL_HUMAN_TOOL,
         CREATE_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
         CREATE_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
-        CREATE_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL,
-        START_DIGITAL_HUMAN_TASK_TOOL,
-        GET_DIGITAL_HUMAN_JOB_TOOL,
-        GET_LIP_SYNC_DIGITAL_HUMAN_STATUS_TOOL,
-        GET_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
-        GET_OMNI_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL,
-        GET_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_STATUS_TOOL
+        CREATE_DEFAULT_IMAGE_DRIVEN_DIGITAL_HUMAN_TOOL
       ]
     }))
 

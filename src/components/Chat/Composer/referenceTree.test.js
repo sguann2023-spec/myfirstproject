@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { filterTreeNodesByQuery, replaceLazyTreeChildren, loadReferenceRoots } from './referenceTree.js';
+import { describe, expect, it, vi } from 'vitest';
+import { scheduleReferenceRoots, collectVisibleReferenceNodes, flatReferencePathsToTree, filterTreeNodesByQuery, replaceLazyTreeChildren, loadReferenceRoots } from './referenceTree.js';
 
 describe('independent root refresh', () => {
   const deferred = () => {
@@ -101,6 +101,55 @@ describe('lazy reference trees', () => {
     expect(filterTreeNodesByQuery(nodes, 'empty')[0].type).toBe('directory');
     expect(nodes[0].children).toBeUndefined();
     expect(filterTreeNodesByQuery(nodes, 'unknown')).toEqual([]);
+  });
+});
+
+describe('debounced recursive search', () => {
+  it.each(['query change', 'root change', 'close'])('cancels pending and in-flight results on %s', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolve;
+      const load = vi.fn(() => new Promise((done) => { resolve = done; }));
+      const publish = vi.fn();
+      const complete = vi.fn();
+      const callbacks = { isCurrent: () => true, publish, complete, fail: vi.fn() };
+      const cancelPending = scheduleReferenceRoots([{ key: 'root', load }], callbacks, 200);
+      await vi.advanceTimersByTimeAsync(199);
+      expect(load).not.toHaveBeenCalled();
+      cancelPending();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(load).not.toHaveBeenCalled();
+      const cancelRunning = scheduleReferenceRoots([{ key: 'root', load }], callbacks, 200);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(load).toHaveBeenCalledTimes(1);
+      cancelRunning();
+      resolve(['stale/app.py']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(publish).not.toHaveBeenCalled();
+      expect(complete).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});
+
+describe('recursive search results', () => {
+  it('materializes unexpanded nested matches for filename and relative-path searches', () => {
+    const nodes = flatReferencePathsToTree(['chat/app.py', 'other/app.py']);
+    expect(nodes).toEqual(tree.map((node) => ({ ...node, children: node.children.filter((child) => child.name === 'app.py') })));
+    expect(filterTreeNodesByQuery(nodes, 'app.py')).toHaveLength(2);
+    // Query results are force-expanded in both the UI and keyboard suggestion list.
+    expect(collectVisibleReferenceNodes(nodes, 'root', new Set(), true).map((node) => node.path))
+      .toEqual(['chat', 'chat/app.py', 'other', 'other/app.py']);
+    expect(collectVisibleReferenceNodes(nodes, 'root', new Set()).map((node) => node.path))
+      .toEqual(['chat', 'other']);
+    expect(filterTreeNodesByQuery(nodes, 'CHAT\\APP.PY')).toEqual([nodes[0]]);
+    expect(filterTreeNodesByQuery(nodes, 'missing/app.py')).toEqual([]);
+  });
+
+  it('normalizes flat separators, deduplicates and rejects non-relative paths', () => {
+    expect(flatReferencePathsToTree(['chat\\app.py', 'chat/app.py', '../bad', '/absolute'])).toEqual([{
+      name: 'chat', path: 'chat', type: 'directory', children: [{ name: 'app.py', path: 'chat/app.py', type: 'file' }],
+    }]);
+    expect(flatReferencePathsToTree([])).toEqual([]);
   });
 });
 

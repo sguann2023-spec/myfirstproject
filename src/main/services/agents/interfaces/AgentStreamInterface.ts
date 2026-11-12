@@ -28,6 +28,8 @@ export interface AgentStream extends EventEmitter {
 export interface AgentThinkingOptions {
   effort?: Options['effort']
   thinking?: Options['thinking']
+  /** Gateway model selection; deliberately separate from SDK effort enums. */
+  thinkingLevel?: string
 }
 
 export interface AgentInvocationIds {

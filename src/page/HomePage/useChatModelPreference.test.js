@@ -1,26 +1,30 @@
 // @vitest-environment jsdom
-import { act, createElement, StrictMode } from 'react';
+import { act, createElement, StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CHAT_MODEL_KEY, useChatModelPreference } from './useChatModelPreference';
+import { useChatModelPreference } from './useChatModelPreference';
 
 const initialOptions = [{ value: 'gpt-5.3-codex' }, { value: 'claude-opus-4-7' }];
 const remoteOptions = [{ value: 'qwen3.8-flash' }, { value: 'glm-5.3' }, ...initialOptions];
 
-describe('useChatModelPreference', () => {
+describe('useChatModelPreference (session-bound)', () => {
   let root;
   let container;
   let selectModel;
-  let onError;
-  let writes;
+  let savedBySession;
 
-  function ModelPreference(props) {
+  // Simulates HomePage: each session stores its own model; switching sessions
+  // swaps savedModel, and onModelChange writes back to the active session only.
+  function ModelPreference({ sessionId = 's1', ...props }) {
+    const [saved, setSaved] = useState({});
+    savedBySession = saved;
     const [model, setModel] = useChatModelPreference({
       fallbackModel: 'gpt-5.3-codex',
       options: initialOptions,
       defaultModel: 'qwen3.8-flash',
       listLoaded: false,
-      onError,
+      savedModel: saved[sessionId],
+      onModelChange: (value) => setSaved((prev) => ({ ...prev, [sessionId]: value })),
       ...props
     });
     selectModel = setModel;
@@ -39,8 +43,6 @@ describe('useChatModelPreference', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    onError = vi.fn();
-    writes = vi.spyOn(Storage.prototype, 'setItem');
   });
 
   afterEach(async () => {
@@ -51,46 +53,47 @@ describe('useChatModelPreference', () => {
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
   });
 
-  it('keeps GLM before and after the dynamic model list arrives', async () => {
-    localStorage.setItem(CHAT_MODEL_KEY, 'glm-5.3');
-    writes.mockClear();
+  it('keeps the session model before and after the dynamic model list arrives', async () => {
+    await render({ options: remoteOptions, listLoaded: false });
+    await act(async () => selectModel('glm-5.3'));
     await render();
     expect(container.textContent).toBe('glm-5.3');
-    expect(writes).not.toHaveBeenCalled();
 
     await render({ options: remoteOptions, listLoaded: true });
     expect(container.textContent).toBe('glm-5.3');
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('glm-5.3');
+    expect(savedBySession.s1).toBe('glm-5.3');
   });
 
-  it('persists a user selection and restores it on the next mount', async () => {
+  it('binds a user selection to the active session only', async () => {
     await render({ options: remoteOptions, listLoaded: true });
     await act(async () => selectModel('glm-5.3'));
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('glm-5.3');
-
-    await act(async () => root.unmount());
-    root = createRoot(container);
-    await render();
     expect(container.textContent).toBe('glm-5.3');
-    await render({ options: remoteOptions, listLoaded: true });
+    expect(savedBySession).toEqual({ s1: 'glm-5.3' });
+
+    // Switching to another session must not inherit s1's choice.
+    await render({ options: remoteOptions, listLoaded: true, sessionId: 's2' });
+    expect(container.textContent).toBe('qwen3.8-flash');
+    expect(savedBySession).toEqual({ s1: 'glm-5.3', s2: 'qwen3.8-flash' });
+
+    // Switching back restores s1's own model.
+    await render({ options: remoteOptions, listLoaded: true, sessionId: 's1' });
     expect(container.textContent).toBe('glm-5.3');
   });
 
-  it('uses the server default when there is no saved preference', async () => {
+  it('uses the server default for a session without a saved model', async () => {
     await render();
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBeNull();
+    expect(savedBySession).toEqual({});
     await render({ options: remoteOptions, listLoaded: true });
     expect(container.textContent).toBe('qwen3.8-flash');
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('qwen3.8-flash');
+    expect(savedBySession).toEqual({ s1: 'qwen3.8-flash' });
   });
 
-  it('falls back only after a successful list confirms the saved model is unavailable', async () => {
-    localStorage.setItem(CHAT_MODEL_KEY, 'removed-model');
-    await render();
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('removed-model');
+  it('falls back only after a successful list confirms the session model is unavailable', async () => {
     await render({ options: remoteOptions, listLoaded: true });
+    await act(async () => selectModel('glm-5.3'));
+    await render({ options: [{ value: 'qwen3.8-flash' }], listLoaded: true });
     expect(container.textContent).toBe('qwen3.8-flash');
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('qwen3.8-flash');
+    expect(savedBySession.s1).toBe('qwen3.8-flash');
   });
 
   it('uses the first available model when the server default is unavailable', async () => {
@@ -98,35 +101,19 @@ describe('useChatModelPreference', () => {
     expect(container.textContent).toBe('qwen3.8-flash');
   });
 
-  it('does not overwrite the preference when loading fails or returns no usable models', async () => {
-    localStorage.setItem(CHAT_MODEL_KEY, 'glm-5.3');
-    writes.mockClear();
-    await render();
+  it('does not bind a model when loading fails or returns no usable models', async () => {
+    await render({ options: remoteOptions, listLoaded: true });
+    await act(async () => selectModel('glm-5.3'));
     await render({ options: [...initialOptions], listLoaded: false });
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('glm-5.3');
-    expect(writes).not.toHaveBeenCalled();
+    expect(savedBySession.s1).toBe('glm-5.3');
     await render({ options: [], listLoaded: true });
     expect(container.textContent).toBe('glm-5.3');
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('glm-5.3');
-    expect(writes).not.toHaveBeenCalled();
+    expect(savedBySession.s1).toBe('glm-5.3');
   });
 
-  it('saves an explicit user choice even when the remote list failed', async () => {
-    localStorage.setItem(CHAT_MODEL_KEY, 'glm-5.3');
-    await render();
-    await act(async () => selectModel('claude-opus-4-7'));
-    expect(container.textContent).toBe('claude-opus-4-7');
-    expect(localStorage.getItem(CHAT_MODEL_KEY)).toBe('claude-opus-4-7');
-  });
-
-  it('reports storage failures without preventing model selection', async () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new Error('storage unavailable');
-    });
-    writes.mockImplementation(() => { throw new Error('storage unavailable'); });
+  it('ignores selections outside the offered options', async () => {
     await render({ options: remoteOptions, listLoaded: true });
-    expect(container.textContent).toBe('qwen3.8-flash');
-    expect(onError).toHaveBeenCalledWith('Failed to load chat model settings.', expect.any(Error));
-    expect(onError).toHaveBeenCalledWith('Failed to persist chat model settings.', expect.any(Error));
+    await act(async () => selectModel('not-offered'));
+    expect(savedBySession.s1).toBe('qwen3.8-flash');
   });
 });

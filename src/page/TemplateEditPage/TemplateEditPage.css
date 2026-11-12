@@ -199,6 +199,14 @@
 .template-layer-index { margin-left: auto; color: #878b92; font-size: 11px; font-weight: 400; }
 .template-stale-note { color: #a07732; font-size: 11px; margin: 8px 20px; }
 .template-edit-code { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.template-edit-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+.template-edit-center.has-code { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.template-code-heading-side { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .template-code-heading { padding: 0 18px 0 0; }
 .template-code-heading > strong { padding-left: 18px; font-weight: 500; }
 .template-code-heading strong .template-muted { margin-left: 8px; }

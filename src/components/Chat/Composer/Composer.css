@@ -1,3 +1,13 @@
+.chat-panel__model-popup-footer {
+  border-top: 1px solid #8883;
+  padding: 6px 0 0;
+}
+
+.chat-panel__model-popup-footer .ant-btn {
+  width: 100%;
+  text-align: left;
+}
+
 .chat-panel__composer {
   display: flex;
   gap: 8px;
@@ -359,9 +369,24 @@
 }
 
 .chat-panel__model-option-tag--promo {
-  background: rgba(219, 173, 106, 0.18);
+  background: #eaf4f1;
   font-weight: 400;
-  color: #95642b;
+  color: #009273;
+}
+
+.chat-panel__model-option-heat {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 20px;
+  color: #f5222d;
+}
+
+.chat-panel__model-option-heat-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .chat-panel__model-group-title {
@@ -737,6 +762,9 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  /* 附件存在时 --with-attachments 的 transform 会为本列创建层叠上下文，
+     需抬到高于预览 chip 关闭按钮（z-index:2），否则 #/@ 引用弹窗会被 x 盖住。 */
+  z-index: 3;
 }
 
 .chat-panel__input-wrap--with-attachments {
@@ -1121,17 +1149,209 @@
 .chat-panel__model-hover-card {
   position: fixed;
   z-index: 1400;
-  pointer-events: none;
+  pointer-events: auto;
+  width: 240px;
 }
+
+/* Transparent bridge keeps the pointer inside the card while crossing its gap. */
+.chat-panel__model-hover-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 -12px;
+  z-index: -1;
+}
+
+.chat-panel__thinking-control {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  --color-white: #fff;
+  --color-blue-500: oklch(62.3% 0.214 259.815);
+  --color-purple-500: oklch(62.7% 0.265 303.9);
+  --color-success: oklch(62.7% 0.194 149.214);
+  --color-foreground: oklch(37.1% 0 0);
+  --color-foreground-subtlest: color-mix(in oklab, var(--color-foreground) 40%, transparent);
+  --color-ring: var(--color-blue-500);
+}
+.chat-panel__thinking-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; line-height: 18px; }
+.chat-panel__thinking-heading > span:first-child { font-size: 12px; line-height: 18px; color: color-mix(in oklab, var(--color-foreground) 60%, transparent); }
+.chat-panel__thinking-heading > span:last-child { color: var(--color-foreground); font-size: 12px; line-height: 18px; }
+.chat-panel__thinking-label { position: relative; display: inline-flex; height: 18px; min-width: 0; align-items: center; overflow: hidden; line-height: 18px; }
+.chat-panel__thinking-label > span { display: inline-flex; min-width: 0; white-space: nowrap; line-height: 18px; }
+.chat-panel__thinking-slider { position: relative; height: 32px; width: 100%; border-radius: 9999px; }
+.chat-panel__thinking-visual { position: absolute; inset: 0; pointer-events: none; }
+.chat-panel__thinking-track { position: absolute; left: 0; right: 0; top: 4px; height: 24px; overflow: hidden; border-radius: 9999px; background: color-mix(in oklab, var(--color-foreground) 10%, transparent); }
+.chat-panel__thinking-track-border { position: absolute; inset: 0; border-radius: 9999px; border: 1px solid color-mix(in oklab, var(--color-foreground) 10%, transparent); }
+.chat-panel__thinking-slider-fill { position: absolute; top: 0; bottom: 0; left: 0; overflow: hidden; border-radius: 9999px; }
+.chat-panel__thinking-bubbles { position: absolute; inset: 0; }
+.chat-panel__thinking-bubble { position: absolute; left: 0; right: 0; }
+.chat-panel__thinking-bubble > span { display: block; border-radius: 9999px; background: var(--color-white); }
+.chat-panel__thinking-stops { position: absolute; left: 14px; right: 14px; top: 0; bottom: 0; display: flex; align-items: center; justify-content: space-between; }
+.chat-panel__thinking-slider-stop { width: 4px; height: 4px; flex-shrink: 0; border-radius: 9999px; }
+.chat-panel__thinking-slider-thumb { position: absolute; top: 2px; width: 28px; height: 28px; border-radius: 9999px; box-shadow: 2px 2px 4px 0 rgb(0 0 0 / 0.25); }
+.chat-panel__thinking-range { position: absolute; inset: 0; box-sizing: border-box; margin: 0; padding: 0; border: 0; height: 32px; width: 100%; cursor: pointer; appearance: none; background: transparent; outline: none; }
+.chat-panel__thinking-range[aria-disabled="true"] { cursor: default; }
+
+.chat-panel__thinking-slider {
+  /* 参考图中的白色滑块在两套主题下保持一致，轨道与档位圆点继续使用语义主题色。 */
+  --chat-panel__thinking-slider-thumb: var(--color-white);
+  --chat-panel__thinking-max-accent: var(--color-blue-500);
+}
+
+.chat-panel__thinking-slider[data-disabled="true"] {
+  opacity: 0.5;
+}
+
+.chat-panel__thinking-slider:has(input:focus-visible) {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* 拖拽也是离散档位切换，禁用过渡会造成跳动；保留与点击一致的短过渡。 */
+.chat-panel__thinking-slider-thumb {
+  background: var(--chat-panel__thinking-slider-thumb);
+  transition: left 120ms ease-out;
+}
+
+.chat-panel__thinking-slider-fill {
+  background: var(--color-success);
+  transition: width 120ms ease-out;
+}
+
+/* 普通档和入口竖条共用 Highspeed 蓝色，避免渐变退场后回到普通模型的绿色。 */
+.chat-panel__thinking-slider-fill[data-highspeed="true"],
+[data-highspeed="true"] > .chat-panel__thinking-meter-fill {
+  background: var(--color-blue-500);
+}
+
+.chat-panel__thinking-slider-fill::before {
+  /* 纯色与渐变背景无法直接插值；常驻渐变层用透明度过渡，反向调档也不会瞬切。 */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  /* 沿较短色相路径经过青色，保留高饱和度，避免中段发灰。 */
+  background: linear-gradient(
+    270deg in oklch shorter hue,
+    var(--chat-panel__thinking-max-accent) 0%,
+    var(--color-success) 100%
+  );
+}
+
+/* 仅 GLM Highspeed 使用蓝→紫；OKLab 直接插值，避免原绿色起点带来青色过渡。 */
+.chat-panel__thinking-slider-fill[data-highspeed="true"]::before {
+  background: linear-gradient(
+    90deg in oklab,
+    var(--color-blue-500) 0%,
+    var(--color-purple-500) 100%
+  );
+}
+
+.chat-panel__thinking-slider-fill[data-max="true"]::before {
+  opacity: 1;
+}
+
+.chat-panel__thinking-bubble {
+  opacity: 0;
+  animation: chat-panel__thinking-bubble-flow linear infinite;
+}
+
+@keyframes chat-panel__thinking-bubble-flow {
+  0% {
+    transform: translateX(104%);
+    opacity: 0;
+  }
+  15%,
+  80% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateX(-4%);
+    opacity: 0;
+  }
+}
+
+.chat-panel__thinking-slider-stop {
+  /* 中性灰在绿底上不清楚；已填充档位沿用滑块白色，不随深色主题变黑。 */
+  background: var(--color-foreground-subtlest);
+  scale: 1;
+  transition:
+    scale 120ms ease-out,
+    opacity 120ms ease-out;
+}
+
+.chat-panel__thinking-slider-stop[data-filled="true"] {
+  background: var(--color-white);
+  opacity: 0.3;
+}
+
+.chat-panel__thinking-slider-stop[data-hovered="true"] {
+  scale: 1.75;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-panel__thinking-bubbles {
+    display: none;
+  }
+
+  .chat-panel__thinking-bubble {
+    animation: none;
+  }
+
+  .chat-panel__thinking-slider-stop,
+  .chat-panel__thinking-slider-thumb,
+  .chat-panel__thinking-slider-fill,
+  .chat-panel__thinking-slider-fill::before {
+    transition: none;
+  }
+}
+
+/* 原生滑块尺寸与可视滑块一致，确保首尾档位及点击/拖动坐标对齐。 */
+.chat-panel__thinking-range::-webkit-slider-runnable-track {
+  height: 32px;
+  background: transparent;
+}
+
+.chat-panel__thinking-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.chat-panel__thinking-range::-moz-range-track {
+  height: 32px;
+  background: transparent;
+}
+
+.chat-panel__thinking-range::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.chat-panel__thinking-range::-moz-range-progress {
+  background: transparent;
+}
+
+.chat-panel__model-option-trigger:focus-visible { outline: 2px solid #2580eb; outline-offset: -2px; }
 
 .chat-panel__model-option-popover {
   min-width: 150px;
-  max-width: 180px;
+  max-width: 240px;
   padding: 12px 14px;
   background: #ffffff;
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .chat-panel__model-option-popover-title {
@@ -1147,18 +1367,46 @@
   color: #8a8a8a;
 }
 
-.chat-panel__model-option-popover-multiplier {
+.chat-panel__model-option-popover-tags {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.chat-panel__model-option-popover-heat {
   margin-top: 10px;
   padding: 7px 0;
   border-top: 1px solid #eeeeee;
   font-size: 12px;
   line-height: 18px;
   color: #888888;
+}
+
+.chat-panel__model-option-popover-heat .chat-panel__model-option-heat {
+  min-height: 18px;
+}
+
+.chat-panel__model-option-popover-multiplier {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #eeeeee;
+  font-size: 12px;
+  line-height: 18px;
+  color: #888888;
   font-variant-numeric: tabular-nums;
+}
+
+.chat-panel__model-option-popover-multiplier > span {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  line-height: 18px;
 }
 
 .chat-panel__model-option-popover-section {

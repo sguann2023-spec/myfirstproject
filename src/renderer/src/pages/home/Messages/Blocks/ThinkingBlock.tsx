@@ -5,6 +5,7 @@ import { css, keyframes, styled } from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
 import { toolRunningShimmerCss } from '../Tools/shared/toolShimmer'
+import { hasMeaningfulThinkingContent } from './thinkingContent'
 
 interface Props {
   block: ThinkingMessageBlock
@@ -33,11 +34,11 @@ const ThinkingBlock: React.FC<Props> = ({ block, blocks }) => {
   const reasoningBlocks = blocks?.length ? blocks : [block]
   const isThinking = reasoningBlocks.some(isActive)
   const latestFirst = [...reasoningBlocks].reverse()
-  const previewBlock = latestFirst.find((item) => isActive(item) && item.content?.trim())
-    ?? latestFirst.find((item) => item.content?.trim())
+  const previewBlock = latestFirst.find((item) => isActive(item) && hasMeaningfulThinkingContent(item.content))
+    ?? latestFirst.find((item) => hasMeaningfulThinkingContent(item.content))
   const duration = reasoningBlocks.reduce((sum, item) => sum + Math.max(0, item.thinking_millsec || 0), 0)
   // Only normalize the preview; the stored reasoning and its Markdown remain untouched.
-  const lines = useMemo(() => (previewBlock?.content || '').split(/\r\n|\r|\n/).map((line) => line.trim()).filter(Boolean), [previewBlock?.content])
+  const lines = useMemo(() => (previewBlock?.content || '').split(/\r\n|\r|\n/).map((line) => line.trim()).filter(hasMeaningfulThinkingContent), [previewBlock?.content])
   const latestLine = lines.at(-1)
 
   if (!latestLine) return null

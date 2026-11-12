@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next'
 
 import { getMcpToolDisplayName, parseMcpToolName } from '../shared/mcpToolDisplay'
 
+import { MediaGenBillingBadge } from './billingTools'
 import { extractDraftRenderSummary } from './draftRenderTool'
-import point2IconUrl from '../../../../../../../../public/point2.svg?url'
 import './VideoUnderstandeTool.css'
 
 type DraftRenderToolProps = {
@@ -19,13 +19,7 @@ type DraftRenderToolProps = {
 // Shared points badge used by dedicated cards and aggregate group headers.
 export function BillingPointsBadge({ points, title }: { points: number; title: string }) {
   if (!Number.isFinite(points)) return null
-  const display = points.toFixed(2)
-  return (
-    <span className="video-understand-tool-billing-badge" title={title}>
-      <img className="video-understand-tool-billing-icon" src={point2IconUrl} alt="" aria-hidden="true" />
-      <span className="video-understand-tool-billing-text">{display}</span>
-    </span>
-  )
+  return <MediaGenBillingBadge centered displayText={points.toFixed(2)} title={title} />
 }
 
 // Shared by dedicated cards and generic/group headers so collapsed tools retain billing.

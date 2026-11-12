@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   esbuild: { jsx: 'automatic' },
   resolve: {
-    alias: { '@logger': fileURLToPath(new URL('../../../../../../../main/services/LoggerService', import.meta.url)), '@renderer': fileURLToPath(new URL('../../../../..', import.meta.url)) }
+    alias: { '@shared': fileURLToPath(new URL('../../../../../../../packages/shared', import.meta.url)), '@logger': fileURLToPath(new URL('../../../../../../../main/services/LoggerService', import.meta.url)), '@renderer': fileURLToPath(new URL('../../../../..', import.meta.url)) }
   },
   test: {
     environment: 'jsdom',

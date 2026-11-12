@@ -1,6 +1,7 @@
 // SettingPage.jsx
-import { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Spin } from 'antd';
+import { Package } from 'lucide-react';
 import './SettingPage.css';
 
 import AccountSecurityIcon from '../../../public/account_security.svg';
@@ -8,6 +9,7 @@ import GeneralSettingIcon from '../../../public/settings_general.png';
 import PrivacyIcon from '../../../public/privacy.svg';
 import { InfoCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
+const ModelSettings = lazy(() => import('../../components/ModelSettings/ModelSettings'));
 const GeneralSettings = lazy(() => import('../../components/GeneralSettings/GeneralSettings'));
 const HelpSettings = lazy(() => import('../../components/HelpSettings/HelpSettings'));
 const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
@@ -20,16 +22,25 @@ const ABOUT_TITLE = CURRENT_CHANNEL_BRAND_CONFIG.ui.aboutTitle;
 const settingMenuItems = [
   { key: 'account-security', icon: <img src={AccountSecurityIcon} alt="Account Security" className="setting-icon" />, title: '账号与安全', component: AccountSecurity },
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
+  { key: 'models', icon: <Package className="setting-icon" />, title: '模型设置', component: ModelSettings },
   { key: 'help', icon: <QuestionCircleOutlined />, title: '使用帮助', component: HelpSettings },
   { key: 'about', icon: <InfoCircleOutlined />, title: ABOUT_TITLE, component: AboutUs },
   { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement }
 ];
 
 const SettingPage = () => {
-  // 默认选中 'account-security'
-  const [selectedKey, setSelectedKey] = useState('account-security');
+  const [selectedKey, setSelectedKey] = useState(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return settingMenuItems.some(item => item.key === tab) ? tab : 'account-security';
+  });
   useEffect(() => {
     document.getElementById('spinner')?.remove();
+    const { ipcRenderer } = window.require('electron');
+    const navigate = (_event, payload) => {
+      if (settingMenuItems.some(item => item.key === payload?.tab)) setSelectedKey(payload.tab);
+    };
+    ipcRenderer.on('settings:navigate', navigate);
+    return () => ipcRenderer.removeListener('settings:navigate', navigate);
   }, []);
 
   const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
@@ -53,6 +64,8 @@ const SettingPage = () => {
 
 
   // 动态获取当前选中的组件
+  const [modelsVisited, setModelsVisited] = useState(() => new URLSearchParams(window.location.search).get('tab') === 'models');
+  useEffect(() => { if (selectedKey === 'models') setModelsVisited(true); }, [selectedKey]);
   const SelectedComponent = settingMenuItems.find(item => item.key === selectedKey)?.component || GeneralSettings;
 
   return (
@@ -111,7 +124,8 @@ const SettingPage = () => {
                 </div>
                 <div className="setting-content-body">
                 <Suspense fallback={<div className="setting-content-loading"><Spin size="large" /></div>}>
-                  <SelectedComponent />
+                  {selectedKey !== 'models' && <SelectedComponent />}
+                  {(modelsVisited || selectedKey === 'models') && <div hidden={selectedKey !== 'models'}><ModelSettings /></div>}
                 </Suspense>
                 </div>
             </div>

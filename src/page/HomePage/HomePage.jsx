@@ -1,3 +1,4 @@
+import { completeAfterDrain, preserveHydratedMessageBodies, normalizeLiveMessageModel, ownsChatCompletion } from './chatStreamLifecycle';
 import { isAskUserQuestionTool } from '../../packages/shared/userInteraction'
 import { mergeSessionArtifact } from '../../components/Chat/sessionArtifacts';
 import { normalizePinnedVideos, resolvePinnedVideoEvent, mergePinnedVideo } from '../../components/Chat/pinnedVideos';
@@ -75,11 +76,12 @@ import { subscribeTaskNotificationPreferences } from '../../renderer/src/utils/t
 import { isFocused } from '../../renderer/src/utils/window';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
-import { buildProvidersState, toModelOption } from './chatProviders';
-import { useChatModelPreference } from './useChatModelPreference';
+import { buildProvidersState, toModelOption, customModelToOption } from './chatProviders';
+import { useCustomChatModels } from './useCustomChatModels';
+import { CHAT_MODEL_KEY, useChatModelPreference } from './useChatModelPreference';
+import { MODEL_THINKING_LEVELS_KEY, useModelThinkingLevels } from './useModelThinkingLevels';
 const logger = loggerService.withContext('HomePage');
 const logPreviewWindowResizeError = (error) => logger.warn('Failed to resize window for preview.', error);
-const logChatModelPreferenceError = (message, error) => logger.warn(message, error);
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
@@ -1175,6 +1177,10 @@ const resolveQuickSkillDirectory = (appInfo, skillName = '') => {
 const canonicalizeChatModelId = (modelId = '') => {
   const normalized = String(modelId || '').trim();
   if (!normalized) return '';
+  // Custom provider IDs namespace the selection; the model ID itself may contain colons.
+  if (normalized.startsWith('custom-') && normalized.includes(':')) {
+    return normalized.slice(normalized.indexOf(':') + 1);
+  }
   const segments = normalized.split(':').map((item) => String(item || '').trim()).filter(Boolean);
   return segments.length >= 2 ? segments[segments.length - 1] : normalized;
 };
@@ -1190,7 +1196,9 @@ const buildChatMessageModelMeta = (modelId, options = []) => {
   const normalizedModelId = canonicalizeChatModelId(rawModelId);
   if (!normalizedModelId) return undefined;
   const inferredProvider = extractChatModelProvider(rawModelId);
-  const matched = (Array.isArray(options) ? options : []).find((item) => (
+  const availableOptions = Array.isArray(options) ? options : [];
+  const matched = availableOptions.find((item) => item?.value === rawModelId)
+    || availableOptions.find((item) => (
     [item?.value, item?.id, item?.name]
       .map((value) => canonicalizeChatModelId(value))
       .includes(normalizedModelId)
@@ -1606,6 +1614,10 @@ const createEmptyChatSession = (options = {}) => {
     configuration,
     historyLoaded: true,
     messages: [],
+    model: String(options?.model || '').trim(),
+    modelThinkingLevels: options?.modelThinkingLevels && typeof options.modelThinkingLevels === 'object' && !Array.isArray(options.modelThinkingLevels)
+      ? { ...options.modelThinkingLevels }
+      : {},
   };
 };
 
@@ -1857,7 +1869,7 @@ const hasInterruptedAssistantState = (message = {}) => {
   });
 };
 
-const normalizePersistedChatMessage = (message = {}, modelOptions = [], { recovering = false } = {}) => {
+const normalizePersistedChatMessage = (message = {}, modelOptions = [], { recovering = false, live = false } = {}) => {
   if (!message || typeof message !== 'object') return message;
 
   let nextMessage = message;
@@ -1875,6 +1887,10 @@ const normalizePersistedChatMessage = (message = {}, modelOptions = [], { recove
 
   if (String(nextMessage?.role || '').toLowerCase() !== 'assistant') {
     return nextMessage;
+  }
+
+  if (live && nextMessage.storeAssistantMessageId) {
+    return normalizeLiveMessageModel(nextMessage, modelOptions, normalizeMessageModelMeta);
   }
 
   if (nextMessage.storeAssistantMessageId !== null) {
@@ -2564,6 +2580,7 @@ const HomePage = () => {
   const [activeChatId, setActiveChatId] = useState(null);
   // 流式回调的 effect 只依赖 canUseAgentRuntime，闭包里的 activeChatId 是旧的，用 ref 读取最新值。
   const activeChatIdRef = useRef(null);
+  const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
   const [chatSending, setChatSending] = useState(false);
   const chatRetryPendingRef = useRef(new Set());
   const [chatSessionSendingMap, setChatSessionSendingMap] = useState({});
@@ -2575,16 +2592,48 @@ const HomePage = () => {
   const lastTaskFinishedAtByRequestIdRef = useRef({});
   const [chatHistoryLoadingMap, setChatHistoryLoadingMap] = useState({});
   const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
-  const [chatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
+  const [builtInChatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
+  const customChatModels = useCustomChatModels();
+  const chatModelOptions = useMemo(() => [
+    ...builtInChatModelOptions,
+    ...customChatModels.models.map(customModelToOption)
+  ], [builtInChatModelOptions, customChatModels.models]);
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
-  const [chatModelListLoaded, setChatModelListLoaded] = useState(false);
   const [chatDefaultModel, setChatDefaultModel] = useState('');
-  const [chatModel, setChatModel] = useChatModelPreference({
+  // 模型与思考强度绑定会话：切换会话时从目标会话恢复，修改只回写当前会话，
+  // 会话之间互不影响；全新用户（会话无绑定模型）才回落到后台下发的默认模型。
+  const setChatModel = useCallback((value) => {
+    const selected = String(value || '').trim();
+    if (!selected || !activeChatId) return;
+    setChatSessions((prev) => prev.map((session) => (
+      session.id === activeChatId && session.model !== selected
+        ? { ...session, model: selected }
+        : session
+    )));
+  }, [activeChatId]);
+  const handleModelThinkingLevelChange = useCallback((modelId, level) => {
+    if (!activeChatId) return;
+    setChatSessions((prev) => prev.map((session) => {
+      if (session.id !== activeChatId) return session;
+      const current = session.modelThinkingLevels && typeof session.modelThinkingLevels === 'object' && !Array.isArray(session.modelThinkingLevels)
+        ? session.modelThinkingLevels
+        : {};
+      if (current[modelId] === level) return session;
+      return { ...session, modelThinkingLevels: { ...current, [modelId]: level } };
+    }));
+  }, [activeChatId]);
+  const [chatModel, selectChatModel] = useChatModelPreference({
     fallbackModel: CHAT_MODELS[0],
     options: chatModelOptions,
     defaultModel: chatDefaultModel,
-    listLoaded: chatModelListLoaded,
-    onError: logChatModelPreferenceError
+    listLoaded: !customChatModels.loading && !chatModelListLoading,
+    savedModel: activeChatSession?.model,
+    onModelChange: setChatModel
+  });
+  const [modelThinkingLevels, onModelThinkingLevelChange] = useModelThinkingLevels({
+    options: chatModelOptions,
+    savedLevels: activeChatSession?.modelThinkingLevels,
+    onLevelsChange: handleModelThinkingLevelChange
   });
   const [chatHistoryVisible, setChatHistoryVisible] = useState(false);
   const beginnerGuideDownloadPaneRef = useRef(null);
@@ -2870,7 +2919,7 @@ const HomePage = () => {
           return {
             ...item,
             historyLoaded: true,
-            messages: [...hydratedMessages, ...locallyAddedMessages]
+            messages: [...preserveHydratedMessageBodies(hydratedMessages, currentMessages), ...locallyAddedMessages]
           };
         });
         return sortChatSessions(updated);
@@ -3156,10 +3205,6 @@ const HomePage = () => {
           );
         setChatModelOptions(nextOptions);
         setChatDefaultModel(String(payload?.defaultModel || '').trim());
-        setChatModelListLoaded(
-          nextOptions.length > 0
-          && (modelItems.length > 0 || (Array.isArray(payload?.models) && payload.models.length > 0))
-        );
       } catch (error) {
         logger.warn('Failed to load chat model list, fallback to built-in models.', error);
       } finally {
@@ -3175,7 +3220,7 @@ const HomePage = () => {
   useEffect(() => {
     const models = chatModelOptions?.length > 0 ? chatModelOptions : CHAT_MODELS;
     const initialApiKey = String(electronStore.get('auth.vectcut_api_key') || '').trim();
-    const state = buildProvidersState(models, initialApiKey);
+    const state = buildProvidersState(models, initialApiKey, customChatModels.models);
     window.store = {
       getState: () => state,
       dispatch: () => undefined
@@ -3187,6 +3232,16 @@ const HomePage = () => {
     // Fast Refresh reruns effects while retaining messages and live controllers.
     if (chatSessionsRestoredRef.current) return;
     chatSessionsRestoredRef.current = true;
+    // 旧版本模型/思考强度是全局 localStorage；一次性迁移为会话级配置。
+    let legacyModel = '';
+    let legacyLevels = null;
+    try {
+      legacyModel = String(localStorage.getItem(CHAT_MODEL_KEY) || '').trim();
+      const parsedLevels = JSON.parse(localStorage.getItem(MODEL_THINKING_LEVELS_KEY) || 'null');
+      legacyLevels = parsedLevels && typeof parsedLevels === 'object' && !Array.isArray(parsedLevels) ? parsedLevels : null;
+    } catch (error) {
+      logger.warn('Failed to read legacy chat model preferences.', error);
+    }
     try {
       const storedSessions = electronStore.get(CHAT_STORAGE_KEY);
       const storedActiveId = electronStore.get(CHAT_ACTIVE_ID_KEY);
@@ -3238,6 +3293,10 @@ const HomePage = () => {
               configuration,
               historyLoaded: runtimeSessionId ? false : true,
               messages: restoredMessages,
+              model: String(item.model || '').trim() || legacyModel,
+              modelThinkingLevels: item.modelThinkingLevels && typeof item.modelThinkingLevels === 'object' && !Array.isArray(item.modelThinkingLevels)
+                ? item.modelThinkingLevels
+                : (legacyLevels || {}),
             };
           });
         if (normalized.length > 0) {
@@ -3247,6 +3306,8 @@ const HomePage = () => {
             localStorage.removeItem(CHAT_STORAGE_KEY);
             localStorage.removeItem(CHAT_ACTIVE_ID_KEY);
           }
+          localStorage.removeItem(CHAT_MODEL_KEY);
+          localStorage.removeItem(MODEL_THINKING_LEVELS_KEY);
           let nextSessions = sortChatSessions(normalized);
           let nextActiveChatId = nextSessions.some((item) => item.id === resolvedActiveId)
             ? resolvedActiveId
@@ -3261,7 +3322,7 @@ const HomePage = () => {
               if (timedOutSession?.id) {
                 nextActiveChatId = timedOutSession.id;
               } else {
-                const nextFreshSession = createEmptyChatSession();
+                const nextFreshSession = createEmptyChatSession({ model: legacyModel, modelThinkingLevels: legacyLevels || {} });
                 nextSessions = [nextFreshSession, ...nextSessions];
                 nextActiveChatId = nextFreshSession.id;
               }
@@ -3286,6 +3347,16 @@ const HomePage = () => {
     } catch (error) {
       logger.warn('Failed to load chat sessions from persistence.', error);
     }
+    if (legacyModel || legacyLevels) {
+      // 有旧全局配置但没有持久化会话的老用户：把配置种进初始空会话。
+      setChatSessions((prev) => prev.map((session) => (
+        session.model || Object.keys(session.modelThinkingLevels || {}).length
+          ? session
+          : { ...session, model: legacyModel, modelThinkingLevels: legacyLevels || {} }
+      )));
+      localStorage.removeItem(CHAT_MODEL_KEY);
+      localStorage.removeItem(MODEL_THINKING_LEVELS_KEY);
+    }
     setActiveChatId((prev) => prev || chatSessions[0]?.id || null);
   }, []);
 
@@ -3297,7 +3368,7 @@ const HomePage = () => {
         const currentMessages = Array.isArray(session?.messages) ? session.messages : [];
         let sessionChanged = false;
         const nextMessages = currentMessages.map((message) => {
-          const normalizedMessage = normalizePersistedChatMessage(message, chatModelOptions);
+          const normalizedMessage = normalizePersistedChatMessage(message, chatModelOptions, { live: true });
           if (normalizedMessage !== message) {
             changed = true;
             sessionChanged = true;
@@ -3438,7 +3509,6 @@ const HomePage = () => {
     return () => unsubscribe?.();
   }, []);
 
-  const activeChatSession = chatSessions.find((item) => item.id === activeChatId) || null;
   useEffect(() => {
     const session = activeChatSession;
     if (!session?.runtimeSessionId || !window.ipc?.invoke) return;
@@ -3727,7 +3797,7 @@ const HomePage = () => {
             return {
               ...item,
               historyLoaded: true,
-              messages: [...hydratedMessages, ...locallyAddedMessages]
+              messages: [...preserveHydratedMessageBodies(hydratedMessages, currentMessages), ...locallyAddedMessages]
             };
           });
           return sortChatSessions(updated);
@@ -4251,7 +4321,7 @@ const HomePage = () => {
 
       const vectcutApiKey = await getAgentApiKeyFromLoginState();
       const models = chatModelOptions?.length > 0 ? chatModelOptions : CHAT_MODELS;
-      const runtimeState = buildProvidersState(models, vectcutApiKey);
+      const runtimeState = buildProvidersState(models, vectcutApiKey, customChatModels.models);
       window.store = {
         getState: () => runtimeState,
         dispatch: () => undefined
@@ -4730,92 +4800,103 @@ const HomePage = () => {
       }
 
       if (payload.type === 'complete') {
-        finishQueuedRequest(requestId, 'complete');
-        // Cancel any delayed snapshot first so a stale processing snapshot cannot
-        // overwrite the finalized assistant message after completion.
         clearScheduledSnapshot();
-        const finalSnapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
-        const finalizedBlocks = normalizeStructuredBlocksForPersistence(
-          finalSnapshot?.blocks || [],
-          { hasError: false }
-        );
-        const finalizedContent =
-          finalSnapshot?.content
-          || buildAssistantDisplayContentFromBlocks(finalizedBlocks)
-          || '';
-        setChatSessions((prev) => {
-          const updated = prev.map((item) => {
-            if (item.id !== chatId) return item;
-            return {
-              ...item,
-              updatedAt: Date.now(),
-              messages: item.messages.map((message) => (
-                message.id === assistantMessageId
-                  ? (() => {
-                      const normalizedMessageBlocks = normalizeStructuredBlocksForPersistence(
-                        message.blocks || [],
-                        { hasError: false }
-                      );
-                      const nextModel = normalizeMessageModelMeta(
-                        finalSnapshot?.model || message.model,
-                        finalSnapshot?.model?.id || message.modelId || chatModel,
-                        chatModelOptionsRef.current
-                      ) || message.model || chatModelMetaRef.current || chatModelMeta;
-                      const nextModelId = String(
-                        nextModel?.id
-                        || resolveMessageModelId(finalSnapshot?.model, message.modelId || chatModel)
-                        || message.modelId
-                        || chatModel
-                        || ''
-                      ).trim() || chatModel;
-                      return {
-                        ...message,
-                        storeAssistantMessageId: null,
-                        content: finalizedContent || message.content || '',
-                        blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
-                        usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
-                        usageSteps: Array.isArray(finalSnapshot?.usageSteps)
-                          ? finalSnapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
-                          : message.usageSteps,
-                        metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
-                        model: nextModel,
-                        modelId: nextModelId,
-                        error: null,
-                        updatedAt: Date.now()
-                      };
-                    })()
-                  : message
-              ))
-            };
+        void completeAfterDrain(pending, () => {
+          // A cancellation/error may have already retired this request while draining.
+          if (chatPendingByRequestIdRef.current.get(requestId) !== pending) return;
+          // Cancel any delayed snapshot first so a stale processing snapshot cannot
+          // overwrite the finalized assistant message after completion.
+          clearScheduledSnapshot();
+          const finalSnapshot = getAssistantSnapshotFromStore(storeAssistantMessageId || '');
+          const finalizedBlocks = normalizeStructuredBlocksForPersistence(
+            finalSnapshot?.blocks || [],
+            { hasError: false }
+          );
+          const finalizedContent =
+            finalSnapshot?.content
+            || buildAssistantDisplayContentFromBlocks(finalizedBlocks)
+            || '';
+          setChatSessions((prev) => {
+            const updated = prev.map((item) => {
+              if (item.id !== chatId) return item;
+              return {
+                ...item,
+                updatedAt: Date.now(),
+                messages: item.messages.map((message) => (
+                  message.id === assistantMessageId
+                    ? (() => {
+                        const normalizedMessageBlocks = normalizeStructuredBlocksForPersistence(
+                          message.blocks || [],
+                          { hasError: false }
+                        );
+                        const nextModel = normalizeMessageModelMeta(
+                          finalSnapshot?.model || message.model,
+                          finalSnapshot?.model?.id || message.modelId || chatModel,
+                          chatModelOptionsRef.current
+                        ) || message.model || chatModelMetaRef.current || chatModelMeta;
+                        const nextModelId = String(
+                          nextModel?.id
+                          || resolveMessageModelId(finalSnapshot?.model, message.modelId || chatModel)
+                          || message.modelId
+                          || chatModel
+                          || ''
+                        ).trim() || chatModel;
+                        return {
+                          ...message,
+                          storeAssistantMessageId: null,
+                          content: finalizedContent || message.content || '',
+                          blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
+                          usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
+                          usageSteps: Array.isArray(finalSnapshot?.usageSteps)
+                            ? finalSnapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
+                            : message.usageSteps,
+                          metrics: finalSnapshot?.metrics ? { ...finalSnapshot.metrics } : message.metrics,
+                          model: nextModel,
+                          modelId: nextModelId,
+                          error: null,
+                          updatedAt: Date.now()
+                        };
+                      })()
+                    : message
+                ))
+              };
+            });
+            const sorted = sortChatSessions(updated);
+            return sorted;
           });
-          const sorted = sortChatSessions(updated);
-          return sorted;
-        });
-        finalizeLatestTodoWriteInStore(storeAssistantMessageId || '');
-        streamController?.complete();
-        if (requestId) {
-          chatPendingByRequestIdRef.current.delete(requestId);
-        }
-        const deferredHydrate = chatDeferredSessionChangeHydrateRef.current.get(chatId);
-        if (deferredHydrate && String(deferredHydrate?.sessionId || '').trim() === String(agentSessionId || '').trim()) {
-          chatDeferredSessionChangeHydrateRef.current.delete(chatId);
-          void hydratePersistedChatSessionFromHistory({
-            chatId,
-            sessionId: agentSessionId,
-            reason: deferredHydrate.reason || 'session-changed.deferred'
-          });
-        }
-        setChatSessionSending(chatId, false, 'chunk.complete');
-        setChatSessionInFlight(chatId, false, 'chunk.complete');
-        setChatSessionFulfilled(chatId, true, 'chunk.complete');
-        recordTaskFinished(chatId, 'success', requestId);
-        setChatSending(false);
-        if (requestId) {
-          const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
-          if (completedPerf) {
-            chatPerfByRequestIdRef.current.delete(requestId);
+          finalizeLatestTodoWriteInStore(storeAssistantMessageId || '');
+          if (!ownsChatCompletion(chatPendingByRequestIdRef.current, requestId, pending)) {
+            if (chatPendingByRequestIdRef.current.get(requestId) === pending) {
+              chatPendingByRequestIdRef.current.delete(requestId);
+            }
+            finishQueuedRequest(requestId, 'complete');
+            return;
           }
-        }
+          if (requestId) {
+            chatPendingByRequestIdRef.current.delete(requestId);
+          }
+          const deferredHydrate = chatDeferredSessionChangeHydrateRef.current.get(chatId);
+          if (deferredHydrate && String(deferredHydrate?.sessionId || '').trim() === String(agentSessionId || '').trim()) {
+            chatDeferredSessionChangeHydrateRef.current.delete(chatId);
+            void hydratePersistedChatSessionFromHistory({
+              chatId,
+              sessionId: agentSessionId,
+              reason: deferredHydrate.reason || 'session-changed.deferred'
+            });
+          }
+          setChatSessionSending(chatId, false, 'chunk.complete');
+          setChatSessionInFlight(chatId, false, 'chunk.complete');
+          setChatSessionFulfilled(chatId, true, 'chunk.complete');
+          recordTaskFinished(chatId, 'success', requestId);
+          if (activeChatIdRef.current === chatId) setChatSending(false);
+          if (requestId) {
+            const completedPerf = chatPerfByRequestIdRef.current.get(requestId);
+            if (completedPerf) {
+              chatPerfByRequestIdRef.current.delete(requestId);
+            }
+          }
+          finishQueuedRequest(requestId, 'complete');
+        }).catch((error) => logger.error('[HomePage] stream completion failed', error));
       }
     });
     // Restore background turns as well as the active chat after effect teardown.
@@ -4875,7 +4956,9 @@ const HomePage = () => {
       return;
     }
     const session = createEmptyChatSession({
-      workspacePath: normalizedWorkspacePath
+      workspacePath: normalizedWorkspacePath,
+      model: activeChatSession?.model,
+      modelThinkingLevels: activeChatSession?.modelThinkingLevels
     });
     // Keep rapid new-chat clicks from creating duplicates before the next render.
     chatSessionsRef.current = [session, ...sessions];
@@ -4928,7 +5011,10 @@ const HomePage = () => {
       };
     }
 
-    const session = createEmptyChatSession();
+    const session = createEmptyChatSession({
+      model: activeChatSession?.model,
+      modelThinkingLevels: activeChatSession?.modelThinkingLevels
+    });
     setChatSessions((prev) => [session, ...prev]);
     setActiveChatId(session.id);
     setChatSessionSending(session.id, false, 'quick-bootstrap');
@@ -5584,7 +5670,10 @@ const HomePage = () => {
     setChatSessions((prev) => {
       const remaining = prev.filter((item) => !sessionIdSet.has(String(item?.id || '').trim()));
       if (remaining.length === 0) {
-        const next = createEmptyChatSession();
+        const next = createEmptyChatSession({
+          model: activeChatSession?.model,
+          modelThinkingLevels: activeChatSession?.modelThinkingLevels
+        });
         setActiveChatId(next.id);
         return [next];
       }
@@ -5647,7 +5736,7 @@ const HomePage = () => {
     }
 
     const workspaceName = normalizedWorkspacePath.split('/').filter(Boolean).pop() || normalizedWorkspacePath;
-    const deleteContent = `删除后不可恢复，确认删除「${workspaceName}」吗？`;
+    const deleteContent = `将同时删除工作空间对应的文件夹，不可恢复，确认删除「${workspaceName}」吗？`;
     const confirmed = window?.modal?.confirm
       ? await new Promise((resolve) => {
           window.modal.confirm({
@@ -5887,7 +5976,10 @@ const HomePage = () => {
       if (recoveredSession?.id) {
         targetSessionId = recoveredSession.id;
       } else {
-        const created = createEmptyChatSession();
+        const created = createEmptyChatSession({
+          model: activeChatSession?.model,
+          modelThinkingLevels: activeChatSession?.modelThinkingLevels
+        });
         targetSessionId = created.id;
         setChatSessions((prev) => [created, ...prev]);
         setActiveChatId(created.id);
@@ -6986,6 +7078,8 @@ const HomePage = () => {
         createdAt: userMessage.createdAt,
         requestId,
         model: requestModel,
+        // This is the submit-time snapshot, never the current model preference.
+        ...(typeof options.thinkingLevel === 'string' ? { thinkingLevel: options.thinkingLevel } : {}),
         images,
         ...(options?.skillTemplateSource ? { skillTemplateSource: options.skillTemplateSource } : {}),
         ...(subtitleStoryboardRequest ? { subtitleStoryboardRequest: { ...subtitleStoryboardRequest, requestId } } : {}),
@@ -7384,8 +7478,14 @@ const HomePage = () => {
                 sessionSending={activeChatSending}
                 model={chatModel}
                 modelOptions={chatModelOptions}
-                modelListLoading={chatModelListLoading}
-                onModelChange={setChatModel}
+                modelThinkingLevels={modelThinkingLevels}
+                onModelThinkingLevelChange={onModelThinkingLevelChange}
+                modelListLoading={chatModelListLoading && !customChatModels.models.some((item) => `${item.id}:${item.modelId}` === chatModel)}
+                onOpenModelSettings={() => {
+                  const { ipcRenderer } = window.require('electron');
+                  ipcRenderer.send('open-settings-window', { tab: 'models' });
+                }}
+                onModelChange={selectChatModel}
                 historyVisible={chatHistoryVisible}
                 onToggleHistory={handleToggleChatHistory}
                 onCreateSession={handleCreateChatSession}

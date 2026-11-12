@@ -15,10 +15,22 @@ try {
   $owned = Start-Process $exe -PassThru
   $outside = Start-Process (Join-Path $sibling 'helper.exe') -PassThru
   $children = @($owned, $outside)
+  $savedHandoff = @{}
+  foreach ($key in @('VECTCUT_UPDATE_APP_PID', 'VECTCUT_UPDATE_APP_PATH', 'VECTCUT_UPDATE_APP_CREATED')) {
+    $savedHandoff[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+  }
+  $env:VECTCUT_UPDATE_APP_PID = [string]$owned.Id
+  $env:VECTCUT_UPDATE_APP_PATH = $exe
+  $createdMilliseconds = ([DateTimeOffset]$owned.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()
+  # A reused PID / wrong creation identity must fail before any termination.
+  $env:VECTCUT_UPDATE_APP_CREATED = [string]($createdMilliseconds - 10000)
   function Invoke-TestPreflight([int]$Expected) {
     & "$PSHOME\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -InstallDirectory $root -ExecutableName helper.exe -UninstallerName uninstall.exe -InstallerProcessId $PID -LogPath (Join-Path $workspace 'preflight.log')
     if ($LASTEXITCODE -ne $Expected) { throw "Expected $Expected, got $LASTEXITCODE" }
   }
+  Invoke-TestPreflight 1
+  if ($owned.HasExited -or $outside.HasExited) { throw 'Identity mismatch killed a process' }
+  $env:VECTCUT_UPDATE_APP_CREATED = [string]$createdMilliseconds
   Invoke-TestPreflight 0
   if (!$owned.WaitForExit(3000)) { throw 'Owned helper survived' }
   if ($outside.HasExited) { throw 'Sibling path helper was killed' }
@@ -31,6 +43,11 @@ try {
   if ($log -notmatch 'Terminate PID=' -or $log -notmatch 'Exclusive probe failed' -or $log -notmatch 'SUCCESS') { throw 'Missing diagnostic records' }
   Write-Output 'PASS: owned helper termination, sibling exclusion, locked-file refusal, retry and diagnostics'
 } finally {
+  if ($savedHandoff) {
+    foreach ($key in $savedHandoff.Keys) {
+      [Environment]::SetEnvironmentVariable($key, $savedHandoff[$key], 'Process')
+    }
+  }
   foreach ($child in $children) {
     if (!$child.HasExited) { $child.Kill(); $child.WaitForExit() }
     $child.Dispose()

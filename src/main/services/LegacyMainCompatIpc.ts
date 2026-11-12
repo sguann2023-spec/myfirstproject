@@ -13,6 +13,7 @@ import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { configManager } from './ConfigManager'
+import { allowCustomChatModelsWindow } from './CustomChatModelsService'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
 import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { mainHttpClient } from './network/MainHttpClient'
@@ -1060,17 +1061,25 @@ function registerLegacyWindowChannels() {
     })
   })
 
-  safeOn('open-settings-window', () => {
+  let pendingSettingsTab: string | undefined
+  const settingsTabs = new Set(['account-security', 'general', 'models', 'help', 'about', 'policy'])
+  safeOn('open-settings-window', (_event, payload?: { tab?: string }) => {
+    const tab = typeof payload?.tab === 'string' && settingsTabs.has(payload.tab) ? payload.tab : undefined
     const mainWindow = getMainWindow()
     if (!mainWindow) return
 
     if (settingsWindow && !settingsWindow.isDestroyed()) {
+      if (tab) {
+        if (settingsWindow.webContents.isLoadingMainFrame()) pendingSettingsTab = tab
+        else settingsWindow.webContents.send('settings:navigate', { tab })
+      }
       settingsWindow.focus()
       return
     }
 
+    pendingSettingsTab = tab
     settingsWindow = new BrowserWindow({
-      width: 840,
+      width: 1100,
       height: 730,
       autoHideMenuBar: true,
       frame: false,
@@ -1088,13 +1097,22 @@ function registerLegacyWindowChannels() {
       }
     })
 
+    allowCustomChatModelsWindow(settingsWindow)
+    const openedWindow = settingsWindow
+    openedWindow.webContents.on('did-finish-load', () => {
+      if (openedWindow !== settingsWindow || openedWindow.isDestroyed()) return
+      if (pendingSettingsTab) openedWindow.webContents.send('settings:navigate', { tab: pendingSettingsTab })
+      pendingSettingsTab = undefined
+    })
+    const search = `?view=settings${tab ? `&tab=${encodeURIComponent(tab)}` : ''}`
     if (process.env['ELECTRON_RENDERER_URL']) {
-      void settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?view=settings`)
+      void settingsWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}${search}`)
     } else {
-      void settingsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { search: '?view=settings' })
+      void settingsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { search })
     }
 
     settingsWindow.on('closed', () => {
+      pendingSettingsTab = undefined
       settingsWindow = null
       const draftFolder = String(configManager.get('draftFolder', '') || '')
       if (!draftFolder && !mainWindow.isDestroyed()) {

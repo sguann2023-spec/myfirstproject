@@ -7,6 +7,7 @@ import { Braces, LayersPlus, Film, Image, Layers, Music2, Redo2, Type, Undo2 } f
 import LayerPanel from '../../components/TemplateEditor/LayerPanel';
 import EditorTimeline from '../../components/TemplateEditor/Timeline';
 import Properties from '../../components/TemplateEditor/Properties';
+import TemplatePreview from '../../components/TemplateEditor/Preview/TemplatePreview';
 import { indexEditorTree, sceneTimeline } from '../../components/TemplateEditor/editorView';
 import { elementIcons } from '../../components/TemplateEditor/elementIcons';
 import './TemplateEditPage.css';
@@ -56,16 +57,30 @@ const TemplateEditPage = () => {
   const [templateStorage, setTemplateStorage] = useState(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [codeOpen, setCodeOpen] = useState(true);
+  const [playing, setPlaying] = useState(false);
+  const [loop, setLoop] = useState(true);
   const revision = useRef(0);
   const operation = useRef(false);
+  const jsonRef = useRef('');
   const lastTyping = useRef(0);
   const analyzeDelay = useRef(200);
   const editorRef = useRef(null);
   const pendingReveal = useRef(null);
+  const silentAnalysis = useRef(false);
   const index = useMemo(() => indexEditorTree(model?.tree), [model]);
   const timelineView = useMemo(() => sceneTimeline(model, index, sceneId), [model, index, sceneId]);
-  const selectedClip = timelineView.rows.flatMap(row => row.clips).find(clip => clip.id === selectedId);
-  useEffect(() => { setCursor(0); setPropertyFocus(null); }, [sceneId]);
+  const selectedClip = useMemo(() => {
+    const inView = timelineView.rows.flatMap(row => row.clips).find(clip => clip.id === selectedId);
+    if (inView || !selectedId) return inView;
+    const node = index.get(selectedId);
+    const timing = model?.timeline?.find(item => item.id === selectedId);
+    if (!node || !timing || node.type === 'track') return undefined;
+    // 根时间轴只列分镜片段；画布选中媒体后用全局起点补齐，属性按片段本地时间采样。
+    return { id: node.id, name: node.name, type: node.type, text: node.text,
+      start: timing.start, end: timing.start + timing.duration, lane: 0 };
+  }, [timelineView, selectedId, index, model]);
+  useEffect(() => { setCursor(0); setPropertyFocus(null); setPlaying(false); }, [sceneId]);
   const templateTitle = model?.tree?.[0]?.name || '新模版';
   const nativeIndex = useMemo(() => {
     const result = new Map();
@@ -98,6 +113,7 @@ const TemplateEditPage = () => {
     const presetId = params.get('preset') || 'empty';
     invoke('template:editor-defaults', templatePath ? { templatePath } : { presetId }).then((result) => {
       if (!active) return;
+      jsonRef.current = result.templateJson;
       setTemplateJson(result.templateJson);
       setTemplateStorage(result.templateStorage ?? null);
       setReady(true);
@@ -110,11 +126,17 @@ const TemplateEditPage = () => {
     let active = true;
     const version = revision.current;
     const delay = analyzeDelay.current;
-    setPending(true);
+    // 画布拖拽等静默提交不置 pending，避免整页控件短暂禁用造成闪烁。
+    const silent = silentAnalysis.current;
+    silentAnalysis.current = false;
+    if (!silent) setPending(true);
     const runAnalysis = () => {
       invoke('template:editor-analyze', editorPayload(templateJson)).then((next) => {
         if (!active || version !== revision.current) return;
-        if (next.templateJson && next.templateJson !== templateJson) setTemplateJson(next.templateJson);
+        if (next.templateJson && next.templateJson !== templateJson) {
+          jsonRef.current = next.templateJson;
+          setTemplateJson(next.templateJson);
+        }
         setModel(next);
         setAnalysisError('');
         if (pendingReveal.current) {
@@ -155,16 +177,31 @@ const TemplateEditPage = () => {
     if (node) view.dispatch({ selection: { anchor: node.offset, head: node.offset + node.length }, scrollIntoView: true });
   }, [selectedId, workflowMode]);
 
-  const editorPayload = (json = templateJson) => ({ templateJson: json, ...(templateStorage ? { templateStorage } : {}) });
+  const editorPayload = (json = jsonRef.current || templateJson) => ({ templateJson: json, ...(templateStorage ? { templateStorage } : {}) });
   const applyJson = (value, debounceAnalysis = false) => {
     revision.current++;
     analyzeDelay.current = debounceAnalysis ? 200 : 0;
     pendingReveal.current = null;
+    jsonRef.current = value;
     setPending(true);
     setCompiled(null);
     setWorkflowDraft(null);
     setError('');
     setExportResult(null);
+    setTemplateJson(value);
+  };
+  // 静默提交：不置 busy/pending，避免属性编辑/拖拽时整页控件短暂禁用闪烁。
+  const commitSilent = (value) => {
+    const previousJson = jsonRef.current || templateJson;
+    revision.current++;
+    analyzeDelay.current = 0;
+    pendingReveal.current = null;
+    silentAnalysis.current = true;
+    jsonRef.current = value;
+    setCompiled(null);
+    setWorkflowDraft(null);
+    setExportResult(null);
+    setHistory(previous => ({ past: [...previous.past.slice(-99), { json: previousJson, selectedId, sceneId }], future: [] }));
     setTemplateJson(value);
   };
   const edit = (value, typing = false) => {
@@ -211,7 +248,7 @@ const TemplateEditPage = () => {
       (node && lockedTracks.has('__template_scenes__')) ||
       [...lockedTracks].some(track => index.get(track)?.ancestors.includes(id));
   };
-  const mutate = async (action) => {
+  const mutate = async (action, options = {}) => {
     if (operation.current || busy || pending || analysisError) return false;
     if (isLocked(action.id) || (action.trackId && isLocked(action.trackId)) ||
       (action.beforeId && isLocked(action.beforeId)) ||
@@ -220,18 +257,22 @@ const TemplateEditPage = () => {
       (action.type === 'paste' && !action.id && !action.scopeId && lockedTracks.has('__template_scenes__'))) {
       setError('轨道已锁定，请先解锁'); return false;
     }
-    operation.current = true; setBusy(true); setError('');
+    const silent = Boolean(options.silent);
+    operation.current = true; if (!silent) setBusy(true); setError('');
     try {
       const result = await invoke('template:editor-edit', editorPayload(), action);
-      edit(result.templateJson);
+      if (silent) commitSilent(result.templateJson);
+      else edit(result.templateJson);
       if (action.type === 'paste' || action.type === 'move-layer') pendingReveal.current = result.selectedId;
       // Moving a clip into a scene removes it from the current view; follow it inside.
       if (action.type === 'move-into-scene') enter(action.sceneId);
       else select(result.selectedId);
       return true;
     } catch (err) { setError(err.message); return false; }
-    finally { operation.current = false; setBusy(false); }
+    finally { operation.current = false; if (!silent) setBusy(false); }
   };
+  // 属性面板的写入走静默链路：整页不因一次数值编辑集体禁用闪烁。
+  const propertyAction = (action) => mutate(action, { silent: action?.type === 'property' });
   useEffect(() => {
     const clipboardKey = async event => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
@@ -328,11 +369,33 @@ const TemplateEditPage = () => {
     } catch (err) { setError(err.message); }
     finally { setExporting(false); setBusy(false); }
   };
+  // 播放运输条与预览共用同一时钟状态；播到结尾再按播放从头开始。
+  const togglePlay = () => {
+    if (!ready || busy || analysisError || !timelineView.duration) return;
+    if (!playing && cursor >= timelineView.duration - 0.01) setCursor(0);
+    setPlaying(value => !value);
+  };
   const toggleLayer = (id) => setCollapsed((previous) => {
     const next = new Set(previous);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+  // 画布拖拽回写：与属性面板同一条 property 动作链路，遵守轨道锁定与撤销历史。
+  // 两轴串行 IPC 必须携带上一步返回的 JSON，避免闭包里的旧模版覆盖第一轴。
+  // 全程不置 busy/pending：提交走静默分析，页面控件不会因一次拖拽集体禁用闪烁。
+  const moveElement = async (id, x, y) => {
+    if (operation.current || busy || pending || analysisError || isLocked(id)) return;
+    operation.current = true; setError('');
+    try {
+      const payload = editorPayload();
+      const first = await invoke('template:editor-edit', payload, { type: 'property', id, property: 'position_x', mode: 'static', value: x });
+      const second = await invoke('template:editor-edit', { ...payload, templateJson: first.templateJson },
+        { type: 'property', id, property: 'position_y', mode: 'static', value: y });
+      commitSilent(second.templateJson);
+      select(id);
+    } catch (err) { setError(err.message); }
+    finally { operation.current = false; }
+  };
   const disabled = !ready || busy || pending || Boolean(analysisError);
   const displayedJson = workflowMode
     ? (workflowDraft ?? (compiled ? JSON.stringify(compiled.workflow, null, 2) : ''))
@@ -383,11 +446,15 @@ const TemplateEditPage = () => {
       <div className="template-edit-body">
         <LayerPanel model={model} index={index} nativeIndex={nativeIndex} selectedId={selectedId} collapsed={collapsed} onToggle={toggleLayer}
           onSelect={select} onEnter={enter} onReveal={reveal} onAction={mutate} isLocked={isLocked} disabled={disabled} />
-        <section className="template-edit-code" aria-label="JSON 编辑区">
+        <div className={`template-edit-center${codeOpen ? ' has-code' : ''}`}>
+        {codeOpen && (
+        <section key="code" className="template-edit-code" aria-label="JSON 编辑区">
           <div className="template-code-heading">
             <strong>{workflowMode ? 'Workflow' : 'Template JSON'}</strong>
-            <span className="template-muted">{busy || pending ? <span className="template-spinner" aria-label="处理中" /> :
-              workflowMode ? (workflowDraft !== null ? '已编辑，测试导出将使用当前内容' : '未提交执行') : '仅当前窗口，未保存'}</span>
+            <span className="template-code-heading-side">
+              <span className="template-muted">{busy || pending ? <span className="template-spinner" aria-label="处理中" /> :
+                workflowMode ? (workflowDraft !== null ? '已编辑，测试导出将使用当前内容' : '未提交执行') : '仅当前窗口，未保存'}</span>
+            </span>
           </div>
           {(analysisError || error) && <div className="template-edit-error" role="alert">{analysisError || error}</div>}
           {exportResult && <div className="template-export-result" role="status">
@@ -410,14 +477,23 @@ const TemplateEditPage = () => {
             {compiled.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
           </details>}
         </section>
+        )}
+        <TemplatePreview key="preview" model={model} index={index} nativeIndex={nativeIndex} scopeId={sceneId}
+          scopeLabel={sceneId ? index.get(sceneId)?.name : templateTitle} duration={timelineView.duration}
+          cursor={cursor} onCursorChange={setCursor} selectedId={selectedId} onSelect={select}
+          onMove={moveElement} disabled={!ready || busy || Boolean(analysisError)}
+          playing={playing} onPlayingChange={setPlaying} loop={loop} onTogglePlay={togglePlay}
+          codeOpen={codeOpen} onToggleCode={() => setCodeOpen(value => !value)} />
+        </div>
         <Properties clip={selectedClip} native={nativeIndex.get(selectedId)} nativeIndex={nativeIndex} cursor={cursor}
-          disabled={disabled || !!isLocked(selectedId)} focusRequest={propertyFocus} onAction={mutate} onSeek={setCursor} />
+          disabled={disabled || !!isLocked(selectedId)} focusRequest={propertyFocus} onAction={propertyAction} onSeek={setCursor} />
       </div>
 
       <EditorTimeline view={analysisError ? { ...timelineView, rows: [] } : timelineView} selectedId={selectedId} sceneId={sceneId}
         nativeIndex={nativeIndex} onSelect={select} onEnter={enter} onAction={mutate} disabled={disabled}
         cursor={cursor} onCursorChange={setCursor} onFocusProperty={focusProperty} isLocked={isLocked}
         rootLabel={templateTitle} onAddScene={() => add('scene', true)} lockedTracks={lockedTracks}
+        playing={playing} onTogglePlay={togglePlay} loop={loop} onToggleLoop={() => setLoop(value => !value)}
         onLock={id => setLockedTracks(previous => {
           const next = new Set(previous);
           if (next.has(id)) next.delete(id); else next.add(id);

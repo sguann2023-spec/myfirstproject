@@ -44,6 +44,34 @@ describe('runtime gateway credential scoping', () => {
     expect(mocks.refresh).toHaveBeenCalledTimes(trusted ? 1 : 0)
   })
 
+  it.each(['openai', 'anthropic'])('preserves custom %s URL and key despite session gateway configuration', async (type) => {
+    mocks.validate.mockResolvedValue({ valid: true, modelId: 'model', provider: { id: 'custom-123', type, apiHost: custom, apiKey: 'custom-key', models: [{ id: 'model' }] } })
+    const runtime = await buildClaudeRuntimeEnvironment({
+      session: { id: 'session', model: 'model', configuration: { env_vars: { VECTCUT_API_KEY: 'login-key', VECTCUT_API_BASE_URL: gateway } } } as any,
+      cwd: '/tmp', enableToolSearch: false
+    })
+    expect(runtime.modelInfo.provider?.anthropicApiHost).toBe(custom)
+    expect(runtime.env.ANTHROPIC_API_KEY).toBe('custom-key')
+    expect(runtime.modelInfo.provider?.apiHost).toBe(custom)
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { type: 'other', apiHost: custom, apiKey: 'key' },
+    { type: 'openai', apiHost: 'file:///tmp/key', apiKey: 'key' },
+    { type: 'anthropic', apiHost: custom, apiKey: '' }
+  ])('rejects invalid custom runtime configuration %#', async (provider) => {
+    mocks.validate.mockResolvedValue({ valid: true, modelId: 'model', provider: { id: 'custom-123', ...provider } })
+    await expect(build()).rejects.toThrow()
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it('uses the explicit custom key even for a gateway URL', async () => {
+    mocks.validate.mockResolvedValue({ valid: true, modelId: 'model', provider: { id: 'custom-123', type: 'openai', apiHost: gateway, apiKey: 'custom-key' } })
+    expect((await build()).env.ANTHROPIC_API_KEY).toBe('custom-key')
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
   it('keeps cached no-key provider normalization invocation-local', async () => {
     const provider = Object.freeze({ id: 'provider', type: 'openai', apiHost: gateway })
     const validated = Object.freeze({ valid: true, modelId: 'model', provider })

@@ -280,7 +280,8 @@ export class SessionMessageService extends BaseService {
         agentSessionId,
         {
           effort: req.effort,
-          thinking: req.thinking
+          thinking: req.thinking,
+          thinkingLevel: req.thinkingLevel
         },
         req.model,
         options?.images,

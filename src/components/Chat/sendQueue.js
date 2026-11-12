@@ -118,20 +118,30 @@ export class SendQueue {
     this.sessions.delete(id);
     this.emit();
   }
+  resetIdlePause(state) {
+    if (!state.active && !state.items.length) {
+      state.paused = false;
+      state.immediate = null;
+    }
+  }
   setEditing(id, key, editing) {
     const item = this.state(id).items.find(x => x.id === key);
     if (item) item.editing = editing;
     this.emit();
   }
   emit() {
+    this.sessions.forEach(state => this.resetIdlePause(state));
     this.listeners.forEach(fn => fn());
   }
   // A fresh user submission may bypass a paused backlog, never an active request.
   submit(id, text, options) {
-    this.enqueue(id, text, options, this.state(id).paused);
+    const s = this.state(id);
+    this.resetIdlePause(s);
+    this.enqueue(id, text, options, s.paused);
   }
   enqueue(id, text, options, independent = false) {
     const s = this.state(id);
+    this.resetIdlePause(s);
     s.items.push({
       independent,
       id: String(++this.serial),

@@ -18,6 +18,7 @@ import type {
 import type { MCPServerLogEntry } from '@shared/config/types'
 import type { ExternalAppInfo } from '@shared/externalApp/types'
 import { IpcChannel } from '@shared/IpcChannel'
+import type { CustomChatModel, CustomChatProvider } from '@shared/customChatModels'
 import { createSubscriptionRequests, createSuccessfulRequestCache } from './requestReuse'
 import type { Notification } from '@types'
 import type {
@@ -84,6 +85,7 @@ interface OpenClawChannelInfo {
 }
 
 type DirectoryListOptions = {
+  referenceSearch?: boolean
   typed?: boolean
   recursive?: boolean
   maxDepth?: number
@@ -116,6 +118,17 @@ const cherrySubscriptions = createSubscriptionRequests((operation, sessionId) =>
 
 // Custom APIs for renderer
 const api = {
+  customChatModels: {
+    list: (): Promise<CustomChatModel[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_List),
+    save: (models: CustomChatModel[]): Promise<CustomChatModel[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_Save, models),
+    listProviders: (): Promise<CustomChatProvider[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_ListProviders),
+    saveProviders: (providers: CustomChatProvider[]): Promise<CustomChatProvider[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_SaveProviders, providers),
+    onChanged: (callback: () => void): (() => void) => {
+      const listener = () => callback()
+      ipcRenderer.on(IpcChannel.CustomChatModels_Changed, listener)
+      return () => { ipcRenderer.removeListener(IpcChannel.CustomChatModels_Changed, listener) }
+    }
+  },
   getAppInfo: () => appInfoRequests.get(),
   getVectcutApiKey: (): Promise<string> => ipcRenderer.invoke(IpcChannel.App_GetVectcutApiKey),
   getDiskInfo: (directoryPath: string): Promise<{ free: number; size: number } | null> =>
@@ -909,6 +922,7 @@ const shellBridge = {
 // Legacy bridge used by old HomePage runtime (pre-vite migration path).
 // Keep this until renderer side fully migrates from `window.electronAPI` to `window.api`.
 const legacyElectronAPI = {
+  customChatModels: api.customChatModels,
   openDownloadDirectory: (directoryPath: string) => ipcRenderer.send('open-download-directory', directoryPath),
   startFileMonitor: (monitorData: any) => ipcRenderer.send('start-file-monitor', monitorData),
   onFileFound: (callback: (value: any) => void): (() => void) => {
@@ -932,7 +946,12 @@ const legacyElectronAPI = {
     updateSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionUpdate, payload),
     listSessions: (payload: any = {}) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionList, payload),
     listMessages: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_MessageList, { sessionId }),
-    createMessage: ({ sessionId, content, ...extraPayload }: any = {}) =>
+    createMessage: ({ sessionId, content, ...extraPayload }: {
+      sessionId?: string
+      content?: string
+      thinkingLevel?: string
+      [key: string]: unknown
+    } = {}) =>
       ipcRenderer.invoke(IpcChannel.CherryChatStream_MessageCreate, {
         sessionId,
         content,

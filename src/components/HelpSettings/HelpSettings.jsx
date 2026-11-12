@@ -11,6 +11,8 @@ import {
 
 const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
 
+const HELP_DOCS_URL = 'https://my.feishu.cn/wiki/GIjSwyWU6iunbTk9gqLcRFR7nIg';
+
 const HelpSettings = () => {
   const [pending, setPending] = useState(false);
   const [rewardLoading, setRewardLoading] = useState(true);
@@ -71,33 +73,61 @@ const HelpSettings = () => {
     : ((rewardLoading || isRewardProcessing) ? <SyncOutlined spin /> : <ClockCircleOutlined />);
   const rewardTagColor = hasRewarded ? 'success' : 'default';
 
+  const handleOpenHelpDocs = () => {
+    try {
+      const { shell } = window.require('electron');
+      if (shell?.openExternal) {
+        shell.openExternal(HELP_DOCS_URL);
+        return;
+      }
+    } catch {}
+
+    window.open(HELP_DOCS_URL, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <div className="help-settings">
       <div className="help-settings__section">
         <div className="help-settings__section-title">新手引导</div>
-        <div className="help-settings__action-row">
-          <div className="help-settings__action-desc">
-            <div className="help-settings__action-title-row">
-              <div className="help-settings__action-title">完成新手引导</div>
-              <Tag
-                color={rewardTagColor}
-                icon={rewardTagIcon}
-                variant="outlined"
-                className="help-settings__reward-tag"
+        <div className="help-settings__card">
+          <div className="help-settings__action-row">
+            <div className="help-settings__action-desc">
+              <div className="help-settings__action-title-row">
+                <div className="help-settings__action-title">完成新手引导</div>
+                <Tag
+                  color={rewardTagColor}
+                  icon={rewardTagIcon}
+                  variant="outlined"
+                  className="help-settings__reward-tag"
+                >
+                  {rewardTagText}
+                </Tag>
+              </div>
+            </div>
+            <div className="help-settings__action-buttons">
+              <button
+                type="button"
+                className="help-settings__action-button"
+                onClick={handleRestartGuide}
+                disabled={pending}
               >
-                {rewardTagText}
-              </Tag>
+                {pending ? '正在打开...' : '开始'}
+              </button>
             </div>
           </div>
-          <div className="help-settings__action-buttons">
-            <button
-              type="button"
-              className="help-settings__action-button"
-              onClick={handleRestartGuide}
-              disabled={pending}
-            >
-              {pending ? '正在打开...' : '开始'}
-            </button>
+          <div className="help-settings__action-row">
+            <div className="help-settings__action-desc">
+              <div className="help-settings__action-title">帮助文档</div>
+            </div>
+            <div className="help-settings__action-buttons">
+              <button
+                type="button"
+                className="help-settings__action-button"
+                onClick={handleOpenHelpDocs}
+              >
+                查看
+              </button>
+            </div>
           </div>
         </div>
       </div>

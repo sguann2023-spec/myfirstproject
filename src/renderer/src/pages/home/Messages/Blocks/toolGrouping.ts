@@ -6,6 +6,7 @@ import { MessageBlockType, type MessageBlock, type ToolMessageBlock } from '@ren
 import { parseMcpToolName, shouldHideSearchToolDetails } from '../Tools/shared/mcpToolDisplay'
 import { isDraftRenderToolName } from '../Tools/MessageAgentTools/draftRenderTool'
 import { AgentToolsType } from '../Tools/MessageAgentTools/types'
+import { hasMeaningfulThinkingContent } from './thinkingContent'
 
 export type ToolCategory = 'read' | 'execute' | 'edit' | 'search'
 
@@ -112,8 +113,8 @@ export function groupConsecutiveTools(blocks: MessageBlock[], t: TFunction = i18
   for (const block of blocks) {
     // Empty text/reasoning has no rendered footprint. Re-evaluate on every
     // store update so newly streamed prose immediately becomes a boundary.
-    if ((block.type === MessageBlockType.THINKING || block.type === MessageBlockType.MAIN_TEXT) &&
-      !String(block.content || '').trim()) continue
+    if (block.type === MessageBlockType.THINKING && !hasMeaningfulThinkingContent(block.content)) continue
+    if (block.type === MessageBlockType.MAIN_TEXT && !String(block.content || '').trim()) continue
     // Invisible tool blocks (render to null, e.g. nested codemode parents) must
     // stay transparent too, so two codemode runs of the same visible title merge
     // into one group instead of splitting into two adjacent groups of N.

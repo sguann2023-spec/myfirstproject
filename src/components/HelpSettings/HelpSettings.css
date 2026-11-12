@@ -17,7 +17,14 @@
   margin-left: 20px;
 }
 
+.help-settings__card {
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 .help-settings__action-row {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -27,8 +34,21 @@
   padding-right: 8px;
   padding-bottom: 14px;
   padding-left: 20px;
-  border-radius: 8px;
   background: #fff;
+}
+
+.help-settings__action-row::after {
+  content: '';
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  height: 1px;
+  background: #f0f0f0;
+}
+
+.help-settings__action-row:last-child::after {
+  display: none;
 }
 
 .help-settings__action-buttons {

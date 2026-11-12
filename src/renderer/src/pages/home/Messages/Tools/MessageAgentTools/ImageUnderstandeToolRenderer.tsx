@@ -4,9 +4,9 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ToolArgsTable } from '../shared/ArgsTable'
+import { MediaGenBillingBadge } from './billingTools'
 import {
   extractImageUnderstandeBillingSummary,
-  getImageUnderstandePointIconUrl,
   type ImageUnderstandeBillingSummary
 } from './imageUnderstandeTool'
 import { getMcpToolDisplayName, parseMcpToolName } from '../shared/mcpToolDisplay'
@@ -36,12 +36,7 @@ const normalizeProgressMessage = (message: string | undefined, progress?: number
 function renderBillingBadge(summary: ImageUnderstandeBillingSummary | null): ReactNode {
   if (!summary) return undefined
 
-  return (
-    <span className="image-understand-tool-billing-badge" title={`总消耗 ${summary.displayText}`}>
-      <img className="image-understand-tool-billing-icon" src={getImageUnderstandePointIconUrl()} alt="" aria-hidden="true" />
-      <span className="image-understand-tool-billing-text">{summary.displayText}</span>
-    </span>
-  )
+  return <MediaGenBillingBadge centered displayText={summary.displayText} title={`总消耗 ${summary.displayText}`} />
 }
 
 export function ImageUnderstandeTool({

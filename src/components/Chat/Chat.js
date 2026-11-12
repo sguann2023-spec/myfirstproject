@@ -238,8 +238,11 @@ const Chat = ({
   sessionSending = false,
   model,
   modelOptions = [],
+  modelThinkingLevels = {},
+  onModelThinkingLevelChange,
   modelListLoading = false,
   onModelChange,
+  onOpenModelSettings,
   historyVisible = true,
   onToggleHistory,
   onCreateSession,
@@ -498,7 +501,7 @@ const Chat = ({
       : (nextText && typeof nextText === 'object' ? nextText.text : input);
     const text = String(rawText || '').trim();
     if (!text || modelListLoading || !onSendMessage) return false;
-    sendQueue.submit(ownerId, text, { ...options, queueModel: options.queueModel ?? model });
+    sendQueue.submit(ownerId, text, { ...options, queueModel: options.queueModel ?? options.model ?? model });
     setInput('');
     return true;
   };
@@ -646,8 +649,11 @@ const Chat = ({
         beginnerGuideInputAreaRef={beginnerGuideInputAreaRef}
         model={model}
         modelOptions={modelOptions}
+        modelThinkingLevels={modelThinkingLevels}
+        onModelThinkingLevelChange={onModelThinkingLevelChange}
         modelListLoading={modelListLoading}
         onModelChange={onModelChange}
+        onOpenModelSettings={onOpenModelSettings}
         formatModelDisplayName={formatModelDisplayName}
       />
       </div>

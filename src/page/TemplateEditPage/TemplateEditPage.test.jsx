@@ -249,7 +249,7 @@ it('关键帧按钮搜索属性、保存原生关键帧、显示属性行，快�
     .toMatchObject({ property_type: 'KFTypeScaleX', keyframe_list: [{ time_offset: 0, values: [1] }] });
   expect(container.querySelector('.template-keyframe-lane').textContent).toContain('X Scale');
   expect(dialog()).toBeNull();
-  expect(document.activeElement).toBe(container.querySelector('.template-properties [aria-label="X Scale"]'));
+  expect(document.activeElement).toBe(container.querySelector('.template-properties [aria-label="Scale"]'));
   await key(container.querySelector('.template-track-keyframes'), 'z', { ctrlKey: true });
   await settle();
   expect(container.querySelector('.template-keyframe-lane')).toBeNull();
@@ -268,7 +268,7 @@ it('分镜和批量分镜提供关键帧菜单，音频禁用；锁定后不可�
   expect(container.querySelector('[data-track-id="upper"] .template-track-keyframes').disabled).toBe(true);
 });
 
-it('Properties 静态和动画写入与游标同步，菜单当前时间创建、圆点选中聚焦、前后跳转和锁定', async () => {
+it('Properties 静态和动画写入与游标同步，菜单当前时间创建并聚焦、锁定', async () => {
   await render();
   await enterScene('scene');
   await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());
@@ -281,7 +281,7 @@ it('Properties 静态和动画写入与游标同步，菜单当前时间创建�
     await key(input(), 'Enter');
     await settle();
   };
-  await commit('.2');
+  await commit('144');
   expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
     .toEqual({ type: 'property', mode: 'static', id: 'upper-image', property: 'position_x', value: .2 });
   await inputValue(time(), '1.25');
@@ -293,22 +293,19 @@ it('Properties 静态和动画写入与游标同步，菜单当前时间创建�
   expect(document.activeElement).toBe(input());
   expect(container.querySelector('.template-keyframe-point.is-current svg').getAttribute('fill')).toBe('currentColor');
   await inputValue(time(), '2.5');
-  expect(panel().querySelector('[aria-label="X Position 添加当前关键帧"]')).not.toBeNull();
-  await commit('.6');
+  expect(panel().querySelector('[aria-label="X Position 添加当前关键帧"]')).toBeNull();
+  await commit('432');
   expect(time().value).toBe('2.5');
   expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
     .toEqual({ type: 'property', mode: 'keyframe', id: 'upper-image', property: 'position_x', time: 2.5, value: .6 });
-  await act(async () => panel().querySelector('[aria-label="X Position 上一个关键帧"]').click());
-  expect(time().value).toBe('1.25');
-  expect(input().value).toBe('0.2');
-  await act(async () => panel().querySelector('[aria-label="X Position 下一个关键帧"]').click());
-  expect(time().value).toBe('2.5');
   await act(async () => container.querySelector('.template-keyframe-point').click());
   expect(time().value).toBe('1.25');
   expect(document.activeElement).toBe(input());
   expect(document.querySelector('.template-keyframes')).toBeNull();
   await act(async () => container.querySelector('[data-track-id="upper"] .template-track-lock').click());
-  expect([...panel().querySelectorAll('input, button')].every(element => element.disabled)).toBe(true);
+  expect([...panel().querySelectorAll('input, button')]
+    .filter(element => !element.classList.contains('chat-panel__text-settings-section-header'))
+    .every(element => element.disabled)).toBe(true);
   expect([...container.querySelectorAll('.template-keyframe-point')].every(element => element.disabled)).toBe(true);
 });
 
@@ -1539,9 +1536,9 @@ it('循环设置失败时开关恢复原状态，不改 JSON 或时间轴', asyn
   const original = invoke.getMockImplementation();
   invoke.mockImplementation((channel, ...args) => channel === 'template:editor-edit'
     ? Promise.reject(new Error('循环设置失败')) : original(channel, ...args));
-  await act(async () => document.querySelector('[role="switch"]').click());
+  await act(async () => document.querySelector('[role="switch"][aria-label="循环播放"]').click());
   await settle();
-  expect(document.querySelector('[role="switch"]').getAttribute('aria-checked')).toBe('false');
+  expect(document.querySelector('[role="switch"][aria-label="循环播放"]').getAttribute('aria-checked')).toBe('false');
   expect(container.querySelector('[data-testid="editor"]').textContent).toBe(before);
   expect(container.querySelector('[role="alert"]').textContent).toBe('循环设置失败');
 });

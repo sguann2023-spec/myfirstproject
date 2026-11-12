@@ -110,6 +110,19 @@ export async function buildClaudeRuntimeEnvironment(input: {
     })
   }
 
+  const isCustomProvider = provider.id?.startsWith('custom-') === true
+  if (isCustomProvider && (!['openai', 'anthropic'].includes(provider.type) || !provider.apiKey?.trim())) {
+    throw new Error('Custom providers require an explicit protocol and API key')
+  }
+  if (isCustomProvider) {
+    let url: URL
+    try { url = new URL(provider.apiHost) } catch { throw new Error('Invalid custom provider URL') }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.hash) {
+      throw new Error('Invalid custom provider URL')
+    }
+    // Custom providers always use their explicit endpoint, never session gateway overrides.
+    provider.anthropicApiHost = provider.apiHost
+  }
   const isAzureOpenAI = provider.type === 'azure-openai'
   const isAnthropicType = provider.type === 'anthropic'
   const sessionEnvVars = (session.configuration as Record<string, unknown> | undefined)?.env_vars as
@@ -123,7 +136,7 @@ export async function buildClaudeRuntimeEnvironment(input: {
     provider.apiHost = gatewayAnthropicBaseUrl
   }
 
-  if (!provider.anthropicApiHost?.trim() && gatewayAnthropicBaseUrl) {
+  if (!isCustomProvider && !provider.anthropicApiHost?.trim() && gatewayAnthropicBaseUrl) {
     provider.anthropicApiHost = gatewayAnthropicBaseUrl
   }
 
@@ -160,7 +173,7 @@ export async function buildClaudeRuntimeEnvironment(input: {
   const providerApiKey = String(provider.apiKey || '').trim()
   // Pi's OpenAI transport uses apiHost, not the optional Anthropic host.
   const credentialBaseUrl = isAnthropicType ? anthropicBaseUrl : String(provider.apiHost || '').trim()
-  const shouldUseRuntimeGatewayToken = isVectcutGatewayUrl(credentialBaseUrl)
+  const shouldUseRuntimeGatewayToken = !isCustomProvider && isVectcutGatewayUrl(credentialBaseUrl)
   let runtimeAuthToken = providerApiKey
 
   if (shouldUseRuntimeGatewayToken) {
