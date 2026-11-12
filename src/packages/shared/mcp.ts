@@ -124,6 +124,7 @@ export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
   'assistant',
   'browser',
   'claw',
+  'color-grade',
   'copylab',
   'cut-workflow',
   'digital-human',

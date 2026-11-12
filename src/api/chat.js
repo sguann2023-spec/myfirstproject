@@ -402,6 +402,53 @@ export async function getChatModelList() {
   };
 }
 
+// 模型连接测试：向指定模型发送一条最小对话并等待结果，
+// 复用 submit/status 任务链路，返回是否可用与耗时，供设置页逐模型展示。
+// 轮询节奏与 social-copywriting 的异步任务链路一致（秒级间隔、分钟级上限）：
+// 模型冷启动可能超过 10 秒，过短的预算会把正常模型误报为“测试超时”。
+const TEST_POLL_INTERVAL_MS = 2000;
+const TEST_POLL_TIMEOUT_MS = 60000;
+export async function testChatModel(model, { signal } = {}) {
+  const startedAt = Date.now();
+  const fail = (error) => ({ ok: false, error: safeString(error?.message || error) || '请求失败', latencyMs: Date.now() - startedAt });
+  const modelId = String(model || '').trim();
+  if (!modelId) return fail('model is required');
+  const clientMeta = getClientRequestMeta();
+  const headers = { Accept: '*/*', ...buildClientMetaHeaders(clientMeta) };
+  try {
+    const submitPayload = await http.postJson(`${BASE_URL}${CHAT_SUBMIT_TASK_PATH}`, {
+      model: modelId,
+      system_prompt: '你是模型连接测试助手。',
+      user_input: '这是一次模型连接测试，请仅回复"OK"。',
+      stream: false,
+      ...clientMeta
+    }, { headers, signal });
+    if (extractSummaryContent(submitPayload)) {
+      return { ok: true, latencyMs: Date.now() - startedAt };
+    }
+    const taskId = safeString(
+      submitPayload?.task_id || submitPayload?.id || submitPayload?.data?.task_id || ''
+    ).trim();
+    if (!taskId) return fail('服务未返回任务 ID');
+    const deadline = startedAt + TEST_POLL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(TEST_POLL_INTERVAL_MS, signal);
+      const statusPayload = await http.getJson(
+        appendClientMetaToUrl(`${BASE_URL}${CHAT_TASK_STATUS_PATH}?task_id=${encodeURIComponent(taskId)}`, clientMeta),
+        { headers, signal }
+      );
+      const status = safeString(statusPayload?.status || '').trim().toLowerCase();
+      if (status === 'success') return { ok: true, latencyMs: Date.now() - startedAt };
+      if (status === 'failed' || status === 'error') {
+        return fail(safeString(statusPayload?.error || statusPayload?.message || '模型返回失败'));
+      }
+    }
+    return fail(`测试超时（${TEST_POLL_TIMEOUT_MS / 1000} 秒）`);
+  } catch (error) {
+    return fail(error);
+  }
+}
+
 export async function getImageGenerationCapabilities(filters = {}) {
   const payload = await fetchCapabilityPayload(IMAGE_MODEL_CAPABILITIES_PATH);
   return normalizeImageCapabilitiesResult(payload, filters);

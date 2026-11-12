@@ -719,6 +719,51 @@ describe('processPiHarnessQuery', () => {
     expect(stream.events.map((event) => event.type)).toContain('error')
   })
 
+  it('finalizes dangling streaming tool inputs when an assistant attempt ends aborted', async () => {
+    vi.useFakeTimers()
+    const stub = createHarnessStub({ prompt: async () => {
+      await stub.emitAgentEvent({ type: 'message_start', message: { role: 'assistant', content: [], usage: {}, stopReason: 'pending' } })
+      await stub.emitAgentEvent({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'toolcall_start', contentIndex: 0, partial: { content: [{ type: 'toolCall', name: 'Bash' }] } }
+      })
+      await stub.emitAgentEvent({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 0, delta: '{"command":"sleep 1"}' }
+      })
+      await stub.emitAgentEvent({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '...' }],
+          usage: {},
+          stopReason: 'aborted',
+          errorMessage: 'This operation was aborted'
+        }
+      })
+      return { role: 'assistant', content: [], stopReason: 'aborted', usage: {} }
+    } })
+    const stream = createStreamRecorder()
+
+    const run = processPiHarnessQuery({
+      stream,
+      sessionId: 'session-1',
+      agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', currentPrompt: 'hello', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness,
+      prompt: 'hello'
+    })
+    await vi.runAllTimersAsync()
+    await run
+
+    const chunks = stream.events.filter((event: any) => event.type === 'chunk').map((event: any) => event.chunk)
+    const toolErrors = chunks.filter((chunk: any) => chunk.type === 'tool-error')
+    expect(toolErrors).toHaveLength(1)
+    expect(toolErrors[0].toolCallId).toMatch(/^pi_tool_/)
+    expect(String(toolErrors[0].error)).toContain('abandoned')
+    expect(chunks.some((chunk: any) => chunk.type === 'tool-call')).toBe(false)
+  })
+
   it.each(['SQLITE_BUSY', 'SQLITE_CONSTRAINT', 'large-output'])('emits a single real result without replay when ancillary storage rejects %s', async (code) => {
     vi.useFakeTimers()
     const actual = await vi.importActual<typeof import('../harness/query-side-effects')>('../harness/query-side-effects')

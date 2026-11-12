@@ -45,6 +45,28 @@ const summarizeForLog = (value: unknown): string => {
   }
 }
 
+const findLeadingJsonEnd = (raw: string): number => {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{' || ch === '[') depth += 1
+    else if (ch === '}' || ch === ']') {
+      depth -= 1
+      if (depth === 0) return i + 1
+    }
+  }
+  return -1
+}
+
 const normalizeStreamingArgs = (value: string): string => {
   const raw = String(value || '')
   if (!raw) return raw
@@ -53,19 +75,50 @@ const normalizeStreamingArgs = (value: string): string => {
     JSON.parse(raw)
     return raw
   } catch {
-    // Fall through and try to collapse duplicated full-payload replays such as "{}{}" or "{...}{...}".
+    // Fall through and try to collapse duplicated payload replays such as "{}{}" or "{...}{...prefix".
   }
 
-  if (raw.length % 2 !== 0) return raw
-  const half = raw.slice(0, raw.length / 2)
-  if (half !== raw.slice(raw.length / 2)) return raw
-
-  try {
-    JSON.parse(half)
-    return half
-  } catch {
-    return raw
+  if (raw.length % 2 === 0) {
+    const half = raw.slice(0, raw.length / 2)
+    if (half === raw.slice(raw.length / 2)) {
+      try {
+        JSON.parse(half)
+        return half
+      } catch {
+        // Fall through to leading-JSON salvage.
+      }
+    }
   }
+
+  // Trailing replay: a complete JSON value followed by a full or truncated replay of itself.
+  const end = findLeadingJsonEnd(raw)
+  if (end > 0 && end < raw.length) {
+    const head = raw.slice(0, end)
+    const rest = raw.slice(end)
+    if (head.startsWith(rest) || rest.startsWith(head)) {
+      try {
+        JSON.parse(head)
+        return head
+      } catch {
+        return raw
+      }
+    }
+  }
+
+  // Mid-stream replay: a truncated prefix followed by the full payload restarting from the same opening.
+  for (let i = raw.indexOf('{', 1); i > 0; i = raw.indexOf('{', i + 1)) {
+    const probe = raw.slice(0, Math.min(i, 32))
+    if (!raw.startsWith(probe, i)) continue
+    const tail = raw.slice(i)
+    try {
+      JSON.parse(tail)
+    } catch {
+      continue
+    }
+    if (tail.startsWith(raw.slice(0, i))) return tail
+  }
+
+  return raw
 }
 /**
  * 工具调用处理器类

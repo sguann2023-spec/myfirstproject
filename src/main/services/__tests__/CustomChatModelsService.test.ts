@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
 import { allowCustomChatModelsWindow, CustomChatModelsService, registerCustomChatModelsIpc, validateCustomChatModels, validateCustomChatProviders } from '../CustomChatModelsService'
 const model = { id: 'custom-12345678-1234-1234-1234-123456789abc', name: 'Example', protocol: 'openai' as const, baseUrl: 'https://example.com/v1', apiKey: 'secret-api-key', modelId: 'model', read_image: true }
 beforeEach(() => { mocks.data = {}; mocks.available = true; mocks.backend = 'keychain'; mocks.handlers.clear() })
-const provider = { id: 'provider-example', name: 'Provider', protocol: model.protocol, baseUrl: model.baseUrl, apiKey: model.apiKey, models: [{ id: model.id, name: model.name, modelId: model.modelId, read_image: model.read_image, enabled: true }] }
+const provider = { id: 'provider-example', name: 'Provider', protocol: model.protocol, baseUrl: model.baseUrl, apiKey: model.apiKey, enabled: true, models: [{ id: model.id, name: model.name, modelId: model.modelId, read_image: model.read_image, enabled: true }] }
 const makeWindow = () => ({ webContents: { mainFrame: {}, isDestroyed: () => false, send: vi.fn() }, isDestroyed: () => false, once: vi.fn() })
 describe('custom models', () => {
   it('round trips v2 providers and projects only enabled models with their own IDs', () => {
@@ -138,5 +138,44 @@ describe('custom models', () => {
     expect(() => save({ sender: webContents, senderFrame: {} }, [model])).toThrow()
     expect(save({ sender: webContents, senderFrame: mainFrame }, [model])).toEqual([model])
     expect(list({ sender: webContents, senderFrame: mainFrame })).toEqual([model])
+  })
+  it('excludes disabled providers from the chat model list and validates the enabled flag', () => {
+    const service = new CustomChatModelsService()
+    service.saveProviders([{ ...provider, enabled: false }])
+    expect(service.list()).toEqual([])
+    expect(service.listProviders()[0].enabled).toBe(false)
+    service.saveProviders([{ ...provider, enabled: true }])
+    expect(service.list()).toEqual([model])
+    expect(() => service.saveProviders([{ ...provider, enabled: 'yes' }])).toThrow('boolean')
+    expect(service.list()).toEqual([model])
+  })
+  it('stores official model prefs with the same authorization and a dedicated broadcast', () => {
+    const main = makeWindow(); const settings = makeWindow(); const outsider = makeWindow()
+    registerCustomChatModelsIpc(main as any)
+    allowCustomChatModelsWindow(settings as any)
+    const get = mocks.handlers.get('official-chat-models:get-prefs')
+    const set = mocks.handlers.get('official-chat-models:set-prefs')
+    const event = { sender: settings.webContents, senderFrame: settings.webContents.mainFrame }
+    expect(get(event)).toEqual({ disabledModelIds: [] })
+    expect(() => get({ sender: outsider.webContents, senderFrame: outsider.webContents.mainFrame })).toThrow()
+    expect(() => set({ ...event, senderFrame: {} }, { disabledModelIds: [] })).toThrow()
+    expect(set(event, { disabledModelIds: ['glm-5.3', 'glm-5.3', ' kimi-k3 '] })).toEqual({ disabledModelIds: ['glm-5.3', 'kimi-k3'] })
+    expect(get(event)).toEqual({ disabledModelIds: ['glm-5.3', 'kimi-k3'] })
+    expect(main.webContents.send).toHaveBeenCalledWith('official-chat-models:changed')
+    expect(settings.webContents.send).toHaveBeenCalledWith('official-chat-models:changed')
+    expect(settings.webContents.send).not.toHaveBeenCalledWith('custom-chat-models:changed')
+    expect(outsider.webContents.send).not.toHaveBeenCalled()
+    expect(() => set(event, { disabledModelIds: [1] })).toThrow()
+    expect(() => set(event, null)).toThrow()
+    expect(() => set(event, { disabledModelIds: 'glm' })).toThrow()
+    expect(get(event)).toEqual({ disabledModelIds: ['glm-5.3', 'kimi-k3'] })
+    expect(set(event, { disabledModelIds: [] })).toEqual({ disabledModelIds: [] })
+  })
+  it('recovers to all-enabled when stored official prefs are corrupted', () => {
+    mocks.data.disabledModelIds = 'corrupted'
+    const main = makeWindow()
+    registerCustomChatModelsIpc(main as any)
+    const get = mocks.handlers.get('official-chat-models:get-prefs')
+    expect(get({ sender: main.webContents, senderFrame: main.webContents.mainFrame })).toEqual({ disabledModelIds: [] })
   })
 })

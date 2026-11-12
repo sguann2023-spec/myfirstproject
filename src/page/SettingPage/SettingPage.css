@@ -139,6 +139,18 @@ html, body, #root {
   padding: 20px 18px;
 }
 
+/* 设置窗内所有开关统一规格（与模型设置定稿一致）：
+   选中 #0190f0、未选中 #cccccc；尺寸由各页面 Switch size="small" 统一。 */
+.setting-content-area .ant-switch:not(.ant-switch-checked) {
+  background: #cccccc;
+}
+.setting-content-area .ant-switch.ant-switch-disabled:not(.ant-switch-checked) {
+  background: #cccccc;
+}
+.setting-content-area .ant-switch.ant-switch-checked {
+  background: #0190f0;
+}
+
 .setting-content-loading {
   display: flex;
   align-items: center;

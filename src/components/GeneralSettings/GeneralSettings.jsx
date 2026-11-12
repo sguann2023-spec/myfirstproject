@@ -521,6 +521,7 @@ const GeneralSettings = () => {
             <div className="gs-save-text">下载完成后自动打开剪映</div>
           </div>
           <Switch
+            size="small"
             checked={autoOpenEditingAppAfterDownload}
             onChange={updateAutoOpenEditingAppAfterDownload}
           />
@@ -535,6 +536,7 @@ const GeneralSettings = () => {
               <div className="gs-save-text">任务完成或失败时通知</div>
             </div>
             <Switch
+              size="small"
               aria-label="任务通知"
               checked={taskNotificationEnabled}
               onChange={updateTaskNotificationEnabled}
@@ -545,6 +547,7 @@ const GeneralSettings = () => {
               <div className="gs-save-text">通知提示音</div>
             </div>
             <Switch
+              size="small"
               aria-label="通知提示音"
               checked={taskSoundEnabled}
               disabled={!taskNotificationEnabled}

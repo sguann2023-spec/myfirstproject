@@ -18,7 +18,7 @@ import type {
 import type { MCPServerLogEntry } from '@shared/config/types'
 import type { ExternalAppInfo } from '@shared/externalApp/types'
 import { IpcChannel } from '@shared/IpcChannel'
-import type { CustomChatModel, CustomChatProvider } from '@shared/customChatModels'
+import type { CustomChatModel, CustomChatProvider, OfficialChatModelPrefs } from '@shared/customChatModels'
 import { createSubscriptionRequests, createSuccessfulRequestCache } from './requestReuse'
 import type { Notification } from '@types'
 import type {
@@ -127,6 +127,15 @@ const api = {
       const listener = () => callback()
       ipcRenderer.on(IpcChannel.CustomChatModels_Changed, listener)
       return () => { ipcRenderer.removeListener(IpcChannel.CustomChatModels_Changed, listener) }
+    }
+  },
+  officialChatModels: {
+    getPrefs: (): Promise<OfficialChatModelPrefs> => ipcRenderer.invoke(IpcChannel.OfficialChatModels_GetPrefs),
+    setPrefs: (prefs: OfficialChatModelPrefs): Promise<OfficialChatModelPrefs> => ipcRenderer.invoke(IpcChannel.OfficialChatModels_SetPrefs, prefs),
+    onChanged: (callback: () => void): (() => void) => {
+      const listener = () => callback()
+      ipcRenderer.on(IpcChannel.OfficialChatModels_Changed, listener)
+      return () => { ipcRenderer.removeListener(IpcChannel.OfficialChatModels_Changed, listener) }
     }
   },
   getAppInfo: () => appInfoRequests.get(),
@@ -923,6 +932,7 @@ const shellBridge = {
 // Keep this until renderer side fully migrates from `window.electronAPI` to `window.api`.
 const legacyElectronAPI = {
   customChatModels: api.customChatModels,
+  officialChatModels: api.officialChatModels,
   openDownloadDirectory: (directoryPath: string) => ipcRenderer.send('open-download-directory', directoryPath),
   startFileMonitor: (monitorData: any) => ipcRenderer.send('start-file-monitor', monitorData),
   onFileFound: (callback: (value: any) => void): (() => void) => {
