@@ -14,6 +14,9 @@ vi.mock('electron', () => ({
     decryptString: (value: Buffer) => value.toString().slice(10)
   }
 }))
+vi.mock('@logger', () => ({
+  loggerService: { withContext: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }) }
+}))
 import { allowCustomChatModelsWindow, CustomChatModelsService, registerCustomChatModelsIpc, validateCustomChatModels, validateCustomChatProviders } from '../CustomChatModelsService'
 const model = { id: 'custom-12345678-1234-1234-1234-123456789abc', name: 'Example', protocol: 'openai' as const, baseUrl: 'https://example.com/v1', apiKey: 'secret-api-key', modelId: 'model', read_image: true }
 beforeEach(() => { mocks.data = {}; mocks.available = true; mocks.backend = 'keychain'; mocks.handlers.clear() })
@@ -69,11 +72,56 @@ describe('custom models', () => {
   it('does not overwrite providers on validation failure or insecure storage', () => {
     const service = new CustomChatModelsService(); service.saveProviders([provider])
     const original = mocks.data.config
-    expect(() => service.saveProviders([{ ...provider, apiKey: '' }])).toThrow()
+    expect(() => service.saveProviders([{ ...provider, protocol: 'bad' }])).toThrow()
     mocks.available = false
-    expect(() => service.saveProviders([])).toThrow()
+    expect(() => service.saveProviders([provider])).toThrow()
     expect(() => service.listProviders()).toThrow()
     expect(mocks.data.config).toBe(original)
+    // 空列表不携带凭据，不依赖安全存储。
+    expect(service.saveProviders([])).toEqual([])
+  })
+  it('tolerates incomplete drafts in storage but projects only complete providers into chat', () => {
+    const service = new CustomChatModelsService()
+    const draft = { ...provider, id: 'provider-draft', apiKey: '', baseUrl: '', models: [{ ...provider.models[0], id: 'custom-32345678-1234-1234-1234-123456789abc', modelId: '' }] }
+    service.saveProviders([provider, draft])
+    expect(service.listProviders()).toHaveLength(2)
+    expect(service.list()).toEqual([model])
+    expect(() => service.saveProviders([{ ...provider, baseUrl: '123123' }])).toThrow('URL')
+    expect(service.listProviders()).toHaveLength(2)
+  })
+  it('round-trips empty-key drafts without encrypting empty strings (macOS empty-buffer bug)', () => {
+    const service = new CustomChatModelsService()
+    const draft = { ...provider, id: 'provider-draft', apiKey: '' }
+    service.saveProviders([draft])
+    expect(mocks.data.config.providers[0].encryptedApiKey).toBe('')
+    expect(service.listProviders()[0].apiKey).toBe('')
+    // 空密文草稿在安全存储不可用时也必须能加载（否则整份列表被一条草稿拖垮）。
+    mocks.available = false
+    expect(service.listProviders()[0].apiKey).toBe('')
+    expect(service.list()).toEqual([])
+  })
+  it('tests openai-responses models against the /responses endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const main = makeWindow()
+    registerCustomChatModelsIpc(main as any)
+    const handler = mocks.handlers.get('custom-chat-models:test-model')
+    const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.example.com/v1', protocol: 'openai-responses', apiKey: 'k', modelId: 'gpt' })
+    expect(result.ok).toBe(true)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/v1/responses')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: 'gpt', input: expect.any(String) })
+    vi.unstubAllGlobals()
+  })
+  it('persists logoKey so brand icons survive Base URL edits', () => {
+    const service = new CustomChatModelsService()
+    service.saveProviders([{ ...provider, logoKey: 'bigmodel', baseUrl: '' }])
+    expect(service.listProviders()[0]).toMatchObject({ logoKey: 'bigmodel', baseUrl: '' })
+    expect(() => service.saveProviders([{ ...provider, logoKey: 5 }])).toThrow()
+  })
+  it('loads legacy stores whose drafts carry empty ciphertext', () => {
+    mocks.data.config = { version: 2, providers: [{ ...provider, apiKey: undefined, encryptedApiKey: '' }] }
+    const service = new CustomChatModelsService()
+    expect(service.listProviders()[0]).toMatchObject({ id: provider.id, apiKey: '' })
   })
   it('authorizes explicit settings windows only on main frames and broadcasts keyless changes', () => {
     const main = makeWindow(); const settings = makeWindow(); const outsider = makeWindow()
@@ -122,8 +170,11 @@ describe('custom models', () => {
     mocks.available = state !== 'unavailable'; mocks.backend = state === 'basic_text' ? state : 'keychain'
     const service = new CustomChatModelsService()
     expect(() => service.save([model])).toThrow('unavailable')
-    expect(() => service.list()).toThrow('unavailable')
     expect(mocks.data).toEqual({})
+    // 空存储无需安全存储；一旦存有真实密文则必须 fails closed。
+    expect(service.list()).toEqual([])
+    mocks.data.config = { version: 2, providers: [{ ...provider, encryptedApiKey: 'cipher' }] }
+    expect(() => service.list()).toThrow('unavailable')
   })
   it('rejects unknown stored versions', () => {
     mocks.data.config = { version: 3, models: [] }

@@ -93,12 +93,14 @@ const TEXT_FONT_SIZE_GUIDANCE = 'MANDATORY FONT-SIZE LIMITS FOR add_text, add_ba
 
 const TEXT_STROKE_SHADOW_GUIDANCE = 'MANDATORY STROKE-OR-SHADOW RULE FOR add_text, add_batch_text, and add_subtitle: Every text layer MUST enable exactly one of stroke or shadow; NEVER omit both on the same text. Either one alone is enough to enable it: pass shadow_enabled=true for a shadow, or pass border_width=40 for a stroke. Do not pass both unless the user explicitly asks for combined stroke and shadow. Respect explicit user settings: if the user requests no shadow, no stroke, or supplies their own values, follow the user settings instead of this rule.'
 
+const TEXT_PREVIEW_GUIDANCE = 'HIGH-PRIORITY PREVIEW BEFORE ADDING OR MODIFYING TEXT: Before calling add_text, add_batch_text, add_subtitle, or modify_text, always check the visual effect first with get_text_style_preview (position/size/color/border/shadow snapshot) or get_font_previews (real font glyph previews) — at least one of them — and inspect the returned PNG before applying the text. Previewing first is the default workflow step for every text add or modification and carries very high priority; skip it only when the user explicitly asks to skip previews. Preview with the same text, font, font_size, colors, text_styles and position you plan to submit; for batch text, preview the shared style plus any item whose style differs. When the text uses text_styles keyword runs, preview those runs with get_text_style_preview (it accepts the same text_styles shape). When choosing a font, including from the recommended font list, confirm its glyphs with get_font_previews first.'
+
 const TEXT_VERIFICATION_GUIDANCE = 'Verification is recommended for pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000, or guessed generic font names such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. For these checks and ordinary in-range font sizes, prefer lightweight previews first; use render_draft (预渲染 / Pre-render) when they cannot verify subtitles, animation timing, track layering, audio effects or volume, font effects, transitions, or combined compositions. This fallback does not waive mandatory pre-rendering for out-of-range font sizes. If the working draft exceeds render limits, or verification must happen before modifying it, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.'
 
 const TOOLS: Tool[] = [
   toolWithArgs(
     'add_text',
-    `Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. ${TEXT_FONT_SIZE_GUIDANCE} For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. Preview uncertain text_styles runs with get_text_style_preview, which accepts the same text_styles shape. If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
+    `Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       text: { type: 'string', description: 'Required text content.' },
       start: { type: 'number', description: 'Required start time in seconds.' },
@@ -111,7 +113,7 @@ const TOOLS: Tool[] = [
       },
       transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
       transform_x: { type: 'number', description: 'Optional X transform ratio.' },
-      font: { type: 'string', description: 'Optional font name. Unless the user specifies a font, randomly choose one recommended font: 细体、研宋体、俪金黑、挥墨体、抖音美好体、新青年体、后现代体、悠然体、点宋体、喜脉体.' },
+      font: { type: 'string', description: 'Optional font name. Unless the user specifies a font, randomly choose one recommended font: 细体、研宋体、俪金黑、挥墨体、抖音美好体、新青年体、后现代体、悠然体、点宋体、喜脉体. Confirm the chosen font\'s glyphs with get_font_previews before adding the text.' },
       font_color: { type: 'string', description: 'Optional font color.' },
       font_size: { type: 'number', description: TEXT_FONT_SIZE_GUIDANCE },
       trackName: { type: 'string', description: 'Optional track name alias of track_name.' },
@@ -170,7 +172,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_text',
-    `Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the text position, size, or font will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview; it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
+    `Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       texts: { type: 'array', items: { type: 'string' }, description: 'Required text contents.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Required start times in seconds.' },
@@ -184,7 +186,7 @@ const TOOLS: Tool[] = [
       transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
       scale_x: { type: 'number', description: 'Optional X scale.' },
       scale_y: { type: 'number', description: 'Optional Y scale.' },
-      font: { type: 'string', description: 'Optional font name. Unless the user specifies a font, randomly choose one recommended font: 细体、研宋体、俪金黑、挥墨体、抖音美好体、新青年体、后现代体、悠然体、点宋体、喜脉体.' },
+      font: { type: 'string', description: 'Optional font name. Unless the user specifies a font, randomly choose one recommended font: 细体、研宋体、俪金黑、挥墨体、抖音美好体、新青年体、后现代体、悠然体、点宋体、喜脉体. Confirm the chosen font\'s glyphs with get_font_previews before adding the text.' },
       align: { type: 'integer', description: 'Optional text alignment enum. When vertical=false use 0/1/2 for left/center/right; when vertical=true use 3/1/4 for top/center/bottom.' },
       rotation: { type: 'number', description: 'Optional rotation in degrees.' },
       font_color: { type: 'string', description: 'Optional font color.' },
@@ -249,7 +251,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'modify_text',
-    `Modify an existing text material in a VectCut draft by material ID. Preserve the existing font size when no size change is requested. When choosing a new size: ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the resulting text position, size, or font will look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. For rich text styles, if unsure how text_styles keyword runs (per-range size/color/bold/border/shadow) will render, preview them with get_text_style_preview; it accepts the same text_styles shape. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE}`,
+    `Modify an existing text material in a VectCut draft by material ID. ${TEXT_PREVIEW_GUIDANCE} Preserve the existing font size when no size change is requested. When choosing a new size: ${TEXT_FONT_SIZE_GUIDANCE} For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE}`,
     {
       draftId: { type: 'string', description: 'Required draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Required draft ID.' },
@@ -264,7 +266,7 @@ const TOOLS: Tool[] = [
       transform_x_px: { type: 'number', description: 'Optional X transform in pixels.' },
       scale_x: { type: 'number', description: 'Optional X scale.' },
       scale_y: { type: 'number', description: 'Optional Y scale.' },
-      font: { type: 'string', description: 'Optional font name.' },
+      font: { type: 'string', description: 'Optional font name. Confirm the chosen font\'s glyphs with get_font_previews before applying the change.' },
       font_color: { type: 'string', description: 'Optional font color.' },
       font_size: { type: 'number', description: `Optional updated font size; omit to preserve the existing size. ${TEXT_FONT_SIZE_GUIDANCE}` },
       bold: { type: 'boolean', description: 'Optional bold flag.' },
@@ -316,7 +318,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_subtitle',
-    `Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. ${TEXT_FONT_SIZE_GUIDANCE} If you are unsure what the subtitle font, size, or position will actually look like, check get_text_style_preview (position/size/color/border/shadow snapshot) and get_font_previews (real font glyph previews) first. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
+    `Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       srt: { type: 'string', description: 'Required SRT content or URL.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
@@ -324,7 +326,7 @@ const TOOLS: Tool[] = [
       timeOffset: { type: 'number', description: 'Optional subtitle time offset alias of time_offset.' },
       time_offset: { type: 'number', description: 'Optional subtitle time offset in seconds.' },
       font_size: { type: 'number', description: TEXT_FONT_SIZE_GUIDANCE },
-      font: { type: 'string', description: 'Optional font name. Unless the user specifies a font, randomly choose one recommended font: 细体、研宋体、俪金黑、挥墨体、抖音美好体、新青年体、后现代体、悠然体、点宋体、喜脉体.' },
+      font: { type: 'string', description: 'Optional font name. Unless the user specifies a font, randomly choose one recommended font: 细体、研宋体、俪金黑、挥墨体、抖音美好体、新青年体、后现代体、悠然体、点宋体、喜脉体. Confirm the chosen font\'s glyphs with get_font_previews before adding the text.' },
       bold: { type: 'boolean', description: 'Optional bold flag.' },
       italic: { type: 'boolean', description: 'Optional italic flag.' },
       underline: { type: 'boolean', description: 'Optional underline flag.' },
@@ -470,8 +472,8 @@ const TOOLS: Tool[] = [
     'add_batch_image',
     'Add multiple image layers into a VectCut draft in one request.',
     {
-      imageUrls: { type: 'array', items: { type: 'string' }, description: 'Required image URLs alias of image_urls.' },
-      image_urls: { type: 'array', items: { type: 'string' }, description: 'Required image URLs.' },
+      imageUrls: { type: 'array', items: { type: 'string' }, description: 'Required image URLs or absolute local file paths alias of image_urls.' },
+      image_urls: { type: 'array', items: { type: 'string' }, description: 'Required image URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Optional start times in seconds.' },
       ends: { type: 'array', items: { type: 'number' }, description: 'Required end times in seconds.' },
       width: { type: 'integer', description: 'Optional canvas width.' },
@@ -630,8 +632,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
-      imageUrl: { type: 'string', description: 'Optional image URL alias of image_url.' },
-      image_url: { type: 'string', description: 'Optional image URL.' },
+      imageUrl: { type: 'string', description: 'Optional image URL or local file path alias of image_url.' },
+      image_url: { type: 'string', description: 'Optional image URL or local file path.' },
       start: { type: 'number', description: 'Optional start time in seconds.' },
       end: { type: 'number', description: 'Optional end time in seconds.' },
       transform_y: { type: 'number', description: 'Optional Y transform ratio.' },
@@ -729,8 +731,8 @@ const TOOLS: Tool[] = [
     'add_batch_video',
     'Add multiple video layers into a VectCut draft in one request.',
     {
-      videoUrls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs alias of video_urls.' },
-      video_urls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs.' },
+      videoUrls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs or absolute local file paths alias of video_urls.' },
+      video_urls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Required source start times in seconds.' },
       ends: { type: 'array', items: { type: 'number' }, description: 'Required source end times in seconds.' },
       durations: { type: 'array', items: { type: 'number' }, description: 'Required source durations.' },
@@ -782,8 +784,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
-      videoUrl: { type: 'string', description: 'Optional video URL alias of video_url.' },
-      video_url: { type: 'string', description: 'Optional video URL.' },
+      videoUrl: { type: 'string', description: 'Optional video URL or local file path alias of video_url.' },
+      video_url: { type: 'string', description: 'Optional video URL or local file path.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
       target_start: { type: 'number', description: 'Optional timeline start time in seconds.' },
@@ -872,8 +874,8 @@ const TOOLS: Tool[] = [
     'add_batch_audio',
     'Add multiple audio layers into a VectCut draft in one request.',
     {
-      audioUrls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs alias of audio_urls.' },
-      audio_urls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs.' },
+      audioUrls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs or absolute local file paths alias of audio_urls.' },
+      audio_urls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Optional source start times in seconds.' },
       ends: { type: 'array', items: { type: 'number' }, description: 'Optional source end times in seconds.' },
       targetStarts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times alias of target_starts.' },
@@ -907,8 +909,8 @@ const TOOLS: Tool[] = [
       draft_id: { type: 'string', description: 'Required draft ID.' },
       materialId: { type: 'string', description: 'Required material ID alias of material_id.' },
       material_id: { type: 'string', description: 'Required material ID.' },
-      audioUrl: { type: 'string', description: 'Optional audio URL alias of audio_url.' },
-      audio_url: { type: 'string', description: 'Optional audio URL.' },
+      audioUrl: { type: 'string', description: 'Optional audio URL or local file path alias of audio_url.' },
+      audio_url: { type: 'string', description: 'Optional audio URL or local file path.' },
       start: { type: 'number', description: 'Optional source start time in seconds.' },
       end: { type: 'number', description: 'Optional source end time in seconds.' },
       volume: { type: 'number', description: 'Optional volume.' },

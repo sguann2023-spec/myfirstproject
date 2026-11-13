@@ -83,6 +83,28 @@ describe.each([['renderer', ThinkingBlock], ['legacy', LegacyThinkingBlock]] as 
     expect(icon.justifyContent).toBe('center')
   })
 
+  it('splits concatenated bold reasoning items into clean preview lines', () => {
+    if (Component !== ThinkingBlock) return
+    render(makeBlock({ content: '**Preparing the draft****Building the timeline**' }))
+    const track = host.querySelector('[aria-hidden="true"][style]')!
+    expect(track.children).toHaveLength(2)
+    expect(track.children[0].textContent).toBe('Preparing the draft')
+    expect(track.children[1].textContent).toBe('Building the timeline')
+    expect(host.textContent).not.toContain('**')
+    const toggle = host.querySelector('button')!
+    act(() => toggle.click())
+    expect(host.querySelector('[data-testid="thinking-markdown"]')?.textContent).toBe(
+      '**Preparing the draft**\n\n**Building the timeline**'
+    )
+  })
+
+  it('hides the duration label for zero-duration inline thinking blocks', () => {
+    if (Component !== ThinkingBlock) return
+    render(makeBlock({ status: MessageBlockStatus.SUCCESS, thinking_millsec: 0 }))
+    expect(host.textContent).toContain('深度思考')
+    expect(host.textContent).not.toContain('用时')
+  })
+
   it('rolls new lines upward and updates the current partial line immediately', () => {
     render(makeBlock())
     let track = host.querySelector('[aria-hidden="true"][style]') as HTMLElement

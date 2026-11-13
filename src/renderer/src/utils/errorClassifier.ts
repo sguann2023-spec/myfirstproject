@@ -207,10 +207,17 @@ export function classifyError(error?: SerializedError, providerId?: string): Err
     return { category: 'stream', i18nKey: 'error.diagnosis.stream', navTarget: null }
   }
 
-  // Content filter (400 + safety keywords)
+  // Content filter / provider moderation rejections. OpenAI reports usage-policy
+  // flags as "Invalid prompt ... flagged ..." (often without a usable status),
+  // so explicit policy signals must not depend on HTTP 400.
   if (
-    numStatus === 400 &&
-    (msg.includes('content_filter') || msg.includes('safety') || msg.includes('content_policy'))
+    code === 'content_policy_violation' ||
+    msg.includes('content_policy') ||
+    msg.includes('usage policy') ||
+    msg.includes('content management policy') ||
+    msg.includes('responsibleaipolicyviolation') ||
+    (msg.includes('invalid prompt') && msg.includes('flagged')) ||
+    (numStatus === 400 && (msg.includes('content_filter') || msg.includes('safety')))
   ) {
     return { category: 'content', i18nKey: 'error.diagnosis.content', navTarget: null }
   }

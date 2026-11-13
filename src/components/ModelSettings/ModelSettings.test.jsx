@@ -23,10 +23,17 @@ vi.mock('antd', () => {
     Checkbox: ({ children, ...props }) => <label><input type="checkbox" {...props} />{children}</label>,
     Switch: ({ onChange, size, ...props }) => <input type="checkbox" {...props} onChange={e => onChange(e.target.checked)} />,
     Select: ({ options, onChange, ...props }) => <select {...props} onChange={e => onChange(e.target.value)}>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>,
-    Popconfirm: ({ children, title, onConfirm }) => <div>{children}<button aria-label={title} onClick={onConfirm}>确认</button></div>,
     Tooltip: ({ children }) => children,
     Dropdown: ({ children, dropdownRender }) => <div>{children}{dropdownRender ? dropdownRender() : null}</div>,
-    Modal: ({ open, title, onOk, children }) => open ? <div>{title}<button aria-label={title} onClick={onOk}>确认</button>{children}</div> : null,
+    Modal: ({ open, title, onOk, onCancel, children, footer }) => open ? (
+      <div className="ant-modal">
+        {title}
+        {children}
+        {footer
+          ? footer(null, { OkBtn: () => <button aria-label={title} onClick={onOk}>保存</button>, CancelBtn: () => <button onClick={onCancel}>取消</button> })
+          : <button aria-label={title} onClick={onOk}>确认</button>}
+      </div>
+    ) : null,
   };
 });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,12 +45,25 @@ const mount = async (items = [provider()], prefs = { disabledModelIds: [] }) => 
     customChatModels: {
       listProviders: vi.fn(async () => stored),
       saveProviders: vi.fn(async (next) => { stored = next; return next; }),
+      testModel: vi.fn().mockResolvedValue({ ok: true, latencyMs: 12 }),
     },
+    openExternal: vi.fn(),
     officialChatModels: {
       getPrefs: vi.fn().mockResolvedValue(prefs),
       setPrefs: vi.fn().mockImplementation(async (next) => next),
       onChanged: vi.fn(() => () => {}),
     },
+  };
+  // 全局统一删除确认（confirmDelete）走 window.modal.confirm；这里把它模拟成
+  // 一个可被既有 confirm(title) 助手点击的按钮，保持测试交互语义不变。
+  window.modal = {
+    confirm: vi.fn(({ title, onOk }) => {
+      const btn = document.createElement('button');
+      btn.setAttribute('aria-label', title);
+      btn.textContent = '确认';
+      btn.addEventListener('click', () => { btn.remove(); onOk(); });
+      host.append(btn);
+    }),
   };
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(<ModelSettings />));
@@ -62,7 +82,7 @@ const setInput = (label, value) => act(() => {
 const confirm = async title => act(async () => host.querySelector(`button[aria-label="${title}"]`).click());
 // 自动保存 idle 1.2s（对齐 ZCode），测试等待落盘窗口。
 const autoSave = async () => act(async () => { await new Promise(resolve => setTimeout(resolve, 1400)); });
-afterEach(() => { if (root) act(() => root.unmount()); host?.remove(); vi.restoreAllMocks(); delete window.electronAPI; });
+afterEach(() => { if (root) act(() => root.unmount()); host?.remove(); vi.restoreAllMocks(); delete window.electronAPI; delete window.modal; });
 
 describe('ModelSettings', () => {
   it('pins official first and defaults to its read-only real model list outside persisted drafts', async () => {
@@ -218,8 +238,8 @@ describe('ModelSettings', () => {
     await click('流光剪辑');
     await click('Kept');
     expect(host.querySelector('[aria-label="供应商名称"]').value).toBe('Kept');
-    await click('删除供应商');
-    await confirm('确认删除此供应商及其全部模型？');
+    await click('删除');
+    await confirm('确认删除供应商');
     expect(host.querySelector('.model-settings__official')).not.toBeNull();
     expect(host.querySelector('.model-settings__provider.is-active').dataset.providerId).toBe('builtin-vectcut');
     expect(api.saveProviders).toHaveBeenCalledWith([]);
@@ -280,7 +300,9 @@ describe('ModelSettings', () => {
     await click('custom-existing');
     expect(host.querySelector('[aria-label="Base URL"]').placeholder).toBe('https://api.example.com/v1');
     expect(host.querySelector('[aria-label="API Key"]').placeholder).toBe('输入 API Key');
-    expect([...host.querySelectorAll('[aria-label="API 协议"] option')].map(o => o.textContent)).toEqual(['Chat Completions (/v1/chat/completions)', 'Anthropic Messages (/v1/messages)']);
+    await act(async () => host.querySelector('[aria-label="API 协议"]').click());
+    expect([...host.querySelectorAll('[role="option"]')].map(o => o.textContent)).toEqual(['Anthropic Messages (/v1/messages)', 'Chat Completions (/chat/completions)', 'Responses (/responses)']);
+    await act(async () => host.querySelector('[aria-label="API 协议"]').click());
     expect(host.querySelector('.model-settings__provider-header')).not.toBeNull();
     expect(host.textContent).not.toContain('配置连接信息和可用模型');
   });
@@ -290,17 +312,19 @@ describe('ModelSettings', () => {
     for (const template of PROVIDER_TEMPLATES) {
       const item = createProvider(template);
       expect(item.id).toMatch(/^custom-[0-9a-f-]{36}$/);
-      expect(item.models).toEqual([]);
+      expect(item.models).toHaveLength(template.models.length);
+      expect(item.models.every(m => /^custom-[0-9a-f-]{36}$/.test(m.id) && m.modelId && typeof m.enabled === 'boolean')).toBe(true);
       expect(['openai', 'anthropic']).toContain(item.protocol);
       expect(item.protocol).toBe(template.protocol);
       expect(item.baseUrl).toBe(template.baseUrl);
+      expect(item.logoKey).toBe(template.logoKey);
     }
-    expect(byName['智谱(中国) Coding Plan']).toMatchObject({ protocol: 'anthropic', baseUrl: 'https://open.bigmodel.cn/api/anthropic', group: 'zhipu' });
-    expect(byName['智谱(国际) Coding Plan']).toMatchObject({ protocol: 'anthropic', baseUrl: 'https://api.z.ai/api/anthropic', group: 'zhipu' });
-    expect(byName['智谱(中国) API']).toMatchObject({ protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', group: 'zhipu' });
-    expect(byName['智谱(国际) API']).toMatchObject({ protocol: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', group: 'zhipu' });
-    expect(byName['Kimi Code（国内）']).toMatchObject({ protocol: 'anthropic', baseUrl: 'https://api.kimi.com/coding' });
-    expect(byName['Kimi Code（国际）']).toMatchObject({ protocol: 'anthropic', baseUrl: 'https://api.kimi.ai/coding' });
+    expect(byName['智谱（中国）Coding Plan']).toMatchObject({ protocol: 'anthropic', baseUrl: 'https://open.bigmodel.cn/api/anthropic', group: 'zhipu' });
+    expect(byName['智谱（国际）Coding Plan']).toMatchObject({ protocol: 'anthropic', baseUrl: 'https://api.z.ai/api/anthropic', group: 'zhipu' });
+    expect(byName['智谱（中国）API']).toMatchObject({ protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', group: 'zhipu' });
+    expect(byName['智谱（国际）API']).toMatchObject({ protocol: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', group: 'zhipu' });
+    expect(byName['Kimi Code（国内）']).toMatchObject({ protocol: 'openai', baseUrl: 'https://api.kimi.com/coding/v1' });
+    expect(byName['Kimi Code（国际）']).toMatchObject({ protocol: 'openai', baseUrl: 'https://api.kimi.ai/coding/v1' });
     expect(byName['MiniMax M Plan（中国）'].protocol).toBe('anthropic');
     expect(byName['阿里云百炼 Coding Plan（中国）'].baseUrl).toBe('https://coding.dashscope.aliyuncs.com/apps/anthropic');
     expect(byName['阿里云百炼 Token Plan 团队版（中国）'].baseUrl).toBe('https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic');
@@ -343,7 +367,7 @@ describe('ModelSettings', () => {
     expect(host.querySelectorAll('.model-settings__template-grid')).toHaveLength(1);
     expect(cards[0].textContent).toBe('创建自定义供应商');
     expect(cards[0].querySelector('.lucide-plus')).not.toBeNull();
-    expect(cards[1].textContent).toBe('智谱(中国) Coding Plan');
+    expect(cards[1].textContent).toBe('智谱（中国）Coding Plan');
     expect(cards.slice(1).every(card => card.querySelector('img') && card.querySelector('.lucide-chevron-right') && !card.querySelector('small'))).toBe(true);
     expect(host.textContent).not.toContain('选择常用 API 模板');
     expect(host.querySelector('.model-settings__picker-heading').firstElementChild.getAttribute('aria-label')).toBe('返回供应商设置');
@@ -352,16 +376,88 @@ describe('ModelSettings', () => {
     await autoSave();
     expect(api.saveProviders).toHaveBeenCalledWith([{ ...provider(), name: 'Draft' }]);
   });
+  it('keeps the brand icon when the Base URL is cleared', async () => {
+    await mount([]);
+    await click('添加供应商');
+    await click('智谱（中国）Coding Plan');
+    const header = host.querySelector('.model-settings__provider-header');
+    expect(header.querySelector('img')).not.toBeNull();
+    expect(header.querySelector('.lucide-package')).toBeNull();
+    setInput('Base URL', '');
+    expect(header.querySelector('img')).not.toBeNull();
+    expect(header.querySelector('.lucide-package')).toBeNull();
+    const sidebar = [...host.querySelectorAll('.model-settings__provider')].find(r => r.textContent.includes('智谱（中国）Coding Plan'));
+    expect(sidebar.querySelector('img')).not.toBeNull();
+    expect(sidebar.querySelector('.lucide-package')).toBeNull();
+  });
+  it('backfills logoKey for legacy drafts whose URL was cleared and persists it', async () => {
+    const api = await mount([{ ...provider(), name: '智谱（中国）Coding Plan', baseUrl: '' }]);
+    const sidebar = [...host.querySelectorAll('.model-settings__provider')].find(r => r.textContent.includes('智谱（中国）Coding Plan'));
+    expect(sidebar.querySelector('img')).not.toBeNull();
+    expect(sidebar.querySelector('.lucide-package')).toBeNull();
+    await autoSave();
+    expect(api.saveProviders.mock.calls[0][0][0].logoKey).toBe('bigmodel');
+  });
+  it('format select matches ZCode: check-marked selection, gray highlight, three formats, keyboard support', async () => {
+    await mount([]);
+    await click('添加供应商');
+    await click('Kimi Code（国内）');
+    const trigger = host.querySelector('[aria-label="API 协议"]');
+    await act(async () => trigger.click());
+    const options = [...host.querySelectorAll('[role="option"]')];
+    expect(options).toHaveLength(3);
+    expect(options[1].getAttribute('aria-selected')).toBe('true');
+    expect(options[1].querySelector('.model-settings__format-check')).not.toBeNull();
+    expect(options[1].classList.contains('is-active')).toBe(true);
+    expect(options[0].querySelector('.model-settings__format-check')).toBeNull();
+    await act(async () => options[2].click());
+    expect(trigger.textContent).toContain('Responses (/responses)');
+    expect(host.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => trigger.click());
+    const list = host.querySelector('[role="listbox"]');
+    await act(async () => list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+    await act(async () => list.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(trigger.textContent).toContain('Anthropic Messages (/v1/messages)');
+  });
   it('creates providers from merged templates with the catalog protocol and endpoint', async () => {
     await mount([]);
     await click('添加供应商');
-    await click('智谱(国际) Coding Plan');
-    expect(host.querySelector('[aria-label="API 协议"]').value).toBe('anthropic');
+    await click('智谱（国际）Coding Plan');
+    expect(host.querySelector('[aria-label="API 协议"]').textContent).toContain('Anthropic Messages (/v1/messages)');
     expect(host.querySelector('[aria-label="Base URL"]').value).toBe('https://api.z.ai/api/anthropic');
-    expect(host.querySelector('[aria-label="供应商名称"]').value).toBe('智谱(国际) Coding Plan');
+    expect(host.querySelector('[aria-label="供应商名称"]').value).toBe('智谱（国际）Coding Plan');
   });
-  it('uses branded sidebar icons after renaming, Package for unknown endpoints and failed images', async () => {
-    await mount([{ ...provider(), name: 'Renamed brand', baseUrl: 'https://api.openai.com/v1' }, { ...provider('other'), name: 'OpenAI' }]);
+  it('seeds template builtin models with context/vision badges, /v1 base and 获取 API Key link', async () => {
+    await mount([]);
+    await click('添加供应商');
+    await click('Kimi Code（国内）');
+    expect(host.querySelector('[aria-label="Base URL"]').value).toBe('https://api.kimi.com/coding/v1');
+    expect(host.querySelector('[aria-label="API 协议"]').textContent).toContain('Chat Completions (/chat/completions)');
+    const rows = [...host.querySelectorAll('.model-settings__official-model')];
+    expect(rows).toHaveLength(6);
+    expect(rows.map(r => r.querySelector('.model-settings__custom-model-id').textContent)).toEqual(['k3.1-pro', 'k3.1-pro-highspeed', 'k3', 'k3-256k', 'kimi-for-coding', 'kimi-for-coding-highspeed']);
+    expect(rows.map(r => r.querySelector('.model-settings__context-badge')?.textContent)).toEqual(['1M', '1M', '1M', '262.1K', '1M', '262.1K']);
+    expect(rows.every(r => r.querySelector('.model-settings__vision-badge'))).toBe(true);
+    const link = host.querySelector('.model-settings__key-link');
+    expect(link.textContent).toBe('获取 API Key');
+    await act(async () => link.click());
+    expect(window.electronAPI.openExternal).toHaveBeenCalledWith('https://www.kimi.com/code');
+  });
+  it('tests custom models through the main-process IPC with provider credentials', async () => {
+    await mount([]);
+    await click('添加供应商');
+    await click('Kimi Code（国内）');
+    expect(host.querySelector('[aria-label="测试模型 k3.1-pro"]').disabled).toBe(true);
+    setInput('API Key', 'key');
+    await act(async () => host.querySelector('[aria-label="测试模型 k3.1-pro"]').click());
+    expect(window.electronAPI.customChatModels.testModel).toHaveBeenCalledWith({ baseUrl: 'https://api.kimi.com/coding/v1', protocol: 'openai', apiKey: 'key', modelId: 'k3.1-pro' });
+    expect(host.textContent).toContain('Kimi Code（国内） / k3.1-pro 连接成功');
+    window.electronAPI.customChatModels.testModel.mockResolvedValueOnce({ ok: false, error: '401 unauthorized' });
+    await act(async () => host.querySelector('[aria-label="测试模型 k3"]').click());
+    expect(host.textContent).toContain('Kimi Code（国内） / k3 连接失败：401 unauthorized');
+  });
+  it('pins brand icons at load: unknown endpoints stay Package, failed images stay fallback, URL edits never swap brands', async () => {
+    await mount([{ ...provider(), name: 'Renamed brand', baseUrl: 'https://api.openai.com/v1' }, { ...provider('other'), name: 'My relay' }]);
     const rows = [...host.querySelectorAll('.model-settings__provider')].slice(1);
     await click('Renamed brand');
     expect(rows[0].querySelector('img').getAttribute('src')).toContain('model-provider-openai.png');
@@ -370,14 +466,30 @@ describe('ModelSettings', () => {
     await act(async () => rows[0].querySelector('img').dispatchEvent(new Event('error')));
     expect(rows[0].querySelector('.lucide-package')).not.toBeNull();
     setInput('Base URL', 'https://api.deepseek.com/v1');
-    expect(rows[0].querySelector('img').getAttribute('src')).toContain('model-provider-deepseek.png');
+    expect(rows[0].querySelector('img')).toBeNull();
+    expect(rows[0].querySelector('.lucide-package')).not.toBeNull();
+  });
+  it('legacy template drafts keep their brand even when the Base URL points elsewhere', async () => {
+    const api = await mount([{ ...provider(), name: '智谱（中国）Coding Plan', baseUrl: 'https://api.z.ai/api/paas/v4' }]);
+    const row = [...host.querySelectorAll('.model-settings__provider')].find(r => r.textContent.includes('智谱（中国）Coding Plan'));
+    expect(row.querySelector('img')).not.toBeNull();
+    expect(row.querySelector('.lucide-package')).toBeNull();
+    await click('智谱（中国）Coding Plan');
+    const header = host.querySelector('.model-settings__provider-header');
+    expect(header.querySelector('img')).not.toBeNull();
+    setInput('Base URL', 'https://api.deepseek.com/anthropic');
+    expect(header.querySelector('img')).not.toBeNull();
+    expect(header.querySelector('.lucide-package')).toBeNull();
+    await autoSave();
+    expect(api.saveProviders.mock.calls[0][0][0].logoKey).toBe('bigmodel');
   });
   it('persists new supplier drafts immediately and completes them on key entry', async () => {
     const api = await mount([]);
     await click('添加供应商');
     await click('Anthropic');
     expect(api.saveProviders).toHaveBeenCalledTimes(1);
-    expect(api.saveProviders.mock.calls[0][0][0]).toMatchObject({ id: expect.stringMatching(/^custom-/), protocol: 'anthropic', baseUrl: 'https://api.anthropic.com', apiKey: '', models: [] });
+    expect(api.saveProviders.mock.calls[0][0][0]).toMatchObject({ id: expect.stringMatching(/^custom-/), protocol: 'anthropic', baseUrl: 'https://api.anthropic.com', apiKey: '' });
+    expect(Array.isArray(api.saveProviders.mock.calls[0][0][0].models)).toBe(true);
     expect(host.textContent).toContain('Anthropic 保存成功');
     setInput('API Key', 'key');
     await autoSave();
@@ -408,35 +520,30 @@ describe('ModelSettings', () => {
     expect(api.saveProviders).toHaveBeenCalledTimes(2);
     expect(host.textContent).toContain('Changed 保存成功');
   });
-  it('adds an empty supplier via cards and validates its connection before saving', async () => {
-    const api = await mount([]);
-    await click('添加供应商');
-    await click('Anthropic');
-    expect(api.saveProviders).not.toHaveBeenCalled();
-    expect(host.textContent).toContain('Anthropic 保存失败：请输入 API Key');
-    setInput('API Key', 'key');
-    await autoSave();
-    expect(api.saveProviders.mock.calls[0][0][0]).toMatchObject({ id: expect.stringMatching(/^custom-/), protocol: 'anthropic', baseUrl: 'https://api.anthropic.com', models: [] });
-  });
-  it('edits models with stable IDs, switches image/enabled flags, and confirms deletions', async () => {
+  it('edits models through the ZCode-style dialog with stable IDs, flags and deletions', async () => {
     const api = await mount();
     await click('custom-existing');
-    setInput('模型 1 名称', 'Renamed');
-    setInput('模型 1 ID', 'new-service-id');
     await act(async () => host.querySelector('[aria-label="启用模型 1"]').click());
-    await act(async () => host.querySelector('label input[type="checkbox"]').click());
+    await click('编辑模型 1');
+    setInput('模型 ID', 'new-service-id');
+    setInput('模型名称', 'Renamed');
+    setInput('上下文窗口', '200000');
+    await act(async () => host.querySelector('.ant-modal input[type="checkbox"]').click());
+    await confirm('编辑模型');
     await autoSave();
-    expect(api.saveProviders.mock.calls[0][0][0].models[0]).toEqual({ id: 'custom-old-model', name: 'Renamed', modelId: 'new-service-id', enabled: false, read_image: true });
+    expect(api.saveProviders.mock.calls[0][0][0].models[0]).toEqual({ id: 'custom-old-model', name: 'Renamed', modelId: 'new-service-id', enabled: false, read_image: true, context_window_tokens: 200000 });
     await click('添加模型');
-    setInput('模型 2 名称', 'Second'); setInput('模型 2 ID', 'second-id');
+    setInput('模型 ID', 'second-id');
+    setInput('模型名称', 'Second');
+    await confirm('添加模型');
     await autoSave();
     expect(api.saveProviders.mock.calls[1][0][0].models[1].id).toMatch(/^custom-[0-9a-f-]{36}$/);
-    await click('删除模型 1');
-    expect(host.querySelector('[aria-label="模型 2 名称"]')).not.toBeNull();
-    await confirm('确认删除此模型？');
-    expect(host.querySelector('[aria-label="模型 2 名称"]')).toBeNull();
-    await click('删除供应商');
-    await confirm('确认删除此供应商及其全部模型？');
+    await click('编辑模型 1');
+    await click('删除模型');
+    await confirm('确认删除模型');
+    expect(host.querySelector('[aria-label="编辑模型 2"]')).toBeNull();
+    await click('删除');
+    await confirm('确认删除供应商');
     expect(api.saveProviders).toHaveBeenLastCalledWith([]);
   });
   it('refresh flushes drafts first and retains them when reload fails', async () => {
@@ -463,5 +570,12 @@ describe('ModelSettings', () => {
     expect(host.querySelector('.model-settings__footer')).toBeNull();
     await autoSave();
     expect(api.saveProviders).not.toHaveBeenCalled();
+  });
+  it('explains dev hot-restart IPC gaps instead of a generic load error', async () => {
+    await mount();
+    act(() => root.unmount()); root = createRoot(host);
+    window.electronAPI.customChatModels.listProviders.mockRejectedValue(new Error("No handler registered for 'custom-chat-models:list-providers'"));
+    await act(async () => root.render(<ModelSettings />));
+    expect(host.textContent).toContain('主进程尚未就绪');
   });
 });

@@ -55,6 +55,23 @@ describe('MainTextBlock ellipsis-only placeholder text', () => {
     expect(container.textContent).toBe('')
   })
 
+  it.each(['---', '***', '___', '- - -', '-----'])('hides assistant horizontal-rule-only block %s', (content) => {
+    renderBlock(content, 'assistant')
+    expect(container.textContent).toBe('')
+    expect(container.querySelector('hr')).toBeNull()
+  })
+
+  it('keeps horizontal-rule-only user messages visible', () => {
+    renderBlock('---', 'user')
+    expect(container.textContent).toBe('---')
+  })
+
+  it('still renders text that merely contains a horizontal rule', () => {
+    renderBlock('上文\n---\n下文', 'assistant')
+    expect(container.textContent).toContain('上文')
+    expect(container.textContent).toContain('下文')
+  })
+
   it('keeps ellipsis-only user messages visible', () => {
     renderBlock('...', 'user')
     expect(container.textContent).toBe('...')
@@ -68,5 +85,24 @@ describe('MainTextBlock ellipsis-only placeholder text', () => {
   it('renders normal assistant text', () => {
     renderBlock('确认了竖排文字方向', 'assistant')
     expect(container.textContent).toContain('确认了竖排文字方向')
+  })
+
+  it('moves inline <thinking> blobs into a collapsed thinking row instead of bold main text', () => {
+    renderBlock('<thinking>**Implementing animation****Refactoring settings**</thinking>正文继续', 'assistant')
+    expect(container.textContent).toContain('深度思考')
+    expect(container.textContent).toContain('正文继续')
+    expect(container.textContent).not.toContain('<thinking>')
+    expect(container.textContent).not.toContain('**')
+  })
+
+  it('handles unclosed inline thinking tags from aborted rounds', () => {
+    renderBlock('<thinking>**Combining video****Deriving subtitles**', 'assistant')
+    expect(container.textContent).toContain('深度思考')
+    expect(container.textContent).not.toContain('**')
+  })
+
+  it('keeps literal thinking tags in user messages', () => {
+    renderBlock('<thinking>x</thinking>', 'user')
+    expect(container.textContent).toBe('<thinking>x</thinking>')
   })
 })

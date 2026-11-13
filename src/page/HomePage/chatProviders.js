@@ -24,7 +24,8 @@ export const buildProvidersState = (modelIds = [], apiKey = '', customModels = [
       const config = customModels.find((item) => `${item.id}:${item.modelId}` === modelId);
       if (!config) return;
       providersMap.set(config.id, {
-        id: config.id, name: config.name, type: config.protocol, enabled: true,
+        // Cherry/aiCore 的 OpenAI 拓展别名 openai-response 走 Responses API。
+        id: config.id, name: config.name, type: config.protocol === 'openai-responses' ? 'openai-response' : config.protocol, enabled: true,
         apiHost: config.baseUrl, apiKey: config.apiKey,
         models: [{ id: config.modelId, name: config.name, provider: config.id, read_image: config.read_image }]
       });

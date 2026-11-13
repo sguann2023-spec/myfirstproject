@@ -6,26 +6,47 @@ import { describe, expect, it, vi } from 'vitest';
 const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
 const end = source.indexOf('  }, [editor, input, mentionHighlightRegex]);');
 const start = source.lastIndexOf('  React.useEffect(() => {', end);
-const effect = new Function('editor', 'input', 'pendingSkillExamplePromptRef', 'getEditorPlainText',
+const effect = new Function('editor', 'input', 'pendingSkillExamplePromptRef', 'getEditorPlainText', 'restoringDraftRef',
+  'mapDocPositionToTextOffset', 'mapTextOffsetToDocPosition', 'buildEditorDocument', 'mentionHighlightRegex',
   source.slice(start + '  React.useEffect(() => {'.length, end));
+const effectArgs = (editor, input, pending, restoring, getText) => [
+  editor, input, pending, getText, restoring,
+  () => 0, () => 0, (text) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }), null,
+];
 
 describe('template prompt synchronization', () => {
   it('does not overwrite the new template editor with the previous render input', () => {
     const editor = { isDestroyed: false, commands: { setContent: vi.fn() } };
     const pending = { current: 'new template prompt' };
-    effect(editor, 'previous template prompt', pending, () => 'new template prompt');
+    const restoring = { current: false };
+    effect(...effectArgs(editor, 'previous template prompt', pending, restoring, () => 'new template prompt'));
     expect(editor.commands.setContent).not.toHaveBeenCalled();
     expect(pending.current).toBe('new template prompt');
-    effect(editor, 'new template prompt', pending, () => 'new template prompt');
+    effect(...effectArgs(editor, 'new template prompt', pending, restoring, () => 'new template prompt'));
     expect(pending.current).toBeNull();
   });
   it('allows restoring the original draft after switching templates', () => {
     const editor = { isDestroyed: false, commands: { setContent: vi.fn() } };
     const pending = { current: 'original draft' };
-    effect(editor, 'last template prompt', pending, () => 'original draft');
+    const restoring = { current: false };
+    effect(...effectArgs(editor, 'last template prompt', pending, restoring, () => 'original draft'));
     expect(pending.current).toBe('original draft');
-    effect(editor, 'original draft', pending, () => 'original draft');
+    effect(...effectArgs(editor, 'original draft', pending, restoring, () => 'original draft'));
     expect(pending.current).toBeNull();
+  });
+  it('skips the plain-text rebuild once while a session draft is being restored', () => {
+    const editor = {
+      isDestroyed: false,
+      state: { selection: { from: 0, to: 0 } },
+      commands: { setContent: vi.fn(), setTextSelection: vi.fn() },
+    };
+    const pending = { current: null };
+    const restoring = { current: true };
+    effect(...effectArgs(editor, 'restored draft', pending, restoring, () => 'different editor text'));
+    expect(editor.commands.setContent).not.toHaveBeenCalled();
+    expect(restoring.current).toBe(false);
+    effect(...effectArgs(editor, 'restored draft', pending, restoring, () => 'different editor text'));
+    expect(editor.commands.setContent).toHaveBeenCalledOnce();
   });
 });
 

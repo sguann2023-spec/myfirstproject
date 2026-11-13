@@ -27,6 +27,25 @@ describe('mcpToolDisplay', () => {
     }
   })
   it.each([
+    ['zh-cn', zhCn, '调色', '复刻参考色调', '批量套用滤镜', '：'],
+    ['zh-tw', zhTw, '調色', '複刻參考色調', '批次套用濾鏡', '：'],
+    ['en-us', enUs, 'Color Grade', 'Match Reference Look', 'Apply to Batch', ': ']
+  ] as const)('resolves color-grade tool keys with real i18next in %s', async (lng, locale, server, match, apply, colon) => {
+    const i18n = createInstance()
+    const language = lng.replace(/-([a-z]+)/, (_, region: string) => `-${region.toUpperCase()}`)
+    await i18n.init({ lng: language, fallbackLng: false, resources: { [language]: { translation: locale } } })
+    expect(i18n.t('message.tools.mcp.servers.color_grade')).toBe(server)
+    for (const [tool, title] of [['match_reference_grade', match], ['apply_grade', apply]] as const) {
+      expect(i18n.t(`message.tools.mcp.tools.color_grade.${tool}`)).toBe(title)
+      // 运行时真实名字用连字符 color-grade，normalizeKeyPart 会归一成 color_grade
+      for (const name of [`mcp__vectcut__color-grade__${tool}`, `mcp__color-grade__${tool}`, `color-grade:${tool}`]) {
+        expect(parseMcpToolName(name)).toEqual({ serverName: 'color-grade', toolName: tool })
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: i18n.t })).toBe(`${server}${colon}${title}`)
+      }
+      expect(getMcpToolDisplayName({ serverName: 'color-grade', toolName: tool, t: i18n.t })).toBe(`${server}${colon}${title}`)
+    }
+  })
+  it.each([
     ['scrapt', 'douyin_search_fetch_music_search'],
     ['search', 'web_search'],
     ['media-search', 'search_images'],

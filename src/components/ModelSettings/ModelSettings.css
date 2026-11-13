@@ -227,27 +227,35 @@
 }
 .model-settings__menu-item {
   width: 100%;
+  min-height: 28px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 4px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   font-size: 13px;
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
-.model-settings__menu-item:hover {
-  background: rgba(13, 13, 13, 0.05);
+/* 对齐 ZCode dropdown-menu item：默认高亮 menu-hover；destructive 高亮为实心红底白字白图标。 */
+.model-settings__menu-item:hover,
+.model-settings__menu-item:focus-visible {
+  background: #f0f0f0;
+  outline: none;
 }
 .model-settings__menu-item--danger {
   color: #e03131;
 }
+.model-settings__menu-item--danger:hover,
+.model-settings__menu-item--danger:focus-visible {
+  background: #e03131;
+  color: #fff;
+}
 .model-settings__menu-separator {
   height: 1px;
-  margin: 4px 6px;
   background: rgba(13, 13, 13, 0.08);
 }
 .model-settings__empty--info {
@@ -320,11 +328,6 @@
   padding: 0;
   min-width: 0;
 }
-.model-settings__model-inputs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
 .model-settings .ant-form-item {
   margin-bottom: 17px;
 }
@@ -332,8 +335,8 @@
   padding-bottom: 5px;
 }
 .model-settings .ant-form-item-label > label {
-  font-size: 12px;
-  color: #52525a;
+  font-size: 14px;
+  color: #666;
 }
 .model-settings .ant-form-item-extra {
   font-size: 11px;
@@ -355,36 +358,126 @@
   margin-top: 8px;
   margin-bottom: 14px;
 }
-.model-settings__model {
-  border: 1px solid #e6e6eb;
-  border-radius: 9px;
-  padding: 13px;
-  margin-top: 10px;
+/* 对齐 ZCode ProviderFormControls：mono 模型 ID + 上下文/识图徽章 + 测试/编辑/开关。 */
+.model-settings__custom-model-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
 }
-.model-settings__model-inputs label {
-  font-size: 11px;
-  color: #73737c;
+.model-settings__key-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
 }
-.model-settings__model-inputs input {
-  margin-top: 5px;
+.model-settings__key-link {
+  color: #52525a;
+  font-weight: 600;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s;
 }
-.model-settings__model-actions {
+.model-settings__key-link:hover {
+  color: #0d0d0d;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.model-settings__key-link:focus-visible {
+  outline: 2px solid rgba(13, 13, 13, 0.4);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* 对齐 ZCode select：浅色 trigger + 白色 popover，选中对勾、高亮灰底。 */
+.model-settings__format {
+  position: relative;
+}
+.model-settings__format-trigger {
+  width: 100%;
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 18px;
-  margin-top: 12px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid #e0e0e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #202024;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
 }
-.model-settings__model-actions .ant-checkbox-wrapper {
-  font-size: 12px;
+.model-settings__format-trigger:hover:not(:disabled) {
+  border-color: rgba(13, 13, 13, 0.15);
 }
-.model-settings__model-actions > .ant-btn {
-  margin-left: auto;
+.model-settings__format-trigger[aria-expanded="true"] {
+  border-color: rgba(13, 13, 13, 0.25);
 }
-.model-settings__enable {
+.model-settings__format-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.model-settings__format-trigger svg {
+  color: rgba(13, 13, 13, 0.4);
+  flex-shrink: 0;
+}
+.model-settings__format-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-settings__format-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 4px;
+  border: 1px solid rgba(13, 13, 13, 0.1);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(13, 13, 13, 0.08);
+  outline: none;
+}
+.model-settings__format-option {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #202024;
+  cursor: pointer;
+}
+.model-settings__format-option.is-active {
+  background: #f0f0f0;
+}
+.model-settings__format-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-settings__format-check {
+  color: rgba(13, 13, 13, 0.6);
+  flex-shrink: 0;
+}
+.model-settings__model-modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-settings__model-modal-spacer {
+  flex: 1;
 }
 .model-settings__empty {
   padding: 35px 16px;
@@ -654,12 +747,7 @@
   .model-settings__header {
     flex-wrap: wrap;
   }
-  .model-settings__model-inputs,
   .model-settings__template-grid {
     grid-template-columns: 1fr;
-  }
-  .model-settings__model-actions {
-    flex-wrap: wrap;
-    gap: 10px;
   }
 }

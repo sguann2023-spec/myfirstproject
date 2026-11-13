@@ -80,6 +80,11 @@ describe('thinking intensity', () => {
     expect(css).toContain('transform: translateX(-4%)');
     expect(css).toContain('scale: 1.75');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    // 气泡流是品牌装饰特效，不跟随系统 reduced-motion（Windows 关「动画效果」时也要与 Mac 一致）；
+    // 较大过渡仍须在 reduce 下关闭。
+    const reducedMotionBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/)?.[1] || '';
+    expect(reducedMotionBlock).toContain('transition: none');
+    expect(reducedMotionBlock).not.toContain('thinking-bubble');
     expect(css).toContain('height: 24px');
     expect(css).toContain('width: 28px; height: 28px');
     expect(css).not.toContain('--thinking-progress');

@@ -1,6 +1,6 @@
 // SettingPage.jsx
 import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { Spin } from 'antd';
+import { Modal, Spin } from 'antd';
 import { Package } from 'lucide-react';
 import './SettingPage.css';
 
@@ -29,6 +29,15 @@ const settingMenuItems = [
 ];
 
 const SettingPage = () => {
+  // 设置窗口独立于 App 渲染（?view=settings），需自行注入全局 window.modal，
+  // 让删除确认等弹窗（confirmDelete）复用与主窗口一致的全局样式。
+  const [modal, modalContextHolder] = Modal.useModal();
+  useEffect(() => {
+    window.modal = modal;
+    return () => {
+      if (window.modal === modal) delete window.modal;
+    };
+  }, [modal]);
   const [selectedKey, setSelectedKey] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
     return settingMenuItems.some(item => item.key === tab) ? tab : 'account-security';
@@ -69,7 +78,8 @@ const SettingPage = () => {
   const SelectedComponent = settingMenuItems.find(item => item.key === selectedKey)?.component || GeneralSettings;
 
   return (
-    <div className="window-top-container"> 
+    <div className="window-top-container">
+      {modalContextHolder}
       <div className="window-top-bar">
           
           {/* 1. 左侧拖动区域：与侧边栏同宽，背景色相同 */}

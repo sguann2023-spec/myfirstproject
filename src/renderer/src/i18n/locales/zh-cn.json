@@ -1849,7 +1849,9 @@
       "session_expired": "登录状态已失效，请重新登录后继续使用",
       "session_expired_reply": "登录已过期或失效，请前往模型提供商设置重新登录；完成后即可继续使用。",
       "relogin": "重新登录",
-      "content": "消息内容被安全系统拦截，请修改后重试",
+      "content": "内容未通过模型服务的安全审核",
+      "content_hint": "这不是网络或客户端故障：模型服务认为提示词可能违反其使用政策。请改用中性措辞重新描述需求后发送，或切换其他模型。",
+      "content_reply": "本次请求被模型服务的内容安全审核拦截，未能生成回复。",
       "context_length": "当前对话上下文过长。为了节约您的 token 消耗，请开启新对话后继续执行任务",
       "deprecated": "该模型已下线或弃用，请更换其他模型",
       "go_to_settings": "前往设置",
@@ -2621,6 +2623,7 @@
           "claw": "Claw",
           "copylab": "文案反推",
           "cut_workflow": "剪辑工作流",
+          "color_grade": "调色",
           "digital_human": "数字人",
           "draft_elements": "草稿处理",
           "draft_download": "草稿下载",
@@ -2763,6 +2766,10 @@
             "create_draft": "创建草稿",
             "modify_draft": "修改草稿",
             "query_script": "查询草稿"
+          },
+          "color_grade": {
+            "match_reference_grade": "复刻参考色调",
+            "apply_grade": "批量套用滤镜"
           },
           "ffmpeg_media": {
             "capture_frame_at_timestamp": "按时间点截帧",

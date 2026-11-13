@@ -283,29 +283,32 @@ describe('codemode 关键词检索可发现性', () => {
   const buildCatalog = async () => {
     const { tools } = await listTools(new ColorGradeServer())
     const mine = tools.map((t: any) => entry('color-grade', t.name, t.description, t.inputSchema))
-    // 真实存在的邻居工具，作为竞争项
+    // 真实存在的邻居工具，描述为对应源文件的逐字摘录。
+    // 与 AI 生图的跨工具边界断言放在 image-generate.test.ts，那里两侧都是真实完整描述。
     const decoys = [
       entry('ffmpeg-media', 'capture_frame_at_timestamp', 'Capture a frame image from a video at a specific timestamp with the bundled ffmpeg.'),
       entry('ffmpeg-media', 'trim_media_segment', 'Trim a video or audio segment for any time range with the bundled ffmpeg and output a standalone clip.'),
       entry('image-understand', 'inspect_image', 'Inspect an image; with prompt, understand a complete video to analyze pacing, emotion, audiovisual rhythm.'),
-      entry('remove-bg', 'remove_background', 'Remove the background of an image and return a transparent PNG.'),
-      entry('subtitle-recognition', 'submit_subtitle_task', 'Recognize speech and generate subtitles for a video.')
+      entry('remove-bg', 'submit_remove_bg_task', 'Cut a person out of a video. By default writes the result into a draft; set compose_draft=false to return mask and inverted_mask URLs only. Submits and waits in one long-running call (up to 35 minutes).'),
+      entry('subtitle-recognition', 'submit_subtitle_recognition_task', 'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft.'),
+      entry('video-understand', 'submit_video_detail_task', 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues.')
     ]
     return [...mine, ...decoys]
   }
 
+  // codemode 要求模型用英文关键词检索，故断言全部用英文
   const queries = [
-    '调色',
-    '复刻参考片色调',
-    '统一色调',
-    '批量调色',
-    '商品保真',
-    '滤镜',
-    'color grade',
-    'match reference look'
+    'color grading',
+    'match reference look',
+    'reference video color transfer',
+    'unify color across clips',
+    'batch lut',
+    'cube filter',
+    'product color fidelity',
+    'apply lut to batch'
   ]
 
-  it.each(queries)('查询「%s」能在前 3 名命中调色工具', async (query) => {
+  it.each(queries)('英文查询「%s」能在前 3 名命中调色工具', async (query) => {
     const catalog = await buildCatalog()
     const ranked = rankCodemodeTools(catalog, query, 8)
     const top3 = ranked.slice(0, 3).map((t) => t.name)
@@ -314,12 +317,12 @@ describe('codemode 关键词检索可发现性', () => {
 
   it('意图区分：复刻类查询排第一的是拟合工具', async () => {
     const catalog = await buildCatalog()
-    expect(rankCodemodeTools(catalog, '复刻参考片色调', 3)[0].name).toContain('match_reference_grade')
+    expect(rankCodemodeTools(catalog, 'match reference look', 3)[0].name).toContain('match_reference_grade')
   })
 
   it('意图区分：批量套用类查询排第一的是出片工具', async () => {
     const catalog = await buildCatalog()
-    expect(rankCodemodeTools(catalog, '批量调色 套用滤镜', 3)[0].name).toContain('apply_grade')
+    expect(rankCodemodeTools(catalog, 'apply lut to batch', 3)[0].name).toContain('apply_grade')
   })
 })
 

@@ -33,6 +33,7 @@ import Preset from '../../components/Preset/Preset';
 import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
 import { sendQueue } from '../../components/Chat/sendQueue';
+import composerDraftCache from '../../components/Chat/Composer/composerDraftCache';
 import {
   buildSkillExampleApplyDetail,
   dispatchSkillExampleApply,
@@ -46,6 +47,7 @@ import { getRechargeBalance } from '../../api/recharge';
 import { tokenStore } from '../../auth';
 import { MEMBER_COLOR } from '../../constants/member';
 import { normalizeChatError, shouldSuppressCancelledTurnError } from '../../shared/chatError';
+import { toMediaSrc } from '../../shared/mediaSrc.js';
 import { sendChatRetry } from '../../shared/chatRetry';
 import { normalizePresetAddRequestPayload } from '../../shared/presetAddRequest';
 import { normalizeAudioAddRequestPayload } from '../../shared/audioAddRequest';
@@ -2048,12 +2050,12 @@ const inferPersistedImageAttachmentFileType = (value = '') => {
 const normalizePersistedImageAttachments = (attachments = []) => (
   (Array.isArray(attachments) ? attachments : []).reduce((acc, attachment, index) => {
     if (!attachment || typeof attachment !== 'object') return acc;
-    const previewUrl = String(
+    const previewUrl = toMediaSrc(String(
       attachment?.previewUrl
       || attachment?.thumbnailUrl
       || attachment?.url
       || ''
-    ).trim();
+    ).trim());
     if (!previewUrl) return acc;
     const fileType = String(attachment?.fileType || '').trim() || inferPersistedImageAttachmentFileType(previewUrl);
     acc.push({
@@ -2061,9 +2063,9 @@ const normalizePersistedImageAttachments = (attachments = []) => (
       uid: String(attachment?.uid || `persisted-image-${index}`),
       name: String(attachment?.name || `图片 ${index + 1}`),
       fileType,
-      url: String(attachment?.url || previewUrl).trim(),
+      url: toMediaSrc(String(attachment?.url || previewUrl).trim()),
       previewUrl,
-      thumbnailUrl: String(attachment?.thumbnailUrl || previewUrl).trim(),
+      thumbnailUrl: toMediaSrc(String(attachment?.thumbnailUrl || previewUrl).trim()),
     });
     return acc;
   }, [])
@@ -2073,7 +2075,7 @@ const buildPersistedUserImageAttachmentsFromBlocks = (blocks = []) => (
   (Array.isArray(blocks) ? blocks : []).reduce((acc, block, index) => {
     if (!isStructuredBlockObject(block)) return acc;
     if (String(block?.type || '').toLowerCase() !== 'image') return acc;
-    const previewUrl = String(block?.url || '').trim();
+    const previewUrl = toMediaSrc(String(block?.url || '').trim());
     if (!previewUrl) return acc;
     acc.push({
       uid: String(block?.id || `persisted-image-block-${index}`),
@@ -2096,7 +2098,7 @@ const getPersistedUserImagePreviewSources = (message = {}) => (
       || ''
     ).trim();
     if (!previewUrl) return acc;
-    acc.push(previewUrl);
+    acc.push(toMediaSrc(previewUrl));
     return acc;
   }, [])
 );
@@ -2641,25 +2643,12 @@ const HomePage = () => {
   const beginnerGuideDownloadPaneRef = useRef(null);
   const beginnerGuideSettingsPaneRef = useRef(null);
   const [chatHistoryAnimated, setChatHistoryAnimated] = useState(false);
-  const [chatDraftInput, updateChatDraftInput] = useState(() => {
-    try {
-      return localStorage.getItem('chat-panel:unsent-draft') || '';
-    } catch {
-      return '';
-    }
-  });
+  // 未发送草稿按会话隔离，保存在 Composer 的内存缓存里；这里只保留当前会话的输入值。
+  const [chatDraftInput, updateChatDraftInput] = useState('');
   const chatDraftInputRef = useRef(chatDraftInput);
   const setChatDraftInput = useCallback((value) => {
     const next = String(typeof value === 'function' ? value(chatDraftInputRef.current) : value ?? '');
     chatDraftInputRef.current = next;
-    // Persist at the input boundary so a renderer failure does not lose a
-    // pending debounce. Clearing after send also removes the recovery copy.
-    try {
-      if (next) localStorage.setItem('chat-panel:unsent-draft', next);
-      else localStorage.removeItem('chat-panel:unsent-draft');
-    } catch (error) {
-      logger.warn('Failed to persist unsent chat draft.', error);
-    }
     updateChatDraftInput(next);
   }, []);
 
@@ -5649,8 +5638,9 @@ const HomePage = () => {
     setChatWorkspaceStatusMap((prev) => {
       const next = { ...prev };
       let changed = false;
-      normalizedSessionIds.forEach((sessionId) => {
+    normalizedSessionIds.forEach((sessionId) => {
       sendQueue.clear(sessionId);
+      composerDraftCache.clear(sessionId);
       for (const [requestId, pending] of chatPendingByRequestIdRef.current) {
         if (pending.chatId === sessionId) queueCompletionRef.current.delete(requestId);
       }

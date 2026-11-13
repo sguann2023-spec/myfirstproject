@@ -1,7 +1,9 @@
 import React from "react";
 import {
   ArrowLeft,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   Info,
@@ -24,13 +26,12 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
-  Select,
   Switch,
   Tooltip,
 } from "antd";
 import "./ModelSettings.css";
 import { getCurrentChannelBrandConfig } from "../../../channel-branding/runtime";
+import { confirmDelete } from "../../shared/confirmDelete.js";
 
 const OFFICIAL_LOGO = getCurrentChannelBrandConfig().runtimeAssets.aboutLogo;
 const formatContextWindow = (tokens) => {
@@ -83,40 +84,2591 @@ const NAV_TOOLTIP_PROPS = {
 // 对齐 ZCode 可选供应商目录（含 rev33 之后的新增套餐入口）：名称使用其中文本地化文案，
 // 端点与协议逐条核对官方文档；anthropic-messages → anthropic，其余 → openai。
 export const PROVIDER_TEMPLATES = [
-  { name: "智谱(中国) Coding Plan", protocol: "anthropic", baseUrl: "https://open.bigmodel.cn/api/anthropic", group: "zhipu" },
-  { name: "智谱(国际) Coding Plan", protocol: "anthropic", baseUrl: "https://api.z.ai/api/anthropic", group: "zhipu" },
-  { name: "智谱(中国) API", protocol: "openai", baseUrl: "https://open.bigmodel.cn/api/paas/v4", group: "zhipu" },
-  { name: "智谱(国际) API", protocol: "openai", baseUrl: "https://api.z.ai/api/paas/v4", group: "zhipu" },
-  { name: "Kimi", protocol: "anthropic", baseUrl: "https://api.moonshot.cn/anthropic", group: "other" },
-  { name: "Kimi Code（国内）", protocol: "anthropic", baseUrl: "https://api.kimi.com/coding", group: "other" },
-  { name: "Kimi Code（国际）", protocol: "anthropic", baseUrl: "https://api.kimi.ai/coding", group: "other" },
-  { name: "MiniMax", protocol: "anthropic", baseUrl: "https://api.minimaxi.com/anthropic", group: "other" },
-  { name: "MiniMax M Plan（中国）", protocol: "anthropic", baseUrl: "https://api.minimaxi.com/anthropic", group: "other" },
-  { name: "DeepSeek", protocol: "anthropic", baseUrl: "https://api.deepseek.com/anthropic", group: "other" },
-  { name: "阿里云百炼（中国）", protocol: "anthropic", baseUrl: "https://dashscope.aliyuncs.com/apps/anthropic", group: "other" },
-  { name: "阿里云百炼（国际）", protocol: "openai", baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", group: "other" },
-  { name: "阿里云百炼 Coding Plan（中国）", protocol: "anthropic", baseUrl: "https://coding.dashscope.aliyuncs.com/apps/anthropic", group: "other" },
-  { name: "阿里云百炼 Token Plan 团队版（中国）", protocol: "anthropic", baseUrl: "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic", group: "other" },
-  { name: "Xiaomi MiMo API", protocol: "anthropic", baseUrl: "https://api.xiaomimimo.com/anthropic", group: "other" },
-  { name: "Xiaomi MiMo Token Plan", protocol: "anthropic", baseUrl: "https://token-plan-cn.xiaomimimo.com/anthropic", group: "other" },
-  { name: "腾讯 TokenHub 广州 API（中国站）", protocol: "openai", baseUrl: "https://tokenhub.tencentmaas.com/v1", group: "other" },
-  { name: "腾讯 TokenHub 新加坡 API（中国站）", protocol: "openai", baseUrl: "https://tokenhub-intl.tencentmaas.com/v1", group: "other" },
-  { name: "火山方舟 API", protocol: "openai", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", group: "other" },
-  { name: "火山方舟 Coding Plan", protocol: "openai", baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3", group: "other" },
-  { name: "火山方舟 Agent Plan", protocol: "openai", baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3", group: "other" },
-  { name: "阶跃星辰 API", protocol: "openai", baseUrl: "https://api.stepfun.com/v1", group: "other" },
-  { name: "阶跃星辰 Step Plan", protocol: "anthropic", baseUrl: "https://api.stepfun.com/step_plan", group: "other" },
-  { name: "OpenAI", protocol: "openai", baseUrl: "https://api.openai.com/v1", group: "other" },
-  { name: "Anthropic", protocol: "anthropic", baseUrl: "https://api.anthropic.com", group: "other" },
-  { name: "xAI", protocol: "openai", baseUrl: "https://api.x.ai/v1", group: "other" },
-  { name: "硅基流动 API（中国）", protocol: "openai", baseUrl: "https://api.siliconflow.cn/v1", group: "other" },
-  { name: "OpenRouter", protocol: "openai", baseUrl: "https://openrouter.ai/api/v1", group: "other" },
-  { name: "OpenCode Go (Responses)", protocol: "openai", baseUrl: "https://opencode.ai/zen/go/v1", group: "other" },
-  { name: "OpenCode Go (Anthropic)", protocol: "anthropic", baseUrl: "https://opencode.ai/zen/go/v1", group: "other" },
-  { name: "OpenCode Go (Chat)", protocol: "openai", baseUrl: "https://opencode.ai/zen/go/v1", group: "other" },
-  { name: "OpenCode Zen (Responses)", protocol: "openai", baseUrl: "https://opencode.ai/zen/v1", group: "other" },
-  { name: "OpenCode Zen (Anthropic)", protocol: "anthropic", baseUrl: "https://opencode.ai/zen/v1", group: "other" },
-  { name: "OpenCode Zen (Chat)", protocol: "openai", baseUrl: "https://opencode.ai/zen/v1", group: "other" },
+  {
+    name: "智谱（中国）Coding Plan",
+    logoKey: "bigmodel",
+    protocol: "anthropic",
+    baseUrl: "https://open.bigmodel.cn/api/anthropic",
+    group: "zhipu",
+    apiKeyUrl: "https://bigmodel.cn/coding-plan/personal/overview",
+    models: [
+      {
+        modelId: "GLM-5-Turbo",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "GLM-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.3-Flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "智谱（国际）Coding Plan",
+    logoKey: "zai",
+    protocol: "anthropic",
+    baseUrl: "https://api.z.ai/api/anthropic",
+    group: "zhipu",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    models: [
+      {
+        modelId: "GLM-5-Turbo",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "GLM-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.3-Flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "智谱（中国）API",
+    logoKey: "bigmodel",
+    protocol: "openai",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    group: "zhipu",
+    apiKeyUrl: "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+    models: [
+      {
+        modelId: "GLM-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.3-Flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.3-FlashX",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5V-Turbo",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000
+      },
+      {
+        modelId: "GLM-5.1-Highspeed",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000
+      },
+      {
+        modelId: "GLM-5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5-Turbo",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "GLM-4.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.7-FlashX",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.7-Flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.5-Air",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6V",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6V-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6V-FlashX",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.1V-Thinking-FlashX",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.1V-Thinking-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4-FlashX-250414",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4-Flash-250414",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4V-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "codegeex-4",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 131072,
+      },
+      {
+        modelId: "charglm-4",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 8192,
+      },
+      {
+        modelId: "emohaa",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 8192,
+      },
+    ],
+  },
+  {
+    name: "智谱（国际）API",
+    logoKey: "zai",
+    protocol: "openai",
+    baseUrl: "https://api.z.ai/api/paas/v4",
+    group: "zhipu",
+    apiKeyUrl: "https://z.ai/manage-apikey/apikey-list",
+    models: [
+      {
+        modelId: "GLM-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.3-Flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5V-Turbo",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000
+      },
+      {
+        modelId: "GLM-5.1-Highspeed",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000
+      },
+      {
+        modelId: "GLM-5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-5-Turbo",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "GLM-4.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.7-FlashX",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.7-Flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.5-Air",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6V",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6V-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.6V-FlashX",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.1V-Thinking-FlashX",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4.1V-Thinking-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4-FlashX-250414",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4-Flash-250414",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "GLM-4V-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "codegeex-4",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 131072,
+      },
+      {
+        modelId: "charglm-4",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 8192,
+      },
+      {
+        modelId: "emohaa",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 8192,
+      },
+    ],
+  },
+  {
+    name: "Kimi",
+    logoKey: "kimi",
+    protocol: "anthropic",
+    baseUrl: "https://api.moonshot.cn/anthropic",
+    group: "other",
+    apiKeyUrl: "https://platform.kimi.com/console/api-keys",
+    models: [
+      {
+        modelId: "kimi-k3.1-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "kimi-k3.1-pro-highspeed",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "kimi-k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "kimi-k2.7-code",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "kimi-k2.6",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "k3",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "k3-256k",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "kimi-k2.7-code-highspeed",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+    ],
+  },
+  {
+    name: "Kimi Code（国内）",
+    logoKey: "kimi",
+    protocol: "openai",
+    baseUrl: "https://api.kimi.com/coding/v1",
+    group: "other",
+    apiKeyUrl: "https://www.kimi.com/code",
+    models: [
+      {
+        modelId: "k3.1-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "k3.1-pro-highspeed",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "k3-256k",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "kimi-for-coding",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "kimi-for-coding-highspeed",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+    ],
+  },
+  {
+    name: "Kimi Code（国际）",
+    logoKey: "kimi",
+    protocol: "openai",
+    baseUrl: "https://api.kimi.ai/coding/v1",
+    group: "other",
+    apiKeyUrl: "https://www.kimi.com/code",
+    models: [
+      {
+        modelId: "k3.1-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "k3.1-pro-highspeed",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "k3-256k",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "kimi-for-coding",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "kimi-for-coding-highspeed",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+    ],
+  },
+  {
+    name: "MiniMax",
+    logoKey: "minimax",
+    protocol: "anthropic",
+    baseUrl: "https://api.minimaxi.com/anthropic",
+    group: "other",
+    apiKeyUrl: "https://platform.minimaxi.com/console/access?tab=api-keys",
+    models: [
+      {
+        modelId: "MiniMax-M2.7",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.7-highspeed",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "MiniMax-M3.1-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "MiniMax-M2.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.5-highspeed",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.1-highspeed",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+    ],
+  },
+  {
+    name: "MiniMax M Plan（中国）",
+    logoKey: "minimax",
+    protocol: "anthropic",
+    baseUrl: "https://api.minimaxi.com/anthropic",
+    group: "other",
+    apiKeyUrl: "https://platform.minimaxi.com",
+    models: [
+      {
+        modelId: "MiniMax-M2.7",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.7-highspeed",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "MiniMax-M3.1-Flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "MiniMax-M2.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.5-highspeed",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2.1-highspeed",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+      {
+        modelId: "MiniMax-M2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+    ],
+  },
+  {
+    name: "DeepSeek",
+    logoKey: "deepseek",
+    protocol: "anthropic",
+    baseUrl: "https://api.deepseek.com/anthropic",
+    group: "other",
+    apiKeyUrl: "https://platform.deepseek.com/api_keys",
+    models: [
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4.1-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "阿里云百炼（中国）",
+    logoKey: "alibaba",
+    protocol: "anthropic",
+    baseUrl: "https://dashscope.aliyuncs.com/apps/anthropic",
+    group: "other",
+    apiKeyUrl: "https://bailian.console.aliyun.com/cn-beijing?tab=model",
+    models: [
+      {
+        modelId: "qwen3.8-max",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen-plus",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-vl-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen3.7-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "阿里云百炼（国际）",
+    logoKey: "alibaba",
+    protocol: "openai",
+    baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    group: "other",
+    apiKeyUrl:
+      "https://modelstudio.console.aliyun.com/ap-southeast-1?tab=dashboard",
+    models: [
+      {
+        modelId: "qwen3.8-max",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen-plus",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-vl-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen3.7-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-omni-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 65536,
+      },
+    ],
+  },
+  {
+    name: "阿里云百炼 Coding Plan（中国）",
+    logoKey: "alibaba",
+    protocol: "anthropic",
+    baseUrl: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+    group: "other",
+    apiKeyUrl: "https://bailian.console.aliyun.com",
+    models: [
+      {
+        modelId: "qwen3.8-max",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen-plus",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-vl-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen3.7-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "阿里云百炼 Token Plan 团队版（中国）",
+    logoKey: "alibaba",
+    protocol: "anthropic",
+    baseUrl: "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+    group: "other",
+    apiKeyUrl: "https://bailian.console.aliyun.com",
+    models: [
+      {
+        modelId: "qwen3.8-max",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen-plus",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3-vl-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen3.7-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "Xiaomi MiMo API",
+    logoKey: "mimo",
+    protocol: "anthropic",
+    baseUrl: "https://api.xiaomimimo.com/anthropic",
+    group: "other",
+    apiKeyUrl: "https://platform.xiaomimimo.com/",
+    models: [
+      {
+        modelId: "mimo-v2.6-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.6-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.6-pro-ultraspeed",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.5-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.5",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "Xiaomi MiMo Token Plan",
+    logoKey: "mimo",
+    protocol: "anthropic",
+    baseUrl: "https://token-plan-cn.xiaomimimo.com/anthropic",
+    group: "other",
+    apiKeyUrl: "https://platform.xiaomimimo.com/",
+    models: [
+      {
+        modelId: "mimo-v2.6-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.6-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "腾讯 TokenHub 广州 API（中国站）",
+    logoKey: "tokenhub",
+    protocol: "openai",
+    baseUrl: "https://tokenhub.tencentmaas.com/v1",
+    group: "other",
+    apiKeyUrl: "https://console.cloud.tencent.com/tokenhub",
+    models: [
+      {
+        modelId: "hy4",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576
+      },
+      {
+        modelId: "hy4-preview",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "hy3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 262144
+      },
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000
+      },
+      {
+        modelId: "deepseek-v4.1-flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000
+      },
+      {
+        modelId: "glm-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000
+      },
+      {
+        modelId: "kimi-k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576
+      },
+      {
+        modelId: "minimax-m3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000
+      },
+    ],
+  },
+  {
+    name: "腾讯 TokenHub 新加坡 API（中国站）",
+    logoKey: "tokenhub",
+    protocol: "openai",
+    baseUrl: "https://tokenhub-intl.tencentmaas.com/v1",
+    group: "other",
+    apiKeyUrl: "https://console.cloud.tencent.com/tokenhub",
+    models: [
+      {
+        modelId: "hy4",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576
+      },
+      {
+        modelId: "hy4-preview",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "hy3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 262144
+      },
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000
+      },
+      {
+        modelId: "deepseek-v4.1-flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000
+      },
+      {
+        modelId: "glm-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000
+      },
+      {
+        modelId: "kimi-k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576
+      },
+      {
+        modelId: "minimax-m3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000
+      },
+    ],
+  },
+  {
+    name: "火山方舟 API",
+    logoKey: "ark",
+    protocol: "openai",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    group: "other",
+    apiKeyUrl: "https://console.volcengine.com/ark",
+    models: [
+      {
+        modelId: "doubao-seed-2-1-pro-260915",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "doubao-seed-evolving",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "doubao-seed-2-1-turbo-260628",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "doubao-seed-2-0-pro-260215",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "doubao-seed-2-0-mini-260428",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+    ],
+  },
+  {
+    name: "火山方舟 Coding Plan",
+    logoKey: "ark",
+    protocol: "openai",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/coding/v3",
+    group: "other",
+    apiKeyUrl: "https://console.volcengine.com/ark",
+    models: [
+      {
+        modelId: "ark-code-latest",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: undefined,
+      },
+      {
+        modelId: "doubao-seed-evolving",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "doubao-seed-2.1-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "doubao-seed-2.1-lite",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: undefined,
+      },
+      {
+        modelId: "doubao-seed-2.0-mini",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "glm-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "glm-5.3-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4.1-flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4.1-flash-economy",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "kimi-k2.8-preview",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "kimi-k3.1-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+    ],
+  },
+  {
+    name: "火山方舟 Agent Plan",
+    logoKey: "ark",
+    protocol: "openai",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3",
+    group: "other",
+    apiKeyUrl: "https://console.volcengine.com/ark",
+    models: [
+      {
+        modelId: "doubao-seed-2.1-turbo",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "doubao-seed-2.0-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "doubao-seed-evolving",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "glm-5.2",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "kimi-k2.7-code",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax-m3",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "阶跃星辰 API",
+    logoKey: "stepfun",
+    protocol: "openai",
+    baseUrl: "https://api.stepfun.com/v1",
+    group: "other",
+    apiKeyUrl: "https://platform.stepfun.com",
+    models: [
+      {
+        modelId: "step-3.5-flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 262144
+      },
+      {
+        modelId: "step-3.7-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "step-5-preview",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000
+      },
+    ],
+  },
+  {
+    name: "阶跃星辰 Step Plan",
+    logoKey: "stepfun",
+    protocol: "anthropic",
+    baseUrl: "https://api.stepfun.com/step_plan",
+    group: "other",
+    apiKeyUrl: "https://platform.stepfun.com",
+    models: [
+      {
+        modelId: "step-3.5-flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 262144
+      },
+    ],
+  },
+  {
+    name: "OpenAI",
+    logoKey: "openai",
+    protocol: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    group: "other",
+    apiKeyUrl: "https://platform.openai.com/api-keys",
+    models: [
+      {
+        modelId: "gpt-5.6-sol",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.6-terra",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.6-luna",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.6",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.3-codex",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "gpt-6-astra",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.4",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.4-pro",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.4-mini",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "gpt-5.4-nano",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+    ],
+  },
+  {
+    name: "Anthropic",
+    logoKey: "anthropic",
+    protocol: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    group: "other",
+    apiKeyUrl: "https://console.anthropic.com/settings/keys",
+    models: [
+      {
+        modelId: "claude-fable-5-2",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-fable-5",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-opus-5",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-sonnet-5",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-opus-5-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-sonnet-5-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-haiku-5-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "claude-haiku-4-5-20251001",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "claude-fable-5-1",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "xAI",
+    logoKey: "xai",
+    protocol: "openai",
+    baseUrl: "https://api.x.ai/v1",
+    group: "other",
+    apiKeyUrl: "https://console.x.ai",
+    models: [
+      {
+        modelId: "grok-4.6",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 500000,
+      },
+      {
+        modelId: "grok-4.5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 500000,
+      },
+      {
+        modelId: "grok-build-0.1",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 256000,
+      },
+      {
+        modelId: "grok-4.3",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "硅基流动 API（中国）",
+    logoKey: "siliconflow",
+    protocol: "openai",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    group: "other",
+    apiKeyUrl: "https://cloud.siliconflow.cn/me/account/ak",
+    models: [
+      {
+        modelId: "deepseek-ai/DeepSeek-V4-Flash",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "Pro/zai-org/GLM-5.1",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "deepseek-ai/DeepSeek-V3.2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 131072,
+      },
+      {
+        modelId: "moonshotai/Kimi-K2.6",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "Pro/MiniMaxAI/MiniMax-M2.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 204800,
+      },
+    ],
+  },
+  {
+    name: "OpenRouter",
+    logoKey: "openrouter",
+    protocol: "anthropic",
+    baseUrl: "https://openrouter.ai/api",
+    group: "other",
+    apiKeyUrl: "https://openrouter.ai/keys",
+    models: [
+      {
+        modelId: "openai/gpt-5.6-sol",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "openai/gpt-5.6-terra",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "openai/gpt-5.6-luna",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "openai/gpt-5.3-codex",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "anthropic/claude-opus-5",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-sonnet-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-haiku-4.5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "deepseek/deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek/deepseek-v4-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "moonshotai/kimi-k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "moonshotai/kimi-k2.7-code",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "z-ai/glm-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "z-ai/glm-5.3-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "z-ai/glm-5.2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "qwen/qwen3.8-max",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.8-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax/minimax-m3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax/minimax-m3.1-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "xiaomi/mimo-v2.6-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "xiaomi/mimo-v2.6-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "x-ai/grok-4.6",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 500000,
+      },
+      {
+        modelId: "openai/gpt-5.6",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "anthropic/claude-opus-4.8",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-opus-4.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-opus-4.6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-opus-4.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-sonnet-4.6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-sonnet-4.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "moonshotai/kimi-k2.6",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "moonshotai/kimi-k2.5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "z-ai/glm-5.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-5v-turbo",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-5-turbo",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-4.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-4.7-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-4.6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "z-ai/glm-4.6v",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 131072,
+      },
+      {
+        modelId: "z-ai/glm-4.5-air",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 131072,
+      },
+      {
+        modelId: "z-ai/glm-4.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 131072,
+      },
+      {
+        modelId: "qwen/qwen3.7-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.7-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.6-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.6-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.5-plus-20260420",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3-vl-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "qwen/qwen3-vl-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax/minimax-m2.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax/minimax-m2.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "x-ai/grok-build-0.1",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 256000,
+      },
+      {
+        modelId: "x-ai/grok-4.3",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "openai/gpt-6-astra",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "anthropic/claude-fable-5.1",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "anthropic/claude-fable-5.2",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "openai/gpt-5.4",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "openai/gpt-5.4-pro",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "openai/gpt-5.4-mini",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "openai/gpt-5.4-nano",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "deepseek/deepseek-v4.1-flash",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen/qwen3.8-max-0902",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "OpenCode Go (Responses)",
+    logoKey: "opencode",
+    protocol: "openai",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    group: "other",
+    apiKeyUrl: "https://opencode.ai/auth",
+    models: [
+      {
+        modelId: "gpt-5.6-luna",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "grok-4.6",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 500000,
+      },
+    ],
+  },
+  {
+    name: "OpenCode Go (Anthropic)",
+    logoKey: "opencode",
+    protocol: "anthropic",
+    baseUrl: "https://opencode.ai/zen/go",
+    group: "other",
+    apiKeyUrl: "https://opencode.ai/auth",
+    models: [
+      {
+        modelId: "minimax-m3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax-m3.1-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax-m2.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax-m2.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-max",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.8-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-max",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "OpenCode Go (Chat)",
+    logoKey: "opencode",
+    protocol: "openai",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    group: "other",
+    apiKeyUrl: "https://opencode.ai/auth",
+    models: [
+      {
+        modelId: "glm-5.3-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "glm-5.3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "glm-5.2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "glm-5.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "kimi-k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "kimi-k2.7-code",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "kimi-k2.6",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 262144,
+      },
+      {
+        modelId: "deepseek-v4.1-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-flash-vision-exp",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.6-flash",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.6-pro",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "hy4-preview",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "hy3",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "grok-4.7",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 500000,
+      },
+      {
+        modelId: "kimi-k3.1-pro",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "step-5-preview",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax-m3.1-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "longcat-2.0",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: undefined,
+      },
+      {
+        modelId: "gemini-4-argon",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: undefined,
+      },
+    ],
+  },
+  {
+    name: "OpenCode Zen (Responses)",
+    logoKey: "opencode",
+    protocol: "openai",
+    baseUrl: "https://opencode.ai/zen/v1",
+    group: "other",
+    apiKeyUrl: "https://opencode.ai/auth",
+    models: [
+      {
+        modelId: "gpt-5.6-sol",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.6-terra",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.6-luna",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "gpt-5.5-pro",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "gpt-5.4",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.4-pro",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+      {
+        modelId: "gpt-5.4-mini",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "gpt-5.4-nano",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "gpt-5.3-codex",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "gpt-5.3-codex-spark",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 400000,
+      },
+      {
+        modelId: "gpt-5.2",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "gpt-5.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "gpt-6-astra",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1050000,
+      },
+    ],
+  },
+  {
+    name: "OpenCode Zen (Anthropic)",
+    logoKey: "opencode",
+    protocol: "anthropic",
+    baseUrl: "https://opencode.ai/zen",
+    group: "other",
+    apiKeyUrl: "https://opencode.ai/auth",
+    models: [
+      {
+        modelId: "claude-fable-5",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-opus-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-sonnet-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-haiku-4-5",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "claude-opus-4-8",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-opus-4-7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-opus-4-6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-opus-4-5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-sonnet-4-6",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-sonnet-4-5",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-max",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.7-plus",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.6-plus",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "qwen3.5-plus",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "claude-fable-5-1",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+    ],
+  },
+  {
+    name: "OpenCode Zen (Chat)",
+    logoKey: "opencode",
+    protocol: "openai",
+    baseUrl: "https://opencode.ai/zen/v1",
+    group: "other",
+    apiKeyUrl: "https://opencode.ai/auth",
+    models: [
+      {
+        modelId: "kimi-k3",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1048576,
+      },
+      {
+        modelId: "minimax-m3",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "minimax-m2.7",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-pro",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4-flash",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "glm-5.2",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "glm-5.1",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 200000,
+      },
+      {
+        modelId: "big-pickle",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "mimo-v2.6-flash-free",
+        enabled: true,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "hy3-free",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "ling-3.0-flash-fin-free",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "nemotron-3-ultra-free",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "nemotron-3.5-lightning-free",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "muse-spark-1.2-contributor-free",
+        enabled: true,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "deepseek-v4.1-flash-free",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "glm-5.3-flash-free",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: 1000000,
+      },
+      {
+        modelId: "flint-40b-free",
+        enabled: false,
+        read_image: false,
+        context_window_tokens: undefined,
+      },
+      {
+        modelId: "nemotron-3.5-super-vl-free",
+        enabled: false,
+        read_image: true,
+        context_window_tokens: undefined,
+      },
+    ],
+  },
 ];
 // Original assets copied from ZCode-main/packages/ui/src/assets/provider-icons.
 // Exact endpoint hosts identify brands independently of the editable display name.
@@ -147,7 +2699,70 @@ const BRAND_ASSETS = {
   "api.x.ai": iconXai,
   "opencode.ai": iconOpencode,
 };
-export const resolveProviderLogo = (baseUrl) => {
+// 品牌标识随供应商持久化（对齐 ZCode config.logo）：清空/改写 Base URL 不丢图标。
+const LOGO_ASSETS = {
+  bigmodel: iconBigmodel,
+  zai: iconZai,
+  kimi: iconKimi,
+  minimax: iconMinimax,
+  deepseek: iconDeepseek,
+  alibaba: iconAlibaba,
+  mimo: iconMimo,
+  tokenhub: iconTokenhub,
+  ark: iconArk,
+  stepfun: iconStepfun,
+  siliconflow: iconSiliconflow,
+  openai: iconOpenai,
+  anthropic: iconAnthropic,
+  xai: iconXai,
+  openrouter: iconOpenrouter,
+  opencode: iconOpencode,
+};
+const HOST_TO_LOGO_KEY = {
+  "api.openai.com": "openai",
+  "api.anthropic.com": "anthropic",
+  "api.deepseek.com": "deepseek",
+  "openrouter.ai": "openrouter",
+  "open.bigmodel.cn": "bigmodel",
+  "api.z.ai": "zai",
+  "api.moonshot.cn": "kimi",
+  "api.moonshot.ai": "kimi",
+  "api.kimi.com": "kimi",
+  "api.kimi.ai": "kimi",
+  "api.minimaxi.com": "minimax",
+  "api.minimax.io": "minimax",
+  "dashscope.aliyuncs.com": "alibaba",
+  "dashscope-intl.aliyuncs.com": "alibaba",
+  "coding.dashscope.aliyuncs.com": "alibaba",
+  "token-plan.cn-beijing.maas.aliyuncs.com": "alibaba",
+  "api.xiaomimimo.com": "mimo",
+  "token-plan-cn.xiaomimimo.com": "mimo",
+  "tokenhub.tencentmaas.com": "tokenhub",
+  "tokenhub-intl.tencentmaas.com": "tokenhub",
+  "ark.cn-beijing.volces.com": "ark",
+  "api.stepfun.com": "stepfun",
+  "api.siliconflow.cn": "siliconflow",
+  "api.x.ai": "xai",
+  "opencode.ai": "opencode",
+};
+const TEMPLATE_NAME_TO_LOGO_KEY = Object.fromEntries(
+  PROVIDER_TEMPLATES.map((template) => [template.name, template.logoKey]),
+);
+// 品牌标识不随设置变化（对齐 ZCode config.logo）：
+// 优先已持久化 logoKey；旧存档按模板名称回填，其次按加载时的 URL 主机固定下来。
+export const inferProviderLogoKey = (provider) => {
+  if (provider?.logoKey) return provider.logoKey;
+  const byName = TEMPLATE_NAME_TO_LOGO_KEY[provider?.name];
+  if (byName) return byName;
+  try {
+    const url = new URL(provider?.baseUrl || "");
+    return HOST_TO_LOGO_KEY[url.hostname];
+  } catch {
+    return undefined;
+  }
+};
+export const resolveProviderLogo = (baseUrl, logoKey) => {
+  if (logoKey && LOGO_ASSETS[logoKey]) return LOGO_ASSETS[logoKey];
   try {
     const url = new URL(baseUrl);
     if (
@@ -161,8 +2776,8 @@ export const resolveProviderLogo = (baseUrl) => {
     return null;
   }
 };
-function ProviderIcon({ baseUrl, customTemplate = false }) {
-  const src = resolveProviderLogo(baseUrl);
+function ProviderIcon({ baseUrl, logoKey, customTemplate = false }) {
+  const src = resolveProviderLogo(baseUrl, logoKey);
   const [failedSrc, setFailedSrc] = React.useState(null);
   return (
     <span
@@ -181,6 +2796,100 @@ function ProviderIcon({ baseUrl, customTemplate = false }) {
         <Package size={22} aria-hidden="true" />
       )}
     </span>
+  );
+}
+// 对齐 ZCode ProviderApiFormatSelect / select.tsx：浅色 popover、选中行右侧对勾、
+// 高亮行 menu-hover 灰底（不用 antd 深色选中填充），含 Responses 协议入口。
+const API_FORMATS = [
+  { value: "anthropic", label: "Anthropic Messages (/v1/messages)" },
+  { value: "openai", label: "Chat Completions (/chat/completions)" },
+  { value: "openai-responses", label: "Responses (/responses)" },
+];
+function ApiFormatSelect({ value, onChange, disabled }) {
+  const [open, setOpen] = React.useState(false);
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const rootRef = React.useRef(null);
+  const current = API_FORMATS.find((format) => format.value === value) || API_FORMATS[0];
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+  const openList = () => {
+    setActiveIndex(Math.max(0, API_FORMATS.findIndex((format) => format.value === value)));
+    setOpen(true);
+  };
+  const commit = (format) => {
+    onChange(format.value);
+    setOpen(false);
+  };
+  const onListKeyDown = (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((index) => {
+        const next = index + (event.key === "ArrowDown" ? 1 : -1);
+        return (next + API_FORMATS.length) % API_FORMATS.length;
+      });
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      commit(API_FORMATS[activeIndex]);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+    } else if (event.key === "Tab") {
+      setOpen(false);
+    }
+  };
+  return (
+    <div className="model-settings__format" ref={rootRef}>
+      <button
+        type="button"
+        className="model-settings__format-trigger"
+        aria-label="API 协议"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => (open ? setOpen(false) : openList())}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openList();
+          }
+        }}
+      >
+        <span className="model-settings__format-value">{current.label}</span>
+        <ChevronDown size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          className="model-settings__format-popover"
+          role="listbox"
+          aria-label="API 格式"
+          tabIndex={-1}
+          onKeyDown={onListKeyDown}
+          ref={(node) => node?.focus()}
+        >
+          {API_FORMATS.map((format, index) => (
+            <div
+              key={format.value}
+              role="option"
+              aria-selected={format.value === value}
+              className={`model-settings__format-option${index === activeIndex ? " is-active" : ""}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => commit(format)}
+            >
+              <span className="model-settings__format-option-label">{format.label}</span>
+              {format.value === value && (
+                <Check size={16} className="model-settings__format-check" aria-hidden="true" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 const uuid = () => `custom-${crypto.randomUUID()}`;
@@ -214,8 +2923,18 @@ export const createProvider = (template) => ({
   protocol: template.protocol,
   baseUrl: template.baseUrl,
   apiKey: "",
-  models: [],
+  apiKeyUrl: template.apiKeyUrl || "",
+  logoKey: template.logoKey,
   enabled: true,
+  // 对齐 ZCode：模板自带内置模型目录（含上下文/识图元数据与默认启用态）。
+  models: (template.models || []).map((model) => ({
+    id: uuid(),
+    name: model.modelId,
+    modelId: model.modelId,
+    read_image: Boolean(model.read_image),
+    context_window_tokens: model.context_window_tokens,
+    enabled: model.enabled !== false,
+  })),
 });
 // 存储层（主进程）是唯一校验源，对齐 ZCode：草稿可落盘，非法 URL 等错误以反馈条呈现。
 // 反馈条不回显原始 IPC 错误文本，避免把凭据等敏感信息带进 UI。
@@ -253,7 +2972,9 @@ export default function ModelSettings() {
   const [feedback, setFeedback] = React.useState(null);
   const feedbackTimerRef = React.useRef(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [editingModel, setEditingModel] = React.useState(null);
+  const [isNewModel, setIsNewModel] = React.useState(false);
+  const [modelError, setModelError] = React.useState("");
   const nameInputRef = React.useRef(null);
   const nameBeforeEditRef = React.useRef("");
   const [adding, setAdding] = React.useState(false);
@@ -288,7 +3009,10 @@ export default function ModelSettings() {
   const loadOfficialPrefs = async (request) => {
     try {
       const prefs = await window.electronAPI.officialChatModels?.getPrefs();
-      if (request === generation.current && Array.isArray(prefs?.disabledModelIds))
+      if (
+        request === generation.current &&
+        Array.isArray(prefs?.disabledModelIds)
+      )
         setOfficialDisabled(prefs.disabledModelIds);
     } catch {
       // 偏好读取失败时保持全部启用，不阻塞模型列表展示。
@@ -324,21 +3048,33 @@ export default function ModelSettings() {
       const result = await window.electronAPI.customChatModels.listProviders();
       if (request !== generation.current) return;
       if (!Array.isArray(result)) throw new Error();
-      setProviders(result);
-      providersRef.current = result;
+      // 旧存档迁移：把品牌标识固定下来（模板名称优先，其次加载时 URL 主机），
+      // 之后编辑 Base URL 不再改变图标；savedRef 保留原始快照，差异由自动保存落盘一次。
+      const withLogos = result.map((item) => {
+        if (item.logoKey) return item;
+        const logoKey = inferProviderLogoKey(item);
+        return logoKey ? { ...item, logoKey } : item;
+      });
+      setProviders(withLogos);
+      providersRef.current = withLogos;
       savedRef.current = JSON.stringify(result);
       setSaved(savedRef.current);
       loadedRef.current = true;
       setLoaded(true);
       setSelected((current) =>
-        result.some((item) => item.id === current)
+        withLogos.some((item) => item.id === current)
           ? current
           : BUILTIN_PROVIDER_ID,
       );
       setAdding(false);
-    } catch {
+    } catch (error) {
+      console.error("[ModelSettings] listProviders failed", error);
       if (request === generation.current)
-        setError("加载供应商失败，请重试。当前草稿已保留。");
+        setError(
+          /No handler registered/i.test(String(error?.message || error))
+            ? "主进程尚未就绪（开发模式热重启中），请点击刷新重试。当前草稿已保留。"
+            : "加载供应商失败，请重试。当前草稿已保留。",
+        );
     } finally {
       if (request === generation.current) setLoading(false);
     }
@@ -398,10 +3134,7 @@ export default function ModelSettings() {
     if (testingModels[id]) return;
     const identity = `流光剪辑 / ${modelName}`;
     setTestingModels((current) => ({ ...current, [id]: true }));
-    showFeedback(
-      { state: "pending", message: `正在测试 ${identity}` },
-      0,
-    );
+    showFeedback({ state: "pending", message: `正在测试 ${identity}` }, 0);
     try {
       const result = await testChatModel(id);
       if (result.ok) {
@@ -497,6 +3230,50 @@ export default function ModelSettings() {
   }, [providers, saved, loaded, flushSave]);
   // 卸载（关闭设置页/退出）前兜底提交未落盘草稿。
   React.useEffect(() => () => void flushSave(), [flushSave]);
+  // 自定义模型连接测试：主进程 IPC 发起真实请求（渲染进程 fetch 受 CORS 限制）。
+  const testCustomModel = async (targetProvider, model) => {
+    const testKey = `${targetProvider.id}:${model.id}`;
+    if (testingModels[testKey]) return;
+    const identity = `${targetProvider.name?.trim() || "未命名供应商"} / ${model.modelId}`;
+    setTestingModels((current) => ({ ...current, [testKey]: true }));
+    showFeedback({ state: "pending", message: `正在测试 ${identity}` }, 0);
+    try {
+      const result = await window.electronAPI.customChatModels.testModel({
+        baseUrl: targetProvider.baseUrl,
+        protocol: targetProvider.protocol,
+        apiKey: targetProvider.apiKey,
+        modelId: model.modelId,
+      });
+      if (result.ok) {
+        showFeedback(
+          { state: "success", emphasis: true, message: `${identity} 连接成功` },
+          3500,
+        );
+      } else {
+        showFeedback(
+          {
+            state: "failure",
+            message: `${identity} 连接失败：${result.error || "连接失败"}`,
+          },
+          8000,
+        );
+      }
+    } catch (error) {
+      showFeedback(
+        {
+          state: "failure",
+          message: `${identity} 连接失败：${error?.message || "连接失败"}`,
+        },
+        8000,
+      );
+    } finally {
+      setTestingModels((current) => {
+        const next = { ...current };
+        delete next[testKey];
+        return next;
+      });
+    }
+  };
   const addFromTemplate = (template) => {
     const next = [...providers, createProvider(template)];
     setProviders(next);
@@ -505,11 +3282,20 @@ export default function ModelSettings() {
     void flushSave(next);
   };
   const deleteProvider = () => {
-    setDeleteOpen(false);
     const next = providers.filter((item) => item.id !== selected);
     setProviders(next);
     setSelected(next[0]?.id ?? BUILTIN_PROVIDER_ID);
     void flushSave(next);
+  };
+  // 删除供应商走全局统一删除确认弹窗（对齐草稿删除样式）。
+  const requestDeleteProvider = async () => {
+    const target = providers.find((item) => item.id === selected);
+    const confirmed = await confirmDelete({
+      title: "确认删除供应商",
+      content: `删除后不可恢复，确认删除供应商「${target?.name ?? ""}」及其全部模型吗？`,
+    });
+    if (!confirmed) return;
+    deleteProvider();
   };
   const update = (patch) => {
     setProviders((items) =>
@@ -524,6 +3310,21 @@ export default function ModelSettings() {
         model.id === id ? { ...model, ...patch } : model,
       ),
     });
+  // 删除模型同样走全局统一删除确认弹窗。
+  const requestDeleteModel = async () => {
+    const target = editingModel;
+    if (!target) return;
+    const confirmed = await confirmDelete({
+      title: "确认删除模型",
+      content: `删除后不可恢复，确认删除模型「${target.name || target.modelId}」吗？`,
+    });
+    if (!confirmed) return;
+    update({
+      models: provider.models.filter((item) => item.id !== target.id),
+    });
+    setEditingModel(null);
+    setModelError("");
+  };
   const refresh = (
     <Button
       className="model-settings__refresh"
@@ -578,9 +3379,7 @@ export default function ModelSettings() {
         {error && <Alert type="error" showIcon message={error} />}
         <div className="model-settings__layout">
           <aside className="model-settings__sidebar">
-            <div className="model-settings__eyebrow">
-              流光剪辑
-            </div>
+            <div className="model-settings__eyebrow">流光剪辑</div>
             <Tooltip title="流光剪辑" {...NAV_TOOLTIP_PROPS}>
               <button
                 data-provider-id={BUILTIN_PROVIDER_ID}
@@ -620,7 +3419,7 @@ export default function ModelSettings() {
                         setAdding(false);
                       }}
                     >
-                      <ProviderIcon baseUrl={item.baseUrl} />
+                      <ProviderIcon baseUrl={item.baseUrl} logoKey={inferProviderLogoKey(item)} />
                       <span className="model-settings__provider-name">
                         <strong>{item.name || "未命名供应商"}</strong>
                       </span>
@@ -672,7 +3471,7 @@ export default function ModelSettings() {
                       className="model-settings__template"
                       onClick={() => addFromTemplate(template)}
                     >
-                      <ProviderIcon baseUrl={template.baseUrl} />
+                      <ProviderIcon baseUrl={template.baseUrl} logoKey={template.logoKey} />
                       <strong>{template.name}</strong>
                       <ChevronRight
                         className="model-settings__template-chevron"
@@ -797,7 +3596,7 @@ export default function ModelSettings() {
                 {/* 对齐 ZCode ProviderCardHeader：图标 + 行内可编辑名称，右侧供应商开关 + …菜单（重命名/删除）。 */}
                 <div className="model-settings__provider-header">
                   <div className="model-settings__provider-header-name">
-                    <ProviderIcon baseUrl={provider.baseUrl} />
+                    <ProviderIcon baseUrl={provider.baseUrl} logoKey={inferProviderLogoKey(provider)} />
                     <input
                       ref={nameInputRef}
                       className="model-settings__name-input"
@@ -829,7 +3628,9 @@ export default function ModelSettings() {
                       <Switch
                         size="small"
                         aria-label={
-                          provider.enabled === false ? "启用供应商" : "禁用供应商"
+                          provider.enabled === false
+                            ? "启用供应商"
+                            : "禁用供应商"
                         }
                         checked={provider.enabled !== false}
                         disabled={busy}
@@ -862,11 +3663,11 @@ export default function ModelSettings() {
                             className="model-settings__menu-item model-settings__menu-item--danger"
                             onClick={() => {
                               setMenuOpen(false);
-                              setDeleteOpen(true);
+                              void requestDeleteProvider();
                             }}
                           >
                             <Trash2 size={14} aria-hidden="true" />
-                            删除供应商
+                            删除
                           </button>
                         </div>
                       )}
@@ -880,15 +3681,6 @@ export default function ModelSettings() {
                     </Dropdown>
                   </div>
                 </div>
-                <Modal
-                  open={deleteOpen}
-                  title="确认删除此供应商及其全部模型？"
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
-                  onOk={deleteProvider}
-                  onCancel={() => setDeleteOpen(false)}
-                />
                 <fieldset disabled={busy} className="model-settings__fields">
                   <Form layout="vertical" component="div">
                     <Form.Item label="Base URL">
@@ -900,24 +3692,33 @@ export default function ModelSettings() {
                       />
                     </Form.Item>
                     <Form.Item label="API 格式">
-                      <Select
-                        aria-label="API 协议"
-                        disabled={busy}
+                      <ApiFormatSelect
                         value={provider.protocol}
-                        options={[
-                          {
-                            label: "Chat Completions (/v1/chat/completions)",
-                            value: "openai",
-                          },
-                          {
-                            label: "Anthropic Messages (/v1/messages)",
-                            value: "anthropic",
-                          },
-                        ]}
+                        disabled={busy}
                         onChange={(protocol) => update({ protocol })}
                       />
                     </Form.Item>
-                    <Form.Item label="API Key">
+                    <Form.Item
+                      label={
+                        <span className="model-settings__key-label">
+                          API Key
+                          {provider.apiKeyUrl ? (
+                            <a
+                              className="model-settings__key-link"
+                              href={provider.apiKeyUrl}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                window.electronAPI.openExternal?.(
+                                  provider.apiKeyUrl,
+                                );
+                              }}
+                            >
+                              获取 API Key
+                            </a>
+                          ) : null}
+                        </span>
+                      }
+                    >
                       <Input.Password
                         aria-label="API Key"
                         placeholder="输入 API Key"
@@ -933,20 +3734,16 @@ export default function ModelSettings() {
                   <Button
                     disabled={busy}
                     icon={<Plus size={14} aria-hidden="true" />}
-                    onClick={() =>
-                      update({
-                        models: [
-                          ...provider.models,
-                          {
-                            id: uuid(),
-                            name: "",
-                            modelId: "",
-                            read_image: false,
-                            enabled: true,
-                          },
-                        ],
-                      })
-                    }
+                    onClick={() => {
+                      setEditingModel({
+                        id: uuid(),
+                        name: "",
+                        modelId: "",
+                        read_image: false,
+                        enabled: true,
+                      });
+                      setIsNewModel(true);
+                    }}
                   >
                     添加模型
                   </Button>
@@ -957,75 +3754,202 @@ export default function ModelSettings() {
                     当前没有配置模型，添加模型后可在聊天中使用。
                   </div>
                 )}
-                {provider.models.map((model, index) => (
-                  <div className="model-settings__model" key={model.id}>
-                    <div className="model-settings__model-inputs">
-                      <label>
-                        模型名称
-                        <Input
-                          disabled={busy}
-                          aria-label={`模型 ${index + 1} 名称`}
-                          value={model.name}
-                          onChange={(e) =>
-                            updateModel(model.id, { name: e.target.value })
-                          }
-                        />
-                      </label>
-                      <label>
-                        模型 ID
-                        <Input
-                          disabled={busy}
-                          aria-label={`模型 ${index + 1} ID`}
-                          value={model.modelId}
-                          onChange={(e) =>
-                            updateModel(model.id, { modelId: e.target.value })
-                          }
-                        />
-                      </label>
+                {provider.models.length > 0 && (
+                  <ul className="model-settings__official-list">
+                    {provider.models.map((model, index) => {
+                      const testKey = `${provider.id}:${model.id}`;
+                      const testing = Boolean(testingModels[testKey]);
+                      const context = formatContextWindow(
+                        model.context_window_tokens,
+                      );
+                      return (
+                        <li
+                          className="model-settings__official-model"
+                          key={model.id}
+                        >
+                          <span
+                            className="model-settings__custom-model-id"
+                            title={model.modelId}
+                          >
+                            {model.modelId || "未命名模型"}
+                          </span>
+                          {context && (
+                            <span
+                              className="model-settings__context-badge"
+                              title={`上下文窗口：${model.context_window_tokens} tokens`}
+                            >
+                              {context}
+                            </span>
+                          )}
+                          {model.read_image === true && (
+                            <span className="model-settings__vision-badge">
+                              视觉
+                            </span>
+                          )}
+                          <span className="model-settings__official-actions">
+                            <Tooltip
+                              title={testing ? "测试中" : "测试模型"}
+                              {...NAV_TOOLTIP_PROPS}
+                              placement="top"
+                            >
+                              <Button
+                                size="small"
+                                type="text"
+                                className="model-settings__test"
+                                aria-label={`测试模型 ${model.modelId || index + 1}`}
+                                disabled={
+                                  testing ||
+                                  !model.modelId?.trim() ||
+                                  !provider.apiKey?.trim()
+                                }
+                                icon={
+                                  testing ? (
+                                    <Loader2
+                                      size={14}
+                                      className="model-settings__spin"
+                                      aria-hidden="true"
+                                    />
+                                  ) : (
+                                    <Unplug size={14} aria-hidden="true" />
+                                  )
+                                }
+                                onClick={() => testCustomModel(provider, model)}
+                              />
+                            </Tooltip>
+                            <Tooltip
+                              title="编辑模型"
+                              {...NAV_TOOLTIP_PROPS}
+                              placement="top"
+                            >
+                              <Button
+                                size="small"
+                                type="text"
+                                className="model-settings__test"
+                                aria-label={`编辑模型 ${index + 1}`}
+                                icon={<Pencil size={14} aria-hidden="true" />}
+                                onClick={() => {
+                                  setEditingModel({ ...model });
+                                  setIsNewModel(false);
+                                }}
+                              />
+                            </Tooltip>
+                            <Switch
+                              aria-label={`启用模型 ${index + 1}`}
+                              size="small"
+                              disabled={busy}
+                              checked={model.enabled !== false}
+                              onChange={(enabled) =>
+                                updateModel(model.id, { enabled })
+                              }
+                            />
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <Modal
+                  open={Boolean(editingModel)}
+                  title={isNewModel ? "添加模型" : "编辑模型"}
+                  okText="保存"
+                  cancelText="取消"
+                  onOk={() => {
+                    const draft = {
+                      ...editingModel,
+                      name: editingModel.name.trim(),
+                      modelId: editingModel.modelId.trim(),
+                    };
+                    if (!draft.modelId) {
+                      setModelError("请输入模型 ID");
+                      return;
+                    }
+                    if (isNewModel) {
+                      update({ models: [...provider.models, draft] });
+                    } else {
+                      updateModel(draft.id, draft);
+                    }
+                    setEditingModel(null);
+                    setModelError("");
+                  }}
+                  onCancel={() => {
+                    setEditingModel(null);
+                    setModelError("");
+                  }}
+                  footer={(_, { OkBtn, CancelBtn }) => (
+                    <div className="model-settings__model-modal-footer">
+                      {!isNewModel && (
+                        <Button danger onClick={() => void requestDeleteModel()}>
+                          删除模型
+                        </Button>
+                      )}
+                      <span className="model-settings__model-modal-spacer" />
+                      <CancelBtn />
+                      <OkBtn />
                     </div>
-                    <div className="model-settings__model-actions">
+                  )}
+                >
+                  {editingModel && (
+                    <Form layout="vertical" component="div">
+                      <Form.Item label="模型 ID" required>
+                        <Input
+                          aria-label="模型 ID"
+                          value={editingModel.modelId}
+                          onChange={(e) =>
+                            setEditingModel({
+                              ...editingModel,
+                              modelId: e.target.value,
+                            })
+                          }
+                        />
+                      </Form.Item>
+                      <Form.Item label="模型名称">
+                        <Input
+                          aria-label="模型名称"
+                          value={editingModel.name}
+                          onChange={(e) =>
+                            setEditingModel({
+                              ...editingModel,
+                              name: e.target.value,
+                            })
+                          }
+                        />
+                      </Form.Item>
+                      <Form.Item label="上下文窗口（tokens）">
+                        <Input
+                          aria-label="上下文窗口"
+                          inputMode="numeric"
+                          value={editingModel.context_window_tokens ?? ""}
+                          onChange={(e) => {
+                            const parsed = Number(e.target.value);
+                            setEditingModel({
+                              ...editingModel,
+                              context_window_tokens:
+                                e.target.value.trim() &&
+                                Number.isSafeInteger(parsed) &&
+                                parsed > 0
+                                  ? parsed
+                                  : undefined,
+                            });
+                          }}
+                        />
+                      </Form.Item>
                       <Checkbox
-                        disabled={busy}
-                        checked={Boolean(model.read_image)}
+                        checked={Boolean(editingModel.read_image)}
                         onChange={(e) =>
-                          updateModel(model.id, {
+                          setEditingModel({
+                            ...editingModel,
                             read_image: e.target.checked,
                           })
                         }
                       >
                         支持识图
                       </Checkbox>
-                      <label className="model-settings__enable">
-                        启用{" "}
-                        <Switch
-                          aria-label={`启用模型 ${index + 1}`}
-                          size="small"
-                          disabled={busy}
-                          checked={model.enabled !== false}
-                          onChange={(enabled) =>
-                            updateModel(model.id, { enabled })
-                          }
-                        />
-                      </label>
-                      <Popconfirm
-                        title="确认删除此模型？"
-                        okText="删除"
-                        cancelText="取消"
-                        onConfirm={() =>
-                          update({
-                            models: provider.models.filter(
-                              (item) => item.id !== model.id,
-                            ),
-                          })
-                        }
-                      >
-                        <Button size="small" danger disabled={busy}>
-                          删除模型 {index + 1}
-                        </Button>
-                      </Popconfirm>
-                    </div>
-                  </div>
-                ))}
+                      {modelError && (
+                        <Alert type="error" showIcon message={modelError} />
+                      )}
+                    </Form>
+                  )}
+                </Modal>
               </>
             ) : (
               <div className="model-settings__empty">

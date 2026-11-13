@@ -1292,15 +1292,10 @@
   opacity: 1;
 }
 
+/* 最大档气泡流是品牌装饰特效（2~4px、低透明度），刻意不跟随系统 reduced-motion：
+   Windows「动画效果」常被关闭，此前会把气泡整体隐藏，造成与 Mac 的跨平台不一致。
+   滑块/填充/档位等较大过渡仍跟随系统减弱动效设置。 */
 @media (prefers-reduced-motion: reduce) {
-  .chat-panel__thinking-bubbles {
-    display: none;
-  }
-
-  .chat-panel__thinking-bubble {
-    animation: none;
-  }
-
   .chat-panel__thinking-slider-stop,
   .chat-panel__thinking-slider-thumb,
   .chat-panel__thinking-slider-fill,
