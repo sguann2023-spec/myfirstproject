@@ -820,7 +820,12 @@ export async function processPiHarnessQuery(input: {
       latestInputTokens = Number((event.message as any).usage?.input ?? latestInputTokens)
       currentAssistantUsage = convertPiUsage((event.message as any).usage)
       currentAssistantStopReason = mapPiStopReason((event.message as any).stopReason)
-      const messageEndToolCalls = extractPiToolCallSnapshots(event.message as { content?: unknown })
+      const attemptStopReason = String((event.message as any).stopReason || '')
+      const attemptFailed = attemptStopReason === 'aborted' || attemptStopReason === 'error'
+      // Aborted attempts never execute their tools; recovering their snapshots would
+      // create pending cards that can never reach a terminal state.
+      const messageEndToolCalls =
+        attemptStopReason === 'aborted' ? [] : extractPiToolCallSnapshots(event.message as { content?: unknown })
       for (const toolCall of messageEndToolCalls) {
         const emittedToolCallId = ensureToolBlockId(toolCall.contentIndex)
         const providerMetadata = {
@@ -848,6 +853,47 @@ export async function processPiHarnessQuery(input: {
           stopReason: (event.message as any).stopReason,
           errorMessage: (event.message as any).errorMessage
         })
+      }
+      if (attemptFailed) {
+        // The retry status chunk may run before this message_end arrives (abort ordering),
+        // leaving streaming inputs / pending calls of the dead attempt dangling in the
+        // renderer. Finalize them here so every tool card reaches a terminal state.
+        for (const [id, input] of streamingToolInputs) {
+          terminalToolCallIds.add(id)
+          emitChunk(
+            stream,
+            {
+              type: 'tool-error',
+              toolCallId: id,
+              toolName: input.toolName,
+              error: `Tool input abandoned: assistant attempt ended (${attemptStopReason}).`,
+              providerExecuted: false,
+              providerMetadata: providerMetadataBase
+            } as TextStreamPart<any>,
+            harness
+          )
+        }
+        streamingToolInputs.clear()
+        for (const pending of new Set(pendingToolCalls.values())) {
+          terminalToolCallIds.add(pending.providerToolCallId)
+          terminalToolCallIds.add(pending.emittedId)
+          emitChunk(
+            stream,
+            {
+              type: 'tool-error',
+              toolCallId: pending.emittedId,
+              toolName: pending.toolName,
+              input: pending.input,
+              error: `Tool call abandoned: assistant attempt ended (${attemptStopReason}).`,
+              providerExecuted: false,
+              providerMetadata: providerMetadataBase
+            } as TextStreamPart<any>,
+            harness
+          )
+          unregisterMcpProgressCallId(pending.providerToolCallId, pending.emittedId)
+          architectureContext.pendingFileChanges.delete(pending.providerToolCallId)
+        }
+        pendingToolCalls.clear()
       }
       emitChunk(
         stream,

@@ -60,7 +60,8 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: VoiceLibraryServer },
       { default: WorkspaceMemoryServer },
       { default: ClawServer },
-      { default: ZhipuSearchServer }
+      { default: ZhipuSearchServer },
+      { default: ColorGradeServer }
     ] = await Promise.all([
       import('@main/mcpServers/ai-library'),
       import('@main/mcpServers/figure-search'),
@@ -100,7 +101,8 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/voice-library'),
       import('@main/mcpServers/workspaceMemory'),
       import('@main/mcpServers/claw'),
-      import('@main/mcpServers/zhipu-search')
+      import('@main/mcpServers/zhipu-search'),
+      import('@main/mcpServers/color-grade')
     ])
 
     const imageGenerateServer = new ImageGenerateServer({ external: true })
@@ -209,6 +211,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'ffmpeg-media',
         serverName: 'ffmpeg-media',
         createInstance: () => new FfmpegMediaServer().mcpServer
+      },
+      {
+        serverId: 'color-grade',
+        serverName: 'color-grade',
+        createInstance: () => new ColorGradeServer(workspacePath).mcpServer
       },
       {
         serverId: 'draft-management',

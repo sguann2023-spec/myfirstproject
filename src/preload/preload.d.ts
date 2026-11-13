@@ -18,6 +18,7 @@ declare global {
     }
     electronAPI: {
       customChatModels: WindowApiType['customChatModels']
+      officialChatModels: WindowApiType['officialChatModels']
       openDownloadDirectory: (directoryPath: string) => void
       startFileMonitor: (monitorData: any) => void
       onFileFound: (callback: (value: any) => void) => () => void

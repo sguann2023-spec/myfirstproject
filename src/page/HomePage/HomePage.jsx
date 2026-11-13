@@ -78,6 +78,7 @@ import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
 import { buildProvidersState, toModelOption, customModelToOption } from './chatProviders';
 import { useCustomChatModels } from './useCustomChatModels';
+import { useOfficialModelPrefs } from './useOfficialModelPrefs';
 import { CHAT_MODEL_KEY, useChatModelPreference } from './useChatModelPreference';
 import { MODEL_THINKING_LEVELS_KEY, useModelThinkingLevels } from './useModelThinkingLevels';
 const logger = loggerService.withContext('HomePage');
@@ -2594,10 +2595,11 @@ const HomePage = () => {
   const [chatWorkspaceStatusMap, setChatWorkspaceStatusMap] = useState({});
   const [builtInChatModelOptions, setChatModelOptions] = useState(() => CHAT_MODELS.map((item) => toModelOption(item)));
   const customChatModels = useCustomChatModels();
+  const officialDisabledModels = useOfficialModelPrefs();
   const chatModelOptions = useMemo(() => [
-    ...builtInChatModelOptions,
+    ...builtInChatModelOptions.filter((option) => !officialDisabledModels.includes(option.value)),
     ...customChatModels.models.map(customModelToOption)
-  ], [builtInChatModelOptions, customChatModels.models]);
+  ], [builtInChatModelOptions, customChatModels.models, officialDisabledModels]);
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
   const [chatDefaultModel, setChatDefaultModel] = useState('');
   // 模型与思考强度绑定会话：切换会话时从目标会话恢复，修改只回写当前会话，

@@ -2,7 +2,7 @@ import { ipcMain, safeStorage } from 'electron'
 import type { BrowserWindow } from 'electron'
 import Store from 'electron-store'
 import { IpcChannel } from '../../packages/shared/IpcChannel'
-import type { CustomChatModel, CustomChatProvider } from '../../packages/shared/customChatModels'
+import type { CustomChatModel, CustomChatProvider, OfficialChatModelPrefs } from '../../packages/shared/customChatModels'
 
 type StoredModel = Omit<CustomChatModel, 'apiKey'> & { encryptedApiKey: string }
 type StoredProvider = Omit<CustomChatProvider, 'apiKey'> & { encryptedApiKey: string }
@@ -38,27 +38,51 @@ export function validateCustomChatProviders(input: unknown): CustomChatProvider[
   const modelIds = new Set<string>()
   return input.map((value) => {
     if (!value || typeof value !== 'object') throw new Error('Invalid custom provider')
-    const { id, name, protocol, baseUrl, apiKey, models } = value
+    const { id, name, protocol, baseUrl, apiKey, models, enabled } = value
     if (typeof id !== 'string' || !id.trim() || providerIds.has(id.toLowerCase())) throw new Error('Provider IDs must be unique non-empty strings')
     providerIds.add(id.toLowerCase())
-    // Reuse endpoint and credential validation even for an empty provider.
-    const validated = validateCustomChatModels([{ id: 'custom-00000000-0000-0000-0000-000000000000', name, protocol, baseUrl, apiKey, modelId: 'validation', read_image: false }])[0]
+    if (enabled !== undefined && typeof enabled !== 'boolean') throw new Error('Provider enabled must be a boolean')
+    if (typeof name !== 'string' || !name.trim()) throw new Error('Provider name must be a non-empty string')
+    if (protocol !== 'openai' && protocol !== 'anthropic') throw new Error('Unsupported custom model protocol')
+    if (typeof apiKey !== 'string') throw new Error('API key must be a string')
+    if (typeof baseUrl !== 'string') throw new Error('Base URL must be a string')
+    // 草稿容忍：Base URL 允许为空（尚未填写），非空时必须是干净的 HTTP(S) 地址。
+    if (baseUrl.trim()) {
+      let url: URL
+      try { url = new URL(baseUrl) } catch { throw new Error('Invalid custom model URL') }
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) {
+        throw new Error('Invalid custom model URL')
+      }
+    }
     if (!Array.isArray(models)) throw new Error('Provider models must be an array')
     const entries = models.map((model) => {
-      if (!model || typeof model !== 'object' || typeof model.enabled !== 'boolean') throw new Error('enabled must be a boolean')
-      const clean = validateCustomChatModels([{ id: model.id, name: model.name, modelId: model.modelId, read_image: model.read_image, protocol, baseUrl, apiKey }])[0]
-      if (modelIds.has(clean.id.toLowerCase())) throw new Error('Custom model IDs must be globally unique')
-      modelIds.add(clean.id.toLowerCase())
-      return { id: clean.id, name: clean.name, modelId: clean.modelId, read_image: clean.read_image, enabled: model.enabled }
+      if (!model || typeof model !== 'object' || typeof model.enabled !== 'boolean' || typeof model.read_image !== 'boolean') throw new Error('Invalid custom model entry')
+      if (typeof model.id !== 'string' || !model.id.trim() || modelIds.has(model.id.toLowerCase())) throw new Error('Custom model IDs must be globally unique')
+      modelIds.add(model.id.toLowerCase())
+      if (typeof model.name !== 'string' || typeof model.modelId !== 'string') throw new Error('Custom model fields must be strings')
+      return { id: model.id, name: model.name, modelId: model.modelId, read_image: model.read_image, enabled: model.enabled }
     })
-    return { id, name: validated.name, protocol: validated.protocol, baseUrl: validated.baseUrl, apiKey, models: entries }
+    return { id, name: name.trim(), protocol, baseUrl: baseUrl.trim(), apiKey, enabled: enabled === undefined ? true : enabled, models: entries }
   })
 }
 
 function toProviders(models: CustomChatModel[]): CustomChatProvider[] {
   return models.map(({ id, name, modelId, read_image, ...provider }) => ({
-    ...provider, id: `provider-${id}`, name, models: [{ id, name, modelId, read_image, enabled: true }]
+    ...provider, id: `provider-${id}`, name, enabled: true, models: [{ id, name, modelId, read_image, enabled: true }]
   }))
+}
+
+/** 官方模型开关只保存禁用列表；去重、去空白，拒绝非字符串条目。 */
+export function validateOfficialChatModelPrefs(input: unknown): OfficialChatModelPrefs {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Official model prefs must be an object')
+  const { disabledModelIds } = input as { disabledModelIds?: unknown }
+  if (!Array.isArray(disabledModelIds)) throw new Error('disabledModelIds must be an array')
+  const seen = new Set<string>()
+  for (const value of disabledModelIds) {
+    if (typeof value !== 'string' || !value.trim()) throw new Error('disabledModelIds entries must be non-empty strings')
+    seen.add(value.trim())
+  }
+  return { disabledModelIds: [...seen] }
 }
 
 export class CustomChatModelsService {
@@ -88,8 +112,11 @@ export class CustomChatModelsService {
   }
 
   list(): CustomChatModel[] {
-    return this.listProviders().flatMap(({ models, id: _id, name: _name, ...provider }) =>
-      models.filter((model) => model.enabled).map(({ enabled: _enabled, ...model }) => ({ ...provider, ...model })))
+    // 聊天侧投影只暴露配置完整且启用的供应商/模型；草稿留在存储里但不进入选择器。
+    return this.listProviders()
+      .filter((provider) => provider.enabled !== false && provider.apiKey.trim() && provider.baseUrl.trim())
+      .flatMap(({ models, id: _id, name: _name, enabled: _enabled, ...provider }) =>
+        models.filter((model) => model.enabled && model.modelId.trim()).map(({ enabled: _enabled, ...model }) => ({ ...provider, ...model })))
   }
 
   saveProviders(input: unknown): CustomChatProvider[] {
@@ -122,6 +149,18 @@ export function allowCustomChatModelsWindow(window: BrowserWindow): () => void {
 
 export function registerCustomChatModelsIpc(mainWindow: BrowserWindow) {
   const service = new CustomChatModelsService()
+  // 官方模型开关不含凭据，独立明文存储，避免与加密供应商文档互相影响。
+  const prefsStore = new Store<OfficialChatModelPrefs>({
+    name: 'official-chat-model-prefs',
+    defaults: { disabledModelIds: [] }
+  })
+  const readPrefs = (): OfficialChatModelPrefs => {
+    try {
+      return validateOfficialChatModelPrefs({ disabledModelIds: prefsStore.get('disabledModelIds') })
+    } catch {
+      return { disabledModelIds: [] }
+    }
+  }
   allowCustomChatModelsWindow(mainWindow)
   const authorize = (event: Electron.IpcMainInvokeEvent) => {
     if (![...allowedWindows].some((window) => !window.isDestroyed() && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame)) {
@@ -133,8 +172,21 @@ export function registerCustomChatModelsIpc(mainWindow: BrowserWindow) {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(IpcChannel.CustomChatModels_Changed)
     }
   }
+  const prefsChanged = () => {
+    for (const window of allowedWindows) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(IpcChannel.OfficialChatModels_Changed)
+    }
+  }
   ipcMain.handle(IpcChannel.CustomChatModels_List, (event) => { authorize(event); return service.list() })
   ipcMain.handle(IpcChannel.CustomChatModels_Save, (event, models: unknown) => { authorize(event); const result = service.save(models); changed(); return result })
   ipcMain.handle(IpcChannel.CustomChatModels_ListProviders, (event) => { authorize(event); return service.listProviders() })
   ipcMain.handle(IpcChannel.CustomChatModels_SaveProviders, (event, providers: unknown) => { authorize(event); const result = service.saveProviders(providers); changed(); return result })
+  ipcMain.handle(IpcChannel.OfficialChatModels_GetPrefs, (event) => { authorize(event); return readPrefs() })
+  ipcMain.handle(IpcChannel.OfficialChatModels_SetPrefs, (event, prefs: unknown) => {
+    authorize(event)
+    const result = validateOfficialChatModelPrefs(prefs)
+    prefsStore.set('disabledModelIds', result.disabledModelIds)
+    prefsChanged()
+    return result
+  })
 }

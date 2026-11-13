@@ -8,6 +8,7 @@ import AudioUnderstandServer from '@main/mcpServers/audio-understand'
 import type BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import CutWorkflowServer from '@main/mcpServers/cut-workflow'
+import ColorGradeServer from '@main/mcpServers/color-grade'
 import DigitalHumanServer from '@main/mcpServers/digital-human'
 import DraftDownloadServer from '@main/mcpServers/draft-download'
 import DraftElementsServer from '@main/mcpServers/draft-elements'
@@ -336,6 +337,18 @@ export async function mountRuntimeMcpServers(input: {
     if (shouldMountCapability('mediaTrim')) autoAllowTools.add(vt('ffmpeg-media', 'trim_media_segment'))
     if (shouldMountCapability('videoConcat')) autoAllowTools.add(vt('ffmpeg-media', 'concatenate_video_files'))
     allowMcpPattern(vp('ffmpeg-media'))
+  }
+
+  if (hasCutDomain) {
+    const colorGradeServer = new ColorGradeServer(cwd)
+    mountMcpServer('color-grade', {
+      type: 'sdk',
+      name: 'color-grade',
+      instance: colorGradeServer.mcpServer
+    })
+    if (shouldMountCapability('colorGradeMatch')) autoAllowTools.add(vt('color-grade', 'match_reference_grade'))
+    if (shouldMountCapability('colorGradeApply')) autoAllowTools.add(vt('color-grade', 'apply_grade'))
+    allowMcpPattern(vp('color-grade'))
   }
 
   if (hasCutDomain) {

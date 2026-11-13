@@ -11,8 +11,7 @@
 }
 .model-settings__header,
 .model-settings__section-heading,
-.model-settings__actions,
-.model-settings__footer {
+.model-settings__actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -74,11 +73,19 @@
   height: 28px;
   padding: 0;
   background: transparent;
+  border-color: #ccc;
 }
 .model-settings__actions .ant-btn-primary {
-  background: #000;
-  border-color: #000;
+  background: transparent;
+  color: #000;
+  border-color: #ccc;
 }
+.model-settings__actions .ant-btn-primary:hover {
+  background: transparent !important;
+  color: #000 !important;
+  border-color: #ccc !important;
+}
+
 .model-settings > .ant-alert {
   margin-bottom: 14px;
 }
@@ -120,18 +127,134 @@
   text-align: left;
   color: inherit;
   cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
 }
+/* Match ZCode Navigation.tsx (theme-zai-light): selected = border-hover +
+   card-selected; hover = border-hover at 60% only, never stronger than selected. */
 .model-settings__provider.is-active {
   background: #fff;
-  border-color: #e4e4e7;
-  box-shadow: 0 1px 3px #00000005;
+  border-color: rgba(13, 13, 13, 0.15);
 }
-.model-settings__provider:hover,
-.model-settings__template:hover {
-  border-color: #bcbcc3;
+.model-settings__provider:hover:not(.is-active) {
+  border-color: rgba(13, 13, 13, 0.09);
 }
-.model-settings__provider > span:last-child {
+.model-settings__provider-name {
   min-width: 0;
+  flex: 1;
+}
+/* Match ZCode ProviderStatusIndicator: 8px filled dot, success/warning tokens. */
+.model-settings__status {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.model-settings__status--ready {
+  background: #1e8a3e;
+}
+.model-settings__status--unavailable {
+  background: #e07b00;
+}
+.model-settings__status--disabled {
+  background: rgba(38, 38, 38, 0.4);
+}
+/* Match ZCode ProviderCardHeader: icon + inline-editable name, switch + … menu. */
+.model-settings__provider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.model-settings__provider-header-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.model-settings__provider-header-name .model-settings__avatar,
+.model-settings__provider-header-name .model-settings__avatar img,
+.model-settings__provider-header-name .model-settings__avatar svg {
+  width: 22px;
+  height: 22px;
+}
+.model-settings__name-input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 8px;
+  margin-left: -8px;
+  font-size: 17px;
+  font-weight: 600;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+.model-settings__name-input:hover:not(:disabled) {
+  border-color: rgba(13, 13, 13, 0.09);
+}
+.model-settings__name-input:focus {
+  outline: none;
+  border-color: rgba(13, 13, 13, 0.15);
+  background: #fff;
+}
+.model-settings__provider-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.model-settings__provider-header-actions .ant-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.model-settings__menu {
+  min-width: 148px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid rgba(13, 13, 13, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(13, 13, 13, 0.08);
+}
+.model-settings__menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 13px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.model-settings__menu-item:hover {
+  background: rgba(13, 13, 13, 0.05);
+}
+.model-settings__menu-item--danger {
+  color: #e03131;
+}
+.model-settings__menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(13, 13, 13, 0.08);
+}
+.model-settings__empty--info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 .model-settings__provider strong {
   display: block;
@@ -176,6 +299,7 @@
   background: #ededf0;
 }
 .model-settings__detail {
+  position: relative;
   padding: 24px;
   min-width: 0;
 }
@@ -196,7 +320,6 @@
   padding: 0;
   min-width: 0;
 }
-.model-settings__connection,
 .model-settings__model-inputs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -272,9 +395,6 @@
   border-radius: 9px;
   font-size: 12px;
 }
-.model-settings__muted {
-  padding: 10px;
-}
 .model-settings__picker-heading {
   display: flex;
   align-items: center;
@@ -290,7 +410,7 @@
   justify-content: center;
   box-shadow: none;
 }
-.model-settings__templates {
+.model-settings__template-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
@@ -298,9 +418,9 @@
 .model-settings__template {
   min-width: 0;
   min-height: 64px;
-  border: 1px solid #e5e5e9;
+  border: 1px solid rgba(13, 13, 13, 0.1);
   border-radius: 8px;
-  background: #fafafa;
+  background: rgba(13, 13, 13, 0.03);
   padding: 12px 16px;
   text-align: left;
   display: flex;
@@ -312,8 +432,10 @@
     background 0.15s,
     border-color 0.15s;
 }
+/* Match ZCode ProviderTemplatePicker: hover:border-border-hover hover:bg-hover. */
 .model-settings__template:hover {
-  background: #f1f1f3;
+  background: rgba(13, 13, 13, 0.05);
+  border-color: rgba(13, 13, 13, 0.15);
 }
 .model-settings__template strong {
   min-width: 0;
@@ -325,13 +447,6 @@
 .model-settings__template-chevron {
   flex-shrink: 0;
   color: #929298;
-}
-.model-settings__footer {
-  margin-top: 17px;
-}
-.model-settings__footer > span {
-  font-size: 11px;
-  color: #898991;
 }
 .model-settings button:focus-visible {
   outline: 2px solid #555;
@@ -357,6 +472,9 @@
 }
 .model-settings__official-list-heading {
   margin-bottom: 12px !important;
+  font-size: 14;
+  color: #888;
+  font-weight: 400 !important;
 }
 .model-settings__official-list {
   list-style: none;
@@ -384,6 +502,118 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+.model-settings__official-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.model-settings__official-actions .ant-btn {
+  height: 24px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #73737c;
+}
+/* Match ZCode ProviderFormControls: icon-only ghost test button (Unplug / spinning Loader2). */
+.model-settings__official-actions .model-settings__test {
+  width: 24px;
+  padding: 0;
+  justify-content: center;
+  color: rgba(13, 13, 13, 0.6);
+}
+.model-settings__official-actions .model-settings__test:hover:not(:disabled) {
+  color: rgba(13, 13, 13, 0.85);
+  background: rgba(13, 13, 13, 0.05);
+}
+.model-settings__spin {
+  animation: model-settings-spin 1s linear infinite;
+}
+@keyframes model-settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Match ZCode ProviderDetailFeedback: sticky bottom overlay, semantic success/failure surfaces. */
+.model-settings__feedback-layer {
+  position: absolute;
+  inset: 12px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.model-settings__feedback-viewport {
+  position: sticky;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.model-settings__feedback {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(13, 13, 13, 0.1);
+  border-radius: 12px;
+  /* 覆盖层会叠在模型行上方，必须不透明，否则背后文字透出来。 */
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(13, 13, 13, 0.08);
+  color: #202024;
+  font-size: 13px;
+  font-weight: 500;
+}
+.model-settings__feedback--success {
+  border-color: rgba(30, 138, 62, 0.3);
+  background: #eaf7ee;
+  color: #1e8a3e;
+}
+/* 保存成功沿用 ZCode 中性反馈：白底 + 语义绿图标（区别于连接测试的绿底强调）。 */
+.model-settings__feedback--neutral {
+  border-color: rgba(13, 13, 13, 0.1);
+  background: #fff;
+  color: #202024;
+}
+.model-settings__feedback--neutral .lucide-check-circle2 {
+  color: #1e8a3e;
+}
+.model-settings__feedback-action {
+  flex-shrink: 0;
+  color: inherit;
+  font-weight: 600;
+}
+.model-settings__feedback--failure {
+  border-color: rgba(224, 49, 49, 0.3);
+  background: #fceaea;
+  color: #e03131;
+}
+.model-settings__feedback-message {
+  min-width: 0;
+  flex: 1;
+}
+.model-settings__feedback-close {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.model-settings__feedback-close:hover {
+  background: rgba(13, 13, 13, 0.06);
 }
 .model-settings__context-badge,
 .model-settings__vision-badge {
@@ -424,9 +654,8 @@
   .model-settings__header {
     flex-wrap: wrap;
   }
-  .model-settings__connection,
   .model-settings__model-inputs,
-  .model-settings__templates {
+  .model-settings__template-grid {
     grid-template-columns: 1fr;
   }
   .model-settings__model-actions {

@@ -40,6 +40,13 @@ const MainTextBlock: React.FC<Props> = ({ block, citationBlockId, role, mentions
     [block.citationReferences, citationBlockId, rawCitations]
   )
 
+  // 模型在连续工具调用之间偶尔输出仅含省略号的占位文本块（如 "..."），
+  // 渲染出来就是会话里孤立的一行点点点；这里隐藏纯省略号块（用户消息除外）。
+  const compactContent = (block.content || '').replace(/\s/g, '')
+  if (role !== 'user' && compactContent && /^[.。…]+$/.test(compactContent)) {
+    return null
+  }
+
   return (
     <>
       {/* Render mentions associated with the message */}

@@ -33,6 +33,7 @@ dist-main/
 .sandbox
 ZCode-main/
 .zcode/
+.qoder-input-images/
 
 resources/ffmpeg
 resources/python/*/python/
