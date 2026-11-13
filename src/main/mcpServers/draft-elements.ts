@@ -729,7 +729,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_video',
-    'Add multiple video layers into a VectCut draft in one request.',
+    'Add multiple video layers into a VectCut draft in one request. REQUIRED: video_urls, starts, ends, durations, target_starts and target_ends must ALL be provided as arrays with one entry per video; never omit any of these required arrays.',
     {
       videoUrls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs or absolute local file paths alias of video_urls.' },
       video_urls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },
@@ -774,7 +774,7 @@ const TOOLS: Tool[] = [
       flip_horizontal: { type: 'boolean', description: 'Optional horizontal flip flag.' },
       mix_type: { type: 'string', description: 'Optional blend mode.' }
     },
-    ['video_urls']
+    ['video_urls', 'starts', 'ends', 'durations', 'target_starts', 'target_ends']
   ),
   toolWithArgs(
     'modify_video',
@@ -872,17 +872,17 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_audio',
-    'Add multiple audio layers into a VectCut draft in one request.',
+    'Add multiple audio layers into a VectCut draft in one request. REQUIRED: audio_urls, starts, ends, durations, target_starts and target_ends must ALL be provided as arrays with one entry per audio; never omit any of these required arrays.',
     {
       audioUrls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs or absolute local file paths alias of audio_urls.' },
       audio_urls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },
-      starts: { type: 'array', items: { type: 'number' }, description: 'Optional source start times in seconds.' },
-      ends: { type: 'array', items: { type: 'number' }, description: 'Optional source end times in seconds.' },
-      targetStarts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times alias of target_starts.' },
-      target_starts: { type: 'array', items: { type: 'number' }, description: 'Optional timeline start times in seconds.' },
-      targetEnds: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times alias of target_ends.' },
-      target_ends: { type: 'array', items: { type: 'number' }, description: 'Optional timeline end times in seconds.' },
-      durations: { type: 'array', items: { type: 'number' }, description: 'Optional source durations.' },
+      starts: { type: 'array', items: { type: 'number' }, description: 'Required source start times in seconds.' },
+      ends: { type: 'array', items: { type: 'number' }, description: 'Required source end times in seconds.' },
+      targetStarts: { type: 'array', items: { type: 'number' }, description: 'Required timeline start times alias of target_starts.' },
+      target_starts: { type: 'array', items: { type: 'number' }, description: 'Required timeline start times in seconds.' },
+      targetEnds: { type: 'array', items: { type: 'number' }, description: 'Required timeline end times alias of target_ends.' },
+      target_ends: { type: 'array', items: { type: 'number' }, description: 'Required timeline end times in seconds.' },
+      durations: { type: 'array', items: { type: 'number' }, description: 'Required source durations.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Optional draft ID.' },
       volume: { type: 'number', description: 'Optional volume.' },
@@ -899,7 +899,7 @@ const TOOLS: Tool[] = [
       fade_in_duration: { type: 'number', description: 'Optional fade-in duration.' },
       fade_out_duratioin: { type: 'number', description: 'Optional fade-out duration.' }
     },
-    ['audio_urls']
+    ['audio_urls', 'starts', 'ends', 'durations', 'target_starts', 'target_ends']
   ),
   toolWithArgs(
     'modify_audio',
@@ -1349,11 +1349,11 @@ const MUTATION_REQUIRED_FIELDS: Record<string, string[]> = {
   modify_image: ['draft_id', 'material_id'],
   remove_image: ['draft_id', 'material_id'],
   add_video: ['video_url'],
-  add_batch_video: ['video_urls'],
+  add_batch_video: ['video_urls', 'starts', 'ends', 'durations', 'target_starts', 'target_ends'],
   modify_video: ['draft_id', 'material_id'],
   remove_video: ['draft_id', 'material_id'],
   add_audio: [],
-  add_batch_audio: ['audio_urls'],
+  add_batch_audio: ['audio_urls', 'starts', 'ends', 'durations', 'target_starts', 'target_ends'],
   modify_audio: ['draft_id', 'material_id'],
   remove_audio: ['draft_id', 'material_id'],
   add_video_keyframe: ['draft_id'],

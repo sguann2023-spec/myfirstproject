@@ -2635,7 +2635,7 @@
           "image_understand": "Image Understanding",
           "koubo_template": "Talking Head Template",
           "materials": "Materials",
-          "remove_bg": "Portrait Cutout",
+          "video_portrait_matte": "Video Portrait Matting",
           "photo_search": "Photo Search",
           "footage_search": "Footage Search",
           "ai_library": "AI Library",
@@ -2833,10 +2833,8 @@
           "materials": {
             "folder_links": "View Folder"
           },
-          "remove_bg": {
-            "submit_remove_bg_text_behind_task": "Text Behind Person",
-            "submit_remove_bg_pip_task": "Cutout Picture-in-Picture",
-            "submit_remove_bg_task": "Remove Background"
+          "video_portrait_matte": {
+            "submit_video_portrait_matte_task": "Portrait Matting"
           },
           "search": {
             "web_search": "Search the Web"

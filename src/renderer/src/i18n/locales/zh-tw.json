@@ -2634,7 +2634,7 @@
           "image": "圖像",
           "image_understand": "圖片理解",
           "koubo_template": "口播模板",
-          "remove_bg": "人物去背",
+          "video_portrait_matte": "視訊人像去背",
           "photo_search": "照片搜尋",
           "footage_search": "素材搜尋",
           "ai_library": "AI素材庫",
@@ -2828,10 +2828,8 @@
             "search_audios": "聯網搜尋：聯網搜尋",
             "get_audio": "聯網搜尋：聯網搜尋"
           },
-          "remove_bg": {
-            "submit_remove_bg_text_behind_task": "文字置於人物後方",
-            "submit_remove_bg_pip_task": "去背子母畫面",
-            "submit_remove_bg_task": "人物去背"
+          "video_portrait_matte": {
+            "submit_video_portrait_matte_task": "摳人像"
           },
           "search": {
             "web_search": "聯網搜尋"

@@ -234,6 +234,14 @@ describe('DraftElementsServer', () => {
     expect(Object.keys(toolsByName.get('add_batch_video').inputSchema.properties)).toEqual(
       expect.arrayContaining(['durations', 'speed', 'transition', 'volume', 'mask_type'])
     )
+    expect(toolsByName.get('add_batch_video').inputSchema.required).toEqual([
+      'video_urls',
+      'starts',
+      'ends',
+      'durations',
+      'target_starts',
+      'target_ends'
+    ])
     expect(Object.keys(toolsByName.get('modify_video').inputSchema.properties)).toEqual(
       expect.arrayContaining(['target_start', 'speed', 'duration', 'transition', 'rotation'])
     )
@@ -247,6 +255,14 @@ describe('DraftElementsServer', () => {
     expect(Object.keys(toolsByName.get('add_batch_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['durations', 'speed', 'effect_type', 'effect_params', 'fade_out_duratioin'])
     )
+    expect(toolsByName.get('add_batch_audio').inputSchema.required).toEqual([
+      'audio_urls',
+      'starts',
+      'ends',
+      'durations',
+      'target_starts',
+      'target_ends'
+    ])
     expect(Object.keys(toolsByName.get('modify_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin'])
     )
@@ -263,6 +279,32 @@ describe('DraftElementsServer', () => {
       expect.arrayContaining(['track_name', 'relative_index', 'intensity', 'width', 'height'])
     )
     expect(toolsByName.get('modify_filter').inputSchema.required).toEqual(['material_id'])
+  })
+
+  it('should require all timing arrays on batch video/audio tools in both description and schema', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    for (const [toolName, urlField] of [
+      ['add_batch_video', 'video_urls'],
+      ['add_batch_audio', 'audio_urls']
+    ] as const) {
+      const tool = toolsByName.get(toolName)
+      const description = tool.description
+      // 工具级描述必须点名全部必填数组，避免模型漏传 durations/starts/ends
+      expect(description).toContain('REQUIRED')
+      for (const field of [urlField, 'starts', 'ends', 'durations', 'target_starts', 'target_ends']) {
+        expect(description).toContain(field)
+      }
+      expect(description).toContain('must ALL be provided')
+      // 参数级描述与 schema required 口径一致
+      const properties = tool.inputSchema.properties as Record<string, { description: string }>
+      for (const field of ['starts', 'ends', 'durations', 'target_starts', 'target_ends']) {
+        expect(properties[field].description).toMatch(/^Required/)
+      }
+      expect(tool.inputSchema.required).toEqual([urlField, 'starts', 'ends', 'durations', 'target_starts', 'target_ends'])
+    }
   })
 
   it('should add a text template with aliases normalized to official fields', async () => {

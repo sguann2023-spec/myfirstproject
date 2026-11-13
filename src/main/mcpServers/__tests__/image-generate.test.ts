@@ -942,7 +942,7 @@ describe('image-generate codemode 可发现性', () => {
 
   // 邻居描述为对应源文件的逐字摘录，作为真实竞争项
   const neighborFixtures = [
-    entry('remove-bg', 'submit_remove_bg_task', 'Cut a person out of a video. By default writes the result into a draft; set compose_draft=false to return mask and inverted_mask URLs only. Submits and waits in one long-running call (up to 35 minutes).'),
+    entry('video-portrait-matte', 'submit_video_portrait_matte_task', 'Cut the person out of a video (portrait matting) and return a WEBM video with the background removed. Output format defaults to WEBM and can be overridden with format (WEBM/MOV/MP4). Submits and waits for the finished video in this one long-running call (up to 35 minutes).'),
     entry('subtitle-recognition', 'submit_subtitle_recognition_task', 'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft.'),
     entry('video-understand', 'submit_video_detail_task', 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues.'),
     entry('ffmpeg-media', 'capture_frame_at_timestamp', 'Capture a frame image from a video at a specific timestamp with the bundled ffmpeg.')
@@ -960,7 +960,7 @@ describe('image-generate codemode 可发现性', () => {
 
   // codemode 要求模型用英文关键词检索，故断言全部用英文。
   // 其中 remove watermark / remove object 等形式是 A/B 实测里旧描述真实漏掉、
-  // 且会被 remove-bg 的工具名加权抢走的 case。
+  // 且会被 video-portrait-matte 的工具名加权抢走的 case。
   const imageEditQueries = [
     'change background', 'replace background', 'sky replacement',
     'face swap', 'replace face', 'virtual try-on', 'outfit swap', 'change clothes',

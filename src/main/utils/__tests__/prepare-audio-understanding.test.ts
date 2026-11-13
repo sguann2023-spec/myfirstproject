@@ -48,6 +48,23 @@ describe('分析音频预处理', () => {
     }
   })
 
+  it.each([
+    { code: 'EBADARCH' }, { errno: 'EBADARCH' }, { code: -86 }, { errno: -86 },
+    new Error('spawn Unknown system error -86')
+  ])('ffprobe 架构错误不误报时长超限：%s', async (error) => {
+    execMock.mockImplementation((_command, _args, _options, callback) => callback(error))
+    for (const prepare of [prepareAudioUnderstanding, prepareSubtitleAudio]) {
+      await expect(prepare('/tmp/source.mp4')).rejects.toThrow('ffprobe 组件架构不兼容')
+      await expect(prepare('/tmp/source.mp4')).rejects.toThrow('此错误并非视频时长过长')
+    }
+    expect(execMock.mock.calls.every((call) => call[1].includes('-show_entries'))).toBe(true)
+  })
+
+  it('保留普通探测失败的错误信息', async () => {
+    execMock.mockImplementation((_command, _args, _options, callback) => callback(new Error('permission denied')))
+    await expect(prepareSubtitleAudio('/tmp/source.mp4')).rejects.toThrow('无法读取音视频信息：permission denied')
+  })
+
   it('拒绝未知时长及无音轨素材', async () => {
     source(undefined)
     await expect(prepareAudioUnderstanding('/tmp/source.mp4')).rejects.toThrow('时长')

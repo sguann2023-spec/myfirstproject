@@ -123,9 +123,7 @@ describe('mcpToolDisplay', () => {
     ['mcp__vectcut__draft-elements__get_text_template_previews', '草稿处理：查看文字模板预览', '草稿處理：查看文字範本預覽', 'Draft Processing: Preview Text Templates'],
     ['mcp__draft-render__render_draft', '预渲染', '預渲染', 'Pre-render'],
     ['draft-render:render_draft', '预渲染', '預渲染', 'Pre-render'],
-    ['mcp__vectcut__remove-bg__submit_remove_bg_text_behind_task', '人物抠像：字在人后', '人物去背：文字置於人物後方', 'Portrait Cutout: Text Behind Person'],
-    ['mcp__vectcut__remove-bg__submit_remove_bg_pip_task', '人物抠像：抠像画中画', '人物去背：去背子母畫面', 'Portrait Cutout: Cutout Picture-in-Picture'],
-    ['mcp__vectcut__remove-bg__submit_remove_bg_task', '人物抠像：抠人像', '人物去背：人物去背', 'Portrait Cutout: Remove Background']
+    ['mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task', '视频人像抠像：抠人像', '視訊人像去背：摳人像', 'Video Portrait Matting: Portrait Matting']
   ])('uses localized names for %s', (name, simplified, traditional, english) => {
     const parts = parseMcpToolName(name)
     for (const [locale, expected] of [[zhCn, simplified], [zhTw, traditional], [enUs, english]] as const) {

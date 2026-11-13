@@ -164,14 +164,12 @@ describe('MessageTokens', () => {
   })
 
   it.each([
-    'submit_remove_bg_text_behind_task',
-    'submit_remove_bg_pip_task',
-    'submit_remove_bg_task'
+    'submit_video_portrait_matte_task'
   ])('将 %s 的扣费计入最终点数且只计算一次', (tool) => {
     mockState.messages.entities = {}
     mockState.messageBlocks.entities = {
-      removeBg: {
-        id: 'removeBg', type: 'tool', toolName: `mcp__vectcut__remove-bg__${tool}`,
+      videoPortraitMatte: {
+        id: 'videoPortraitMatte', type: 'tool', toolName: `mcp__vectcut__video-portrait-matte__${tool}`,
         metadata: {
           rawMcpToolResponse: {
             responseRaw: {
@@ -185,7 +183,7 @@ describe('MessageTokens', () => {
       }
     }
     const html = renderToStaticMarkup(<MessageTokens message={{
-      id: `remove-bg-${tool}`, role: 'assistant', blocks: ['removeBg'], status: 'success',
+      id: `video-portrait-matte-${tool}`, role: 'assistant', blocks: ['videoPortraitMatte'], status: 'success',
       model: { pricing: {
         precise_uncached_input_resource_points_per_unit: 1000000,
         precise_output_resource_points_per_unit: 1000000

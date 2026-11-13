@@ -289,7 +289,7 @@ describe('codemode 关键词检索可发现性', () => {
       entry('ffmpeg-media', 'capture_frame_at_timestamp', 'Capture a frame image from a video at a specific timestamp with the bundled ffmpeg.'),
       entry('ffmpeg-media', 'trim_media_segment', 'Trim a video or audio segment for any time range with the bundled ffmpeg and output a standalone clip.'),
       entry('image-understand', 'inspect_image', 'Inspect an image; with prompt, understand a complete video to analyze pacing, emotion, audiovisual rhythm.'),
-      entry('remove-bg', 'submit_remove_bg_task', 'Cut a person out of a video. By default writes the result into a draft; set compose_draft=false to return mask and inverted_mask URLs only. Submits and waits in one long-running call (up to 35 minutes).'),
+      entry('video-portrait-matte', 'submit_video_portrait_matte_task', 'Cut the person out of a video (portrait matting) and return a WEBM video with the background removed. Output format defaults to WEBM and can be overridden with format (WEBM/MOV/MP4). Submits and waits for the finished video in this one long-running call (up to 35 minutes).'),
       entry('subtitle-recognition', 'submit_subtitle_recognition_task', 'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft.'),
       entry('video-understand', 'submit_video_detail_task', 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues.')
     ]

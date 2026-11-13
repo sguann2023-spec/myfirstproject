@@ -25,7 +25,7 @@ import KouboTemplateServer from '@main/mcpServers/koubo-template'
 import MaterialsServer from '@main/mcpServers/materials'
 import MediaSearchServer from '@main/mcpServers/media-search'
 import PhotoSearchServer from '@main/mcpServers/photo-search'
-import RemoveBgServer from '@main/mcpServers/remove-bg'
+import VideoPortraitMatteServer from '@main/mcpServers/video-portrait-matte'
 import ScraptToolServer from '@main/mcpServers/scrapt-tool'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
@@ -471,22 +471,20 @@ export async function mountRuntimeMcpServers(input: {
   }
 
   if (hasCutDomain) {
-    const removeBgServer = new RemoveBgServer()
-    mountMcpServer('remove-bg', {
+    const videoPortraitMatteServer = new VideoPortraitMatteServer()
+    mountMcpServer('video-portrait-matte', {
       type: 'sdk',
-      name: 'remove-bg',
-      instance: removeBgServer.mcpServer,
+      name: 'video-portrait-matte',
+      instance: videoPortraitMatteServer.mcpServer,
       longRunning: true,
       timeout: 40 * 60
     })
     for (const toolName of [
-      'submit_remove_bg_text_behind_task',
-      'submit_remove_bg_pip_task',
-      'submit_remove_bg_task'
+      'submit_video_portrait_matte_task'
     ]) {
-      autoAllowTools.add(vt('remove-bg', toolName))
+      autoAllowTools.add(vt('video-portrait-matte', toolName))
     }
-    allowMcpPattern(vp('remove-bg'))
+    allowMcpPattern(vp('video-portrait-matte'))
   }
 
   if (hasCutDomain) {

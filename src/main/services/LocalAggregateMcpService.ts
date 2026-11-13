@@ -43,7 +43,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: MaterialsServer },
       { default: MediaSearchServer },
       { default: PhotoSearchServer },
-      { default: RemoveBgServer },
+      { default: VideoPortraitMatteServer },
       { default: ScraptToolServer },
       { default: SeedAudioServer },
       { default: SocialCopywritingServer },
@@ -84,7 +84,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/materials'),
       import('@main/mcpServers/media-search'),
       import('@main/mcpServers/photo-search'),
-      import('@main/mcpServers/remove-bg'),
+      import('@main/mcpServers/video-portrait-matte'),
       import('@main/mcpServers/scrapt-tool'),
       import('@main/mcpServers/seed-audio'),
       import('@main/mcpServers/social-copywriting'),
@@ -248,9 +248,9 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         createInstance: () => new SubtitleRecognitionServer(workspacePath, { external: true }).mcpServer
       },
       {
-        serverId: 'remove-bg',
-        serverName: 'remove-bg',
-        createInstance: () => new RemoveBgServer({ external: true }).mcpServer
+        serverId: 'video-portrait-matte',
+        serverName: 'video-portrait-matte',
+        createInstance: () => new VideoPortraitMatteServer({ external: true }).mcpServer
       },
       {
         serverId: 'storyboard-editor',

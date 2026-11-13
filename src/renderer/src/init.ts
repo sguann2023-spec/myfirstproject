@@ -4,16 +4,33 @@ const isSettingsView = view === 'settings'
 const isTemplateEditView = view === 'template-edit'
 
 loggerService.initWindowSource(isSettingsView ? 'settingsWindow' : isTemplateEditView ? 'templateEditWindow' : 'mainWindow')
+const logger = loggerService.withContext('Init')
+
+// Vite dev can transiently fail a dynamic import (HMR full-reload race, or a 504
+// "Outdated Optimize Dep" after deps are re-optimized). Retry briefly before giving up.
+async function importWithRetry<T>(label: string, factory: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await factory()
+    } catch (error) {
+      lastError = error
+      logger.warn(`[init] dynamic import "${label}" failed (attempt ${attempt}/${attempts})`, error)
+      if (attempt < attempts) await new Promise((resolve) => setTimeout(resolve, 300 * attempt))
+    }
+  }
+  throw lastError
+}
 
 async function initMainWindowServices() {
   const [{ default: KeyvStorage }, { default: store }, backup, nutstore, { default: storeSyncService }, { webTraceService }] =
     await Promise.all([
-      import('@kangfenmao/keyv-storage'),
-      import('./store'),
-      import('./services/BackupService'),
-      import('./services/NutstoreService'),
-      import('./services/StoreSyncService'),
-      import('./services/WebTraceService')
+      importWithRetry('@kangfenmao/keyv-storage', () => import('@kangfenmao/keyv-storage')),
+      importWithRetry('store', () => import('./store')),
+      importWithRetry('BackupService', () => import('./services/BackupService')),
+      importWithRetry('NutstoreService', () => import('./services/NutstoreService')),
+      importWithRetry('StoreSyncService', () => import('./services/StoreSyncService')),
+      importWithRetry('WebTraceService', () => import('./services/WebTraceService'))
     ])
 
   window.keyv = new KeyvStorage()
@@ -35,5 +52,8 @@ async function initMainWindowServices() {
 }
 
 if (!isSettingsView && !isTemplateEditView) {
-  void initMainWindowServices()
+  void initMainWindowServices().catch((error) => {
+    logger.error('[init] main window services initialization failed', error)
+    window.dispatchEvent(new CustomEvent('vectcut:startup-error', { detail: error }))
+  })
 }

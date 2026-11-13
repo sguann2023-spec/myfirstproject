@@ -29,14 +29,12 @@ import { McpServerToolRenderer } from '../McpServerToolRenderer'
 
 vi.stubGlobal('React', React)
 
-describe('remove-bg tool billing', () => {
+describe('video-portrait-matte tool billing', () => {
   it.each([
-    'submit_remove_bg_text_behind_task',
-    'submit_remove_bg_pip_task',
-    'submit_remove_bg_task'
+    'submit_video_portrait_matte_task'
   ])('shows charged points on the %s tool header', (name) => {
     const tool = McpServerToolRenderer({
-      toolName: `mcp__vectcut__remove-bg__${name}`,
+      toolName: `mcp__vectcut__video-portrait-matte__${name}`,
       output: { content: [{ type: 'text', text: JSON.stringify({
         status: 'success',
         billing: { consume: 2.75 },
