@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, message } from 'antd';
-import { Heart, LoaderCircle, Play, Plus, Search, X } from 'lucide-react';
+import { Heart, LoaderCircle, Plus, Search, X } from 'lucide-react';
 import { trackEvent } from '../../shared/analytics';
-import { formatTemplateCount } from '../Chat/MessagePane/WelcomePage/formatCount';
 import WebPagePreview from '../Chat/ChatShell/WebPagePreview';
 import SkillImportModal from './SkillImportModal';
 import { distributeTemplateColumns, installMarketTemplate, listMarketTemplates } from './templateMarketService';
@@ -26,7 +25,19 @@ function useFullscreen() {
   return isFullscreen;
 }
 
-const TemplateCard = ({ item, active, onHover, onPreview, onWatch, onApply, busy, onExposure }) => {
+const formatLikes = (count) => {
+  const value = Number(count);
+  if (!Number.isFinite(value) || value < 0) return '0';
+  if (value >= 100000000) return `${Math.floor(value / 100000000)}亿+`;
+  if (value >= 10000000) return `${Math.floor(value / 10000000)}千万+`;
+  if (value >= 1000000) return `${Math.floor(value / 1000000)}百万+`;
+  if (value >= 10000) return `${Math.floor(value / 10000)}万+`;
+  if (value >= 1000) return `${Math.floor(value / 1000)}千+`;
+  if (value >= 100) return `${Math.floor(value / 100)}百+`;
+  return String(Math.floor(value));
+};
+
+const TemplateCard = ({ item, active, onHover, onWatch, onPlay, onApply, busy, onExposure }) => {
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -43,22 +54,20 @@ const TemplateCard = ({ item, active, onHover, onPreview, onWatch, onApply, busy
     if (active && visible) onExposure(item);
   }, [active, visible, item, onExposure]);
   return <article ref={ref} className={`template-market-card${active ? ' is-active' : ''}`}
-    tabIndex={0} role="button" aria-label={`预览 ${item.name}`}
+    tabIndex={0} role="button" aria-label={`播放 ${item.name}`}
     onMouseEnter={() => onHover(item.id)} onMouseLeave={() => onHover(null)}
     onFocus={() => onHover(item.id)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onHover(null); }}
-    onClick={() => onPreview(item)} onKeyDown={(event) => {
-      if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onPreview(item); }
+    onClick={() => onPlay(item)} onKeyDown={(event) => {
+      if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); onPlay(item); }
     }}>
     <div className="template-market-card-media" style={{ aspectRatio: `${item.preview.width} / ${item.preview.height}` }}>
       <img src={item.preview.cover_url} loading="lazy" alt={item.name} />
       {active && visible && item.preview.type === 'video' && !videoFailed ? <video
         src={item.preview.url} autoPlay muted loop playsInline poster={item.preview.cover_url}
         onError={() => setVideoFailed(true)} /> : null}
-      <span className="template-market-likes"><Heart size={16} />{formatTemplateCount(item.likes_count)}</span>
-      <button type="button" className="template-market-play" aria-label={`播放预览 ${item.name}`}
-        onClick={(event) => { event.stopPropagation(); onPreview(item); }}><Play size={17} fill="currentColor" /></button>
+      <span className="template-market-likes"><Heart size={16} />{formatLikes(item.likes_count)}</span>
     </div>
-    {active ? <div className="template-market-card-actions" onClick={(event) => event.stopPropagation()}>
+    {active ? <div className="template-market-card-actions" style={{ '--tpl-cover': `url("${item.preview.cover_url}")` }} onClick={(event) => event.stopPropagation()}>
       <button type="button" className="template-market-apply" disabled={busy} onClick={() => onApply(item)}>
         {busy ? <LoaderCircle size={16} className="skill-spin" /> : null}{busy ? '加载中…' : '做同款'}
       </button>
@@ -75,9 +84,9 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
   const [error, setError] = useState('');
   const [hasMore, setHasMore] = useState(true);
   const [hoveredId, setHoveredId] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [ratio, setRatio] = useState(1);
   const [webPreview, setWebPreview] = useState(null);
+  const [playing, setPlaying] = useState(null);
+  const [ratio, setRatio] = useState(1);
   const [busyId, setBusyId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -137,11 +146,15 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
     trackEvent('skill_market_do_same_explore', { skill_name: item.name });
     trackEvent('skill_market_watch_explore', { skill_name: item.name });
   }, []);
-  const openPreview = (item) => { setHoveredId(null); setRatio(item.preview.width / item.preview.height); setPreview(item); };
   const watch = (item) => {
     trackEvent('skill_market_watch_click', { skill_name: item.name });
-    setHoveredId(null);
+    setHoveredId(null); setPlaying(null);
     setWebPreview({ key: `template-market:${item.id}`, url: item.web_share, title: item.name });
+  };
+  const openPlay = (item) => {
+    setHoveredId(null); setWebPreview(null);
+    setRatio(item.preview.width / item.preview.height);
+    setPlaying(item);
   };
   const apply = async (item) => {
     if (busyRef.current) return;
@@ -181,8 +194,8 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
       }}>
         <div className="template-market-columns" data-columns={gridColumns}
           style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>{columns.map((column, i) => <div className="template-market-column" key={i}>
-          {column.map((item) => <TemplateCard key={item.id} item={item} active={hoveredId === item.id && !preview}
-            onHover={setHoveredId} onPreview={openPreview} onWatch={watch} onApply={apply}
+          {column.map((item) => <TemplateCard key={item.id} item={item} active={hoveredId === item.id && !webPreview && !playing}
+            onHover={setHoveredId} onWatch={watch} onPlay={openPlay} onApply={apply}
             busy={Boolean(busyId)} onExposure={handleExposure} />)}
         </div>)}</div>
         {error ? <div className="template-market-state" role="alert">{error}<button onClick={() => void loadMore()}>重试</button></div> : null}
@@ -194,12 +207,12 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
     </main>
     {webPreview ? <aside className="template-market-web"><WebPagePreview preview={webPreview} onClose={() => setWebPreview(null)} /></aside> : null}
     {importOpen ? <SkillImportModal onClose={() => setImportOpen(false)} onInstall={importSkill} /> : null}
-    <Modal open={Boolean(preview)} centered footer={null} title={null} closable maskClosable transitionName=""
+    <Modal open={Boolean(playing)} centered footer={null} title={null} closable maskClosable transitionName=""
       closeIcon={<X size={22} />} rootClassName="template-market-preview" width={`min(80vw, ${80 * ratio}vh)`}
-      onCancel={() => setPreview(null)} destroyOnHidden>
-      {preview?.preview.type === 'video' ? <video src={preview.preview.url} poster={preview.preview.cover_url} controls playsInline autoPlay
+      onCancel={() => setPlaying(null)} destroyOnHidden>
+      {playing?.preview.type === 'video' ? <video src={playing.preview.url} poster={playing.preview.cover_url} controls playsInline autoPlay
         onLoadedMetadata={(event) => { const v = event.currentTarget; if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }} />
-        : preview ? <img src={preview.preview.url} alt={preview.name} onClick={() => setPreview(null)}
+        : playing ? <img src={playing.preview.url} alt={playing.name} onClick={() => setPlaying(null)}
           onLoad={(event) => { const img = event.currentTarget; if (img.naturalWidth && img.naturalHeight) setRatio(img.naturalWidth / img.naturalHeight); }} /> : null}
     </Modal>
   </div>;

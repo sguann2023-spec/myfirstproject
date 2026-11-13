@@ -58,7 +58,7 @@ describe('template marketplace interactions', () => {
     await render();
     const cards = [...container.querySelectorAll('article')];
     const videoFixture = templates.find((item) => item.preview.type === 'video') || templates[0];
-    const card = cards.find((c) => c.getAttribute('aria-label') === `预览 ${videoFixture.name}`);
+    const card = cards.find((c) => c.getAttribute('aria-label') === `播放 ${videoFixture.name}`);
     expect(container.querySelectorAll('video')).toHaveLength(0);
     await hover(card);
     if (videoFixture.preview.type === 'video') {
@@ -68,16 +68,14 @@ describe('template marketplace interactions', () => {
     await act(async () => card.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
     if (videoFixture.preview.type === 'video') expect(container.querySelectorAll('video')).toHaveLength(0);
   });
-  it('opens a centered preview and closes it through the close button', async () => {
+  it('opens a centered playback modal when clicking the media area', async () => {
     await render();
     await click(container.querySelector('article'));
     const modal = document.querySelector('.template-market-preview');
+    expect(modal).not.toBeNull();
     const media = modal.querySelector('img, video');
-    expect(media).not.toBeNull();
     expect(media.getAttribute('src')).toBe(templates[0].preview.url);
-    expect(modal.querySelector('.ant-modal-header, .ant-modal-footer')).toBeNull();
-    await click(modal.querySelector('.ant-modal-close'));
-    expect(document.querySelector('.template-market-preview .ant-modal-wrap')?.style.display || 'none').toBe('none');
+    expect(container.querySelector('[data-testid="web-preview"]')).toBeNull();
   });
   it('keeps chat untouched if template installation fails', async () => {
     installMarketTemplate.mockRejectedValueOnce(new Error('安装失败'));
