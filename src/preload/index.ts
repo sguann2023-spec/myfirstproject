@@ -934,7 +934,9 @@ const shellBridge = {
 const legacyElectronAPI = {
   customChatModels: api.customChatModels,
   officialChatModels: api.officialChatModels,
-  openExternal: api.openExternal,
+  // 根因修复：openExternal 实际定义在 api.shell 下，此前误引 api.openExternal（undefined），
+  // 导致渲染层 window.electronAPI.openExternal?.() 静默无效、「获取 API Key」点击不跳转。
+  openExternal: api.shell.openExternal,
   openDownloadDirectory: (directoryPath: string) => ipcRenderer.send('open-download-directory', directoryPath),
   startFileMonitor: (monitorData: any) => ipcRenderer.send('start-file-monitor', monitorData),
   onFileFound: (callback: (value: any) => void): (() => void) => {

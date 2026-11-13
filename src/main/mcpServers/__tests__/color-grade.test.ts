@@ -15,7 +15,15 @@ vi.mock('@main/utils', () => ({
   getResourcePath: vi.fn(() => '/nonexistent-resource-path')
 }))
 
+// Portrait matting is listed for search ranking only; never call its network/media dependencies.
+vi.mock('electron', () => ({ net: { fetch: vi.fn(() => { throw new Error('Unexpected network request during tools/list') }) } }))
+vi.mock('electron-store', () => ({ default: class MockStore {} }))
+vi.mock('@main/services/OssUploadService', () => ({ ossUploadService: { uploadLocalFile: vi.fn() } }))
+vi.mock('@main/utils/prepare-subtitle-audio', () => ({ probeVideoSource: vi.fn() }))
+vi.mock('@main/utils/prepare-portrait-mov', () => ({ preparePortraitMovForJianying: vi.fn() }))
+
 import ColorGradeServer from '../color-grade'
+import VideoPortraitMatteServer from '../video-portrait-matte'
 import { rankCodemodeTools } from '../../services/agents/services/claudecode/harness/codemode-search'
 import {
   applyLutToRgb,
@@ -42,7 +50,7 @@ async function callTool(server: ServerInstance, toolName: string, args: Record<s
   return handler({ method: 'tools/call', params: { name: toolName, arguments: args } }, {})
 }
 
-async function listTools(server: ServerInstance) {
+async function listTools(server: Pick<ServerInstance, 'mcpServer'>) {
   const handlers = (server.mcpServer.server as any)._requestHandlers
   const handler = handlers?.get('tools/list')
   if (!handler) throw new Error('No tools/list handler registered')
@@ -283,17 +291,18 @@ describe('codemode 关键词检索可发现性', () => {
   const buildCatalog = async () => {
     const { tools } = await listTools(new ColorGradeServer())
     const mine = tools.map((t: any) => entry('color-grade', t.name, t.description, t.inputSchema))
+    const { tools: matteTools } = await listTools(new VideoPortraitMatteServer())
+    const matte = matteTools.map((t: any) => entry('video-portrait-matte', t.name, t.description, t.inputSchema))
     // 真实存在的邻居工具，描述为对应源文件的逐字摘录。
     // 与 AI 生图的跨工具边界断言放在 image-generate.test.ts，那里两侧都是真实完整描述。
     const decoys = [
       entry('ffmpeg-media', 'capture_frame_at_timestamp', 'Capture a frame image from a video at a specific timestamp with the bundled ffmpeg.'),
       entry('ffmpeg-media', 'trim_media_segment', 'Trim a video or audio segment for any time range with the bundled ffmpeg and output a standalone clip.'),
       entry('image-understand', 'inspect_image', 'Inspect an image; with prompt, understand a complete video to analyze pacing, emotion, audiovisual rhythm.'),
-      entry('video-portrait-matte', 'submit_video_portrait_matte_task', 'Cut the person out of a video (portrait matting) and return a WEBM video with the background removed. Output format defaults to WEBM and can be overridden with format (WEBM/MOV/MP4). Submits and waits for the finished video in this one long-running call (up to 35 minutes).'),
       entry('subtitle-recognition', 'submit_subtitle_recognition_task', 'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft.'),
       entry('video-understand', 'submit_video_detail_task', 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues.')
     ]
-    return [...mine, ...decoys]
+    return [...mine, ...matte, ...decoys]
   }
 
   // codemode 要求模型用英文关键词检索，故断言全部用英文

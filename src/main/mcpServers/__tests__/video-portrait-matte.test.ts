@@ -33,7 +33,13 @@ vi.mock('@main/utils/prepare-portrait-mov', () => ({
   preparePortraitMovForJianying: verifyAlphaMock
 }))
 
+vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: vi.fn() } }))
+vi.mock('../filesystem/tools/download', () => ({ saveArtifactFile: vi.fn() }))
+
 import VideoPortraitMatteServer from '../video-portrait-matte'
+import ImageGenerateServer from '../image-generate'
+import VideoGenerateServer from '../video-generate'
+import { searchCodemodeTools } from '../../services/agents/services/claudecode/harness/codemode-search'
 
 const response = (payload: unknown) => ({
   ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload)
@@ -81,6 +87,75 @@ describe('VideoPortraitMatteServer', () => {
     expect(tools[0].description).toContain('numeric progress')
     expect(tools[0].inputSchema.properties.format.enum).toEqual(['WEBM', 'MOV'])
     expect(tools[0].inputSchema.properties.format.default).toBe('MOV')
+  })
+
+  const discoveryCatalog = async () => {
+    const servers = [
+      ['video-portrait-matte', new VideoPortraitMatteServer()],
+      ['image', new ImageGenerateServer()],
+      ['video', new VideoGenerateServer()]
+    ] as const
+    return (await Promise.all(servers.map(async ([key, server]) => {
+      const list = (server.mcpServer.server as any)._requestHandlers.get('tools/list')
+      const { tools } = await list({ method: 'tools/list', params: {} }, {})
+      return tools.map((tool: { name: string; description: string; inputSchema: Record<string, unknown> }) => ({
+        name: `mcp__vectcut__${key}__${tool.name}`,
+        description: `[${key}] ${tool.description}`,
+        inputSchema: tool.inputSchema
+      }))
+    }))).flat()
+  }
+
+  it.each([
+    'person video background removal',
+    'remove background from video',
+    'portrait matting',
+    'human video cutout',
+    'human segmentation',
+    'transparent video cutout',
+    '人像抠像', '视频去背景', '人像分割'
+  ])('discovers portrait matting first for "%s" against real generation tools', async query => {
+    const results = searchCodemodeTools(await discoveryCatalog(), query, 5)
+    expect(results.map(tool => tool.name)).toEqual(expect.arrayContaining([
+      'mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task'
+    ]))
+    expect(results[0].name, JSON.stringify(results)).toBe('mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task')
+    expect(results[0].description).toContain('transparent')
+    expect(results[0].description).toContain('人像抠像')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('records the top five for the reported discovery query', async () => {
+    const results = searchCodemodeTools(await discoveryCatalog(), 'person video background removal', 5)
+    expect(results.map(tool => tool.name)).toMatchInlineSnapshot(`
+      [
+        "mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task",
+        "mcp__vectcut__video__generate_video",
+        "mcp__vectcut__image__generate_or_edit_image",
+        "mcp__vectcut__video__get_video_capabilities",
+      ]
+    `)
+  })
+
+  it.each([
+    ['remove person from image', 'generate_or_edit_image'],
+    ['change image background', 'generate_or_edit_image'],
+    ['image background removal', 'generate_or_edit_image'],
+    ['generate video', 'generate_video'],
+    ['replace person in reference video', 'generate_video']
+  ])('keeps neighboring intent "%s" on %s', async (query, expectedTool) => {
+    const results = searchCodemodeTools(await discoveryCatalog(), query, 5)
+    expect(results[0].name, JSON.stringify(results)).toBe(`mcp__vectcut__${expectedTool === 'generate_video' ? 'video' : 'image'}__${expectedTool}`)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps external discovery explicit about async WEBM-only output', async () => {
+    const { tools } = await handlers(true).list()
+    const submit = tools.find((tool: { name: string }) => tool.name === 'submit')
+    expect(submit.description).toContain('Person video background removal')
+    expect(submit.description).toContain('WEBM output only')
+    expect(submit.description).toContain('Poll task_status')
+    expect(submit.inputSchema.properties.format.enum).toEqual(['WEBM'])
   })
 
   it('submits with default MOV format, waits and verifies the real alpha plane', async () => {

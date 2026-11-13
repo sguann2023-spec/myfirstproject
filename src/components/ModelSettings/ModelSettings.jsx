@@ -3656,7 +3656,6 @@ export default function ModelSettings() {
                             <Pencil size={14} aria-hidden="true" />
                             重命名
                           </button>
-                          <div className="model-settings__menu-separator" />
                           <button
                             type="button"
                             role="menuitem"
@@ -3708,9 +3707,12 @@ export default function ModelSettings() {
                               href={provider.apiKeyUrl}
                               onClick={(event) => {
                                 event.preventDefault();
-                                window.electronAPI.openExternal?.(
-                                  provider.apiKeyUrl,
-                                );
+                                // 兼容旧 preload：electronAPI.openExternal 曾为 undefined，
+                                // 回退到 api.shell.openExternal（两版 preload 均已暴露）。
+                                const openExternal =
+                                  window.electronAPI?.openExternal ||
+                                  window.api?.shell?.openExternal;
+                                openExternal?.(provider.apiKeyUrl);
                               }}
                             >
                               获取 API Key

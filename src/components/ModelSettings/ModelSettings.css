@@ -218,7 +218,6 @@
   justify-content: center;
 }
 .model-settings__menu {
-  min-width: 148px;
   padding: 4px;
   background: #fff;
   border: 1px solid rgba(13, 13, 13, 0.1);
@@ -312,8 +311,15 @@
   min-width: 0;
 }
 .model-settings__section-heading {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
   align-items: flex-start;
+}
+
+.model-settings__section-heading > h3 {
+  font-weight: 400;
+  align-items: center;
+  align-content: center;
+  align-self: center;
 }
 .model-settings__section-heading > div {
   min-width: 0;
@@ -321,6 +327,11 @@
 }
 .model-settings__section-heading .ant-btn {
   flex-shrink: 0;
+  font-weight: 400;
+  font-size: 14px;
+  padding: 0px 8px 0px 8px;
+  height: 28px;
+  border-color: #ddd;
 }
 .model-settings__fields {
   border: 0;
@@ -337,6 +348,12 @@
 .model-settings .ant-form-item-label > label {
   font-size: 14px;
   color: #666;
+  width: 100%;
+}
+/* antd 默认在 label 后渲染冒号伪元素，会挤占 flex 宽度，
+   导致「获取 API Key」无法与输入框右缘对齐；垂直布局不需要冒号（对齐 ZCode）。 */
+.model-settings .ant-form-item-label > label::after {
+  display: none;
 }
 .model-settings .ant-form-item-extra {
   font-size: 11px;
@@ -353,11 +370,11 @@
   box-shadow: none;
 }
 .model-settings__models-heading {
-  border-top: 1px solid #ededf0;
-  padding-top: 22px;
-  margin-top: 8px;
-  margin-bottom: 14px;
+  margin-top: 6px;
+  margin-bottom: 8px;
+  font-weight: 400;
 }
+
 /* 对齐 ZCode ProviderFormControls：mono 模型 ID + 上下文/识图徽章 + 测试/编辑/开关。 */
 .model-settings__custom-model-id {
   flex: 1;
@@ -371,7 +388,7 @@
 .model-settings__key-label {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 12px;
   width: 100%;
 }
@@ -451,8 +468,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 4px;
+  padding: 4px 6px;
   border-radius: 8px;
   font-size: 14px;
   color: #202024;

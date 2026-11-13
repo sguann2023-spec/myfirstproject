@@ -1,5 +1,25 @@
 # 人像抠像 MCP：后端 WebM，本地随包 FFmpeg 转透明 MOV
 
+## 工具发现与用途
+
+用于**已有视频的人像抠像、视频去背景、人像分割**：保留原人物，移除背景并输出透明视频，不是生成新视频，也不是删除画面中的人物。
+
+桌面 Codemode 工具名：`mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task`。
+
+```js
+return await searchTools("person video background removal", 5)
+```
+
+```js
+return await describeTool("mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task")
+```
+
+其他专项检索词：`portrait matting`、`human segmentation`、`human video cutout`、`transparent video cutout`、`remove background from video`，以及中文“人像抠像／视频去背景／人像分割”。工具描述进入检索索引，本文档本身不会进入索引。
+
+搜索只返回生成工具，不能据此判断没有抠像能力。候选不匹配时应换专项词复查，再通过 `describeTool` 核对视频输入与透明输出；不要直接改用现场编译的本地方案或省略效果。若精确工具名仍不可用，应检查主进程是否更新、服务器是否成功列出工具，并明确报告能力缺口。
+
+仅验证发现性时执行搜索与描述即可，不要提交付费任务。桌面默认输出透明 MOV；外部异步入口 `submit` / `task_status` 仅输出 WEBM，具体边界见下文。
+
 ## 正确链路
 
 后端只接受 `format: "WEBM"`。内部工具的 `format: "MOV"` 是本地最终输出选项，绝不透传给后端：

@@ -56,9 +56,12 @@ vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow:
 
 import ImageGenerateServer from '../image-generate'
 import ColorGradeServer from '../color-grade'
+import VideoPortraitMatteServer from '../video-portrait-matte'
 import { rankCodemodeTools } from '../../services/agents/services/claudecode/harness/codemode-search'
 
 vi.mock('@main/utils', () => ({ getResourcePath: () => '/nonexistent-resource-path' }))
+vi.mock('@main/utils/prepare-subtitle-audio', () => ({ probeVideoSource: vi.fn() }))
+vi.mock('@main/utils/prepare-portrait-mov', () => ({ preparePortraitMovForJianying: vi.fn() }))
 
 type ImageGenerateServerInstance = InstanceType<typeof ImageGenerateServer>
 
@@ -935,14 +938,14 @@ describe('ImageGenerateServer', () => {
 // codemode BM25 可发现性：图像编辑意图必须落到 AI 生图，且不得抢邻居的意图
 // ====================================================================
 describe('image-generate codemode 可发现性', () => {
-  const entry = (server: string, name: string, description: string) => ({
+  const entry = (server: string, name: string, description: string, inputSchema?: Record<string, unknown>) => ({
     name: `mcp__vectcut__${server}__${name}`,
-    description: `[${server}] ${description}`
+    description: `[${server}] ${description}`,
+    inputSchema
   })
 
   // 邻居描述为对应源文件的逐字摘录，作为真实竞争项
   const neighborFixtures = [
-    entry('video-portrait-matte', 'submit_video_portrait_matte_task', 'Cut the person out of a video (portrait matting) and return a WEBM video with the background removed. Output format defaults to WEBM and can be overridden with format (WEBM/MOV/MP4). Submits and waits for the finished video in this one long-running call (up to 35 minutes).'),
     entry('subtitle-recognition', 'submit_subtitle_recognition_task', 'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft.'),
     entry('video-understand', 'submit_video_detail_task', 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues.'),
     entry('ffmpeg-media', 'capture_frame_at_timestamp', 'Capture a frame image from a video at a specific timestamp with the bundled ffmpeg.')
@@ -950,10 +953,12 @@ describe('image-generate codemode 可发现性', () => {
 
   const buildCatalog = async () => {
     const imageTools = (await listTools(createServer())).tools
-    const gradeTools = (await listTools(new ColorGradeServer() as any)).tools
+    const gradeTools = (await listToolsFromMcpServer(new ColorGradeServer().mcpServer)).tools
+    const matteTools = (await listToolsFromMcpServer(new VideoPortraitMatteServer().mcpServer)).tools
     return [
-      ...imageTools.map((t: any) => entry('image', t.name, t.description)),
-      ...gradeTools.map((t: any) => entry('color-grade', t.name, t.description)),
+      ...imageTools.map((t: any) => entry('image', t.name, t.description, t.inputSchema)),
+      ...gradeTools.map((t: any) => entry('color-grade', t.name, t.description, t.inputSchema)),
+      ...matteTools.map((t: any) => entry('video-portrait-matte', t.name, t.description, t.inputSchema)),
       ...neighborFixtures
     ]
   }

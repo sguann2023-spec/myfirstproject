@@ -443,6 +443,18 @@ describe('ModelSettings', () => {
     await act(async () => link.click());
     expect(window.electronAPI.openExternal).toHaveBeenCalledWith('https://www.kimi.com/code');
   });
+  it('falls back to api.shell.openExternal when the legacy bridge lacks openExternal', async () => {
+    await mount([]);
+    await click('添加供应商');
+    await click('Kimi Code（国内）');
+    // 旧 preload 的 electronAPI.openExternal 为 undefined（根因），应回退到 api.shell。
+    window.electronAPI.openExternal = undefined;
+    window.api = { shell: { openExternal: vi.fn().mockResolvedValue(undefined) } };
+    const link = host.querySelector('.model-settings__key-link');
+    await act(async () => link.click());
+    expect(window.api.shell.openExternal).toHaveBeenCalledWith('https://www.kimi.com/code');
+    delete window.api;
+  });
   it('tests custom models through the main-process IPC with provider credentials', async () => {
     await mount([]);
     await click('添加供应商');

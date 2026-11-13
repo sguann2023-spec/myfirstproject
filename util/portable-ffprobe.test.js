@@ -110,7 +110,7 @@ test('builder rejects missing/tampered inputs and unsupported Windows arch', asy
   await assert.rejects(hooks.beforePack(context))
   await assert.rejects(hooks.afterPack(context))
   assert.throws(() => hooks.archesFor({ ...context, electronPlatformName: 'win32' }), /Only win32/)
-  assert.match(hooks.packagedDir(context, 'arm64'), /Test\.app\/Contents\/Frameworks\/ffprobe\/darwin\/arm64$/)
+  assert.equal(hooks.packagedDir(context, 'arm64'), path.join(root, 'Test.app', 'Contents', 'Frameworks', 'ffprobe', 'darwin', 'arm64'))
 })
 test('builder config removes old mappings and allows identical universal copies', () => {
   const config = require('../electron-builder.config.cjs')

@@ -38,6 +38,22 @@ return await tools["mcp__vectcut__draft-management__create_draft"]({
 })
 ```
 
+## 人像抠像发现示例
+
+已有视频需要保留人物、移除背景并输出透明视频时，搜索人像抠像能力，而不是视频生成：
+
+```js
+return await searchTools("person video background removal", 5)
+```
+
+```js
+return await describeTool("mcp__vectcut__video-portrait-matte__submit_video_portrait_matte_task")
+```
+
+当前检索按工具名、描述和 input schema 的关键词匹配，不读取 PRD 或技能正文，也不自动理解同义词。若结果不匹配，应继续用 `portrait matting`、`human segmentation`、`transparent video cutout` 等专项词检索，并核对输入是否支持视频、输出是否透明。中文也可使用“人像抠像”“视频去背景”“人像分割”。只搜到图片／视频生成工具不代表不存在人像抠像能力，不应据此直接降级到临时本地实现或省略效果。
+
+桌面该工具接受 URL、file URL 或绝对本地路径，默认输出透明 MOV；外部异步 `submit` / `task_status` 只支持公开 HTTP(S) 视频 URL 和 WEBM 输出，不承诺剪映透明兼容。参见[人像抠像工具说明](prd/mcp-tools/video-portrait-matte.md)。验证发现性不需要提交付费任务。
+
 ## 安全边界
 
 Codemode 使用 QuickJS/WASM 沙箱。脚本不能直接访问宿主进程、文件系统、网络、模块加载器或环境变量，只能通过注册工具执行操作。

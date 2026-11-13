@@ -52,7 +52,7 @@ function publicResult(result: Record<string, unknown>) {
 const TOOLS: Tool[] = [
   {
     name: 'submit_video_portrait_matte_task',
-    description: 'Remove the background from a portrait video and wait for the finished output. Returns the output video URL and numeric progress. MOV is the default output format.',
+    description: 'Person video background removal / portrait matting / human segmentation / transparent video cutout / 人像抠像、视频去背景、人像分割. Remove background from an existing video, keeping the original person with a transparent background. Waits for the finished output video URL and numeric progress. MOV is the default output format. For isolating people, not generating new footage or erasing the subject.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -71,7 +71,7 @@ const TOOLS: Tool[] = [
 ]
 
 const EXTERNAL_TOOLS: Tool[] = [
-  { name: 'submit', description: 'Submit a portrait matting task immediately using a public HTTP(S) URL. Poll task_status for the result.', inputSchema: {
+  { name: 'submit', description: 'Person video background removal / portrait matting / human segmentation / transparent video cutout / 人像抠像、视频去背景、人像分割. Keep the original person and remove the background from an existing video. Submit immediately using a public HTTP(S) video URL; WEBM output only. Poll task_status for the result.', inputSchema: {
     type: 'object', properties: { ...Object.assign({}, ...TOOLS.map(tool => tool.inputSchema.properties)), video_url: { type: 'string', description: 'Public HTTP(S) video URL only.' }, format: { type: 'string', enum: ['WEBM'], default: 'WEBM', description: 'Output format for this endpoint.' } }, required: ['video_url'], additionalProperties: false
   } },
   { name: 'task_status', description: 'Query task status and numeric progress once.', inputSchema: { type: 'object', properties: { task_id: { type: 'string', minLength: 1 } }, required: ['task_id'], additionalProperties: false } }
