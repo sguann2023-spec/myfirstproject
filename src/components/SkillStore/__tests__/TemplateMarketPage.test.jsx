@@ -100,3 +100,47 @@ it('keeps the action backdrop masked as one layer without a solid seam', async (
   expect(css.match(/\.template-market-card-backdrop \{([^}]+)\}/)[1]).toContain('mask-image: linear-gradient');
   expect(css.match(/\.template-market-card-backdrop::before \{([^}]+)\}/)[1]).toContain('inset: -52px');
 });
+
+it('reuses the homepage preview shell, supports resizing, and closes without leaving the market', async () => {
+  const onGoChat = vi.fn();
+  await render({ onGoChat });
+  await hover(container.querySelector('article'));
+  await click(container.querySelector('[aria-label^="查看"]'));
+  const pane = container.querySelector('.chat-panel__preview-pane--trailing.is-open');
+  expect(pane).not.toBeNull();
+  const separator = container.querySelector('[role="separator"]');
+  const initialWidth = parseInt(pane.style.width, 10);
+  await act(async () => separator.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })));
+  expect(parseInt(pane.style.width, 10)).toBe(initialWidth + 20);
+  await act(async () => separator.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+  expect(pane.style.width).toBe('400px');
+  await click(container.querySelector('[data-testid="web-preview"] button'));
+  expect(container.querySelector('.chat-panel__preview-pane.is-open')).toBeNull();
+  expect(container.querySelector('h1').textContent).toBe('精选技能');
+  expect(onGoChat).not.toHaveBeenCalled();
+});
+
+
+it('keeps card hover actions and videos available while the web preview is open', async () => {
+  await render();
+  const cards = [...container.querySelectorAll('article')];
+  await hover(cards[0]);
+  await click(cards[0].querySelector('[aria-label^="查看"]'));
+  expect(container.querySelector('[data-testid="web-preview"]')).not.toBeNull();
+  const videoItem = templates.find((item) => item.preview.type === 'video');
+  expect(videoItem).toBeDefined();
+  const target = cards.find((card) => card.getAttribute('aria-label') === `播放 ${videoItem.name}`);
+  await hover(target);
+  expect(target.classList.contains('is-active')).toBe(true);
+  expect(target.querySelector('.template-market-apply')).not.toBeNull();
+  expect(target.querySelector('.template-market-card-backdrop')).not.toBeNull();
+  expect(target.querySelector('video')).not.toBeNull();
+  expect(container.querySelector('[data-testid="web-preview"]')).not.toBeNull();
+  await act(async () => target.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
+  expect(target.querySelector('.template-market-card-actions')).toBeNull();
+  expect(target.querySelector('video')).toBeNull();
+  expect(container.querySelector('[data-testid="web-preview"]')).not.toBeNull();
+  await hover(target);
+  await click(target.querySelector('[aria-label^="查看"]'));
+  expect(container.querySelector('[data-testid="web-preview"]').textContent).toContain(videoItem.web_share);
+});

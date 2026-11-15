@@ -84,7 +84,6 @@ import { useOfficialModelPrefs } from './useOfficialModelPrefs';
 import { CHAT_MODEL_KEY, useChatModelPreference } from './useChatModelPreference';
 import { MODEL_THINKING_LEVELS_KEY, useModelThinkingLevels } from './useModelThinkingLevels';
 const logger = loggerService.withContext('HomePage');
-const logPreviewWindowResizeError = (error) => logger.warn('Failed to resize window for preview.', error);
 
 const CHAT_STORAGE_KEY = 'capcut-helper-chat-sessions-v1';
 const CHAT_ACTIVE_ID_KEY = 'capcut-helper-chat-active-id-v1';
@@ -100,7 +99,6 @@ const DEFAULT_RUNTIME_AGENT_ID = 'vectcut_claw_default';
 const WORKSPACE_STORE_KEY = 'chat-workspaces:v1';
 const AUTO_WORKSPACE_STATUS_TEXT = '正在新建工作空间...';
 const PASTED_MEDIA_DIRECTORY = 'pasted-media';
-const CHAT_BROWSER_PREVIEW_WIDTH = 400;
 const QUICK_CHILDRENS_PICTURE_BOOK_SKILL_NAME = 'childrensbook';
 const QUICK_TRENDY_KOUBO_SKILL_NAME = 'trendykoubo';
 const QUICK_LIVE_CLIPPING_SKILL_NAME = 'liveclipping';
@@ -2731,11 +2729,9 @@ const HomePage = () => {
   const [manualChatWebPreview, setManualChatWebPreview] = useState(null);
   const [chatWebPreviewDismissedKey, setChatWebPreviewDismissedKey] = useState('');
   const [chatInlinePreviewVisible, setChatInlinePreviewVisible] = useState(false);
-  const [chatPreviewWidth, setChatPreviewWidth] = useState(CHAT_BROWSER_PREVIEW_WIDTH);
   const homeContentRef = useRef(null);
-  const handleInlinePreviewVisibilityChange = useCallback((visible, width) => {
+  const handleInlinePreviewVisibilityChange = useCallback((visible) => {
     setChatInlinePreviewVisible(visible);
-    if (Number.isFinite(width) && width > 0) setChatPreviewWidth(width);
   }, []);
   const activeChatWebPreviewKeyRef = useRef('');
   const refreshHeaderMembership = useCallback(async () => {
@@ -3655,10 +3651,6 @@ const HomePage = () => {
 
   const { ready: previewWindowReady, layoutWidth: previewLayoutWidth } = usePreviewWindowReady({
     previewRequested: selectedPane === 'chat' && (Boolean(activeChatWebPreview?.url) || chatInlinePreviewVisible),
-    isFullscreen,
-    extraWidth: chatPreviewWidth,
-    layoutRef: homeContentRef,
-    onError: logPreviewWindowResizeError,
   });
 
   useEffect(() => {

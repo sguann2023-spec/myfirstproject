@@ -1,3 +1,4 @@
+import InlinePreviewPane from '../Chat/ChatShell/InlinePreviewPane';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, message } from 'antd';
 import { Heart, LoaderCircle, Plus, Search, X } from 'lucide-react';
@@ -86,6 +87,41 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
   const [hasMore, setHasMore] = useState(true);
   const [hoveredId, setHoveredId] = useState(null);
   const [webPreview, setWebPreview] = useState(null);
+  const layoutRef = useRef(null);
+  const resizeCleanup = useRef(null);
+  const [previewWidth, setPreviewWidth] = useState(() => {
+    try { return Math.max(320, Math.min(880, Number(localStorage.getItem('chat-web-preview-width:v1')) || 400)); }
+    catch { return 400; }
+  });
+  const [resizingPreview, setResizingPreview] = useState(false);
+  const updatePreviewWidth = (next) => {
+    const max = Math.max(320, Math.min(880, (layoutRef.current?.clientWidth || 1200) - 268));
+    const width = Math.max(320, Math.min(max, next));
+    setPreviewWidth(width);
+    try { localStorage.setItem('chat-web-preview-width:v1', String(width)); } catch {}
+  };
+  useEffect(() => () => resizeCleanup.current?.(), []);
+  const startPreviewResize = (event) => {
+    event.preventDefault();
+    resizeCleanup.current?.();
+    const x = event.clientX, width = previewWidth;
+    setResizingPreview(true);
+    const move = (e) => updatePreviewWidth(width + x - e.clientX);
+    const stop = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+      setResizingPreview(false);
+      resizeCleanup.current = null;
+    };
+    resizeCleanup.current = stop;
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+  };
+  const resizePreviewByKey = (event) => {
+    const next = { ArrowLeft: previewWidth + 20, ArrowRight: previewWidth - 20, Home: 320, End: 880 }[event.key];
+    if (next !== undefined) { event.preventDefault(); updatePreviewWidth(next); }
+  };
+
   const [playing, setPlaying] = useState(null);
   const [ratio, setRatio] = useState(1);
   const [busyId, setBusyId] = useState('');
@@ -180,7 +216,7 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
     window.dispatchEvent(new Event('skill-store-updated'));
   };
 
-  return <div className="template-market-layout">
+  return <div ref={layoutRef} className="template-market-layout">
     <main className="template-market-page">
       <header className="template-market-header"><h1>精选技能</h1>
         <div className="template-market-add-wrap"><button type="button" onClick={() => setAddOpen(!addOpen)}><Plus size={16} />添加技能</button>
@@ -195,7 +231,7 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
       }}>
         <div className="template-market-columns" data-columns={gridColumns}
           style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>{columns.map((column, i) => <div className="template-market-column" key={i}>
-          {column.map((item) => <TemplateCard key={item.id} item={item} active={hoveredId === item.id && !webPreview && !playing}
+          {column.map((item) => <TemplateCard key={item.id} item={item} active={hoveredId === item.id && !playing}
             onHover={setHoveredId} onWatch={watch} onPlay={openPlay} onApply={apply}
             busy={Boolean(busyId)} onExposure={handleExposure} />)}
         </div>)}</div>
@@ -206,7 +242,11 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
         </div>
       </div>
     </main>
-    {webPreview ? <aside className="template-market-web"><WebPagePreview preview={webPreview} onClose={() => setWebPreview(null)} /></aside> : null}
+    <InlinePreviewPane open={!!webPreview} width={previewWidth} resizing={resizingPreview}
+      onResizeStart={startPreviewResize} onResetWidth={() => updatePreviewWidth(400)} onResizeKeyDown={resizePreviewByKey}>
+      {webPreview ? <WebPagePreview preview={webPreview} onClose={() => setWebPreview(null)} /> : null}
+    </InlinePreviewPane>
+    {resizingPreview && <div className="chat-panel__resize-shield" /> }
     {importOpen ? <SkillImportModal onClose={() => setImportOpen(false)} onInstall={importSkill} /> : null}
     <Modal open={Boolean(playing)} centered footer={null} title={null} closable maskClosable transitionName=""
       closeIcon={<X size={22} />} rootClassName="template-market-preview" width={`min(80vw, ${80 * ratio}vh)`}
