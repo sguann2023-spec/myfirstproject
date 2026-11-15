@@ -68,6 +68,7 @@ const TemplateCard = ({ item, active, onHover, onWatch, onPlay, onApply, busy, o
       <span className="template-market-likes"><Heart size={16} />{formatLikes(item.likes_count)}</span>
     </div>
     {active ? <div className="template-market-card-actions" style={{ '--tpl-cover': `url("${item.preview.cover_url}")` }} onClick={(event) => event.stopPropagation()}>
+      <span className="template-market-card-backdrop" aria-hidden="true" />
       <button type="button" className="template-market-apply" disabled={busy} onClick={() => onApply(item)}>
         {busy ? <LoaderCircle size={16} className="skill-spin" /> : null}{busy ? '加载中…' : '做同款'}
       </button>

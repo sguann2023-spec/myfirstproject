@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -85,4 +86,17 @@ describe('template marketplace interactions', () => {
     await click(card.querySelector('.template-market-apply'));
     expect(onGoChat).not.toHaveBeenCalled();
   });
+});
+
+
+it('keeps the action backdrop masked as one layer without a solid seam', async () => {
+  await render();
+  await hover(container.querySelector('article'));
+  const actions = container.querySelector('.template-market-card-actions');
+  expect(actions.querySelector('.template-market-card-backdrop')?.getAttribute('aria-hidden')).toBe('true');
+  expect(actions.style.getPropertyValue('--tpl-cover')).toContain(templates[0].preview.cover_url);
+  const css = readFileSync('src/components/SkillStore/TemplateMarketPage.css', 'utf8');
+  expect(css.match(/\.template-market-card-actions \{([^}]+)\}/)[1]).toContain('background: transparent');
+  expect(css.match(/\.template-market-card-backdrop \{([^}]+)\}/)[1]).toContain('mask-image: linear-gradient');
+  expect(css.match(/\.template-market-card-backdrop::before \{([^}]+)\}/)[1]).toContain('inset: -52px');
 });
