@@ -68,7 +68,12 @@ const SkillImportModal = ({ onClose, onInstall }) => {
     event.preventDefault();
     event.stopPropagation();
     const dropped = event.dataTransfer.files?.[0];
-    const selected = dropped?.path;
+    let selected = '';
+    try {
+      selected = String(window.api?.file?.getPathForFile?.(dropped) || dropped?.path || '').trim();
+    } catch {
+      selected = String(dropped?.path || '').trim();
+    }
     if (!selected) {
       setStatus('idle');
       setStatusMessage('');

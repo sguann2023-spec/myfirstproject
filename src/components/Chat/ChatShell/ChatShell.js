@@ -1,3 +1,4 @@
+import InlinePreviewPane from './InlinePreviewPane';
 import React from 'react';
 import { ChatTaskContext } from './ChatTaskContext';
 import { readOptionalSkillExampleText } from '../Composer/skillExample';
@@ -1159,9 +1160,6 @@ const ChatShell = ({
   const membersPanelVisibleWidth = showMembersPanel ? membersPanelWidth : 0;
   const membersPanelStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
   const membersSidebarStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
-  const trailingWebPreviewStyle = showTrailingWebPreview
-    ? { width: `${webPreviewWidth}px`, flexBasis: `${webPreviewWidth}px` }
-    : undefined;
 
   const updateMembersPanelWidth = React.useCallback((nextWidth) => {
     const containerWidth = contentRef.current?.clientWidth || 0;
@@ -1790,22 +1788,10 @@ const ChatShell = ({
           </div>
         </div>
       </div>
-      {showTrailingWebPreview && (
-        <div
-          className={`chat-panel__panel-resizer chat-panel__panel-resizer--preview ${isResizingWebPreview ? 'is-active' : ''}`.trim()}
-          role="separator"
-          tabIndex={0}
-          aria-label="调整内嵌浏览器宽度"
-          aria-orientation="vertical"
-          onMouseDown={handleWebPreviewResizeStart}
-          onDoubleClick={resetWebPreviewWidth}
-          onKeyDown={handleWebPreviewResizeKeyDown}
-        />
-      )}
-      <div
-        ref={beginnerGuideWebPreviewPaneRef}
-        className={`chat-panel__preview-pane chat-panel__preview-pane--trailing ${showTrailingWebPreview ? 'is-open' : ''}`.trim()}
-        style={trailingWebPreviewStyle}>
+      <InlinePreviewPane open={showTrailingWebPreview} width={webPreviewWidth}
+        paneRef={beginnerGuideWebPreviewPaneRef} resizing={isResizingWebPreview}
+        onResizeStart={handleWebPreviewResizeStart} onResetWidth={resetWebPreviewWidth}
+        onResizeKeyDown={handleWebPreviewResizeKeyDown}>
         {panePreview ? (
           <WebPagePreview
             preview={panePreview}
@@ -1837,7 +1823,7 @@ const ChatShell = ({
             submittingComment={sessionSending}
           />
         ) : null}
-      </div>
+      </InlinePreviewPane>
       <Tour
         open={beginnerGuideOpen}
         current={beginnerGuideCurrent}
