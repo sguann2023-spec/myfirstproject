@@ -1,30 +1,15 @@
+import { getTemplateColumnCount } from './templateMarketLayout';
+import MediaPreviewModal from '../Chat/MediaPreviewModal';
 import InlinePreviewPane from '../Chat/ChatShell/InlinePreviewPane';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, message } from 'antd';
-import { Heart, LoaderCircle, Plus, Search, X } from 'lucide-react';
+import { message } from 'antd';
+import { Heart, LoaderCircle, Plus, Search } from 'lucide-react';
 import { trackEvent } from '../../shared/analytics';
 import WebPagePreview from '../Chat/ChatShell/WebPagePreview';
 import SkillImportModal from './SkillImportModal';
 import { distributeTemplateColumns, installMarketTemplate, listMarketTemplates } from './templateMarketService';
 import './TemplateMarketPage.css';
 import './SkillStorePage.css';
-
-const FULLSCREEN_EVENT = 'fullscreen-status-changed';
-function useFullscreen() {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (window.api?.isFullScreen) void window.api.isFullScreen().then((v) => { if (active) setIsFullscreen(v); });
-    const emitter = window.electron?.ipcRenderer;
-    if (typeof emitter?.on === 'function') {
-      const handler = (_evt, v) => setIsFullscreen(v);
-      emitter.on(FULLSCREEN_EVENT, handler);
-      return () => { active = false; try { emitter.removeListener(FULLSCREEN_EVENT, handler); } catch {} };
-    }
-    return () => { active = false; };
-  }, []);
-  return isFullscreen;
-}
 
 const formatLikes = (count) => {
   const value = Number(count);
@@ -79,8 +64,25 @@ const TemplateCard = ({ item, active, onHover, onWatch, onPlay, onApply, busy, o
 };
 
 const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
-  const isFullscreen = useFullscreen();
-  const gridColumns = isFullscreen ? 5 : 3;
+  const [gridColumns, setGridColumns] = useState(1);
+  const gridRef = useRef(null);
+  useEffect(() => {
+    const node = gridRef.current;
+    if (!node) return;
+    const update = (width) => setGridColumns(getTemplateColumnCount(width));
+    update(node.getBoundingClientRect().width);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        const entry = entries.find((item) => item.target === node);
+        if (entry) update(entry.contentRect.width);
+      });
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+    const onResize = () => update(node.getBoundingClientRect().width);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -123,7 +125,6 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
   };
 
   const [playing, setPlaying] = useState(null);
-  const [ratio, setRatio] = useState(1);
   const [busyId, setBusyId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -190,7 +191,6 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
   };
   const openPlay = (item) => {
     setHoveredId(null); setWebPreview(null);
-    setRatio(item.preview.width / item.preview.height);
     setPlaying(item);
   };
   const apply = async (item) => {
@@ -229,7 +229,7 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
         const element = event.currentTarget;
         if (!error && element.scrollHeight - element.scrollTop - element.clientHeight < 160) void loadMore();
       }}>
-        <div className="template-market-columns" data-columns={gridColumns}
+        <div ref={gridRef} className="template-market-columns" data-columns={gridColumns}
           style={{ gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))` }}>{columns.map((column, i) => <div className="template-market-column" key={i}>
           {column.map((item) => <TemplateCard key={item.id} item={item} active={hoveredId === item.id && !playing}
             onHover={setHoveredId} onWatch={watch} onPlay={openPlay} onApply={apply}
@@ -248,14 +248,10 @@ const TemplateMarketPage = ({ onGoChat, onCreateSkill }) => {
     </InlinePreviewPane>
     {resizingPreview && <div className="chat-panel__resize-shield" /> }
     {importOpen ? <SkillImportModal onClose={() => setImportOpen(false)} onInstall={importSkill} /> : null}
-    <Modal open={Boolean(playing)} centered footer={null} title={null} closable maskClosable transitionName=""
-      closeIcon={<X size={22} />} rootClassName="template-market-preview" width={`min(80vw, ${80 * ratio}vh)`}
-      onCancel={() => setPlaying(null)} destroyOnHidden>
-      {playing?.preview.type === 'video' ? <video src={playing.preview.url} poster={playing.preview.cover_url} controls playsInline autoPlay
-        onLoadedMetadata={(event) => { const v = event.currentTarget; if (v.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight); }} />
-        : playing ? <img src={playing.preview.url} alt={playing.name} onClick={() => setPlaying(null)}
-          onLoad={(event) => { const img = event.currentTarget; if (img.naturalWidth && img.naturalHeight) setRatio(img.naturalWidth / img.naturalHeight); }} /> : null}
-    </Modal>
+    <MediaPreviewModal src={playing?.preview.url} kind={playing?.preview.type} name={playing?.name}
+      poster={playing?.preview.cover_url} autoPlay
+      aspectRatio={playing ? playing.preview.width / playing.preview.height : 1}
+      onClose={() => setPlaying(null)} />
   </div>;
 };
 

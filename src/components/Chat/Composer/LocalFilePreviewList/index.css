@@ -460,8 +460,8 @@
 .chat-panel__media-click-modal .ant-modal { transform: none !important; }
 .chat-panel__media-click-modal .ant-modal-close {
   position: fixed;
-  top: 16px;
-  right: 16px;
+  top: 36px;
+  right: 40px;
   width: 40px;
   height: 40px;
   border-radius: 10px;
@@ -471,3 +471,5 @@
 }
 .chat-panel__media-click-modal .ant-modal-close:hover { color: #fff; background: rgba(0, 0, 0, 0.3); }
 .chat-panel__media-click-image { border-radius: 16px; cursor: pointer; }
+
+.chat-panel__media-click-modal .ant-modal-wrap, .chat-panel__media-click-modal .ant-modal-mask { pointer-events: auto; -webkit-app-region: no-drag; }
