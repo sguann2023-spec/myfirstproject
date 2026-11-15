@@ -44,9 +44,18 @@ function temp(t) {
   return dir
 }
 // Exercise real validators without downloading release bytes. Only pinned hashes
-// are replaced with deterministic fixture hashes; all integrity checks stay real.
-function fixtureModules() {
+// are replaced with deterministic fixture hashes. Windows also needs a test-only
+// execute-bit shim for Mach-O fixtures because its filesystem has no POSIX modes.
+function fixtureModules({ windowsModes = process.platform === 'win32' } = {}) {
   const vm = require('node:vm')
+  const fixtureFs = windowsModes ? {
+    ...fs,
+    statSync(file, ...args) {
+      const stat = fs.statSync(file, ...args)
+      if (path.basename(file) === 'ffprobe' && stat.isFile()) stat.mode |= 0o111
+      return stat
+    }
+  } : fs
   const license = Buffer.from('fixture license\n'), readme = Buffer.from('fixture README\n')
   function load(name, dependencies = {}, transform = text => text) {
     const filename = path.join(__dirname, name)
@@ -57,7 +66,7 @@ function fixtureModules() {
     }, { filename })
     return module.exports
   }
-  const source = load('ffprobe-source-build.js', {}, text => text
+  const source = load('ffprobe-source-build.js', { 'node:fs': fixtureFs }, text => text
     .replace(/license: '[a-f0-9]{64}'/, `license: '${sha256(license)}'`)
     .replace(/readme: '[a-f0-9]{64}'/, `readme: '${sha256(readme)}'`))
   const prepare = load('prepare-portable-ffprobe.js', { './ffprobe-source-build': source }, text => text
@@ -208,6 +217,19 @@ test('source flags pin LGPL-only build and provenance rejects old sources/flags'
   metadata.provenance.flags = ['--enable-nonfree']
   fs.writeFileSync(path.join(dir, 'ffprobe.build.json'), JSON.stringify(metadata))
   assert.throws(() => source.verifyBuild(dir, 'arm64'), /provenance/)
+})
+test('Windows fixture mode shim preserves integrity checks and native permission validation', t => {
+  const root = temp(t), dir = path.join(root, 'binary'), sidecars = path.join(root, 'sidecars')
+  const simulated = fixtureModules({ windowsModes: true })
+  simulated.write(dir, 'darwin', 'arm64', sidecars)
+  fs.chmodSync(path.join(dir, 'ffprobe'), 0o644)
+  simulated.prepare.verifyDirectory(dir, 'darwin', 'arm64', sidecars)
+  if (process.platform !== 'win32') {
+    const native = fixtureModules({ windowsModes: false })
+    assert.throws(() => native.prepare.verifyDirectory(dir, 'darwin', 'arm64', sidecars), /not executable/)
+  }
+  fs.appendFileSync(path.join(dir, 'ffprobe'), 'tampered')
+  assert.throws(() => simulated.prepare.verifyDirectory(dir, 'darwin', 'arm64', sidecars), /SHA256/)
 })
 test('source validation accepts colocated caches and split packaged sidecars', t => {
   const { source, prepare, write } = fixtureModules()
