@@ -5,6 +5,8 @@ import { config as apiConfigService } from '@main/apiServer/config'
 import { modelsService } from '@main/apiServer/services/models'
 import { validateModelId } from '@main/apiServer/utils'
 import { isWin } from '@main/constant'
+import { CustomChatModelsService } from '@main/services/CustomChatModelsService'
+import { compileCustomReasoningMap } from '../reasoning-map'
 import { getProxyEnvironment } from '@main/services/proxy/nodeProxy'
 import { agentRuntimeAuthService } from '@main/services/agents/services/AgentRuntimeAuthService'
 import { autoDiscoverGitBash, findBundledPython, getBinaryPath, prependPathEntry } from '@main/utils/process'
@@ -20,7 +22,13 @@ const logger = loggerService.withContext('ClaudeCodeRuntime')
 type ValidatedModelInfo = Awaited<ReturnType<typeof validateModelId>>
 type RuntimeApiConfig = Awaited<ReturnType<typeof apiConfigService.get>>
 
+export type CustomReasoningSnapshot = Readonly<{
+  level: string
+  patch: Record<string, unknown>
+}>
+
 export type ClaudeRuntimeEnvironment = {
+  customReasoning?: CustomReasoningSnapshot
   cwd: string
   modelInfo: ValidatedModelInfo
   modelTokenLimits?: {
@@ -66,6 +74,7 @@ export function resolveWorkspaceCwd(session: GetAgentSessionResponse): string {
 export async function buildClaudeRuntimeEnvironment(input: {
   session: GetAgentSessionResponse
   modelOverride?: string
+  thinkingLevel?: string
   cwd: string
   enableToolSearch: boolean
 }): Promise<ClaudeRuntimeEnvironment> {
@@ -114,13 +123,38 @@ export async function buildClaudeRuntimeEnvironment(input: {
   if (isCustomProvider && (!['openai', 'anthropic'].includes(provider.type) || !provider.apiKey?.trim())) {
     throw new Error('Custom providers require an explicit protocol and API key')
   }
+  let customReasoning: CustomReasoningSnapshot | undefined
   if (isCustomProvider) {
+    // Resolve the persisted exact composite key, never renderer-provided map text or
+    // a bare provider model ID (which may be shared by multiple custom entries).
+    const customModel = new CustomChatModelsService().list().find(
+      (model) => `${model.id}:${model.modelId}` === runtimeModel
+    )
+    if (!customModel) {
+      throw new Error(`Custom model '${runtimeModel}' is missing, disabled, or incomplete. Enable and configure this exact model in Model Settings, then select it again.`)
+    }
+    const source = customModel.reasoning_level_map
+    const levels = customModel.reasoning_levels ?? []
+    if (levels.length > 0 || source?.trim()) {
+      const level = input.thinkingLevel === undefined ? levels[0] : input.thinkingLevel
+      if (typeof level !== 'string' || !levels.includes(level)) {
+        throw new Error(`Invalid custom reasoning level for '${runtimeModel}'. Select one of the configured reasoning_levels: ${levels.join(', ') || '(none; configure levels in Model Settings)'}`)
+      }
+      try {
+        // Evaluate once: subsequent settings edits cannot change an in-flight invocation.
+        customReasoning = Object.freeze({ level, patch: compileCustomReasoningMap(source ?? '').evaluate(level) })
+      } catch (error) {
+        throw new Error(`Invalid custom reasoning_level_map for '${runtimeModel}'. Fix the mapping in Model Settings: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     let url: URL
-    try { url = new URL(provider.apiHost) } catch { throw new Error('Invalid custom provider URL') }
+    try { url = new URL(customModel.baseUrl) } catch { throw new Error('Invalid custom provider URL') }
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.hash) {
       throw new Error('Invalid custom provider URL')
     }
-    // Custom providers always use their explicit endpoint, never session gateway overrides.
+    // Restore the persisted endpoint: provider validation may append /v1, while
+    // the Anthropic SDK appends /v1/messages itself. Never use session overrides.
+    provider.apiHost = customModel.baseUrl.trim().replace(/\/+$/, '')
     provider.anthropicApiHost = provider.apiHost
   }
   const isAzureOpenAI = provider.type === 'azure-openai'
@@ -242,6 +276,7 @@ export async function buildClaudeRuntimeEnvironment(input: {
     cwd,
     modelInfo,
     modelTokenLimits,
+    customReasoning,
     apiConfig,
     env
   }

@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron'
 import Store from 'electron-store'
 import { loggerService } from '@logger'
 import { IpcChannel } from '../../packages/shared/IpcChannel'
-import type { CustomChatModel, CustomChatProvider, OfficialChatModelPrefs } from '../../packages/shared/customChatModels'
+import type { CustomChatModel, CustomChatModelMetadata, CustomChatProvider, OfficialChatModelPrefs } from '../../packages/shared/customChatModels'
 
 const logger = loggerService.withContext('CustomChatModelsService')
 
@@ -53,6 +53,39 @@ export function validateCustomChatModels(input: unknown): CustomChatModel[] {
   })
 }
 
+/** 校验并无损保留模型级可选元数据（对齐 ZCode 模型弹窗字段）。
+ *  全部可选：缺省不写入，存在时按类型校验，非法即拒绝（fails-closed）。 */
+function normalizeModelMetadata(model: Record<string, unknown>): Partial<CustomChatModelMetadata> {
+  const out: Partial<CustomChatModelMetadata> = {}
+  if (model.max_output_tokens !== undefined) {
+    if (!Number.isSafeInteger(model.max_output_tokens) || (model.max_output_tokens as number) <= 0) throw new Error('max_output_tokens must be a positive integer')
+    out.max_output_tokens = model.max_output_tokens as number
+  }
+  for (const key of ['supports_video', 'supports_pdf', 'supports_json_schema', 'supports_native_web_search', 'supports_mid_conversation_system', 'use_recommended_config'] as const) {
+    if (model[key] !== undefined) {
+      if (typeof model[key] !== 'boolean') throw new Error(`${key} must be a boolean`)
+      out[key] = model[key] as boolean
+    }
+  }
+  if (model.reasoning_levels !== undefined) {
+    if (!Array.isArray(model.reasoning_levels)) throw new Error('reasoning_levels must be an array')
+    const seen = new Set<string>()
+    const levels = model.reasoning_levels.map((level) => {
+      if (typeof level !== 'string' || !level.trim()) throw new Error('reasoning_levels entries must be non-empty strings')
+      const trimmed = level.trim()
+      if (seen.has(trimmed)) throw new Error('reasoning_levels must be unique')
+      seen.add(trimmed)
+      return trimmed
+    })
+    out.reasoning_levels = levels
+  }
+  if (model.reasoning_level_map !== undefined) {
+    if (typeof model.reasoning_level_map !== 'string') throw new Error('reasoning_level_map must be a string')
+    out.reasoning_level_map = model.reasoning_level_map
+  }
+  return out
+}
+
 export function validateCustomChatProviders(input: unknown): CustomChatProvider[] {
   if (!Array.isArray(input)) throw new Error('Custom providers must be an array')
   const providerIds = new Set<string>()
@@ -84,7 +117,7 @@ export function validateCustomChatProviders(input: unknown): CustomChatProvider[
       modelIds.add(model.id.toLowerCase())
       if (typeof model.name !== 'string' || typeof model.modelId !== 'string') throw new Error('Custom model fields must be strings')
       if (model.context_window_tokens !== undefined && (!Number.isSafeInteger(model.context_window_tokens) || model.context_window_tokens <= 0)) throw new Error('context_window_tokens must be a positive integer')
-      return { id: model.id, name: model.name, modelId: model.modelId, read_image: model.read_image, enabled: model.enabled, ...(model.context_window_tokens === undefined ? {} : { context_window_tokens: model.context_window_tokens }) }
+      return { id: model.id, name: model.name, modelId: model.modelId, read_image: model.read_image, enabled: model.enabled, ...(model.context_window_tokens === undefined ? {} : { context_window_tokens: model.context_window_tokens }), ...normalizeModelMetadata(model) }
     })
     return { id, name: name.trim(), protocol, baseUrl: baseUrl.trim(), apiKey, enabled: enabled === undefined ? true : enabled, ...(apiKeyUrl === undefined ? {} : { apiKeyUrl: apiKeyUrl.trim() }), ...(logoKey === undefined ? {} : { logoKey }), models: entries }
   })

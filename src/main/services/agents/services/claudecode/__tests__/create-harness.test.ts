@@ -151,7 +151,7 @@ describe('real Pi adapters against loopback HTTP (no paid services)', () => {
           baseUrl: 'https://open.vectcut.com/v1'
         })
       }))
-      const result = await models.completeSimple(model, { messages: [{ role: 'user', content: 'hello-local', timestamp: 1 }] }, { maxTokens: 32 })
+      const result = await models.completeSimple(model, { messages: [{ role: 'user', content: 'hello-local', timestamp: 1 }], tools: [{ name: 'local_tool', description: 'Local test tool', parameters: { type: 'object', properties: {} } }] }, { maxTokens: 32 })
       expect(result.stopReason).toBe('stop')
       expect(result.content).toContainEqual({ type: 'text', text: 'local-ok' })
       expect(requests).toHaveLength(1)
@@ -159,6 +159,7 @@ describe('real Pi adapters against loopback HTTP (no paid services)', () => {
       expect(requests[0].headers.authorization).toBe('Bearer local-only-key')
       expect(requests[0].body.model).toBe('local-model')
       expect(requests[0].body.stream).toBe(true)
+      expect(requests[0].body.tool_choice).toEqual(api === 'anthropic-messages' ? { type: 'auto' } : 'auto')
       expect(JSON.stringify(requests[0].body.messages)).toContain('hello-local')
       if (api === 'anthropic-messages') expect(requests[0].headers['anthropic-version']).toBe('2023-06-01')
       const body = requests[0].body
@@ -247,6 +248,41 @@ describe('gateway thinking selection', () => {
       expect(protocol === 'anthropic-messages' ? payload.output_config.effort : payload.reasoning_effort).toBe('high')
     })
   }
+})
+
+describe('custom reasoning snapshot payload integration', () => {
+  it.each(['stream', 'streamSimple'] as const)('%s applies independent custom snapshots after cleanup for both protocols', async method => {
+    for (const providerApiType of ['openai-completions', 'anthropic-messages'] as const) {
+      const underlying = vi.fn((_model, _context, options) => options)
+      const create = (patch: Record<string, unknown>, providerId = 'custom-exact') => wrapPiApiModuleWithPayloadNormalization({
+        apiModule: { stream: underlying, streamSimple: underlying } as any,
+        invokeContext: { thinkingLevel: 'HIGH', runtime: { provider: { id: providerId }, model: { id: 'same-model' } } } as any,
+        providerApiType, baseUrl: 'https://open.vectcut.com/v1', customReasoning: { level: 'HIGH', patch }
+      })
+      const firstPatch = { enable_thinking: false, thinking: { type: 'enabled', budget_tokens: 2048 }, output_config: { effort: 'HIGH' }, chat_template_kwargs: { enable_thinking: true } }
+      const first = (create(firstPatch) as any)[method]({}, {}, {})
+      const second = (create({ reasoning_effort: 'Low' }) as any)[method]({}, {}, {})
+      const payload = () => ({ enable_thinking: true, thinking: { type: 'stale' }, reasoning: {}, reasoning_effort: 'stale', chat_template_kwargs: { stale: true }, output_config: { effort: 'stale', format: 'json' }, tools: [{ name: 'test' }] })
+      const a: any = payload(); const b: any = payload()
+      await Promise.all([first.onPayload(a, {}), second.onPayload(b, {})])
+      expect(a).toMatchObject({ ...firstPatch, output_config: { effort: 'HIGH', format: 'json' }, tool_choice: providerApiType === 'anthropic-messages' ? { type: 'auto' } : 'auto' })
+      expect(a.reasoning_effort).toBeUndefined()
+      expect(a.reasoning).toBeUndefined()
+      expect(b.reasoning_effort).toBe('Low')
+      expect(b.thinking).toBeUndefined()
+      expect(b.output_config).toEqual({ format: 'json' })
+      expect(firstPatch).toEqual({ enable_thinking: false, thinking: { type: 'enabled', budget_tokens: 2048 }, output_config: { effort: 'HIGH' }, chat_template_kwargs: { enable_thinking: true } })
+
+      const replaced: any = payload()
+      const options = (create({ output_config: { format: null } }) as any)[method]({}, {}, { onPayload: () => replaced })
+      expect(await options.onPayload({}, {})).toBe(replaced)
+      expect(replaced.output_config).toEqual({})
+
+      const official: any = payload()
+      await (create({ reasoning_effort: 'CUSTOM' }, 'official') as any)[method]({}, {}, {}).onPayload(official, {})
+      expect(official.reasoning_effort).not.toBe('CUSTOM')
+    }
+  })
 })
 
 describe('Pi runtime authentication', () => {
@@ -423,6 +459,30 @@ describe('OpenAI tool message normalization', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
     expect(logMocks.warn).not.toHaveBeenCalled()
+  })
+
+  it.each(['stream', 'streamSimple'] as const)('%s uses protocol-specific tool_choice defaults and preserves callback replacements', async method => {
+    for (const providerApiType of ['openai-completions', 'anthropic-messages'] as const) {
+      const underlying = vi.fn((_model, _context, options) => options)
+      const wrapper = wrapPiApiModuleWithPayloadNormalization({
+        apiModule: { stream: underlying, streamSimple: underlying } as any,
+        invokeContext: { runtime: {}, projection: {} } as any,
+        providerApiType
+      })
+      const options = (wrapper[method] as any)({}, {}, {})
+      const payload: any = { tools: [{ name: 'test' }] }
+      await options.onPayload(payload, {})
+      expect(payload.tool_choice).toEqual(providerApiType === 'anthropic-messages' ? { type: 'auto' } : 'auto')
+      for (const tools of [undefined, []]) {
+        const withoutTools: any = { tools }
+        await options.onPayload(withoutTools, {})
+        expect(withoutTools).not.toHaveProperty('tool_choice')
+      }
+      const replacement: any = { tools: [{ name: 'test' }] }
+      const replacing = (wrapper[method] as any)({}, {}, { onPayload: () => replacement })
+      expect(await replacing.onPayload({}, {})).toBe(replacement)
+      expect(replacement.tool_choice).toEqual(payload.tool_choice)
+    }
   })
 
   it.each(['stream', 'streamSimple'] as const)('%s preserves Anthropic messages and existing parameter semantics', async method => {

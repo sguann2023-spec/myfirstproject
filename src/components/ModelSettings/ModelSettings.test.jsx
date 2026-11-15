@@ -14,6 +14,7 @@ beforeEach(() => { getChatModelList.mockReset().mockResolvedValue({ modelItems: 
 vi.mock('antd', () => {
   const Input = ({ autoComplete, ...props }) => <input {...props} autoComplete={autoComplete} />;
   Input.Password = props => <input {...props} type="password" />;
+  Input.TextArea = props => <textarea {...props} />;
   const Form = ({ children }) => <div>{children}</div>;
   Form.Item = ({ label, children, extra }) => <div>{label}{children}<small>{extra}</small></div>;
   return { Input, Form,
@@ -29,9 +30,9 @@ vi.mock('antd', () => {
       <div className="ant-modal">
         {title}
         {children}
-        {footer
+        {typeof footer === 'function'
           ? footer(null, { OkBtn: () => <button aria-label={title} onClick={onOk}>保存</button>, CancelBtn: () => <button onClick={onCancel}>取消</button> })
-          : <button aria-label={title} onClick={onOk}>确认</button>}
+          : footer || <button aria-label={title} onClick={onOk}>确认</button>}
       </div>
     ) : null,
   };
@@ -80,6 +81,12 @@ const setInput = (label, value) => act(() => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const confirm = async title => act(async () => host.querySelector(`button[aria-label="${title}"]`).click());
+// 模型弹窗页脚「保存」按钮（对齐 ZCode：重置表单 / 取消 / 保存）。
+const saveModelDialog = async () => {
+  const btn = [...host.querySelectorAll('.ant-modal button')].find(b => b.textContent === '保存');
+  expect(btn).toBeTruthy();
+  await act(async () => btn.click());
+};
 // 自动保存 idle 1.2s（对齐 ZCode），测试等待落盘窗口。
 const autoSave = async () => act(async () => { await new Promise(resolve => setTimeout(resolve, 1400)); });
 afterEach(() => { if (root) act(() => root.unmount()); host?.remove(); vi.restoreAllMocks(); delete window.electronAPI; delete window.modal; });
@@ -343,6 +350,21 @@ describe('ModelSettings', () => {
     expect(byName['Anthropic'].baseUrl).toBe('https://api.anthropic.com');
     expect(PROVIDER_TEMPLATES.filter(t => t.group === 'zhipu')).toHaveLength(4);
   });
+  it('seeds template models with full catalog defaults (max output / reasoning / mapping / capabilities)', () => {
+    const bailian = PROVIDER_TEMPLATES.find(t => t.name === '阿里云百炼（中国）');
+    const provider = createProvider(bailian);
+    const max = provider.models.find(m => m.modelId === 'qwen3.8-max');
+    // 对齐 ZCode 百炼渠道：最大输出、视频/结构化输出、推理等级与默认 thinking 映射均来自目录。
+    expect(max.context_window_tokens).toBe(1000000);
+    expect(max.max_output_tokens).toBe(131072);
+    expect(max.supports_video).toBe(true);
+    expect(max.supports_json_schema).toBe(true);
+    expect(max.reasoning_levels).toEqual(['low', 'medium', 'xhigh']);
+    expect(max.reasoning_level_map).toContain('thinking');
+    expect(max.use_recommended_config).toBe(true);
+    // 每个种子模型都带智能配置开关与推理字段（不再丢失默认设置）。
+    expect(provider.models.every(m => m.use_recommended_config === true && Array.isArray(m.reasoning_levels) && typeof m.reasoning_level_map === 'string')).toBe(true);
+  });
   it('resolves bundled brand assets for every catalog endpoint, not editable names', () => {
     for (const template of PROVIDER_TEMPLATES) {
       const src = resolveProviderLogo(template.baseUrl);
@@ -537,26 +559,129 @@ describe('ModelSettings', () => {
     await click('custom-existing');
     await act(async () => host.querySelector('[aria-label="启用模型 1"]').click());
     await click('编辑模型 1');
+    expect(host.textContent).toContain('编辑模型配置');
+    expect(host.textContent).toContain('智能配置');
     setInput('模型 ID', 'new-service-id');
-    setInput('模型名称', 'Renamed');
     setInput('上下文窗口', '200000');
-    await act(async () => host.querySelector('.ant-modal input[type="checkbox"]').click());
-    await confirm('编辑模型');
+    setInput('最大输出 Token', '8192');
+    await click('高级配置');
+    await click('图片');
+    await click('结构化输出');
+    await saveModelDialog();
     await autoSave();
-    expect(api.saveProviders.mock.calls[0][0][0].models[0]).toEqual({ id: 'custom-old-model', name: 'Renamed', modelId: 'new-service-id', enabled: false, read_image: true, context_window_tokens: 200000 });
+    expect(api.saveProviders.mock.calls[0][0][0].models[0]).toEqual({ id: 'custom-old-model', name: 'new-service-id', modelId: 'new-service-id', enabled: false, read_image: true, context_window_tokens: 200000, max_output_tokens: 8192, supports_json_schema: true, reasoning_levels: [], reasoning_level_map: '' });
     await click('添加模型');
     setInput('模型 ID', 'second-id');
-    setInput('模型名称', 'Second');
-    await confirm('添加模型');
+    await saveModelDialog();
     await autoSave();
     expect(api.saveProviders.mock.calls[1][0][0].models[1].id).toMatch(/^custom-[0-9a-f-]{36}$/);
-    await click('编辑模型 1');
-    await click('删除模型');
+    expect(api.saveProviders.mock.calls[1][0][0].models[1].modelId).toBe('second-id');
+    // 删除入口在模型行（Trash2），不在弹窗内。
+    await click('删除模型 1');
     await confirm('确认删除模型');
     expect(host.querySelector('[aria-label="编辑模型 2"]')).toBeNull();
     await click('删除');
     await confirm('确认删除供应商');
     expect(api.saveProviders).toHaveBeenLastCalledWith([]);
+  });
+  it('smart config auto-fills context/vision from the template catalog and respects manual overrides', async () => {
+    const api = await mount();
+    await click('custom-existing');
+    await click('添加模型');
+    setInput('模型 ID', 'GLM-5.3-Flash');
+    await act(async () => host.querySelector('[aria-label="模型 ID"]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(host.textContent).toContain('已匹配到智能配置');
+    expect(host.querySelector('[aria-label="上下文窗口"]').value).toBe('1000000');
+    await click('高级配置');
+    expect(host.querySelector('[aria-label="图片"]').getAttribute('aria-checked')).toBe('true');
+    // 手动改上下文后转为手动管理，不再被推荐覆盖。
+    setInput('上下文窗口', '123456');
+    await act(async () => host.querySelector('[aria-label="模型 ID"]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(host.querySelector('[aria-label="上下文窗口"]').value).toBe('123456');
+    await saveModelDialog();
+    await autoSave();
+    const saved = api.saveProviders.mock.calls[0][0][0].models[1];
+    expect(saved.context_window_tokens).toBe(123456);
+    expect(saved.read_image).toBe(true);
+    expect(saved.use_recommended_config).toBe(true);
+  });
+  it('smart-matches arbitrary model IDs via the ZCode rule catalog (not just template seeds)', async () => {
+    const api = await mount();
+    await click('custom-existing');
+    await click('添加模型');
+    setInput('模型 ID', 'gpt-5.4');
+    await act(async () => host.querySelector('[aria-label="模型 ID"]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(host.textContent).toContain('已匹配到智能配置');
+    expect(host.querySelector('[aria-label="上下文窗口"]').value).toBe('1050000');
+    expect(host.querySelector('[aria-label="最大输出 Token"]').value).toBe('128000');
+    await click('高级配置');
+    expect(host.querySelector('[aria-label="图片"]').getAttribute('aria-checked')).toBe('true');
+    expect(host.querySelector('[aria-label="结构化输出"]').getAttribute('aria-checked')).toBe('true');
+    expect([...host.querySelectorAll('.model-settings__reasoning-value')].map(b => b.textContent)).toEqual(['none', 'low', 'medium', 'high', 'xhigh']);
+    expect(host.querySelector('[aria-label="推理参数映射"]').value).toBe('{"reasoning_effort": reasoningLevel}');
+    await saveModelDialog();
+    await autoSave();
+    const saved = api.saveProviders.mock.calls[0][0][0].models[1];
+    expect(saved.context_window_tokens).toBe(1050000);
+    expect(saved.max_output_tokens).toBe(128000);
+    expect(saved.supports_json_schema).toBe(true);
+    expect(saved.reasoning_levels).toEqual(['none', 'low', 'medium', 'high', 'xhigh']);
+  });
+  it('falls back to catalog defaults for unknown model IDs and still reports a match', async () => {
+    await mount();
+    await click('custom-existing');
+    await click('添加模型');
+    setInput('模型 ID', 'totally-unknown-model');
+    await act(async () => host.querySelector('[aria-label="模型 ID"]').dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+    expect(host.textContent).toContain('已匹配到智能配置');
+    expect(host.querySelector('[aria-label="上下文窗口"]').value).toBe('1000000');
+    expect(host.querySelector('[aria-label="最大输出 Token"]').value).toBe('128000');
+  });
+  it('requires model ID, saves CEL reasoning maps as-is, and resets the form', async () => {
+    const api = await mount();
+    await click('custom-existing');
+    await click('添加模型');
+    await saveModelDialog();
+    expect(host.textContent).toContain('模型 ID 不能为空');
+    setInput('模型 ID', 'cel-map-model');
+    await click('高级配置');
+    const map = host.querySelector('[aria-label="推理参数映射"]');
+    // CEL 表达式（非严格 JSON）应原样保存，不被 JSON 校验拒绝。
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(map, '{"reasoning_effort": reasoningLevel}');
+    await act(async () => map.dispatchEvent(new Event('input', { bubbles: true })));
+    await saveModelDialog();
+    await autoSave();
+    expect(api.saveProviders.mock.calls[0][0][0].models[1].reasoning_level_map).toBe('{"reasoning_effort": reasoningLevel}');
+    // 重置表单：回到打开时的空快照。
+    await click('添加模型');
+    setInput('模型 ID', 'will-reset');
+    await click('高级配置');
+    await click('重置表单');
+    expect(host.querySelector('[aria-label="模型 ID"]').value).toBe('');
+    expect(host.querySelector('[aria-label="推理参数映射"]').value).toBe('');
+    expect(host.textContent).not.toContain('模型 ID 不能为空');
+  });
+  it('adds, reorders and deletes reasoning levels', async () => {
+    const api = await mount();
+    await click('custom-existing');
+    await click('添加模型');
+    // 纯手动编辑推理档位：先关闭智能配置，避免失焦时推荐目录自动灌入默认档位。
+    await act(async () => host.querySelector('[aria-label="智能配置"]').click());
+    setInput('模型 ID', 'reasoning-model');
+    await click('高级配置');
+    const addLevel = async (value) => {
+      await click('添加推理等级');
+      const input = host.querySelector('[aria-label="推理等级值"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+      await act(async () => input.dispatchEvent(new Event('input', { bubbles: true })));
+      await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    };
+    await addLevel('low');
+    await addLevel('high');
+    expect([...host.querySelectorAll('.model-settings__reasoning-value')].map(b => b.textContent)).toEqual(['low', 'high']);
+    await saveModelDialog();
+    await autoSave();
+    expect(api.saveProviders.mock.calls[0][0][0].models[1].reasoning_levels).toEqual(['low', 'high']);
   });
   it('refresh flushes drafts first and retains them when reload fails', async () => {
     const api = await mount();

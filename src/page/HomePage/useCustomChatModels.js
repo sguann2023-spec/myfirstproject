@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useCustomChatModels() {
   const [models, setModels] = useState([]);
+  // 供应商分组（含名称/标识/模型），供 composer 的「供应商→模型」两级选择器使用。
+  const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -11,6 +13,14 @@ export function useCustomChatModels() {
     const reload = () => {
       const request = ++generation.current;
       setLoading(true);
+      // 供应商列表与模型列表并行读取；旧桥无 listProviders 时容缺为空，不影响模型加载。
+      void Promise.resolve().then(() => (api?.listProviders ? api.listProviders() : []))
+        .then((items) => {
+          if (!cancelled && request === generation.current) setProviders(Array.isArray(items) ? items : []);
+        })
+        .catch(() => {
+          if (!cancelled && request === generation.current) setProviders([]);
+        });
       return Promise.resolve().then(() => {
         if (!api) throw new Error('Custom models unavailable');
         return api.list();
@@ -46,5 +56,5 @@ export function useCustomChatModels() {
     setLoading(false);
     return saved;
   }, [loading, error]);
-  return { models, loading, error, save };
+  return { models, providers, loading, error, save };
 }

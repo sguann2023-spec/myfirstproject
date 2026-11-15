@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ThinkingLevelSlider from './ThinkingLevelSlider';
-import { normalizeThinkingLevels, resolveThinkingLevel, thinkingSendOptions } from './thinkingLevels';
-import { toModelOption } from '../../../page/HomePage/chatProviders';
+import { normalizeThinkingLevels, resolveThinkingLevel, thinkingLevelLabel, thinkingSendOptions } from './thinkingLevels';
+import { customModelToOption, toModelOption } from '../../../page/HomePage/chatProviders';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host, root;
 afterEach(() => { if (root) act(() => root.unmount()); host?.remove(); });
@@ -19,6 +19,28 @@ describe('thinking intensity', () => {
     expect(resolveThinkingLevel(option, 'invalid')).toBe('high');
     expect(resolveThinkingLevel({ ...option, thinking_default: 'invalid' })).toBe('off');
     expect(resolveThinkingLevel({})).toBeUndefined();
+  });
+  it('renders custom configured levels without pricing and preserves exact level names in the send snapshot', () => {
+    const custom = customModelToOption({ id: 'custom-example', modelId: 'deepseek:flash', name: 'DeepSeek', reasoning_levels: ['disabled', 'High', 'max'] });
+    const onChange = vi.fn();
+    expect(resolveThinkingLevel(custom)).toBe('disabled');
+    render({ option: custom, value: 'High', onChange });
+    const input = host.querySelector('input');
+    expect(input).not.toBeNull();
+    expect(input.getAttribute('aria-valuetext')).toBe('高');
+    expect(JSON.parse(input.dataset.levels)).toEqual(['disabled', 'High', 'max']);
+    act(() => input.dispatchEvent(new Event('pointerup', { bubbles: true })));
+    expect(onChange).toHaveBeenCalledWith('custom-example:deepseek:flash', 'High');
+    expect(thinkingSendOptions(custom, 'High')).toEqual({ thinkingLevel: 'High' });
+    expect(thinkingSendOptions(custom, 'max', {})).toEqual({});
+  });
+  it.each([
+    ['disabled', '关闭'], ['enabled', '开启'], ['low', '低'], ['medium', '中'],
+    ['High', '高'], ['max', '最高'], ['minimal', '最低'], ['auto', '自动'], ['CustomLevel', 'CustomLevel'],
+  ])('shows official-style label for %s without changing its request value', (level, label) => {
+    expect(thinkingLevelLabel(level)).toBe(label);
+    const custom = customModelToOption({ id: 'custom-deepseek', modelId: 'deepseek-v4.1-flash', reasoning_levels: ['disabled', 'enabled', 'low', 'medium', 'High', 'max', 'minimal', 'auto', 'CustomLevel'] });
+    expect(thinkingSendOptions(custom, level)).toEqual({ thinkingLevel: level });
   });
   it('preserves metadata through option conversion', () => {
     const result = toModelOption('id', 'name', '', true, {}, '', '', [], option);

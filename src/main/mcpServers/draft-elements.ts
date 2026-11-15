@@ -95,12 +95,14 @@ const TEXT_STROKE_SHADOW_GUIDANCE = 'MANDATORY STROKE-OR-SHADOW RULE FOR add_tex
 
 const TEXT_PREVIEW_GUIDANCE = 'HIGH-PRIORITY PREVIEW BEFORE ADDING OR MODIFYING TEXT: Before calling add_text, add_batch_text, add_subtitle, or modify_text, always check the visual effect first with get_text_style_preview (position/size/color/border/shadow snapshot) or get_font_previews (real font glyph previews) — at least one of them — and inspect the returned PNG before applying the text. Previewing first is the default workflow step for every text add or modification and carries very high priority; skip it only when the user explicitly asks to skip previews. Preview with the same text, font, font_size, colors, text_styles and position you plan to submit; for batch text, preview the shared style plus any item whose style differs. When the text uses text_styles keyword runs, preview those runs with get_text_style_preview (it accepts the same text_styles shape). When choosing a font, including from the recommended font list, confirm its glyphs with get_font_previews first.'
 
+const TEXT_ANIMATION_PREVIEW_GUIDANCE = 'HIGH-PRIORITY ANIMATION PREVIEW BEFORE CHOOSING TEXT ANIMATIONS: When the text will use intro_animation, outro_animation, or loop_animation, always preview the actual motion first with get_text_intro_animation_previews, get_text_outro_animation_previews, or get_text_loop_animation_previews (preview each animation kind you plan to set) and inspect the returned 3x3 frame contact-sheet PNGs before picking animation names. Previewing motion is the default workflow step and carries very high priority; skip it only when the user explicitly asks to skip previews. The name-only lists get_text_intro_types, get_text_outro_types, and get_text_loop_anim_types are not a substitute for visual previews; never choose an animation from name/metadata alone.'
+
 const TEXT_VERIFICATION_GUIDANCE = 'Verification is recommended for pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000, or guessed generic font names such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. For these checks and ordinary in-range font sizes, prefer lightweight previews first; use render_draft (预渲染 / Pre-render) when they cannot verify subtitles, animation timing, track layering, audio effects or volume, font effects, transitions, or combined compositions. This fallback does not waive mandatory pre-rendering for out-of-range font sizes. If the working draft exceeds render limits, or verification must happen before modifying it, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.'
 
 const TOOLS: Tool[] = [
   toolWithArgs(
     'add_text',
-    `Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
+    `Add a single text layer into a VectCut draft. Use this for one text block with optional font, color, position, and animations. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_ANIMATION_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} For short phrases, calls to action, labels, or any text that should be emphasized or visually prominent, consider add_text_template and inspect candidate looks with get_text_template_previews instead of relying on plain text alone. For ordinary text, use text_styles proactively to emphasize important words or phrases with per-range size, color, bold, border, or shadow; highlighting key information with text_styles is an important default, not merely an edge case. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       text: { type: 'string', description: 'Required text content.' },
       start: { type: 'number', description: 'Required start time in seconds.' },
@@ -172,7 +174,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_text',
-    `Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
+    `Add multiple text layers into a VectCut draft in one request. Use this when the user wants batch text insertion or multiple caption segments. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_ANIMATION_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       texts: { type: 'array', items: { type: 'string' }, description: 'Required text contents.' },
       starts: { type: 'array', items: { type: 'number' }, description: 'Required start times in seconds.' },
@@ -251,7 +253,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'modify_text',
-    `Modify an existing text material in a VectCut draft by material ID. ${TEXT_PREVIEW_GUIDANCE} Preserve the existing font size when no size change is requested. When choosing a new size: ${TEXT_FONT_SIZE_GUIDANCE} For animations, preview the actual motion with get_text_intro_animation_previews, get_text_outro_animation_previews, and get_text_loop_animation_previews before picking intro_animation/outro_animation/loop_animation names. ${TEXT_VERIFICATION_GUIDANCE}`,
+    `Modify an existing text material in a VectCut draft by material ID. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_ANIMATION_PREVIEW_GUIDANCE} Preserve the existing font size when no size change is requested. When choosing a new size: ${TEXT_FONT_SIZE_GUIDANCE} ${TEXT_VERIFICATION_GUIDANCE}`,
     {
       draftId: { type: 'string', description: 'Required draft ID alias of draft_id.' },
       draft_id: { type: 'string', description: 'Required draft ID.' },
@@ -318,7 +320,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_subtitle',
-    `Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
+    `Add SRT subtitles into a VectCut draft. Supports raw SRT content or an SRT file URL. ${TEXT_PREVIEW_GUIDANCE} ${TEXT_ANIMATION_PREVIEW_GUIDANCE} ${TEXT_FONT_SIZE_GUIDANCE} ${TEXT_VERIFICATION_GUIDANCE} ${TEXT_STROKE_SHADOW_GUIDANCE}`,
     {
       srt: { type: 'string', description: 'Required SRT content or URL.' },
       draftId: { type: 'string', description: 'Optional draft ID alias of draft_id.' },
@@ -383,15 +385,15 @@ const TOOLS: Tool[] = [
   ),
   readonlyTool(
     'get_text_intro_types',
-    'List supported text intro animations. Use this before setting intro_animation on text tools.'
+    'List supported text intro animation names. Use this to look up names, then preview the actual motion with get_text_intro_animation_previews and choose from the rendered previews before setting intro_animation on text tools; do not pick from names alone.'
   ),
   readonlyTool(
     'get_text_outro_types',
-    'List supported text outro animations. Use this before setting outro_animation on text tools.'
+    'List supported text outro animation names. Use this to look up names, then preview the actual motion with get_text_outro_animation_previews and choose from the rendered previews before setting outro_animation on text tools; do not pick from names alone.'
   ),
   readonlyTool(
     'get_text_loop_anim_types',
-    'List supported text loop animations. Use this before setting loop_animation on text tools.'
+    'List supported text loop animation names. Use this to look up names, then preview the actual motion with get_text_loop_animation_previews and choose from the rendered previews before setting loop_animation on text tools; do not pick from names alone.'
   ),
   toolWithArgs(
     'get_text_intro_animation_previews',

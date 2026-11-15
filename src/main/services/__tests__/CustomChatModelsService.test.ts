@@ -34,6 +34,21 @@ describe('custom models', () => {
     service.saveProviders([{ ...provider, models: [] }])
     expect(service.list()).toEqual([])
   })
+  it('round trips ZCode model metadata and validates it fails-closed', () => {
+    const service = new CustomChatModelsService()
+    const metadata = { max_output_tokens: 8192, supports_video: true, supports_pdf: false, supports_json_schema: true, supports_native_web_search: false, supports_mid_conversation_system: true, reasoning_levels: ['low', 'high'], reasoning_level_map: '{"reasoningLevel":"high"}', use_recommended_config: true }
+    const input = [{ ...provider, models: [{ ...provider.models[0], ...metadata }] }]
+    expect(service.saveProviders(input)).toEqual(input)
+    expect(service.listProviders()).toEqual(input)
+    expect(service.list()[0]).toMatchObject({ reasoning_levels: metadata.reasoning_levels, reasoning_level_map: metadata.reasoning_level_map })
+    // 旧存档无元数据时按缺省往返，不凭空写入字段。
+    expect(service.saveProviders([provider])).toEqual([provider])
+    expect(() => validateCustomChatProviders([{ ...provider, models: [{ ...provider.models[0], max_output_tokens: 0 }] }])).toThrow('max_output_tokens')
+    expect(() => validateCustomChatProviders([{ ...provider, models: [{ ...provider.models[0], supports_video: 'yes' }] }])).toThrow('supports_video')
+    expect(() => validateCustomChatProviders([{ ...provider, models: [{ ...provider.models[0], reasoning_levels: ['low', 'low'] }] }])).toThrow('unique')
+    expect(() => validateCustomChatProviders([{ ...provider, models: [{ ...provider.models[0], reasoning_levels: [''] }] }])).toThrow('non-empty')
+    expect(() => validateCustomChatProviders([{ ...provider, models: [{ ...provider.models[0], reasoning_level_map: 5 }] }])).toThrow('reasoning_level_map')
+  })
   it('migrates v1 without changing model IDs and never persists plaintext', () => {
     const { apiKey, ...rest } = model
     mocks.data.config = { version: 1, models: [{ ...rest, encryptedApiKey: Buffer.from(`encrypted:${apiKey}`).toString('base64') }] }
@@ -111,6 +126,21 @@ describe('custom models', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/v1/responses')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: 'gpt', input: expect.any(String) })
     vi.unstubAllGlobals()
+  })
+  it('tests Anthropic models using the original endpoint plus /v1/messages', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const main = makeWindow()
+      registerCustomChatModelsIpc(main as any)
+      const handler = mocks.handlers.get('custom-chat-models:test-model')
+      const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.deepseek.com/anthropic', protocol: 'anthropic', apiKey: 'test-key', modelId: 'deepseek-flash' })
+      expect(result.ok).toBe(true)
+      expect(fetchMock.mock.calls[0][0]).toBe('https://api.deepseek.com/anthropic/v1/messages')
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: 'deepseek-flash' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
   it('persists logoKey so brand icons survive Base URL edits', () => {
     const service = new CustomChatModelsService()

@@ -262,6 +262,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  font-size: 14px !important;
 }
 .model-settings__provider strong {
   display: block;
@@ -333,6 +334,11 @@
   height: 28px;
   border-color: #ddd;
 }
+
+.model-settings__section-heading .ant-btn:hover {
+  border-color: #ddd !important;
+}
+
 .model-settings__fields {
   border: 0;
   margin: 0;
@@ -488,13 +494,31 @@
   color: rgba(13, 13, 13, 0.6);
   flex-shrink: 0;
 }
-.model-settings__model-modal-footer {
+.model-settings__model-footer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.model-settings__model-footer {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.model-settings__model-modal-spacer {
+.model-settings__model-footer-spacer {
   flex: 1;
+}
+.model-settings__reset-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #52525a;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.model-settings__reset-link:hover {
+  color: #0d0d0d;
 }
 .model-settings__empty {
   padding: 35px 16px;
@@ -767,4 +791,310 @@
   .model-settings__template-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== 模型弹窗（对齐 ZCode ProviderModelMetadataDialog，theme-zai-light）=====
+   Modal 通过 portal 渲染到 body，不在 .model-settings 子树内，故用独立类名直接选择。 */
+.model-settings__model-modal-wrap .ant-modal {
+  max-width: calc(100vw - 32px);
+}
+.model-settings__model-modal-wrap .ant-modal-content {
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+.model-settings__model-modal-wrap .ant-modal-header {
+  margin-bottom: 8px;
+}
+.model-settings__model-modal-wrap .ant-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0d0d0d;
+}
+.model-settings__model-modal-wrap .ant-modal-footer {
+  margin-top: 16px;
+}
+/* 对齐 ZCode：正文限高滚动，标题/页脚固定，矮屏下页脚仍可达。 */
+.model-settings__model-modal-wrap .ant-modal-body {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+/* 弹窗内开关沿用全局统一配色（portal 不受 .setting-content-area 作用域覆盖）。 */
+.model-settings__model-modal-wrap .ant-switch.ant-switch-checked {
+  background: #0190f0;
+}
+.model-settings__model-modal-wrap .ant-switch:not(.ant-switch-checked) {
+  background: #cccccc;
+}
+.model-settings__model-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.model-settings__smart-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-settings__smart-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: #0d0d0d;
+}
+.model-settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.model-settings__field-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: #666;
+}
+.model-settings__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.model-settings__help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #93939a;
+  cursor: pointer;
+}
+.model-settings__help-btn:hover {
+  color: #52525a;
+  background: #f0f0f0;
+}
+.model-settings__help-tooltip .ant-tooltip-inner {
+  max-width: 320px;
+  padding: 12px;
+  color: #0d0d0d;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.model-settings__help-copy p {
+  margin: 0 0 8px;
+  white-space: pre-line;
+}
+.model-settings__help-copy p:last-child {
+  margin-bottom: 0;
+}
+.model-settings__help-copy ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  list-style: disc;
+}
+.model-settings__help-copy li {
+  margin-bottom: 4px;
+}
+.model-settings__help-copy code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+/* 输入类型 / 模型能力 chips */
+.model-settings__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.model-settings__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #e0e0e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #0d0d0d;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.model-settings__chip:hover:not(:disabled) {
+  border-color: rgba(13, 13, 13, 0.25);
+}
+.model-settings__chip[data-selected="true"] {
+  border-color: rgba(13, 13, 13, 0.35);
+  background: #fafafa;
+}
+.model-settings__chip:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.model-settings__chip-lock {
+  color: #93939a;
+}
+.model-settings__opt-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid #d4d4d8;
+  border-radius: 4px;
+  background: #fff;
+  color: #fff;
+}
+.model-settings__opt-check--on {
+  border-color: #0d0d0d;
+  background: #0d0d0d;
+}
+/* 高级配置折叠 */
+.model-settings__advanced {
+  display: flex;
+  flex-direction: column;
+}
+.model-settings__advanced-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #0d0d0d;
+  font-size: 14px;
+  cursor: pointer;
+}
+.model-settings__advanced-trigger:hover {
+  background: #f0f0f0;
+}
+.model-settings__advanced-trigger svg {
+  transition: transform 0.2s;
+}
+.model-settings__chevron--open {
+  transform: rotate(90deg);
+}
+.model-settings__advanced-body {
+  display: none;
+}
+.model-settings__advanced-body--open {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 4px 4px;
+}
+.model-settings__json {
+  min-height: 128px;
+  resize: none;
+  font-size: 13px;
+}
+/* 推理等级编辑器 */
+.model-settings__reasoning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.model-settings__reasoning-chip {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 32px;
+  border: 1px solid #e0e0e5;
+  border-radius: 8px;
+  background: #fff;
+}
+.model-settings__reasoning-chip--drag {
+  opacity: 0.6;
+}
+.model-settings__reasoning-chip:hover {
+  background: #fafafa;
+}
+.model-settings__reasoning-value {
+  height: 30px;
+  min-width: 40px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: #0d0d0d;
+  font-size: 14px;
+  cursor: grab;
+}
+.model-settings__reasoning-value:active {
+  cursor: grabbing;
+}
+.model-settings__reasoning-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #93939a;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.model-settings__reasoning-chip:hover .model-settings__reasoning-delete,
+.model-settings__reasoning-delete:focus-visible {
+  opacity: 1;
+}
+.model-settings__reasoning-delete:disabled {
+  opacity: 0;
+  cursor: default;
+}
+.model-settings__reasoning-input {
+  height: 30px;
+  min-width: 40px;
+  max-width: 128px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: #0d0d0d;
+  font-size: 14px;
+  outline: none;
+}
+.model-settings__reasoning-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #e0e0e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #52525a;
+  cursor: pointer;
+}
+.model-settings__reasoning-add:hover {
+  border-color: rgba(13, 13, 13, 0.25);
+}
+/* 弹窗内反馈条（错误 / 已匹配到智能配置） */
+.model-settings__model-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.model-settings__model-feedback--error {
+  border: 1px solid rgba(224, 49, 49, 0.3);
+  background: #fceaea;
+  color: #e03131;
+}
+.model-settings__model-feedback--ok {
+  border: 1px solid rgba(30, 138, 62, 0.3);
+  background: #eaf7ee;
+  color: #1e8a3e;
+}
+/* 模型行删除按钮（对齐 ZCode 行级 Trash2） */
+.model-settings__model-delete:hover:not(:disabled) {
+  color: #e03131;
 }

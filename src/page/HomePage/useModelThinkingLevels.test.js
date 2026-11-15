@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveModelThinkingLevels, useModelThinkingLevels } from './useModelThinkingLevels';
 import { SendQueue } from '../../components/Chat/sendQueue';
+import { customModelToOption } from './chatProviders';
 
 const options = [
   { value: 'a', thinking_levels: ['low', 'high'], thinking_default: 'high' },
@@ -44,6 +45,16 @@ describe('session-bound model thinking preferences and queued snapshots', () => 
     await act(async () => select('a', 'invalid'));
     expect(levels).toEqual({ a: 'low', b: 'minimal' });
     expect(saved).toEqual({ a: 'low', b: 'minimal' });
+  });
+  it('isolates custom-provider choices for the same model ID and preserves configured case', async () => {
+    const a = customModelToOption({ id: 'custom-a', modelId: 'deepseek:flash', reasoning_levels: ['disabled', 'High', 'max'] });
+    const b = customModelToOption({ id: 'custom-b', modelId: 'deepseek:flash', reasoning_levels: ['disabled', 'High', 'max'] });
+    await render({ options: [a, b] });
+    expect(levels).toEqual({ [a.value]: 'disabled', [b.value]: 'disabled' });
+    await act(async () => select(a.value, 'High'));
+    await act(async () => select(a.value, 'high'));
+    expect(levels).toEqual({ [a.value]: 'High', [b.value]: 'disabled' });
+    expect(saved).toEqual({ [a.value]: 'High' });
   });
   it('keeps stored session preferences while loading then validates changed catalogs', async () => {
     await render({ options: [], savedLevels: { a: 'low', b: 'minimal' } });

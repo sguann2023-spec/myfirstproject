@@ -238,6 +238,7 @@ const Chat = ({
   sessionSending = false,
   model,
   modelOptions = [],
+  modelProviders = [],
   modelThinkingLevels = {},
   onModelThinkingLevelChange,
   modelListLoading = false,
@@ -649,6 +650,7 @@ const Chat = ({
         beginnerGuideInputAreaRef={beginnerGuideInputAreaRef}
         model={model}
         modelOptions={modelOptions}
+        modelProviders={modelProviders}
         modelThinkingLevels={modelThinkingLevels}
         onModelThinkingLevelChange={onModelThinkingLevelChange}
         modelListLoading={modelListLoading}

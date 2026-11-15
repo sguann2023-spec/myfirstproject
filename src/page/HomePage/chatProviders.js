@@ -1,3 +1,6 @@
+import { inferProviderLogoKey } from "../../shared/providerBranding.js";
+import { normalizeThinkingLevels } from '../../components/Chat/Composer/thinkingLevels';
+
 const resolveProviderIdByModel = (modelId = '') => {
   const lower = String(modelId || '').toLowerCase();
   if (lower.startsWith('claude-')) return { id: 'anthropic', type: 'anthropic', name: 'Anthropic' };
@@ -10,8 +13,31 @@ export const customModelToOption = (config) => ({
   value: `${config.id}:${config.modelId}`,
   label: config.name,
   read_image: config.read_image,
+  ...(Array.isArray(config.reasoning_levels) ? { thinking_levels: normalizeThinkingLevels(config.reasoning_levels, true) } : {}),
   isCustom: true
 });
+
+// 「供应商→模型」两级选择器分组（对齐 ZCode）：内置供应商 + 各自定义供应商，
+// 每组携带其启用模型的 value 列表。切换供应商即按 modelValues 过滤模型列表。
+export const buildChatModelProviders = (builtInOptions = [], officialDisabled = [], customProviders = []) => {
+  const disabled = new Set(Array.isArray(officialDisabled) ? officialDisabled : []);
+  const officialValues = (Array.isArray(builtInOptions) ? builtInOptions : [])
+    .filter((option) => option && !disabled.has(option.value))
+    .map((option) => option.value);
+  const groups = [];
+  if (officialValues.length > 0) {
+    groups.push({ id: 'builtin', name: '流光剪辑', kind: 'official', badge: '官方', modelValues: officialValues });
+  }
+  for (const provider of Array.isArray(customProviders) ? customProviders : []) {
+    if (!provider || !provider.id) continue;
+    const modelValues = (Array.isArray(provider.models) ? provider.models : [])
+      .filter((item) => item && item.enabled !== false && String(item.modelId || '').trim())
+      .map((item) => `${item.id}:${item.modelId}`);
+    if (modelValues.length === 0) continue;
+    groups.push({ id: provider.id, name: provider.name, kind: 'custom', badge: 'API', logoKey: inferProviderLogoKey(provider), modelValues });
+  }
+  return groups;
+};
 
 export const buildProvidersState = (modelIds = [], apiKey = '', customModels = []) => {
   const providersMap = new Map();

@@ -22,7 +22,8 @@ import { limitInlineToolPayload } from '@shared/sessionPayloadLimits'
 import type { AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import { SqlitePiSessionStorage } from '../../../database/repositories/piSessionStorage'
 import { windowService } from '@main/services/WindowService'
-import type { ClaudeRuntimeEnvironment } from '../runtime/build-runtime'
+import type { ClaudeRuntimeEnvironment, CustomReasoningSnapshot } from '../runtime/build-runtime'
+import { applyCustomReasoningPatch } from '../reasoning-map'
 import { isVectcutGatewayUrl } from '../../../gatewayAuth'
 import type { ClaudeCodeInvokeContext } from '../runtime/types'
 import type { PendingFileChangeSnapshot } from '../tools/runtime-file-helpers'
@@ -1302,6 +1303,7 @@ function normalizeProviderPayload(input: {
   providerApiType: 'anthropic-messages' | 'openai-completions'
   invokeContext: ClaudeCodeInvokeContext
   baseUrl?: string
+  customReasoning?: CustomReasoningSnapshot
 }): void {
   const { payload } = input
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
@@ -1318,8 +1320,14 @@ function normalizeProviderPayload(input: {
     else delete record.output_config
   }
 
-  const level = input.invokeContext.thinkingLevel
   const provider = input.invokeContext.runtime?.provider
+  if (provider?.id.startsWith('custom-') && input.customReasoning) {
+    const patched = applyCustomReasoningPatch(record, input.customReasoning.patch)
+    for (const key of Object.keys(record)) delete record[key]
+    Object.assign(record, patched)
+  }
+
+  const level = input.invokeContext.thinkingLevel
   if (typeof level === 'string' && ['off', 'on', 'low', 'medium', 'high', 'xhigh', 'max', 'none'].includes(level)
     && provider && !provider.id.startsWith('custom-') && isVectcutGatewayUrl(input.baseUrl || '')) {
     const enabled = level === 'on' || (level !== 'off' && level !== 'none'
@@ -1344,7 +1352,7 @@ function normalizeProviderPayload(input: {
   if (tools.length === 0) return
   if (record.tool_choice !== undefined) return
 
-  record.tool_choice = 'auto'
+  record.tool_choice = input.providerApiType === 'anthropic-messages' ? { type: 'auto' } : 'auto'
 }
 
 export function wrapPiApiModuleWithPayloadNormalization(input: {
@@ -1352,8 +1360,9 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
   invokeContext: ClaudeCodeInvokeContext
   providerApiType: 'anthropic-messages' | 'openai-completions'
   baseUrl?: string
+  customReasoning?: CustomReasoningSnapshot
 }): PiApiModule {
-  const { apiModule, invokeContext, providerApiType, baseUrl } = input
+  const { apiModule, invokeContext, providerApiType, baseUrl, customReasoning } = input
   const normalizeOptions = (options: unknown) => {
     const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
     return {
@@ -1362,7 +1371,7 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
         const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
         const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
         const effectivePayload = replacement ?? payload
-        normalizeProviderPayload({ payload: effectivePayload, providerApiType, invokeContext, baseUrl })
+        normalizeProviderPayload({ payload: effectivePayload, providerApiType, invokeContext, baseUrl, customReasoning })
         // Whitelist scalar controls only: never log messages, URLs, headers or keys.
         const body = effectivePayload as Record<string, any> | null
         logger.info('[AgentCore] thinking payload', {
@@ -1431,7 +1440,8 @@ export async function buildPiRuntimeBridge(input: {
     apiModule: rawApiModule,
     invokeContext,
     providerApiType,
-    baseUrl
+    baseUrl,
+    customReasoning: runtimeEnvironment.customReasoning
   })
 
   const models = packageBridge.piAi.createModels()

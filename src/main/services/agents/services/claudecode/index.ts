@@ -354,6 +354,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       runtimeEnvironment = await buildClaudeRuntimeEnvironment({
         session,
         modelOverride,
+        thinkingLevel: thinkingOptions?.thinkingLevel,
         cwd,
         enableToolSearch: false
       })

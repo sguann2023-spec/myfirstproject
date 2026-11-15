@@ -16,8 +16,9 @@ import { TextSelection } from '@tiptap/pm/state';
 import { StarterKit } from '@tiptap/starter-kit';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { Button, Empty, Popover, Select, Tooltip, Upload as AntUpload, message } from 'antd';
-import { ArrowUp, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Flame, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
+import { ArrowUp, Check, ChevronLeft, ChevronRight, CirclePause, File, FileAudio, FileVideo, Flame, Folder, FolderOpen, Plus, Upload as UploadIcon } from 'lucide-react';
 import './Composer.css';
+import { ProviderLogo } from '../../ProviderLogo.jsx';
 import { getVideoGenerationCapabilities } from '../../../api/chat';
 import { getProjectPricing } from '../../../api/pricing';
 import { trackEvent } from '../../../shared/analytics';
@@ -25,6 +26,7 @@ import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import SkillTemplateIcon from '../../../../public/skill-template.svg';
 import Point2Icon from '../../../../public/point2.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
+import { getCurrentChannelBrandConfig } from '../../../../channel-branding/runtime';
 import {
   getDefaultAiWritePresetId,
   getAiWriteFields,
@@ -130,6 +132,8 @@ const MENTION_PANEL_DEFAULT_WIDTH = 180;
 const MENTION_PANEL_EDGE_OFFSET = 4;
 const MODEL_HOVER_CARD_WIDTH = 240;
 const MODEL_HOVER_CARD_GAP = 20;
+// 内置供应商（流光剪辑）在供应商切换菜单中的品牌标识。
+const OFFICIAL_PROVIDER_LOGO = getCurrentChannelBrandConfig().runtimeAssets.aboutLogo;
 const MODEL_HOVER_CARD_VIEWPORT_MARGIN = 8;
 const TOOL_BAR_SCROLL_STEP = 220;
 const TOOL_BAR_MIN_RIGHT_GAP = 32;
@@ -2226,6 +2230,7 @@ const Composer = ({
   sessionSending = false,
   model,
   modelOptions = [],
+  modelProviders = [],
   modelThinkingLevels = {},
   onModelThinkingLevelChange,
   modelListLoading = false,
@@ -2313,6 +2318,11 @@ const Composer = ({
   const MUSIC_REFERENCE_VOICE_SLOT_ID = 'music_reference_voice_id';
   const [selectedSpeechModel, setSelectedSpeechModel] = React.useState('');
   const [modelPickerOpen, setModelPickerOpen] = React.useState(false);
+  const [modelPickerEpoch, setModelPickerEpoch] = React.useState(0);
+  const modelPickerOpenRef = React.useRef(false);
+  const modelPickerDismissedRef = React.useRef(false);
+  // 供应商切换弹层（对齐 ZCode 触发器右箭头二级菜单）。
+  const [providerMenuOpen, setProviderMenuOpen] = React.useState(false);
   const [hoveredModelCard, setHoveredModelCard] = React.useState(null);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
@@ -3690,7 +3700,7 @@ const Composer = ({
     );
   };
 
-  const renderModelOptionInner = (text, icon, badges = [], priceMultiplier = '', heat = 0) => (
+  const renderModelOptionInner = (text, icon, badges = [], priceMultiplier = '', heat = 0, isSelected = false) => (
     <span className="chat-panel__model-option">
       <span className="chat-panel__model-option-leading">
         <span className="chat-panel__model-option-main">
@@ -3746,6 +3756,15 @@ const Composer = ({
     setHoveredModelCard(null);
   }, []);
 
+  const dismissModelPicker = React.useCallback(() => {
+    modelPickerDismissedRef.current = true;
+    modelPickerOpenRef.current = false;
+    clearHoveredModelCard();
+    setProviderMenuOpen(false);
+    setModelPickerOpen(false);
+    setModelPickerEpoch(epoch => epoch + 1);
+  }, [clearHoveredModelCard]);
+
   const scheduleModelHoverClose = React.useCallback(() => {
     clearTimeout(modelHoverCloseTimer.current);
     modelHoverCloseTimer.current = setTimeout(() => {
@@ -3754,7 +3773,7 @@ const Composer = ({
   }, []);
 
   const showHoveredModelCard = React.useCallback((optionMeta, currentTarget) => {
-    if (!optionMeta?.value || !currentTarget) return;
+    if (!modelPickerOpenRef.current || modelPickerDismissedRef.current || !optionMeta?.value || !currentTarget) return;
     cancelModelHoverClose();
     const anchorRect = currentTarget.getBoundingClientRect();
     const normalizedAnchorRect = {
@@ -3809,13 +3828,24 @@ const Composer = ({
     if (!modelPickerOpen) return undefined;
     const closeFromOutside = (event) => {
       if (modelHoverCardRef.current?.contains(event.target)
-        || event.target?.closest?.('.ant-select, .ant-select-dropdown, .chat-panel__model-option-trigger')) return;
-      clearHoveredModelCard();
-      setModelPickerOpen(false);
+        || event.target?.closest?.('.chat-panel__model-picker-wrap, .chat-panel__model-picker-popup, .chat-panel__provider-menu-overlay')) return;
+      dismissModelPicker();
     };
     document.addEventListener('pointerdown', closeFromOutside, true);
     return () => document.removeEventListener('pointerdown', closeFromOutside, true);
-  }, [modelPickerOpen, clearHoveredModelCard]);
+  }, [modelPickerOpen, dismissModelPicker]);
+
+  React.useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && modelPickerOpenRef.current) dismissModelPicker();
+    };
+    window.addEventListener('blur', dismissModelPicker);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('blur', dismissModelPicker);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [dismissModelPicker]);
 
   const availableModelOptions = React.useMemo(() => (
     (Array.isArray(modelOptions) ? modelOptions : [])
@@ -4071,37 +4101,135 @@ const Composer = ({
       : uploadedFileMeta
   ), [skillExampleFileGroups, uploadedFileMeta]);
 
-  const groupedModelOptions = React.useMemo(() => (
-    availableModelOptions.length > 0
-      ? [
-        {
-          label: (
-            <span className="chat-panel__model-group-title">
-              <span>内置模型</span>
-              <Tooltip
-                placement="right"
-                classNames={{ root: 'chat-panel__model-tip-overlay' }}
-                title={(
-                  <span className="chat-panel__model-tip-text">
-                    由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
-                  </span>
-                )}
-              >
-                <img className="chat-panel__model-tip-icon" src={ChatModelsTipIcon} alt="模型计费说明" />
-              </Tooltip>
-            </span>
-          ),
-          title: '内置模型',
-          options: availableModelOptions.filter(option => !option.isCustom),
-        },
-        {
-          label: '自定义模型',
-          title: '自定义模型',
-          options: availableModelOptions.filter(option => option.isCustom),
-        },
-      ].filter(group => group.options.length > 0)
-      : []
-  ), [availableModelOptions]);
+  // 「供应商→模型」两级选择（对齐 ZCode）：活跃供应商直接由当前会话模型推导，
+  // 切换供应商即选中该供应商首个模型，模型列表随之切换，无需额外的状态同步。
+  // 供应商数据未就绪（prop 为空/热更时序）时，从模型选项回退推导内置/自定义两组，
+  // 保证右箭头供应商切换入口在有模型时恒可见。
+  const effectiveModelProviders = React.useMemo(() => {
+    if (Array.isArray(modelProviders) && modelProviders.length > 0) {
+      const availableValues = new Set(availableModelOptions.map(option => option.value));
+      return modelProviders
+        .map(provider => ({
+          ...provider,
+          modelValues: (provider.modelValues || []).filter(value => availableValues.has(value)),
+        }))
+        .filter(provider => provider.modelValues.length > 0);
+    }
+    const builtinValues = availableModelOptions.filter(option => !option.isCustom).map(option => option.value);
+    const customValues = availableModelOptions.filter(option => option.isCustom).map(option => option.value);
+    const groups = [];
+    if (builtinValues.length > 0) groups.push({ id: 'builtin', name: '流光剪辑', kind: 'official', badge: '官方', modelValues: builtinValues });
+    if (customValues.length > 0) groups.push({ id: 'custom', name: '自定义模型', kind: 'custom', badge: 'API', modelValues: customValues });
+    return groups;
+  }, [modelProviders, availableModelOptions]);
+  const activeProvider = React.useMemo(() => {
+    if (effectiveModelProviders.length === 0) return null;
+    const current = String(model || '').trim();
+    return effectiveModelProviders.find(provider => Array.isArray(provider.modelValues) && provider.modelValues.includes(current)) || effectiveModelProviders[0];
+  }, [effectiveModelProviders, model]);
+  const providerModelOptions = React.useMemo(() => {
+    if (!activeProvider) return availableModelOptions;
+    const allowed = new Set(activeProvider.modelValues || []);
+    return availableModelOptions.filter(option => allowed.has(option.value));
+  }, [activeProvider, availableModelOptions]);
+  const switchProvider = (provider) => {
+    setProviderMenuOpen(false);
+    clearHoveredModelCard();
+    const first = (provider.modelValues || [])[0];
+    if (first && first !== model) onModelChange && onModelChange(first);
+  };
+  const providerPickerHeader = modelPickerOpen && activeProvider && providerModelOptions.length > 0 ? (
+    <Popover
+      open={providerMenuOpen}
+      destroyOnHidden
+      onOpenChange={(open) => {
+        if (open && (!modelPickerOpenRef.current || modelPickerDismissedRef.current)) return;
+        setProviderMenuOpen(open);
+        if (open) {
+          clearHoveredModelCard();
+        }
+      }}
+      trigger="hover"
+      mouseEnterDelay={0.15}
+      mouseLeaveDelay={0.2}
+      placement="rightTop"
+      arrow={false}
+      overlayClassName="chat-panel__provider-menu-overlay"
+      getPopupContainer={() => document.body}
+      zIndex={1100}
+      content={(
+        <div
+          className="chat-panel__provider-menu"
+          role="menu"
+          aria-label="切换供应商"
+          onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+        >
+          {effectiveModelProviders.map((provider, index) => {
+            const isActive = activeProvider?.id === provider.id;
+            return (
+              <React.Fragment key={provider.id}>
+                {index > 0 && effectiveModelProviders[index - 1].kind !== provider.kind ? <div className="chat-panel__provider-menu-divider" /> : null}
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={isActive}
+                  className={`chat-panel__provider-menu-item${isActive ? ' active' : ''}`}
+                  onClick={() => switchProvider(provider)}
+                >
+                  {provider.kind === 'official' ? (
+                    <img className="chat-panel__provider-menu-logo" src={OFFICIAL_PROVIDER_LOGO} alt="" />
+                  ) : (
+                    <ProviderLogo className="chat-panel__provider-menu-logo" logoKey={provider.logoKey} name={provider.name} size={16} />
+                  )}
+                  <span className="chat-panel__provider-menu-name">{provider.name}</span>
+                  <span className="chat-panel__provider-menu-badge">{provider.badge}</span>
+                </button>
+              </React.Fragment>
+            );
+          })}
+          <div className="chat-panel__provider-menu-divider" />
+          <button
+            type="button"
+            role="menuitem"
+            className="chat-panel__provider-menu-manage"
+            onClick={() => {
+              dismissModelPicker();
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+              onOpenModelSettings?.();
+            }}
+          >
+            管理模型
+          </button>
+        </div>
+      )}
+    >
+      <button
+        type="button"
+        className="chat-panel__provider-switch"
+        aria-label="切换供应商"
+        aria-haspopup="menu"
+        aria-expanded={providerMenuOpen}
+      >
+        <span className="chat-panel__model-group-title">
+          <span>{activeProvider.name}</span>
+          {activeProvider.kind === 'official' ? (
+            <Tooltip
+              placement="right"
+              classNames={{ root: 'chat-panel__model-tip-overlay' }}
+              title={(
+                <span className="chat-panel__model-tip-text">
+                  由 <span className="chat-panel__model-tip-brand">流光剪辑</span> 提供的模型列表
+                </span>
+              )}
+            >
+              <img className="chat-panel__model-tip-icon" src={ChatModelsTipIcon} alt="模型计费说明" />
+            </Tooltip>
+          ) : null}
+        </span>
+        <ChevronRight className="chat-panel__provider-switch-arrow" size={16} aria-hidden="true" />
+      </button>
+    </Popover>
+  ) : null;
   const buildMarkdownFileLink = (name, url) => {
     const safeName = String(name || '附件')
       .replace(/\\/g, '\\\\')
@@ -5821,16 +5949,23 @@ const Composer = ({
             </div>
           </div>
           <div ref={toolRightRef} className="chat-panel__tool-right">
-            <div ref={beginnerGuideModelPickerRef}>
+            <div
+              ref={beginnerGuideModelPickerRef}
+              className="chat-panel__model-picker-wrap"
+              onPointerDownCapture={() => { modelPickerDismissedRef.current = false; }}
+              onKeyDownCapture={() => { modelPickerDismissedRef.current = false; }}
+            >
               <Select
+                key={modelPickerEpoch}
                 size="small"
                 variant="borderless"
                 className="chat-panel__model-picker"
-                listHeight={356}
+                listHeight={256}
                 virtual={false}
                 value={model}
-                options={groupedModelOptions}
+                options={providerModelOptions}
                 optionLabelProp="selectedLabel"
+                suffixIcon={null}
                 loading={modelListLoading}
                 onChange={(value) => {
                   const modelId = String(value || '').trim().toLowerCase();
@@ -5842,8 +5977,11 @@ const Composer = ({
                 }}
                 onOpenChange={(open) => {
                   if (!open && modelHoverCardRef.current?.contains(document.activeElement)) return;
+                  if (open && modelPickerDismissedRef.current) return;
+                  modelPickerOpenRef.current = open;
                   setModelPickerOpen(open);
                   if (open) {
+                    setProviderMenuOpen(false);
                     const availableModelIds = new Set(availableModelOptions.map((item) => String(item?.value || '').trim().toLowerCase()));
                     CHAT_MODEL_ANALYTICS_EVENTS.forEach((events, modelId) => {
                       if (availableModelIds.has(modelId)) {
@@ -5851,21 +5989,22 @@ const Composer = ({
                       }
                     });
                   }
-                  if (!open) clearHoveredModelCard();
+                  if (!open) {
+                    dismissModelPicker();
+                  }
                 }}
                 open={modelPickerOpen}
-                popupRender={(menu) => (
-                  <>
-                    {menu}
-                    <div className="chat-panel__model-popup-footer" onMouseDown={event => event.preventDefault()}>
-                      <Button type="text" onClick={() => {
-                        setModelPickerOpen(false);
-                        clearHoveredModelCard();
-                        onOpenModelSettings?.();
-                      }}>自定义模型</Button>
-                    </div>
-                  </>
-                )}
+                classNames={{ popup: { root: 'chat-panel__model-picker-popup' } }}
+                popupRender={(menu) => modelPickerOpen ? (
+                  <div className="chat-panel__model-picker-content" data-provider-open={providerMenuOpen}>
+                    <div className="chat-panel__model-picker-header">{providerPickerHeader}</div>
+                    <div
+                      className="chat-panel__model-picker-list"
+                      onPointerEnter={() => setProviderMenuOpen(false)}
+                      onMouseEnter={() => setProviderMenuOpen(false)}
+                    >{menu}</div>
+                  </div>
+                ) : null}
                 popupMatchSelectWidth={false}
                 getPopupContainer={(trigger) => trigger.parentElement}
                 optionRender={(option) => {
@@ -5876,7 +6015,7 @@ const Composer = ({
                   const badges = Array.isArray(optionMeta?.badges) ? optionMeta.badges : [];
                   const priceMultiplier = String(optionMeta?.priceMultiplier || '').trim();
                   const heat = Number(optionMeta?.heat) || 0;
-                  const optionContent = renderModelOptionInner(displayText, icon, badges, priceMultiplier, heat);
+                  const optionContent = renderModelOptionInner(displayText, icon, badges, priceMultiplier, heat, optionValue === String(model || '').trim());
                   return (
                     <div
                       className="chat-panel__model-option-trigger"
@@ -5890,6 +6029,7 @@ const Composer = ({
                   );
                 }}
               />
+
             </div>
             <Tooltip title={!sessionSending && isSendDisabled && sendDisabledReason ? sendDisabledReason : null}>
               <span>
@@ -6108,7 +6248,7 @@ const Composer = ({
           </div>
         </div>
       </div>
-      {hoveredModelCard ? (
+      {modelPickerOpen && hoveredModelCard ? (
         <div
           ref={modelHoverCardRef}
           className="chat-panel__model-hover-card"
@@ -6119,7 +6259,7 @@ const Composer = ({
           onClick={(event) => event.stopPropagation()}
           onFocus={cancelModelHoverClose}
           onBlur={scheduleModelHoverClose}
-          onKeyDown={(event) => { if (event.key === 'Escape') { clearHoveredModelCard(); setModelPickerOpen(false); } }}
+          onKeyDown={(event) => { if (event.key === 'Escape') dismissModelPicker(); }}
           style={{
             left: `${hoveredModelCard.left}px`,
             top: `${hoveredModelCard.top}px`,

@@ -184,6 +184,38 @@ describe('DraftElementsServer', () => {
     }
   })
 
+  it('should prioritize an animation preview before choosing text animations', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    for (const name of ['add_text', 'add_batch_text', 'modify_text']) {
+      const description = toolsByName.get(name).description
+      expect(description).toContain('HIGH-PRIORITY ANIMATION PREVIEW BEFORE CHOOSING TEXT ANIMATIONS')
+      expect(description).toContain('get_text_intro_animation_previews')
+      expect(description).toContain('get_text_outro_animation_previews')
+      expect(description).toContain('get_text_loop_animation_previews')
+      expect(description).toContain('skip it only when the user explicitly asks to skip previews')
+      // 动画预览规则必须排在字号规则之前，避免被长描述埋没导致不触发
+      expect(description.indexOf('HIGH-PRIORITY ANIMATION PREVIEW')).toBeLessThan(
+        description.indexOf('MANDATORY FONT-SIZE LIMITS')
+      )
+      // 旧的深埋引导句不应残留
+      expect(description).not.toContain('For animations, preview the actual motion')
+    }
+
+    // 名称列表工具不能短路视觉预览：必须指向对应的动画预览工具
+    const pairs: Array<[string, string]> = [
+      ['get_text_intro_types', 'get_text_intro_animation_previews'],
+      ['get_text_outro_types', 'get_text_outro_animation_previews'],
+      ['get_text_loop_anim_types', 'get_text_loop_animation_previews']
+    ]
+    for (const [typesTool, previewTool] of pairs) {
+      expect(toolsByName.get(typesTool).description).toContain(previewTool)
+      expect(toolsByName.get(typesTool).description).toContain('do not pick from names alone')
+    }
+  })
+
   it('should expose official VectCut params and required fields for representative tools', async () => {
     const server = createServer()
     const result = await listTools(server)

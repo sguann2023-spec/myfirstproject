@@ -6,10 +6,11 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleHelp,
   Info,
   Loader2,
+  LockKeyhole,
   MoreHorizontal,
-  Package,
   Pencil,
   Plus,
   RefreshCw,
@@ -30,6 +31,7 @@ import {
   Tooltip,
 } from "antd";
 import "./ModelSettings.css";
+import { resolveModelConfig, API_TYPE_BY_PROTOCOL } from "./modelCatalog.js";
 import { getCurrentChannelBrandConfig } from "../../../channel-branding/runtime";
 import { confirmDelete } from "../../shared/confirmDelete.js";
 
@@ -41,24 +43,9 @@ const formatContextWindow = (tokens) => {
   return String(tokens);
 };
 import { getChatModelList, testChatModel } from "../../api/chat.js";
-// 品牌图标走模块打包：运行时绝对路径 /provider-icons/… 在 Electron file:// 下会 404，
-// 导致全部图标回退成 Package；打包后开发态与打包态都可用。
-import iconOpenai from "../../../public/provider-icons/model-provider-openai.png";
-import iconAnthropic from "../../../public/provider-icons/model-provider-anthropic.png";
-import iconDeepseek from "../../../public/provider-icons/model-provider-deepseek.png";
-import iconOpenrouter from "../../../public/provider-icons/model-provider-openrouter-light.svg";
-import iconBigmodel from "../../../public/provider-icons/logo-bigmodel.svg";
-import iconZai from "../../../public/provider-icons/logo-zai-square.svg";
-import iconKimi from "../../../public/provider-icons/model-provider-moonshot-kimi.png";
-import iconMinimax from "../../../public/provider-icons/model-provider-minimax.png";
-import iconAlibaba from "../../../public/provider-icons/model-provider-alibaba-cloud.png";
-import iconMimo from "../../../public/provider-icons/model-provider-xiaomi-mimo.png";
-import iconXai from "../../../public/provider-icons/model-provider-xai.png";
-import iconOpencode from "../../../public/provider-icons/model-provider-opencode-light.svg";
-import iconTokenhub from "../../../public/provider-icons/model-provider-tencent-tokenhub.svg";
-import iconArk from "../../../public/provider-icons/model-provider-volcengine-ark.svg";
-import iconStepfun from "../../../public/provider-icons/model-provider-stepfun.svg";
-import iconSiliconflow from "../../../public/provider-icons/model-provider-siliconflow.svg";
+import { inferProviderLogoKey, resolveProviderLogo } from "../../shared/providerBranding.js";
+import { ProviderLogo } from "../ProviderLogo.jsx";
+export { inferProviderLogoKey, resolveProviderLogo };
 
 export const BUILTIN_PROVIDER_ID = "builtin-vectcut";
 
@@ -2670,130 +2657,15 @@ export const PROVIDER_TEMPLATES = [
     ],
   },
 ];
-// Original assets copied from ZCode-main/packages/ui/src/assets/provider-icons.
-// Exact endpoint hosts identify brands independently of the editable display name.
-const BRAND_ASSETS = {
-  "api.openai.com": iconOpenai,
-  "api.anthropic.com": iconAnthropic,
-  "api.deepseek.com": iconDeepseek,
-  "openrouter.ai": iconOpenrouter,
-  "open.bigmodel.cn": iconBigmodel,
-  "api.z.ai": iconZai,
-  "api.moonshot.cn": iconKimi,
-  "api.moonshot.ai": iconKimi,
-  "api.kimi.com": iconKimi,
-  "api.kimi.ai": iconKimi,
-  "api.minimaxi.com": iconMinimax,
-  "api.minimax.io": iconMinimax,
-  "dashscope.aliyuncs.com": iconAlibaba,
-  "dashscope-intl.aliyuncs.com": iconAlibaba,
-  "coding.dashscope.aliyuncs.com": iconAlibaba,
-  "token-plan.cn-beijing.maas.aliyuncs.com": iconAlibaba,
-  "api.xiaomimimo.com": iconMimo,
-  "token-plan-cn.xiaomimimo.com": iconMimo,
-  "tokenhub.tencentmaas.com": iconTokenhub,
-  "tokenhub-intl.tencentmaas.com": iconTokenhub,
-  "ark.cn-beijing.volces.com": iconArk,
-  "api.stepfun.com": iconStepfun,
-  "api.siliconflow.cn": iconSiliconflow,
-  "api.x.ai": iconXai,
-  "opencode.ai": iconOpencode,
-};
-// 品牌标识随供应商持久化（对齐 ZCode config.logo）：清空/改写 Base URL 不丢图标。
-const LOGO_ASSETS = {
-  bigmodel: iconBigmodel,
-  zai: iconZai,
-  kimi: iconKimi,
-  minimax: iconMinimax,
-  deepseek: iconDeepseek,
-  alibaba: iconAlibaba,
-  mimo: iconMimo,
-  tokenhub: iconTokenhub,
-  ark: iconArk,
-  stepfun: iconStepfun,
-  siliconflow: iconSiliconflow,
-  openai: iconOpenai,
-  anthropic: iconAnthropic,
-  xai: iconXai,
-  openrouter: iconOpenrouter,
-  opencode: iconOpencode,
-};
-const HOST_TO_LOGO_KEY = {
-  "api.openai.com": "openai",
-  "api.anthropic.com": "anthropic",
-  "api.deepseek.com": "deepseek",
-  "openrouter.ai": "openrouter",
-  "open.bigmodel.cn": "bigmodel",
-  "api.z.ai": "zai",
-  "api.moonshot.cn": "kimi",
-  "api.moonshot.ai": "kimi",
-  "api.kimi.com": "kimi",
-  "api.kimi.ai": "kimi",
-  "api.minimaxi.com": "minimax",
-  "api.minimax.io": "minimax",
-  "dashscope.aliyuncs.com": "alibaba",
-  "dashscope-intl.aliyuncs.com": "alibaba",
-  "coding.dashscope.aliyuncs.com": "alibaba",
-  "token-plan.cn-beijing.maas.aliyuncs.com": "alibaba",
-  "api.xiaomimimo.com": "mimo",
-  "token-plan-cn.xiaomimimo.com": "mimo",
-  "tokenhub.tencentmaas.com": "tokenhub",
-  "tokenhub-intl.tencentmaas.com": "tokenhub",
-  "ark.cn-beijing.volces.com": "ark",
-  "api.stepfun.com": "stepfun",
-  "api.siliconflow.cn": "siliconflow",
-  "api.x.ai": "xai",
-  "opencode.ai": "opencode",
-};
-const TEMPLATE_NAME_TO_LOGO_KEY = Object.fromEntries(
-  PROVIDER_TEMPLATES.map((template) => [template.name, template.logoKey]),
-);
-// 品牌标识不随设置变化（对齐 ZCode config.logo）：
-// 优先已持久化 logoKey；旧存档按模板名称回填，其次按加载时的 URL 主机固定下来。
-export const inferProviderLogoKey = (provider) => {
-  if (provider?.logoKey) return provider.logoKey;
-  const byName = TEMPLATE_NAME_TO_LOGO_KEY[provider?.name];
-  if (byName) return byName;
-  try {
-    const url = new URL(provider?.baseUrl || "");
-    return HOST_TO_LOGO_KEY[url.hostname];
-  } catch {
-    return undefined;
-  }
-};
-export const resolveProviderLogo = (baseUrl, logoKey) => {
-  if (logoKey && LOGO_ASSETS[logoKey]) return LOGO_ASSETS[logoKey];
-  try {
-    const url = new URL(baseUrl);
-    if (
-      !["http:", "https:"].includes(url.protocol) ||
-      url.username ||
-      url.password
-    )
-      return null;
-    return BRAND_ASSETS[url.hostname] || null;
-  } catch {
-    return null;
-  }
-};
 function ProviderIcon({ baseUrl, logoKey, customTemplate = false }) {
-  const src = resolveProviderLogo(baseUrl, logoKey);
-  const [failedSrc, setFailedSrc] = React.useState(null);
   return (
     <span
       className={`model-settings__avatar${customTemplate ? " model-settings__avatar--custom" : ""}`}
     >
       {customTemplate ? (
         <Plus size={18} aria-hidden="true" />
-      ) : src && failedSrc !== src ? (
-        <img
-          src={src}
-          alt=""
-          aria-hidden="true"
-          onError={() => setFailedSrc(src)}
-        />
       ) : (
-        <Package size={22} aria-hidden="true" />
+        <ProviderLogo logoKey={inferProviderLogoKey({ baseUrl, logoKey })} size={22} />
       )}
     </span>
   );
@@ -2926,15 +2798,30 @@ export const createProvider = (template) => ({
   apiKeyUrl: template.apiKeyUrl || "",
   logoKey: template.logoKey,
   enabled: true,
-  // 对齐 ZCode：模板自带内置模型目录（含上下文/识图元数据与默认启用态）。
-  models: (template.models || []).map((model) => ({
-    id: uuid(),
-    name: model.modelId,
-    modelId: model.modelId,
-    read_image: Boolean(model.read_image),
-    context_window_tokens: model.context_window_tokens,
-    enabled: model.enabled !== false,
-  })),
+  // 对齐 ZCode：种子模型按 modelId + 供应商 API 格式/Base URL 从规则目录解析完整默认元数据
+  // （最大输出 Token、输入类型、模型能力、推理等级与默认推理映射），不再只搬上下文/识图。
+  // 模板 curated 的上下文/识图/启用态优先于目录兜底值。
+  models: (template.models || []).map((model) => {
+    const resolved =
+      resolveModelConfig(model.modelId, API_TYPE_BY_PROTOCOL[template.protocol], template.baseUrl) || {};
+    return {
+      id: uuid(),
+      name: model.modelId,
+      modelId: model.modelId,
+      use_recommended_config: true,
+      max_output_tokens: resolved.max_output_tokens,
+      supports_video: resolved.supports_video,
+      supports_pdf: resolved.supports_pdf,
+      supports_json_schema: resolved.supports_json_schema,
+      supports_native_web_search: resolved.supports_native_web_search,
+      supports_mid_conversation_system: resolved.supports_mid_conversation_system,
+      reasoning_levels: resolved.reasoning_levels,
+      reasoning_level_map: resolved.reasoning_level_map,
+      read_image: Boolean(model.read_image),
+      context_window_tokens: model.context_window_tokens ?? resolved.context_window_tokens,
+      enabled: model.enabled !== false,
+    };
+  }),
 });
 // 存储层（主进程）是唯一校验源，对齐 ZCode：草稿可落盘，非法 URL 等错误以反馈条呈现。
 // 反馈条不回显原始 IPC 错误文本，避免把凭据等敏感信息带进 UI。
@@ -2957,6 +2844,262 @@ const clean = (providers) =>
     })),
   }));
 
+// ===== 模型弹窗（对齐 ZCode ProviderModelMetadataDialog）=====
+// 帮助文案取自 ZCode zh-CN 语言包 settings.modelProvider.help.*，品牌名替换为本应用。
+const MODEL_HELP = {
+  followRecommendedConfig:
+    "根据模型 ID 与供应商模板，为您智能匹配推荐配置，并随应用更新。\n如果手动修改某项配置，该项将转为手动管理，不再跟随推荐更新；其他配置仍由智能配置管理。",
+  contextWindow:
+    "模型一次可处理的上下文容量，单位为 Token。流光剪辑会据此管理上下文。\n请勿超过模型的实际上限。",
+  maxOutputTokens: "单次模型请求允许生成的最大 Token 数。\n请勿超过模型的实际上限。",
+  inputModalities:
+    "设置模型能够接收的内容类型：\n\n- **文本**：接收文本内容，为必选项。\n- **图片**：接收图片内容。\n- **视频**：接收视频内容。\n- **PDF**：直接接收 PDF 文档。",
+  capabilities:
+    "- **结构化输出**：支持通过 JSON Schema 约束模型输出的字段、类型和结构。\n- **原生联网搜索**：支持使用模型接口内置的联网搜索能力。\n- **对话中系统消息**：支持在对话中途插入系统指令。\n\n请勿勾选模型不支持的能力。",
+  reasoningLevelsOrdered:
+    "设置聊天时可选择的推理等级，**必须按推理强度从低到高排列**。\n请勿配置模型不支持的推理等级。",
+  reasoningLevelMapping:
+    "使用 CEL 表达式，将当前推理等级 `reasoningLevel` 映射为模型接口的请求字段。表达式返回的 JSON 对象会合并到实际发送的请求体中。",
+};
+const MODEL_FIELD_LABEL = {
+  followRecommendedConfig: "智能配置",
+  contextWindow: "上下文窗口",
+  maxOutputTokens: "最大输出 Token",
+  inputModalities: "输入类型",
+  capabilities: "模型能力",
+  reasoningLevelsOrdered: "推理等级",
+  reasoningLevelMapping: "推理参数映射",
+};
+const CAPABILITY_OPTIONS = [
+  { key: "supports_json_schema", manualKey: "jsonSchema", label: "结构化输出" },
+  { key: "supports_native_web_search", manualKey: "webSearch", label: "原生联网搜索" },
+  { key: "supports_mid_conversation_system", manualKey: "midSystem", label: "对话中系统消息" },
+];
+// 只呈现定稿文案的加粗/行内代码/列表，不解释 HTML 或用户输入（对齐 ZCode emphasis）。
+const renderHelpInline = (text) =>
+  text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, index) =>
+    part.startsWith("**") ? (
+      <strong key={index}>{part.slice(2, -2)}</strong>
+    ) : part.startsWith("`") ? (
+      <code key={index}>{part.slice(1, -1)}</code>
+    ) : (
+      part
+    ),
+  );
+const renderHelpCopy = (text) =>
+  text.split("\n\n").map((paragraph, index) =>
+    paragraph.startsWith("- ") ? (
+      <ul key={index}>
+        {paragraph.split("\n").map((line, lineIndex) => (
+          <li key={lineIndex}>{renderHelpInline(line.slice(2))}</li>
+        ))}
+      </ul>
+    ) : (
+      <p key={index}>{renderHelpInline(paragraph)}</p>
+    ),
+  );
+function ModelHelp({ field }) {
+  return (
+    <Tooltip
+      title={<div className="model-settings__help-copy">{renderHelpCopy(MODEL_HELP[field])}</div>}
+      {...NAV_TOOLTIP_PROPS}
+      placement="top"
+      overlayClassName="model-settings__help-tooltip"
+    >
+      <button
+        type="button"
+        className="model-settings__help-btn"
+        aria-label={`${MODEL_FIELD_LABEL[field]}说明`}
+        onClick={(event) => event.preventDefault()}
+      >
+        <CircleHelp size={14} aria-hidden="true" />
+      </button>
+    </Tooltip>
+  );
+}
+function ModelOptionCheckbox({ selected }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`model-settings__opt-check${selected ? " model-settings__opt-check--on" : ""}`}
+    >
+      {selected ? <Check size={12} /> : null}
+    </span>
+  );
+}
+function ModelOptionChip({ label, selected, locked = false, onToggle }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={selected}
+      aria-label={label}
+      disabled={locked}
+      data-selected={selected}
+      className="model-settings__chip"
+      onClick={onToggle}
+    >
+      <ModelOptionCheckbox selected={selected} />
+      <span>{label}</span>
+      {locked ? (
+        <LockKeyhole size={14} className="model-settings__chip-lock" aria-hidden="true" />
+      ) : null}
+    </button>
+  );
+}
+// 推理等级编辑器：chips 可点击改名、拖拽/Alt+方向键排序、悬浮删除、末尾 + 新增（对齐 ZCode）。
+function ReasoningLevelEditor({ values, onChange }) {
+  const [editingIndex, setEditingIndex] = React.useState(null);
+  const [editingValue, setEditingValue] = React.useState("");
+  const [draggingIndex, setDraggingIndex] = React.useState(null);
+  const inputRef = React.useRef(null);
+  React.useEffect(() => {
+    if (editingIndex !== null) inputRef.current?.focus();
+  }, [editingIndex]);
+  const beginEdit = (index, value = values[index] ?? "") => {
+    setEditingIndex(index);
+    setEditingValue(value);
+  };
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditingValue("");
+  };
+  const commitEdit = () => {
+    if (editingIndex === null) return;
+    const nextValue = editingValue.trim();
+    if (!nextValue || values.some((v, i) => i !== editingIndex && v === nextValue)) {
+      cancelEdit();
+      return;
+    }
+    if (editingIndex < values.length && nextValue === values[editingIndex]) {
+      cancelEdit();
+      return;
+    }
+    const next = [...values];
+    if (editingIndex === values.length) next.push(nextValue);
+    else next[editingIndex] = nextValue;
+    onChange(next);
+    cancelEdit();
+  };
+  const move = (from, to) => {
+    if (from === to || from < 0 || to < 0 || from >= values.length || to >= values.length) return;
+    const next = [...values];
+    const [value] = next.splice(from, 1);
+    next.splice(to, 0, value);
+    onChange(next);
+  };
+  const handleChipKeyDown = (event, index) => {
+    if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      move(index, event.key === "ArrowLeft" ? index - 1 : index + 1);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      beginEdit(index);
+    }
+  };
+  const handleDrop = (event, targetIndex) => {
+    event.preventDefault();
+    if (draggingIndex !== null) move(draggingIndex, targetIndex);
+    setDraggingIndex(null);
+  };
+  const renderInput = (index) => (
+    <input
+      ref={inputRef}
+      className="model-settings__reasoning-input"
+      aria-label="推理等级值"
+      value={editingValue}
+      onChange={(event) => setEditingValue(event.target.value)}
+      onBlur={commitEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitEdit();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          cancelEdit();
+        }
+      }}
+    />
+  );
+  return (
+    <div className="model-settings__reasoning" data-model-reasoning-level-editor="true">
+      {values.map((value, index) => (
+        <div
+          key={`${value}-${index}`}
+          className={`model-settings__reasoning-chip${draggingIndex === index ? " model-settings__reasoning-chip--drag" : ""}`}
+          draggable={editingIndex !== index}
+          onDragStart={(event) => {
+            setDraggingIndex(index);
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => handleDrop(event, index)}
+          onDragEnd={() => setDraggingIndex(null)}
+        >
+          {editingIndex === index ? (
+            renderInput(index)
+          ) : (
+            <button
+              type="button"
+              className="model-settings__reasoning-value"
+              onClick={() => beginEdit(index)}
+              onKeyDown={(event) => handleChipKeyDown(event, index)}
+            >
+              {value}
+            </button>
+          )}
+          <button
+            type="button"
+            className="model-settings__reasoning-delete"
+            aria-label={`删除推理等级: ${value}`}
+            disabled={values.length <= 1}
+            onClick={() => onChange(values.filter((_, i) => i !== index))}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+      {editingIndex === values.length ? (
+        renderInput(values.length)
+      ) : (
+        <button
+          type="button"
+          className="model-settings__reasoning-add"
+          aria-label="添加推理等级"
+          onClick={() => beginEdit(values.length)}
+        >
+          <Plus size={14} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
+// 智能配置本地解析：按模型 ID 在供应商模板内置目录中匹配上下文窗口与识图能力。
+// 智能配置推荐解析：先用 ZCode 规则目录（modelRules + modelApiRules + providerSiteRules，
+// 按供应商 API 格式/Base URL 命中，任意非空 ID 恒有兜底默认），
+// 再用供应商模板种子的精确上下文/识图覆盖（curated 值更准确）。
+export const findRecommendedModel = (modelId, protocol, baseUrl) => {
+  const id = String(modelId || "").trim();
+  if (!id) return null;
+  const resolved = resolveModelConfig(id, API_TYPE_BY_PROTOCOL[protocol], baseUrl);
+  if (!resolved) return null;
+  const target = id.toLowerCase();
+  for (const template of PROVIDER_TEMPLATES) {
+    for (const model of template.models || []) {
+      if (String(model.modelId || "").trim().toLowerCase() === target) {
+        return {
+          ...resolved,
+          context_window_tokens: model.context_window_tokens ?? resolved.context_window_tokens,
+          read_image: Boolean(model.read_image),
+        };
+      }
+    }
+  }
+  return resolved;
+};
+
 export default function ModelSettings() {
   const [providers, setProviders] = React.useState([]);
   const [saved, setSaved] = React.useState("[]");
@@ -2975,6 +3118,11 @@ export default function ModelSettings() {
   const [editingModel, setEditingModel] = React.useState(null);
   const [isNewModel, setIsNewModel] = React.useState(false);
   const [modelError, setModelError] = React.useState("");
+  // 模型弹窗（对齐 ZCode）：智能配置手动覆盖字段、匹配反馈、高级配置折叠、重置快照。
+  const [modelManualFields, setModelManualFields] = React.useState([]);
+  const [modelMatched, setModelMatched] = React.useState(false);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const modelInitialRef = React.useRef(null);
   const nameInputRef = React.useRef(null);
   const nameBeforeEditRef = React.useRef("");
   const [adding, setAdding] = React.useState(false);
@@ -3310,9 +3458,8 @@ export default function ModelSettings() {
         model.id === id ? { ...model, ...patch } : model,
       ),
     });
-  // 删除模型同样走全局统一删除确认弹窗。
-  const requestDeleteModel = async () => {
-    const target = editingModel;
+  // 删除模型走全局统一删除确认弹窗；入口在模型行（对齐 ZCode 行级 Trash2），不在编辑弹窗内。
+  const requestDeleteModel = async (target = editingModel) => {
     if (!target) return;
     const confirmed = await confirmDelete({
       title: "确认删除模型",
@@ -3322,8 +3469,103 @@ export default function ModelSettings() {
     update({
       models: provider.models.filter((item) => item.id !== target.id),
     });
+    if (editingModel?.id === target.id) {
+      setEditingModel(null);
+      setModelError("");
+    }
+  };
+  // ===== 模型弹窗（对齐 ZCode ProviderModelMetadataDialog）=====
+  const openModelDialog = (model, isNew) => {
+    modelInitialRef.current = { ...model };
+    setEditingModel({ ...model });
+    setIsNewModel(isNew);
+    setModelError("");
+    setModelManualFields([]);
+    setModelMatched(false);
+    setAdvancedOpen(false);
+  };
+  const closeModelDialog = () => {
     setEditingModel(null);
     setModelError("");
+  };
+  // 智能配置：按模型 ID 匹配推荐目录，自动填充所有未被手动覆盖的字段。
+  const resolveRecommended = (draft) => {
+    if (draft.use_recommended_config === false) return { draft, matched: false };
+    const rec = findRecommendedModel(draft.modelId, provider?.protocol, provider?.baseUrl);
+    if (!rec) return { draft, matched: false };
+    const next = { ...draft };
+    const fill = (field, key, value) => {
+      if (!modelManualFields.includes(field) && value !== undefined) next[key] = value;
+    };
+    fill("context", "context_window_tokens", rec.context_window_tokens);
+    fill("maxOutput", "max_output_tokens", rec.max_output_tokens);
+    fill("image", "read_image", rec.read_image);
+    fill("video", "supports_video", rec.supports_video);
+    fill("pdf", "supports_pdf", rec.supports_pdf);
+    fill("jsonSchema", "supports_json_schema", rec.supports_json_schema);
+    fill("webSearch", "supports_native_web_search", rec.supports_native_web_search);
+    fill("midSystem", "supports_mid_conversation_system", rec.supports_mid_conversation_system);
+    fill("reasoningLevels", "reasoning_levels", rec.reasoning_levels);
+    fill("reasoningMap", "reasoning_level_map", rec.reasoning_level_map);
+    return { draft: next, matched: true };
+  };
+  const handleModelIdBlur = () => {
+    if (!editingModel) return;
+    const { draft, matched } = resolveRecommended(editingModel);
+    setModelMatched(matched);
+    setEditingModel(draft);
+  };
+  const handleSmartToggle = (checked) => {
+    const next = { ...editingModel, use_recommended_config: checked };
+    if (checked) {
+      const { draft, matched } = resolveRecommended(next);
+      setModelMatched(matched);
+      setEditingModel(draft);
+    } else {
+      setModelMatched(false);
+      setEditingModel(next);
+    }
+  };
+  const markModelManual = (field) =>
+    setModelManualFields((fields) => (fields.includes(field) ? fields : [...fields, field]));
+  const resetModelForm = () => {
+    if (modelInitialRef.current) setEditingModel({ ...modelInitialRef.current });
+    setModelManualFields([]);
+    setModelMatched(false);
+    setModelError("");
+    setAdvancedOpen(false);
+  };
+  const saveModel = () => {
+    if (!editingModel) return;
+    const modelId = editingModel.modelId.trim();
+    if (!modelId) {
+      setModelError("模型 ID 不能为空");
+      return;
+    }
+    // 推理参数映射是 CEL 表达式（如 {"reasoning_effort": reasoningLevel}、含三元运算），
+    // 并非严格 JSON；本应用将其作为高级元数据原样保存，不做 JSON 校验（对齐 ZCode 由 CEL 引擎在请求期求值）。
+    const mapRaw = (editingModel.reasoning_level_map || "").trim();
+    const draft = {
+      ...editingModel,
+      modelId,
+      // ZCode 弹窗无独立名称字段，列表以模型 ID 展示；名称与 ID 保持一致。
+      name: modelId,
+      reasoning_levels: (editingModel.reasoning_levels || []).map((l) => l.trim()).filter(Boolean),
+      reasoning_level_map: mapRaw,
+    };
+    if (isNewModel) {
+      update({ models: [...provider.models, draft] });
+    } else {
+      updateModel(draft.id, draft);
+    }
+    setEditingModel(null);
+    setModelError("");
+  };
+  const handleModelInputKeyDown = (event) => {
+    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      saveModel();
+    }
   };
   const refresh = (
     <Button
@@ -3737,14 +3979,17 @@ export default function ModelSettings() {
                     disabled={busy}
                     icon={<Plus size={14} aria-hidden="true" />}
                     onClick={() => {
-                      setEditingModel({
-                        id: uuid(),
-                        name: "",
-                        modelId: "",
-                        read_image: false,
-                        enabled: true,
-                      });
-                      setIsNewModel(true);
+                      openModelDialog(
+                        {
+                          id: uuid(),
+                          name: "",
+                          modelId: "",
+                          read_image: false,
+                          enabled: true,
+                          use_recommended_config: true,
+                        },
+                        true,
+                      );
                     }}
                   >
                     添加模型
@@ -3830,9 +4075,23 @@ export default function ModelSettings() {
                                 aria-label={`编辑模型 ${index + 1}`}
                                 icon={<Pencil size={14} aria-hidden="true" />}
                                 onClick={() => {
-                                  setEditingModel({ ...model });
-                                  setIsNewModel(false);
+                                  openModelDialog({ ...model }, false);
                                 }}
+                              />
+                            </Tooltip>
+                            <Tooltip
+                              title="删除模型"
+                              {...NAV_TOOLTIP_PROPS}
+                              placement="top"
+                            >
+                              <Button
+                                size="small"
+                                type="text"
+                                className="model-settings__test model-settings__model-delete"
+                                aria-label={`删除模型 ${index + 1}`}
+                                disabled={busy}
+                                icon={<Trash2 size={14} aria-hidden="true" />}
+                                onClick={() => void requestDeleteModel(model)}
                               />
                             </Tooltip>
                             <Switch
@@ -3852,104 +4111,245 @@ export default function ModelSettings() {
                 )}
                 <Modal
                   open={Boolean(editingModel)}
-                  title={isNewModel ? "添加模型" : "编辑模型"}
-                  okText="保存"
-                  cancelText="取消"
-                  onOk={() => {
-                    const draft = {
-                      ...editingModel,
-                      name: editingModel.name.trim(),
-                      modelId: editingModel.modelId.trim(),
-                    };
-                    if (!draft.modelId) {
-                      setModelError("请输入模型 ID");
-                      return;
-                    }
-                    if (isNewModel) {
-                      update({ models: [...provider.models, draft] });
-                    } else {
-                      updateModel(draft.id, draft);
-                    }
-                    setEditingModel(null);
-                    setModelError("");
-                  }}
-                  onCancel={() => {
-                    setEditingModel(null);
-                    setModelError("");
-                  }}
-                  footer={(_, { OkBtn, CancelBtn }) => (
-                    <div className="model-settings__model-modal-footer">
-                      {!isNewModel && (
-                        <Button danger onClick={() => void requestDeleteModel()}>
-                          删除模型
-                        </Button>
+                  title={isNewModel ? "添加模型" : "编辑模型配置"}
+                  width={672}
+                  onCancel={closeModelDialog}
+                  wrapClassName="model-settings__model-modal-wrap"
+                  footer={
+                    <div className="model-settings__model-footer-wrap">
+                      {(modelError || modelMatched) && (
+                        <div
+                          role={modelError ? "alert" : "status"}
+                          className={`model-settings__model-feedback${modelError ? " model-settings__model-feedback--error" : " model-settings__model-feedback--ok"}`}
+                        >
+                          {modelError ? (
+                            <CircleAlert size={16} aria-hidden="true" />
+                          ) : (
+                            <CheckCircle2 size={16} aria-hidden="true" />
+                          )}
+                          <span>{modelError || "已匹配到智能配置"}</span>
+                        </div>
                       )}
-                      <span className="model-settings__model-modal-spacer" />
-                      <CancelBtn />
-                      <OkBtn />
+                      <div className="model-settings__model-footer">
+                        <button
+                          type="button"
+                          className="model-settings__reset-link"
+                          onClick={resetModelForm}
+                        >
+                          重置表单
+                        </button>
+                        <span className="model-settings__model-footer-spacer" />
+                        <Button onClick={closeModelDialog}>取消</Button>
+                        <Button type="primary" onClick={saveModel}>
+                          保存
+                        </Button>
+                      </div>
                     </div>
-                  )}
+                  }
                 >
                   {editingModel && (
-                    <Form layout="vertical" component="div">
-                      <Form.Item label="模型 ID" required>
+                    <div className="model-settings__model-form">
+                      <div className="model-settings__smart-row">
+                        <span className="model-settings__smart-label">
+                          智能配置
+                          <ModelHelp field="followRecommendedConfig" />
+                        </span>
+                        <Switch
+                          size="small"
+                          aria-label="智能配置"
+                          checked={editingModel.use_recommended_config !== false}
+                          onChange={handleSmartToggle}
+                        />
+                      </div>
+                      <div className="model-settings__field">
+                        <label className="model-settings__field-label" htmlFor="model-settings-model-id">
+                          模型 ID
+                        </label>
                         <Input
+                          id="model-settings-model-id"
                           aria-label="模型 ID"
+                          className="model-settings__mono"
+                          placeholder="模型 ID"
+                          autoFocus={isNewModel}
                           value={editingModel.modelId}
                           onChange={(e) =>
-                            setEditingModel({
-                              ...editingModel,
-                              modelId: e.target.value,
-                            })
+                            setEditingModel({ ...editingModel, modelId: e.target.value })
                           }
+                          onBlur={handleModelIdBlur}
+                          onKeyDown={handleModelInputKeyDown}
                         />
-                      </Form.Item>
-                      <Form.Item label="模型名称">
-                        <Input
-                          aria-label="模型名称"
-                          value={editingModel.name}
-                          onChange={(e) =>
-                            setEditingModel({
-                              ...editingModel,
-                              name: e.target.value,
-                            })
-                          }
-                        />
-                      </Form.Item>
-                      <Form.Item label="上下文窗口（tokens）">
+                      </div>
+                      <div className="model-settings__field">
+                        <span className="model-settings__field-label">
+                          上下文窗口
+                          <ModelHelp field="contextWindow" />
+                        </span>
                         <Input
                           aria-label="上下文窗口"
                           inputMode="numeric"
+                          placeholder={
+                            editingModel.use_recommended_config !== false
+                              ? findRecommendedModel(editingModel.modelId, provider?.protocol, provider?.baseUrl)?.context_window_tokens
+                              : undefined
+                          }
                           value={editingModel.context_window_tokens ?? ""}
+                          onFocus={(e) => e.target.select()}
+                          onKeyDown={handleModelInputKeyDown}
                           onChange={(e) => {
                             const parsed = Number(e.target.value);
+                            markModelManual("context");
                             setEditingModel({
                               ...editingModel,
                               context_window_tokens:
-                                e.target.value.trim() &&
-                                Number.isSafeInteger(parsed) &&
-                                parsed > 0
+                                e.target.value.trim() && Number.isSafeInteger(parsed) && parsed > 0
                                   ? parsed
                                   : undefined,
                             });
                           }}
                         />
-                      </Form.Item>
-                      <Checkbox
-                        checked={Boolean(editingModel.read_image)}
-                        onChange={(e) =>
-                          setEditingModel({
-                            ...editingModel,
-                            read_image: e.target.checked,
-                          })
-                        }
-                      >
-                        支持识图
-                      </Checkbox>
-                      {modelError && (
-                        <Alert type="error" showIcon message={modelError} />
-                      )}
-                    </Form>
+                      </div>
+                      <div className="model-settings__field">
+                        <span className="model-settings__field-label">
+                          最大输出 Token
+                          <ModelHelp field="maxOutputTokens" />
+                        </span>
+                        <Input
+                          aria-label="最大输出 Token"
+                          inputMode="numeric"
+                          disabled={isNewModel && !editingModel.modelId.trim()}
+                          value={editingModel.max_output_tokens ?? ""}
+                          onFocus={(e) => e.target.select()}
+                          onKeyDown={handleModelInputKeyDown}
+                          onChange={(e) => {
+                            const parsed = Number(e.target.value);
+                            markModelManual("maxOutput");
+                            setEditingModel({
+                              ...editingModel,
+                              max_output_tokens:
+                                e.target.value.trim() && Number.isSafeInteger(parsed) && parsed > 0
+                                  ? parsed
+                                  : undefined,
+                            });
+                          }}
+                        />
+                      </div>
+                      <div className="model-settings__advanced">
+                        <button
+                          type="button"
+                          className="model-settings__advanced-trigger"
+                          aria-expanded={advancedOpen}
+                          onClick={() => setAdvancedOpen((value) => !value)}
+                        >
+                          <ChevronRight
+                            size={16}
+                            aria-hidden="true"
+                            className={advancedOpen ? "model-settings__chevron--open" : ""}
+                          />
+                          高级配置
+                        </button>
+                        <div
+                          className={`model-settings__advanced-body${advancedOpen ? " model-settings__advanced-body--open" : ""}`}
+                          aria-hidden={!advancedOpen}
+                        >
+                          <div className="model-settings__field">
+                            <span className="model-settings__field-label">
+                              输入类型
+                              <ModelHelp field="inputModalities" />
+                            </span>
+                            <div className="model-settings__chips">
+                              <ModelOptionChip label="文本" selected locked />
+                              <ModelOptionChip
+                                label="图片"
+                                selected={Boolean(editingModel.read_image)}
+                                onToggle={() => {
+                                  markModelManual("image");
+                                  setEditingModel({
+                                    ...editingModel,
+                                    read_image: !editingModel.read_image,
+                                  });
+                                }}
+                              />
+                              <ModelOptionChip
+                                label="视频"
+                                selected={Boolean(editingModel.supports_video)}
+                                onToggle={() => {
+                                  markModelManual("video");
+                                  setEditingModel({
+                                    ...editingModel,
+                                    supports_video: !editingModel.supports_video,
+                                  });
+                                }}
+                              />
+                              <ModelOptionChip
+                                label="PDF"
+                                selected={Boolean(editingModel.supports_pdf)}
+                                onToggle={() => {
+                                  markModelManual("pdf");
+                                  setEditingModel({
+                                    ...editingModel,
+                                    supports_pdf: !editingModel.supports_pdf,
+                                  });
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <div className="model-settings__field">
+                            <span className="model-settings__field-label">
+                              模型能力
+                              <ModelHelp field="capabilities" />
+                            </span>
+                            <div className="model-settings__chips">
+                              {CAPABILITY_OPTIONS.map((option) => (
+                                <ModelOptionChip
+                                  key={option.key}
+                                  label={option.label}
+                                  selected={Boolean(editingModel[option.key])}
+                                  onToggle={() => {
+                                    markModelManual(option.manualKey);
+                                    setEditingModel({
+                                      ...editingModel,
+                                      [option.key]: !editingModel[option.key],
+                                    });
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="model-settings__field">
+                            <span className="model-settings__field-label">
+                              推理等级（从低到高）
+                              <ModelHelp field="reasoningLevelsOrdered" />
+                            </span>
+                            <ReasoningLevelEditor
+                              values={editingModel.reasoning_levels || []}
+                              onChange={(levels) => {
+                                markModelManual("reasoningLevels");
+                                setEditingModel({ ...editingModel, reasoning_levels: levels });
+                              }}
+                            />
+                          </div>
+                          <div className="model-settings__field">
+                            <span className="model-settings__field-label">
+                              推理参数映射
+                              <ModelHelp field="reasoningLevelMapping" />
+                            </span>
+                            <Input.TextArea
+                              aria-label="推理参数映射"
+                              className="model-settings__mono model-settings__json"
+                              rows={5}
+                              value={editingModel.reasoning_level_map || ""}
+                              onChange={(e) => {
+                                markModelManual("reasoningMap");
+                                setEditingModel({
+                                  ...editingModel,
+                                  reasoning_level_map: e.target.value,
+                                });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </Modal>
               </>

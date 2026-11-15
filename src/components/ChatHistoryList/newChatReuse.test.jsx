@@ -20,6 +20,7 @@ const setup = (sessions, options = {}) => {
     chatSessionsRef: { current: sessions },
     chatSessions: sessions,
     activeChatId: state.active,
+    activeChatSession: sessions.find((session) => session.id === state.active) || null,
     DEFAULT_CHAT_TITLE: '新对话',
     isFreshBeginnerGuideChatSession: new Function('session', freshBody),
     getSessionWorkspacePath: new Function('normalizeLocalPath', `return (session) => {${workspaceBody}};`)(normalizeLocalPath),
@@ -67,8 +68,7 @@ describe('new chat reuses unused sessions through the shared HomePage handler', 
 
   it.each([
     { messages: [{ role: 'user', content: 'hello' }] },
-    { runtimeSessionId: 'runtime', historyLoaded: false },
-    { historyLoaded: false },
+    { runtimeSessionId: 'runtime', historyLoaded: false, lastUserMessageAt: 10 },
     { lastUserMessageAt: 10 },
     { title: 'renamed' },
     { configuration: { selected_workspace_path: '/other' } },
@@ -77,6 +77,23 @@ describe('new chat reuses unused sessions through the shared HomePage handler', 
     run();
     expect(state.active).toBe('created');
     expect(bindings.createEmptyChatSession).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { runtimeSessionId: 'runtime', historyLoaded: false },
+    { historyLoaded: false },
+  ])('reuses an unused chat restored with unloaded history after restart: %j', (patch) => {
+    // 空对话展示时会预热 runtime；重启后恢复为 historyLoaded=false，
+    // 但 lastUserMessageAt=0 证明从未使用过，必须复用而不是再建一个。
+    const unused = { ...empty('unused'), ...patch };
+    const { run, state, bindings } = setup([
+      { ...empty('used'), messages: [{ role: 'user' }], lastUserMessageAt: 50 },
+      unused,
+    ], { activeChatId: 'used' });
+    run();
+    expect(state.active).toBe('unused');
+    expect(state.sessions[1]).toBe(unused);
+    expect(bindings.createEmptyChatSession).not.toHaveBeenCalled();
   });
 
   it.each([

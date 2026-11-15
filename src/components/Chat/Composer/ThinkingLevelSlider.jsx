@@ -47,7 +47,7 @@ function RollingThoughtLabel({ label }) {
 
 export default function ThinkingLevelSlider({ option, value, onChange }) {
   const [hoveredStop, setHoveredStop] = useState(null);
-  const levels = normalizeThinkingLevels(option?.thinking_levels);
+  const levels = normalizeThinkingLevels(option?.thinking_levels, option?.isCustom);
   if (!levels.length) return null;
   const selected = resolveThinkingLevel(option, value);
   const index = levels.indexOf(selected);

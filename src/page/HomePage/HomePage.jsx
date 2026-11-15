@@ -78,7 +78,7 @@ import { subscribeTaskNotificationPreferences } from '../../renderer/src/utils/t
 import { isFocused } from '../../renderer/src/utils/window';
 import { useFullscreen } from '../../renderer/src/hooks/useFullscreen';
 import { usePreviewWindowReady } from './usePreviewWindowReady';
-import { buildProvidersState, toModelOption, customModelToOption } from './chatProviders';
+import { buildProvidersState, toModelOption, customModelToOption, buildChatModelProviders } from './chatProviders';
 import { useCustomChatModels } from './useCustomChatModels';
 import { useOfficialModelPrefs } from './useOfficialModelPrefs';
 import { CHAT_MODEL_KEY, useChatModelPreference } from './useChatModelPreference';
@@ -2602,6 +2602,12 @@ const HomePage = () => {
     ...builtInChatModelOptions.filter((option) => !officialDisabledModels.includes(option.value)),
     ...customChatModels.models.map(customModelToOption)
   ], [builtInChatModelOptions, customChatModels.models, officialDisabledModels]);
+  // 「供应商→模型」两级选择器数据（对齐 ZCode）：内置供应商 + 各自定义供应商，
+  // 每个供应商携带其启用模型的 value 列表；切换供应商即切换模型列表。
+  const chatModelProviders = useMemo(
+    () => buildChatModelProviders(builtInChatModelOptions, officialDisabledModels, customChatModels.providers),
+    [builtInChatModelOptions, officialDisabledModels, customChatModels.providers]
+  );
   const [chatModelListLoading, setChatModelListLoading] = useState(true);
   const [chatDefaultModel, setChatDefaultModel] = useState('');
   // 模型与思考强度绑定会话：切换会话时从目标会话恢复，修改只回写当前会话，
@@ -4931,10 +4937,12 @@ const HomePage = () => {
     const sessions = chatSessionsRef.current.length ? chatSessionsRef.current : chatSessions;
     const canReuseSession = (session) => (
       // Displaying an empty chat prewarms its runtime; that does not mean it has been used.
+      // lastUserMessageAt 持久化且在首次发送时立即写入，为 0 即从未使用过；
+      // 重启后这类会话会被恢复为 historyLoaded=false（runtime 历史未加载），
+      // 不能因此拒绝复用，否则每次重启后点「新建对话」都会多出一个空「新对话」。
       Array.isArray(session.messages) && session.messages.length === 0
       && (!session.title || session.title === DEFAULT_CHAT_TITLE)
       && !session.lastUserMessageAt
-      && session.historyLoaded !== false
       && !chatSessionSendingMap[session.id]
       && !chatSessionInFlightMap[session.id]
       && !chatWorkspaceStatusMap[session.id]
@@ -7470,6 +7478,7 @@ const HomePage = () => {
                 sessionSending={activeChatSending}
                 model={chatModel}
                 modelOptions={chatModelOptions}
+                modelProviders={chatModelProviders}
                 modelThinkingLevels={modelThinkingLevels}
                 onModelThinkingLevelChange={onModelThinkingLevelChange}
                 modelListLoading={chatModelListLoading && !customChatModels.models.some((item) => `${item.id}:${item.modelId}` === chatModel)}
