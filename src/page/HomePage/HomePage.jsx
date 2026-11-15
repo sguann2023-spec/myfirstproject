@@ -1199,13 +1199,16 @@ const buildChatMessageModelMeta = (modelId, options = []) => {
   const normalizedModelId = canonicalizeChatModelId(rawModelId);
   if (!normalizedModelId) return undefined;
   const inferredProvider = extractChatModelProvider(rawModelId);
+  const isCustom = inferredProvider.startsWith('custom-');
   const availableOptions = Array.isArray(options) ? options : [];
   const matched = availableOptions.find((item) => item?.value === rawModelId)
-    || availableOptions.find((item) => (
-    [item?.value, item?.id, item?.name]
-      .map((value) => canonicalizeChatModelId(value))
-      .includes(normalizedModelId)
-  ));
+    || (!isCustom && availableOptions.find((item) => (
+      !item?.isCustom
+      && !String(item?.value || '').startsWith('custom-')
+      && [item?.value, item?.id, item?.name]
+        .map((value) => canonicalizeChatModelId(value))
+        .includes(normalizedModelId)
+    )));
   if (!matched) {
     return {
       id: normalizedModelId,
@@ -1216,8 +1219,8 @@ const buildChatMessageModelMeta = (modelId, options = []) => {
   return {
     id: normalizedModelId,
     name: String(matched?.label || matched?.name || normalizedModelId).trim() || normalizedModelId,
-    provider: String(matched?.provider_id || matched?.provider_type || inferredProvider || 'vectcut').trim() || 'vectcut',
-    pricing: matched?.pricing && typeof matched.pricing === 'object' ? { ...matched.pricing } : undefined,
+    provider: isCustom ? inferredProvider : (String(matched?.provider_id || matched?.provider_type || inferredProvider || 'vectcut').trim() || 'vectcut'),
+    pricing: !isCustom && matched?.pricing && typeof matched.pricing === 'object' ? { ...matched.pricing } : undefined,
     description: String(matched?.description || '').trim() || undefined,
   };
 };
@@ -1245,13 +1248,26 @@ const resolveMessageModelId = (rawModel, fallbackModelId = '') => {
 };
 
 const normalizeMessageModelMeta = (rawModel, fallbackModelId = '', options = []) => {
-  const resolvedModelId = resolveMessageModelId(rawModel, fallbackModelId);
+  let resolvedModelId = resolveMessageModelId(rawModel, fallbackModelId);
   if (!resolvedModelId) return undefined;
 
-  const matchedMeta = buildChatMessageModelMeta(resolvedModelId, options);
   const rawObject = rawModel && typeof rawModel === 'object' && !Array.isArray(rawModel)
     ? rawModel
     : null;
+  const rawModelId = String(rawObject?.id || rawObject?.modelId || rawObject?.value || rawModel || fallbackModelId || '').trim();
+  const customProvider = [
+    rawObject?.provider, rawObject?.provider_id, rawObject?.provider_type,
+    extractChatModelProvider(rawModelId), extractChatModelProvider(fallbackModelId)
+  ].find((value) => String(value || '').startsWith('custom-'));
+  if (customProvider) {
+    resolvedModelId = rawModelId.startsWith(`${customProvider}:`)
+      ? rawModelId.slice(rawModelId.indexOf(':') + 1)
+      : rawModelId;
+  }
+  const selectionId = customProvider
+    ? `${customProvider}:${resolvedModelId}`
+    : rawModelId;
+  const matchedMeta = buildChatMessageModelMeta(selectionId, options);
   if (!rawObject) {
     return matchedMeta;
   }
@@ -1260,16 +1276,17 @@ const normalizeMessageModelMeta = (rawModel, fallbackModelId = '', options = [])
     id: resolvedModelId,
     name: String(rawObject?.name || matchedMeta?.name || resolvedModelId).trim() || resolvedModelId,
     provider: String(
-      rawObject?.provider
+      customProvider
+      || rawObject?.provider
       || rawObject?.provider_id
       || rawObject?.provider_type
       || extractChatModelProvider(rawObject?.id || rawObject?.modelId || rawObject?.value || rawObject?.name || '')
       || matchedMeta?.provider
       || 'vectcut'
     ).trim() || 'vectcut',
-    pricing: rawObject?.pricing && typeof rawObject.pricing === 'object'
+    pricing: customProvider ? undefined : (rawObject?.pricing && typeof rawObject.pricing === 'object'
       ? { ...rawObject.pricing }
-      : (matchedMeta?.pricing && typeof matchedMeta.pricing === 'object' ? { ...matchedMeta.pricing } : undefined),
+      : (matchedMeta?.pricing && typeof matchedMeta.pricing === 'object' ? { ...matchedMeta.pricing } : undefined)),
     description: String(rawObject?.description || matchedMeta?.description || '').trim() || undefined,
   };
 };

@@ -18,7 +18,7 @@ import {
 } from '@renderer/store/toolPermissions'
 import type { NormalToolResponse } from '@renderer/types'
 import { cn } from '@renderer/utils'
-import { resolveToolArguments } from '@shared/parseToolArguments'
+import { parseMaybeJsonToolArguments, resolveToolArguments } from '@shared/parseToolArguments'
 import { localQuestionMedia } from '@renderer/utils/localQuestionMedia'
 import { Button, Checkbox, Input, Modal, Radio, Upload } from 'antd'
 import { CheckCircle, CheckCircle2, ChevronLeft, ChevronRight, File, FileAudio, Plus, Send } from 'lucide-react'
@@ -553,16 +553,19 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   const isPending = !isTerminal && !!request
   const retainedInput = useRef<{ toolCallId: string; input: unknown } | undefined>(undefined)
 
-  // Parse from available sources - prefer request.input when pending, fall back to toolResponse.arguments.
+  // A pending request is complete and authoritative, even when its input is invalid.
   // 流式阶段参数可能只以 JSON 字符串形式停留在 partialArguments 上（arguments 尚未回填），
   // 此时也要能渲染出问题，否则多会话并行时卡片只剩标题和骨架。
   const { questions, answers, structuredAnswers } = useMemo(() => {
     const cached = retainedInput.current
     const retained = cached && cached.toolCallId === toolResponse.toolCallId ? cached.input : undefined
     const source = isPending
-      ? resolveToolArguments(request?.input, toolResponse.arguments, toolResponse.partialArguments, retained)
+      ? parseMaybeJsonToolArguments(request?.input)
       : resolveToolArguments(toolResponse.arguments, toolResponse.partialArguments, request?.input, retained)
-    const parsed = parseAskUserQuestionToolInput(source)
+    const result = parseAskUserQuestionToolInput(source)
+    const parsed = result?.questions.every((q) =>
+      q.question.trim() && (!isPending || !answerError(q)?.startsWith('Invalid'))
+    ) ? result : undefined
 
     // Debug: log data source
     if (!parsed?.questions?.length) {
@@ -787,6 +790,9 @@ export function AskUserQuestionCard({ toolResponse }: { toolResponse: NormalTool
   ])
 
   if (isPending && (questions.length === 0 || !currentQuestion)) {
+    return <div className="ask-user-question-waiting" role="alert">{t('agent.askUserQuestion.invalidInput')}</div>
+  }
+  if (!isTerminal && !questions.length) {
     return <div className="ask-user-question-waiting">{t('agent.askUserQuestion.loading')}</div>
   }
 

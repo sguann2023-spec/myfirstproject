@@ -1,8 +1,20 @@
 import React from 'react';
 import './MessageHeader.css';
 
-const getModelMeta = (model, modelOptions) => {
+const getModelMeta = (model, modelOptions, messageModel) => {
   const options = Array.isArray(modelOptions) ? modelOptions : [];
+  const metadata = messageModel && typeof messageModel === 'object' ? messageModel : {};
+  const customProvider = [metadata.provider, metadata.provider_id, metadata.provider_type, model.split(':')[0]]
+    .find((value) => String(value || '').startsWith('custom-'));
+  if (customProvider) {
+    const selection = model.startsWith(`${customProvider}:`) ? model : `${customProvider}:${model}`;
+    const modelId = selection.slice(selection.indexOf(':') + 1);
+    const matched = options.find((item) => typeof item === 'object' && item?.value === selection);
+    return {
+      name: matched?.label || matched?.name || metadata.name || modelId || '助手',
+      icon: matched?.icon || matched?.iconUrl || matched?.black_icon || '',
+    };
+  }
   const matched = options.find((item) => {
     if (typeof item === 'string') return item === model;
     const value = item?.value || item?.name || item?.id;
@@ -45,7 +57,7 @@ const MessageHeader = ({
     || message?.modelName
     || ''
   ).trim();
-  const modelMeta = getModelMeta(messageModel || (isAssistant ? '' : model), modelOptions);
+  const modelMeta = getModelMeta(messageModel || (isAssistant ? '' : model), modelOptions, rawMessageModel);
   const displayModelName = formatModelDisplayName ? formatModelDisplayName(modelMeta.name) : modelMeta.name;
   const displayName = isAssistant ? displayModelName : (String(userName || '').trim() || '用户');
   const userAvatarSrc = String(userAvatar || '').trim();

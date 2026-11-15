@@ -228,6 +228,11 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     }
   }, shallowEqual)
 
+  // Persisted custom models may contain platform pricing from an older model lookup.
+  // The provider or fully qualified model ID, not that pricing, determines who bills the conversation.
+  const isThirdPartyModel =
+    currentMessage.model?.provider?.startsWith('custom-') || currentMessage.model?.id?.startsWith('custom-')
+
   // const { generating } = useRuntime()
   const locateMessage = () => {
     void EventEmitter.emit(EVENT_NAMES.LOCATE_MESSAGE + ':' + currentMessage.id, false)
@@ -320,6 +325,8 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getUsagePrice = (usage?: MessageUsageWithCacheDetails) => {
+    if (isThirdPartyModel) return 0
+
     const inputTokens = Number(usage?.prompt_tokens ?? 0) || 0
     const outputTokens = Number(usage?.completion_tokens ?? 0) || 0
     const { cacheReadTokens, cacheWriteTokens } = getCacheInputTokens(usage)
@@ -481,6 +488,8 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   const getCacheSavingString = () => {
+    if (isThirdPartyModel) return ''
+
     const cacheReadTokens = getCacheInputTokens(displayUsage).cacheReadTokens
     if (cacheReadTokens <= 0) {
       return ''
@@ -503,7 +512,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   const getPriceString = () => {
     const price = getPrice()
-    const missingModelBilling = !displayUsage
+    const missingModelBilling = !isThirdPartyModel && !displayUsage
     if (missingModelBilling || internalToolUsage.missingBilling) {
       if (price > 0) return `≥${price.toFixed(2)}`
       if (missingModelBilling || !internalToolUsage.hasKnownBilling) return t('message.accounting.unavailable')
@@ -533,7 +542,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
             <span>{detail.label}</span>
             <TooltipValue>
               <TooltipPointIcon src={POINT2_ICON_URL} alt="" aria-hidden="true" />
-              <span>{index === 0 && !displayUsage ? t('message.accounting.unavailable') : formatPoints(detail.points)}</span>
+              <span>{!isThirdPartyModel && index === 0 && !displayUsage ? t('message.accounting.unavailable') : formatPoints(detail.points)}</span>
             </TooltipValue>
           </TooltipRow>
         ))}

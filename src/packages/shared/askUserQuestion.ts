@@ -22,7 +22,24 @@ export function fileExtensions(extensions?: string[]): string[] {
 export function normalizeAskUserQuestionInput<T>(input: T): T | (T & { questions: Question[] }) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input
   const value = input as Record<string, unknown>
-  if ('questions' in value) return input
+  if ('questions' in value) {
+    if (!Array.isArray(value.questions) || !value.questions.length) return input
+    const originalQuestions = value.questions
+    const questions = originalQuestions.map((item: unknown) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+      const question = item as Record<string, unknown>
+      if (
+        question.question != null &&
+        (typeof question.question !== 'string' || question.question.trim())
+      ) return item
+      const fallback =
+        originalQuestions.length === 1 && typeof value.question === 'string' && value.question.trim()
+          ? value.question
+          : question.header
+      return typeof fallback === 'string' && fallback.trim() ? { ...question, question: fallback } : item
+    })
+    return questions.some((item, index) => item !== originalQuestions[index]) ? ({ ...input, questions } as T) : input
+  }
   // Accept models wrapping a single rich question without discarding its options.
   if (value.question && typeof value.question === 'object' && !Array.isArray(value.question)) {
     const question = value.question as Record<string, unknown>

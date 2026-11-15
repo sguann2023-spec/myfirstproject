@@ -77,9 +77,58 @@ describe('chat provider integration', () => {
     expect(meta).toMatchObject({ id: model.modelId, name: model.name, provider: model.id });
     expect(JSON.stringify(meta)).not.toContain(model.apiKey);
   });
+  const metadataHelpers = source.slice(source.indexOf('const canonicalizeChatModelId ='), source.indexOf('const buildComparableModelMeta ='));
+  const normalizeMeta = new Function(`${metadataHelpers}; return normalizeMessageModelMeta;`)();
+  const resolveModelId = new Function(`${metadataHelpers}; return resolveMessageModelId;`)();
+  it('never borrows official pricing for custom metadata, including deleted and polluted history', () => {
+    const model = custom({ modelId: 'gpt-test' });
+    const official = toModelOption('gpt-test', 'Official', '', false, { input: 100, output: 200 });
+    const selection = `${model.id}:${model.modelId}`;
+    for (const options of [[official, customModelToOption(model)], [official]]) {
+      for (const raw of [selection, { id: model.modelId, provider: model.id, pricing: official.pricing }]) {
+        const meta = normalizeMeta(raw, '', options);
+        expect(meta).toMatchObject({ id: model.modelId, provider: model.id });
+        expect(meta.pricing).toBeUndefined();
+        expect(normalizeMeta(meta, '', options)).toEqual(meta);
+      }
+      expect(buildMeta(selection, options).pricing).toBeUndefined();
+      expect(normalizeMeta('gpt-test', '', options).pricing).toEqual(official.pricing);
+    }
+    expect(normalizeMeta({ id: 'gpt-test' }, selection, [official]).provider).toBe(model.id);
+    expect(normalizeMeta({ id: 'gpt-test' }, selection, [official]).pricing).toBeUndefined();
+  });
+
+  it('keeps the original summary title strategy for both official and custom conversations', async () => {
+    const body = source.slice(source.indexOf('  const triggerAutoRenameSessionTitle = async'), source.indexOf('  const ensureAgentSessionForChat = async'));
+    const run = async (model, title = 'New chat', messages = [{ role: 'user', content: '  本地标题\n第一条消息  ' }]) => {
+      let sessions = [{ id: 'chat', title, messages }];
+      const fetchSummary = vi.fn().mockResolvedValue({ text: 'Official title' });
+      const timers = new Map();
+      const trigger = new Function('chatSessionsRef', 'chatTitleGeneratingSessionIdsRef', 'setChatTitleRenamingSessionIds', 'DEFAULT_CHAT_TITLE', 'resolveMessageModelId', 'chatModel', 'fetchMessagesSummary', 'setChatSessions', 'sortChatSessions', 'setChatTitleNewlyRenamedSessionIds', 'chatTitleRevealTimersRef', 'logger', 'setTimeout', `${body}; return triggerAutoRenameSessionTitle;`)(
+        { current: sessions }, { current: new Set() }, vi.fn(), 'New chat', resolveModelId, model,
+        fetchSummary, (update) => { sessions = update(sessions); }, (value) => value, vi.fn(), { current: timers }, { warn: vi.fn() }, vi.fn(() => 1)
+      );
+      await trigger('chat', { modelOverride: model });
+      return { sessions, fetchSummary };
+    };
+    const local = await run('custom-123:deepseek-v4-pro');
+    expect(local.fetchSummary).toHaveBeenCalledExactlyOnceWith({ messages: expect.any(Array), model: 'deepseek-v4-pro' });
+    expect(local.sessions[0].title).toBe('Official title');
+    const official = await run('deepseek-v4-pro');
+    expect(official.fetchSummary).toHaveBeenCalledOnce();
+    expect(official.sessions[0].title).toBe('Official title');
+    const manual = await run('custom-123:deepseek-v4-pro', 'Manual title');
+    expect(manual.fetchSummary).not.toHaveBeenCalled();
+    expect(manual.sessions[0].title).toBe('Manual title');
+  });
+
   it('preserves colon-containing custom model IDs in history metadata', () => {
     const model = custom();
-    expect(buildMeta(`${model.id}:${model.modelId}`, [customModelToOption(model)])).toMatchObject({ id: model.modelId, provider: model.id });
+    const options = [customModelToOption(model)];
+    const meta = buildMeta(`${model.id}:${model.modelId}`, options);
+    expect(meta).toMatchObject({ id: model.modelId, provider: model.id });
+    expect(normalizeMeta(meta, '', options)).toEqual(meta);
+    expect(normalizeMeta(normalizeMeta(meta, '', options), '', options)).toEqual(meta);
   });
 });
 

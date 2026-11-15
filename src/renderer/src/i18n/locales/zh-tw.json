@@ -99,6 +99,7 @@
       "answered": "已回答",
       "customPlaceholder": "輸入你的答案...",
       "loading": "載入問題中...",
+      "invalidInput": "提問請求的輸入無效，無法顯示問題或提交答案。",
       "multiSelect": "多重選擇",
       "next": "下一個",
       "noQuestions": "沒有可用的問題",

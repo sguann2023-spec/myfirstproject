@@ -1022,9 +1022,108 @@ it('renders wrapped question options while awaiting an answer, not permission', 
   expect(container.textContent).not.toContain('agent.toolPermission.waiting')
 })
 
-it('uses question loading copy for an unparsed pending question', async () => {
-  mocks.state.toolPermissions.requests.request.input = {}
-  await render({ ...toolResponse, arguments: {} })
-  expect(container.textContent).toContain('agent.askUserQuestion.loading')
-  expect(container.textContent).not.toContain('agent.toolPermission.waiting')
+it.each([{}, { questions: [] }, { questions: [{ header: ' ', question: null }] },
+  { questions: [{ ...input.questions[0], question: 42 }] },
+  { questions: [{ header: 'Invalid', question: 'Choose', type: 'single_select' }] },
+  { questions: [{ header: 'Invalid', question: 'Write', type: 'text', minLength: 5, maxLength: 1 }] }])(
+  'reports complete invalid pending input without using stale arguments or retained input (%j)', async (invalid) => {
+    await render()
+    await act(async () => (container.querySelector('.ask-user-question-option') as HTMLElement).click())
+    mocks.state.toolPermissions.requests.request.input = invalid
+    await render()
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('agent.askUserQuestion.invalidInput')
+    expect(container.textContent).not.toContain('agent.askUserQuestion.loading')
+    expect(container.textContent).not.toContain('Original question?')
+    expect(container.querySelector('button')).toBeNull()
+    expect(mocks.respond).not.toHaveBeenCalled()
+  }
+)
+
+it('keeps incomplete streamed arguments loading until a complete pending request arrives', async () => {
+  const request = mocks.state.toolPermissions.requests.request
+  mocks.state.toolPermissions.requests = {}
+  const response = { ...toolResponse, arguments: {}, partialArguments: '{"questions":[{"header":"Next"' }
+  await render(response)
+  expect(container.textContent).toBe('agent.askUserQuestion.loading')
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+  expect(container.querySelector('button')).toBeNull()
+  mocks.state.toolPermissions.requests = { request: { ...request, input: {} } }
+  await render(response)
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe('agent.askUserQuestion.invalidInput')
+  expect(mocks.respond).not.toHaveBeenCalled()
 })
+
+it('renders and submits mixed top-level question and nested options from logged input', async () => {
+  const mixed = { question: 'Which direction?', questions: [{ header: 'Direction',
+    multiSelect: false, options: [{ label: 'First' }, { label: 'Second' }] }], metadata: { source: 'log' } }
+  mocks.state.toolPermissions.requests.request.input = mixed
+  await render({ ...toolResponse, arguments: mixed })
+  expect(container.querySelector('[role="heading"]')?.textContent).toBe('Which direction?')
+  expect(container.textContent).toContain('Second')
+  await act(async () => (container.querySelector('.ask-user-question-option') as HTMLElement).click())
+  await act(async () => container.querySelector('button')!.click())
+  expect(mocks.respond).toHaveBeenCalledWith(expect.objectContaining({
+    updatedInput: expect.objectContaining({ ...mixed, answers: { 'Which direction?': 'First' } })
+  }))
+})
+
+it('normalizes missing question text immutably while retaining all rich metadata', () => {
+  const options = Object.freeze([{ id: 'a', label: 'A', input: { type: 'upload', extensions: ['png'] } }])
+  const question = Object.freeze({ id: 'q', header: 'Header', question: null, options,
+    required: false, multiSelect: true, preview: { path: '/tmp/a.png' } })
+  const mixed = Object.freeze({ question: 'Top question', questions: Object.freeze([question]),
+    answers: { 'Top question': 'A' }, structuredAnswers: { q: { type: 'multi_select', selectedIds: ['a'] } },
+    annotations: { q: { notes: 'Keep' } }, metadata: { source: 'log' } })
+  const normalized = normalizeAskUserQuestionInput(mixed)
+  expect(normalized).toEqual({ ...mixed, questions: [{ ...question, question: 'Top question' }] })
+  expect(normalized).not.toBe(mixed)
+  expect(normalized.questions[0]).not.toBe(question)
+  expect(normalized.questions[0].options).toBe(options)
+  expect(normalized.metadata).toBe(mixed.metadata)
+  expect(normalized.annotations).toBe(mixed.annotations)
+  expect(normalized.answers).toBe(mixed.answers)
+  expect(normalized.structuredAnswers).toBe(mixed.structuredAnswers)
+  expect(question.question).toBeNull()
+})
+
+it.each([undefined, null, '', ' \n\t'])(
+  'uses top-level text then the local header for a single missing question (%j)', (question) => {
+    const item = { header: 'Header', question, type: 'text' }
+    expect(normalizeAskUserQuestionInput({ question: 'Top', questions: [item] }).questions[0].question).toBe('Top')
+    expect(normalizeAskUserQuestionInput({ question: ' ', questions: [item] }).questions[0].question).toBe('Header')
+  }
+)
+
+it('uses only each local header for multiple questions and preserves text, wrong types and non-objects', () => {
+  const questions = [{ header: 'First' }, { header: 'Second', question: ' ' },
+    { header: 'Third', question: null }, { header: 'Fourth', question: ' Existing ' },
+    { header: 'Invalid', question: 42 }, null, ['not an object']]
+  const mixed = { question: 'Do not duplicate', questions }
+  const normalized = normalizeAskUserQuestionInput(mixed)
+  expect(normalized.questions).toEqual([
+    { ...questions[0], question: 'First' }, { ...questions[1], question: 'Second' },
+    { ...questions[2], question: 'Third' }, ...questions.slice(3)
+  ])
+  for (let i = 3; i < questions.length; i++) expect(normalized.questions[i]).toBe(questions[i])
+  expect(questions[0]).not.toHaveProperty('question')
+  for (const question of [' Existing ', 42, false, {}, []]) {
+    const invalid = { question: 'Top', questions: [{ header: 'Header', question }] }
+    expect(normalizeAskUserQuestionInput(invalid)).toBe(invalid)
+  }
+  for (const questions of [[], null, 'invalid']) {
+    const invalid = { question: 'Top', questions }
+    expect(normalizeAskUserQuestionInput(invalid)).toBe(invalid)
+  }
+})
+
+it.each([['en-US', enUS], ['zh-CN', zhCN], ['zh-TW', zhTW]] as const)(
+  'localizes invalid input separately from loading in %s', async (lng, locale) => {
+    mocks.realTranslation = true
+    const i18n = createInstance()
+    await i18n.init({ lng, resources: { [lng]: { translation: locale } } })
+    mocks.state.toolPermissions.requests.request.input = {}
+    await act(async () => root.render(<I18nextProvider i18n={i18n}><AskUserQuestionCard toolResponse={toolResponse} /></I18nextProvider>))
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(locale.agent.askUserQuestion.invalidInput)
+    expect(container.textContent).not.toContain(locale.agent.askUserQuestion.loading)
+  }
+)

@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getChatModelList, testChatModel } from '../../api/chat.js';
 import ModelSettings, { createProvider, PROVIDER_TEMPLATES, resolveProviderLogo } from './ModelSettings';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 
@@ -364,6 +364,14 @@ describe('ModelSettings', () => {
     expect(max.use_recommended_config).toBe(true);
     // 每个种子模型都带智能配置开关与推理字段（不再丢失默认设置）。
     expect(provider.models.every(m => m.use_recommended_config === true && Array.isArray(m.reasoning_levels) && typeof m.reasoning_level_map === 'string')).toBe(true);
+  });
+  it('locks switch hover color so toggles do not darken on hover', () => {
+    const settingCss = readFileSync(`${process.cwd()}/src/page/SettingPage/SettingPage.css`, 'utf8');
+    // 未选中/选中开关悬浮（及聚焦）保持原色，覆盖 antd 默认 hover 变深。
+    expect(settingCss).toContain('.setting-content-area .ant-switch:not(.ant-switch-checked):hover:not(.ant-switch-disabled)');
+    expect(settingCss).toContain('.setting-content-area .ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled)');
+    const modalCss = readFileSync(`${process.cwd()}/src/components/ModelSettings/ModelSettings.css`, 'utf8');
+    expect(modalCss).toContain('.model-settings__model-modal-wrap .ant-switch:not(.ant-switch-checked):hover:not(.ant-switch-disabled)');
   });
   it('resolves bundled brand assets for every catalog endpoint, not editable names', () => {
     for (const template of PROVIDER_TEMPLATES) {

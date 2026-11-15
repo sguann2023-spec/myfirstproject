@@ -99,6 +99,7 @@
       "answered": "answered",
       "customPlaceholder": "Enter your answer...",
       "loading": "Loading questions...",
+      "invalidInput": "Unable to display this question because the request input is invalid. An answer cannot be submitted.",
       "multiSelect": "Multi-select",
       "next": "Next",
       "noQuestions": "No questions available",

@@ -818,11 +818,19 @@
   max-height: calc(100vh - 220px);
   overflow-y: auto;
 }
-/* 弹窗内开关沿用全局统一配色（portal 不受 .setting-content-area 作用域覆盖）。 */
+/* 弹窗内开关沿用全局统一配色（portal 不受 .setting-content-area 作用域覆盖），悬浮保持原色。 */
 .model-settings__model-modal-wrap .ant-switch.ant-switch-checked {
   background: #0190f0;
 }
 .model-settings__model-modal-wrap .ant-switch:not(.ant-switch-checked) {
+  background: #cccccc;
+}
+.model-settings__model-modal-wrap .ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled),
+.model-settings__model-modal-wrap .ant-switch.ant-switch-checked:focus:not(.ant-switch-disabled) {
+  background: #0190f0;
+}
+.model-settings__model-modal-wrap .ant-switch:not(.ant-switch-checked):hover:not(.ant-switch-disabled),
+.model-settings__model-modal-wrap .ant-switch:not(.ant-switch-checked):focus:not(.ant-switch-disabled) {
   background: #cccccc;
 }
 .model-settings__model-form {

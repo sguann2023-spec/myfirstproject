@@ -48,7 +48,132 @@ vi.mock('i18next', () => ({
   }
 }))
 
+const popover = vi.hoisted(() => ({ content: null as React.ReactNode }))
+
+vi.mock('antd', () => ({
+  Popover: ({ children, content }: { children: React.ReactNode; content: React.ReactNode }) => {
+    popover.content = content
+    return children
+  }
+}))
+
 describe('MessageTokens', () => {
+  const pollutedPricing = {
+    precise_uncached_input_resource_points_per_unit: 1000000,
+    precise_cache_read_resource_points_per_unit: 100000,
+    precise_output_resource_points_per_unit: 1000000
+  }
+
+  it.each([
+    { provider: 'custom-example', id: 'official-model' },
+    { provider: 'custom-example', id: 'custom-example:official-model' },
+    { provider: 'openai', id: 'custom-example:official-model' },
+    { id: 'custom-example:official-model' }
+  ])('第三方模型忽略历史平台 pricing，保留 token 和缓存：%j', (model) => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'custom-model', role: 'assistant', status: 'success', blocks: [],
+      model: { ...model, pricing: pollutedPricing },
+      usageSteps: [
+        { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cache_read_input_tokens: 500 },
+        { prompt_tokens: 1000, completion_tokens: 300, total_tokens: 1300, cache_read_input_tokens: 250 }
+      ]
+    } as any} />)
+    expect(html).toContain('2.50K')
+    expect(html).toContain('↑2.00K')
+    expect(html).toContain('↓500')
+    expect(html).toContain('缓存命中 750')
+    expect(html).not.toContain('第三方 API 结算')
+    expect(html).toContain('预估消耗')
+    expect(html).not.toContain('节省')
+    expect(html).toContain('>0.00</span>')
+    const tooltip = renderToStaticMarkup(<>{popover.content}</>)
+    expect(tooltip).not.toContain('第三方 API 结算')
+    expect(tooltip).toContain('对话模型')
+    expect(tooltip).toContain('>0.00</span>')
+    expect(tooltip).toContain('<img')
+  })
+
+  it.each([true, false])('第三方对话零平台积分与真实工具费用统一合计（有 usage：%s）', (hasUsage) => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'custom-tool', role: 'assistant', status: 'success',
+      model: { provider: 'custom-example', id: 'official-model', pricing: pollutedPricing },
+      usage: hasUsage ? { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 } : undefined,
+      blocks: [{ id: 'tool', type: 'tool', toolName: 'read', metadata: {
+        rawMcpToolResponse: { responseRaw: { billing: { consume: 2.75 } } }
+      } }]
+    } as any} />)
+    expect(html).not.toContain('第三方 API 结算')
+    expect(html).not.toContain('工具消耗:')
+    expect(html).toContain('>2.75</span>')
+    expect(html).toContain('预估消耗')
+    expect(html).not.toContain('≥2.75')
+    const tooltip = renderToStaticMarkup(<>{popover.content}</>)
+    expect(tooltip).not.toContain('第三方 API 结算')
+    expect(tooltip).toContain('对话模型')
+    expect(tooltip).toContain('>2.75</span>')
+    expect(tooltip).toContain('>0.00</span>')
+  })
+
+  it('第三方模型无 pricing 或只有 metrics 时显示零平台积分', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'custom-metrics', role: 'assistant', status: 'error', blocks: [],
+      model: { provider: 'custom-example', id: 'official-model' },
+      metrics: { completion_tokens: 704 }
+    } as any} />)
+    expect(html).toContain('↓704')
+    expect(html).not.toContain('第三方 API 结算')
+    expect(html).toContain('>0.00</span>')
+    expect(html).toContain('预估消耗')
+  })
+
+  it('优先按 store 最新第三方身份屏蔽旧 props 的平台计费', () => {
+    mockState.messages.entities = {
+      'custom-live': {
+        id: 'custom-live', role: 'assistant',
+        model: { provider: 'custom-live', id: 'official-model', pricing: pollutedPricing }
+      }
+    }
+    mockState.messageBlocks.entities = {}
+    try {
+      const html = renderToStaticMarkup(<MessageTokens message={{
+        id: 'custom-live', role: 'assistant', status: 'success', blocks: [],
+        model: { provider: 'openai', id: 'official-model', pricing: pollutedPricing },
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      } as any} />)
+      expect(html).toContain('↑0')
+      expect(html).toContain('↓0')
+      expect(html).not.toContain('第三方 API 结算')
+      expect(html).toContain('>0.00</span>')
+      expect(html).toContain('预估消耗')
+    } finally {
+      mockState.messages.entities = {}
+    }
+  })
+
+  it('官方模型仍按平台 pricing 展示积分和缓存节省', () => {
+    mockState.messages.entities = {}
+    mockState.messageBlocks.entities = {}
+    const html = renderToStaticMarkup(<MessageTokens message={{
+      id: 'official-cache', role: 'assistant', status: 'success', blocks: [],
+      model: { provider: 'openai', id: 'official-model', pricing: pollutedPricing },
+      usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200, cache_read_input_tokens: 500 }
+    } as any} />)
+    expect(html).toContain('预估消耗')
+    expect(html).toContain('>750.00</span>')
+    expect(html).toContain('缓存命中 500')
+    expect(html).toContain('节省 90%')
+    expect(html).not.toContain('第三方 API 结算')
+    const tooltip = renderToStaticMarkup(<>{popover.content}</>)
+    expect(tooltip).toContain('对话模型')
+    expect(tooltip).toContain('750.00')
+  })
+
   it('keeps completed step tokens and tool charges visible after a later request fails', () => {
     mockState.messages.entities = {}
     mockState.messageBlocks.entities = {}
