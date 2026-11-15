@@ -35,14 +35,14 @@ function configFor(platform, arch) {
 function binaryName(platform) { return platform === 'win32' ? 'ffprobe.exe' : 'ffprobe' }
 function targetDir(root, platform, arch) { return path.join(root, 'resources', 'ffmpeg', platform, arch) }
 
-function verifyDirectory(dir, platform, arch) {
+function verifyDirectory(dir, platform, arch, sidecarDir = dir) {
   const config = configFor(platform, arch)
-  if (config.source) return sourceBuild.verifyBuild(dir, arch)
+  if (config.source) return sourceBuild.verifyBuild(dir, arch, sidecarDir)
   const binary = readRegular(path.join(dir, binaryName(platform)))
   assertDigest(binary, config.binary, `${platform}/${arch} ffprobe`)
   assertArchitecture(binary, platform, arch)
-  assertDigest(readRegular(path.join(dir, 'ffprobe.LICENSE')), config.license, 'ffprobe.LICENSE')
-  assertDigest(readRegular(path.join(dir, 'ffprobe.README')), config.readme, 'ffprobe.README')
+  assertDigest(readRegular(path.join(sidecarDir, 'ffprobe.LICENSE')), config.license, 'ffprobe.LICENSE')
+  assertDigest(readRegular(path.join(sidecarDir, 'ffprobe.README')), config.readme, 'ffprobe.README')
   if (platform === 'darwin' && !(fs.statSync(path.join(dir, 'ffprobe')).mode & 0o111)) {
     throw new Error(`ffprobe is not executable: ${dir}`)
   }

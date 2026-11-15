@@ -29,6 +29,12 @@ function packagedDir(context, arch) {
   }
   return path.join(context.appOutDir, 'resources', 'ffprobe', 'win32', arch)
 }
+function packagedSidecarDir(context, arch) {
+  if (platformOf(context) === 'darwin') {
+    return path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources', 'ffprobe', 'darwin', arch)
+  }
+  return packagedDir(context, arch)
+}
 async function beforePack(context) {
   const platform = platformOf(context)
   for (const arch of archesFor(context)) {
@@ -42,20 +48,24 @@ async function afterPack(context) {
   for (const arch of archesFor(context)) {
     const source = targetDir(sourceRoot(context), platform, arch)
     const destination = packagedDir(context, arch)
+    const sidecarDir = packagedSidecarDir(context, arch)
     // Universal afterPack verifies the merged files instead of mutating them.
     if (context.arch === 4 || context.arch === 'universal') {
-      verifyDirectory(destination, platform, arch)
+      verifyDirectory(destination, platform, arch, sidecarDir)
       continue
     }
-    if (fs.existsSync(destination)) verifyDirectory(destination, platform, arch)
+    if (fs.existsSync(destination)) verifyDirectory(destination, platform, arch, sidecarDir)
     fs.mkdirSync(destination, { recursive: true })
-    const files = [binaryName(platform), 'ffprobe.LICENSE', 'ffprobe.README']
+    fs.mkdirSync(sidecarDir, { recursive: true })
+    fs.copyFileSync(path.join(source, binaryName(platform)), path.join(destination, binaryName(platform)))
+    // Frameworks is a nested-code location: keep ordinary text in Resources.
+    const files = ['ffprobe.LICENSE', 'ffprobe.README']
     if (platform === 'darwin') files.push('ffprobe.build.json', 'ffprobe.config.h')
     for (const name of files) {
-      fs.copyFileSync(path.join(source, name), path.join(destination, name))
+      fs.copyFileSync(path.join(source, name), path.join(sidecarDir, name))
     }
     if (platform === 'darwin') fs.chmodSync(path.join(destination, 'ffprobe'), 0o755)
-    verifyDirectory(destination, platform, arch)
+    verifyDirectory(destination, platform, arch, sidecarDir)
   }
 }
-module.exports = { beforePack, afterPack, packagedDir, archesFor }
+module.exports = { beforePack, afterPack, packagedDir, packagedSidecarDir, archesFor }

@@ -39,12 +39,21 @@ Windows x64 使用固定的第三方 `eugeneware/ffmpeg-static` release 产物�
 3. 专项测试和宿主原生 smoke test；
 4. electron-builder 架构校验、组件复制、签名前复验。
 
-macOS 安装位置为 `Contents/Frameworks/ffprobe/darwin/{x64,arm64}`，Windows 为 `resources/ffprobe/win32/x64`。macOS 每个 staging app 保留两份分架构组件，以支持 universal 合并；组件不会作为另一份资源重复分发。
+macOS 打包后将可执行文件与附属文件分开存放：
+
+- 二进制：`Contents/Frameworks/ffprobe/darwin/{x64,arm64}/ffprobe`，保持原有运行时路径，供代码签名处理。
+- 附属文件：`Contents/Resources/ffprobe/darwin/{x64,arm64}/`，仅包含 `ffprobe.LICENSE`、`ffprobe.README`、`ffprobe.build.json`、`ffprobe.config.h`。这些非代码文件不再放入 Frameworks；Resources 中不重复复制二进制。
+
+macOS 的 x64、arm64 staging app 都保留两套分架构文件，以支持 universal 合并。universal 的签名前 hook 只验证合并结果，不复制或修复缺失文件。验证从 Frameworks 读取二进制、从 Resources 读取附属文件；来源记录、配置摘要、二进制摘要与架构、许可和 README 摘要均必须通过检查。
+
+准备缓存仍将二进制和附属文件放在同一目录 `resources/ffmpeg/darwin/{x64,arm64}`；`verifyDirectory(dir, platform, arch, sidecarDir = dir)` 与 `verifyBuild(dir, arch, sidecarDir = dir)` 默认验证同目录缓存，打包后显式传入附属文件目录。Windows 布局不变，`resources/ffprobe/win32/x64` 同时保存 `ffprobe.exe`、`ffprobe.LICENSE`、`ffprobe.README`。
 
 ```sh
 node --test util/portable-ffprobe.test.js
 pnpm exec vitest run src/main/utils/__tests__/probe-video-source.test.ts src/main/utils/__tests__/prepare-audio-understanding.test.ts src/main/mcpServers/__tests__/subtitle-template.test.ts
 ```
+
+单元测试使用合成 Mach-O/PE 和确定性附属文件，仅将固定发行文件摘要替换为 fixture 摘要，仍执行实际校验逻辑；覆盖分目录验证的缺失、篡改及错误架构，以及 x64、arm64、universal 和 Windows 布局，不下载、编译或执行 fixture。可选的真实文件集成测试由 `FFPROBE_INTEGRATION_ROOT` 指向已准备的项目根目录启用；macOS 打包元数据从上述 Resources 路径读取。
 
 `--check-only` 不下载、不修复；`--smoke-test` 仅执行宿主原生架构，不能用 Rosetta 可运行来证明 arm64 正确。
 

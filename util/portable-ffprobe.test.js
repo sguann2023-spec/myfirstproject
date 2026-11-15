@@ -43,6 +43,48 @@ function temp(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
+// Exercise real validators without downloading release bytes. Only pinned hashes
+// are replaced with deterministic fixture hashes; all integrity checks stay real.
+function fixtureModules() {
+  const vm = require('node:vm')
+  const license = Buffer.from('fixture license\n'), readme = Buffer.from('fixture README\n')
+  function load(name, dependencies = {}, transform = text => text) {
+    const filename = path.join(__dirname, name)
+    const module = { exports: {} }
+    vm.runInNewContext(transform(fs.readFileSync(filename, 'utf8')), {
+      module, exports: module.exports, Buffer, process, console, __dirname,
+      require: id => Object.hasOwn(dependencies, id) ? dependencies[id] : require(id)
+    }, { filename })
+    return module.exports
+  }
+  const source = load('ffprobe-source-build.js', {}, text => text
+    .replace(/license: '[a-f0-9]{64}'/, `license: '${sha256(license)}'`)
+    .replace(/readme: '[a-f0-9]{64}'/, `readme: '${sha256(readme)}'`))
+  const prepare = load('prepare-portable-ffprobe.js', { './ffprobe-source-build': source }, text => text
+    .replace(/binary: '[a-f0-9]{64}'/, `binary: '${sha256(pe())}'`)
+    .replace(/license: '[a-f0-9]{64}'/, `license: '${sha256(license)}'`)
+    .replace(/readme: '[a-f0-9]{64}'/, `readme: '${sha256(readme)}'`))
+  const builder = load('ffprobe-builder-hooks.js', { './prepare-portable-ffprobe': prepare })
+  function write(dir, platform, arch, sidecarDir = dir) {
+    fs.mkdirSync(dir, { recursive: true }); fs.mkdirSync(sidecarDir, { recursive: true })
+    const binary = platform === 'win32' ? pe() : Buffer.concat([thin(arch), Buffer.from([
+      'LGPL version 2.1 or later', '--disable-gpl', '--disable-nonfree',
+      '--disable-version3', '--disable-autodetect', '--enable-securetransport'
+    ].join('\0'))])
+    fs.writeFileSync(path.join(dir, prepare.binaryName(platform)), binary, { mode: 0o755 })
+    fs.writeFileSync(path.join(sidecarDir, 'ffprobe.LICENSE'), license)
+    fs.writeFileSync(path.join(sidecarDir, 'ffprobe.README'), readme)
+    if (platform === 'darwin') {
+      const config = Buffer.from('#define CONFIG_GPL 0\n#define CONFIG_NONFREE 0\n#define CONFIG_VERSION3 0\n#define FFMPEG_LICENSE "LGPL version 2.1 or later"\n')
+      fs.writeFileSync(path.join(sidecarDir, 'ffprobe.config.h'), config)
+      fs.writeFileSync(path.join(sidecarDir, 'ffprobe.build.json'), JSON.stringify({
+        provenance: source.provenanceFor(arch), compiler: 'fixture clang',
+        binarySha256: sha256(binary), configSha256: sha256(config)
+      }))
+    }
+  }
+  return { source, prepare, builder, write }
+}
 test('SHA256 rejects tampering', () => {
   assertDigest(Buffer.from('abc'), sha256(Buffer.from('abc')), 'fixture')
   assert.throws(() => assertDigest(Buffer.from('abd'), sha256(Buffer.from('abc')), 'fixture'), /SHA256/)
@@ -167,6 +209,119 @@ test('source flags pin LGPL-only build and provenance rejects old sources/flags'
   fs.writeFileSync(path.join(dir, 'ffprobe.build.json'), JSON.stringify(metadata))
   assert.throws(() => source.verifyBuild(dir, 'arm64'), /provenance/)
 })
+test('source validation accepts colocated caches and split packaged sidecars', t => {
+  const { source, prepare, write } = fixtureModules()
+  const root = temp(t)
+  for (const arch of ['x64', 'arm64']) {
+    const dir = path.join(root, arch), sidecars = path.join(root, `${arch}-sidecars`)
+    write(dir, 'darwin', arch)
+    source.verifyBuild(dir, arch)
+    prepare.verifyDirectory(dir, 'darwin', arch)
+    for (const name of fs.readdirSync(dir).filter(name => name !== 'ffprobe')) {
+      fs.mkdirSync(sidecars, { recursive: true })
+      fs.renameSync(path.join(dir, name), path.join(sidecars, name))
+    }
+    source.verifyBuild(dir, arch, sidecars)
+    prepare.verifyDirectory(dir, 'darwin', arch, sidecars)
+    assert.throws(() => prepare.verifyDirectory(dir, 'darwin', arch), /ffprobe.build.json/)
+    assert.deepEqual(fs.readdirSync(dir), ['ffprobe'])
+  }
+})
+test('split source validation rejects missing and tampered files without fallback', t => {
+  const { source, prepare, write } = fixtureModules()
+  const root = temp(t)
+  const names = ['ffprobe.build.json', 'ffprobe.config.h', 'ffprobe.LICENSE', 'ffprobe.README', 'ffprobe']
+  for (const arch of ['x64', 'arm64']) for (const name of names) for (const missing of [true, false]) {
+    const base = path.join(root, `${arch}-${name}-${missing}`)
+    const dir = path.join(base, 'binary'), sidecars = path.join(base, 'sidecars')
+    write(dir, 'darwin', arch, sidecars)
+    // Valid misplaced copies must not mask damage at the authoritative location.
+    for (const file of names) {
+      const from = file === 'ffprobe' ? dir : sidecars
+      fs.copyFileSync(path.join(from, file), path.join(file === 'ffprobe' ? sidecars : dir, file))
+    }
+    const file = path.join(name === 'ffprobe' ? dir : sidecars, name)
+    if (missing) fs.unlinkSync(file)
+    else if (name === 'ffprobe.build.json') {
+      const metadata = JSON.parse(fs.readFileSync(file))
+      metadata.provenance.sourceSha256 = '0'.repeat(64)
+      fs.writeFileSync(file, JSON.stringify(metadata))
+    } else fs.appendFileSync(file, 'tampered')
+    const label = `${arch} ${missing ? 'missing' : 'tampered'} ${name}`
+    assert.throws(() => source.verifyBuild(dir, arch, sidecars), undefined, label)
+    assert.throws(() => prepare.verifyDirectory(dir, 'darwin', arch, sidecars), undefined, label)
+  }
+})
+test('split source validation checks architecture independently of binary digest', t => {
+  const { source, prepare, write } = fixtureModules()
+  const root = temp(t)
+  for (const arch of ['x64', 'arm64']) {
+    const dir = path.join(root, arch), sidecars = path.join(root, `${arch}-sidecars`)
+    write(dir, 'darwin', arch, sidecars)
+    const file = path.join(dir, 'ffprobe'), binary = fs.readFileSync(file)
+    thin(arch === 'x64' ? 'arm64' : 'x64').copy(binary)
+    fs.writeFileSync(file, binary)
+    const metaPath = path.join(sidecars, 'ffprobe.build.json')
+    const metadata = JSON.parse(fs.readFileSync(metaPath))
+    metadata.binarySha256 = sha256(binary)
+    fs.writeFileSync(metaPath, JSON.stringify(metadata))
+    assert.throws(() => source.verifyBuild(dir, arch, sidecars), /Architecture mismatch/)
+    assert.throws(() => prepare.verifyDirectory(dir, 'darwin', arch, sidecars), /Architecture mismatch/)
+  }
+})
+test('Mac x64 and arm64 staging split sidecars; universal validates without writes', async t => {
+  const { prepare, builder, write } = fixtureModules()
+  const root = temp(t)
+  for (const arch of ['x64', 'arm64']) write(prepare.targetDir(root, 'darwin', arch), 'darwin', arch)
+  const context = { electronPlatformName: 'darwin', arch: 1, appOutDir: path.join(root, 'out'), packager: { projectDir: root, appInfo: { productFilename: 'Test' } } }
+  const sidecarNames = ['ffprobe.LICENSE', 'ffprobe.README', 'ffprobe.build.json', 'ffprobe.config.h'].sort()
+  const snapshots = []
+  for (const stagingArch of [1, 3]) {
+    const staging = { ...context, arch: stagingArch, appOutDir: path.join(root, `out-${stagingArch}`) }
+    await builder.beforePack(staging); await builder.afterPack(staging)
+    const snapshot = []
+    for (const arch of ['x64', 'arm64']) {
+      const dir = builder.packagedDir(staging, arch), sidecars = builder.packagedSidecarDir(staging, arch)
+      assert.equal(dir, path.join(staging.appOutDir, 'Test.app', 'Contents', 'Frameworks', 'ffprobe', 'darwin', arch))
+      assert.equal(sidecars, path.join(staging.appOutDir, 'Test.app', 'Contents', 'Resources', 'ffprobe', 'darwin', arch))
+      assert.deepEqual(fs.readdirSync(dir), ['ffprobe'])
+      assert.deepEqual(fs.readdirSync(sidecars).sort(), sidecarNames)
+      prepare.verifyDirectory(dir, 'darwin', arch, sidecars)
+      for (const [folder, names] of [[dir, ['ffprobe']], [sidecars, sidecarNames]]) {
+        for (const name of names) snapshot.push({ file: path.join(folder, name), bytes: fs.readFileSync(path.join(folder, name)) })
+      }
+    }
+    snapshots.push(snapshot.map(entry => entry.bytes))
+    for (const arch of [4, 'universal']) await builder.afterPack({ ...staging, arch })
+    for (const entry of snapshot) assert.deepEqual(fs.readFileSync(entry.file), entry.bytes)
+    const metadata = path.join(builder.packagedSidecarDir(staging, 'arm64'), 'ffprobe.build.json')
+    fs.unlinkSync(metadata)
+    await assert.rejects(builder.afterPack({ ...staging, arch: 4 }), /ffprobe.build.json/)
+    assert.equal(fs.existsSync(metadata), false, 'universal validation must not repair sidecars')
+  }
+  assert.deepEqual(snapshots[0], snapshots[1], 'universal input trees contain identical bytes')
+})
+test('Windows packaging keeps binary and sidecars together with pinned validation', async t => {
+  const { prepare, builder, write } = fixtureModules()
+  const root = temp(t), source = prepare.targetDir(root, 'win32', 'x64')
+  write(source, 'win32', 'x64')
+  const context = { electronPlatformName: 'win32', arch: 1, appOutDir: path.join(root, 'out'), packager: { projectDir: root, appInfo: { productFilename: 'Test' } } }
+  await builder.beforePack(context); await builder.afterPack(context)
+  const dir = builder.packagedDir(context, 'x64')
+  assert.equal(dir, path.join(context.appOutDir, 'resources', 'ffprobe', 'win32', 'x64'))
+  assert.equal(builder.packagedSidecarDir(context, 'x64'), dir)
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['ffprobe.LICENSE', 'ffprobe.README', 'ffprobe.exe'])
+  prepare.verifyDirectory(dir, 'win32', 'x64')
+  for (const name of ['ffprobe.exe', 'ffprobe.LICENSE', 'ffprobe.README']) {
+    const file = path.join(dir, name), bytes = fs.readFileSync(file)
+    fs.appendFileSync(file, 'tampered')
+    assert.throws(() => prepare.verifyDirectory(dir, 'win32', 'x64'), /SHA256/)
+    await assert.rejects(builder.afterPack(context), /SHA256/)
+    fs.unlinkSync(file)
+    assert.throws(() => prepare.verifyDirectory(dir, 'win32', 'x64'))
+    fs.writeFileSync(file, bytes)
+  }
+})
 // Opt-in real release integration: never download/execute fixtures in unit tests.
 test('verified source macOS and release Windows packaging plus universal pre-sign validation', { skip: !process.env.FFPROBE_INTEGRATION_ROOT }, async t => {
   const root = process.env.FFPROBE_INTEGRATION_ROOT, output = temp(t)
@@ -175,7 +330,7 @@ test('verified source macOS and release Windows packaging plus universal pre-sig
   await hooks.beforePack(context); await hooks.afterPack(context)
   await hooks.afterPack({ ...context, arch: 4 })
   const staged = hooks.packagedDir(context, 'arm64')
-  const metaPath = path.join(staged, 'ffprobe.build.json')
+  const metaPath = path.join(hooks.packagedSidecarDir(context, 'arm64'), 'ffprobe.build.json')
   const metadata = JSON.parse(fs.readFileSync(metaPath))
   metadata.provenance.sourceSha256 = '0'.repeat(64)
   fs.writeFileSync(metaPath, JSON.stringify(metadata))

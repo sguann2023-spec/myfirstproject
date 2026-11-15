@@ -33,11 +33,11 @@ function flagsFor(arch) {
 function provenanceFor(arch) {
   return { schema: 1, source: SOURCE.url, sourceSha256: SOURCE.sha256, platform: 'darwin', arch, flags: flagsFor(arch) }
 }
-function verifyBuild(dir, arch) {
-  const metadata = JSON.parse(readRegular(path.join(dir, 'ffprobe.build.json')))
+function verifyBuild(dir, arch, sidecarDir = dir) {
+  const metadata = JSON.parse(readRegular(path.join(sidecarDir, 'ffprobe.build.json')))
   if (JSON.stringify(metadata.provenance) !== JSON.stringify(provenanceFor(arch))) throw new Error('ffprobe source provenance mismatch')
   if (typeof metadata.compiler !== 'string' || !metadata.compiler.includes('clang')) throw new Error('Missing compiler provenance')
-  const config = readRegular(path.join(dir, 'ffprobe.config.h'))
+  const config = readRegular(path.join(sidecarDir, 'ffprobe.config.h'))
   assertDigest(config, metadata.configSha256, 'source configuration')
   const configText = config.toString()
   for (const name of ['GPL', 'NONFREE', 'VERSION3']) {
@@ -53,8 +53,8 @@ function verifyBuild(dir, arch) {
     throw new Error('Executable does not match LGPL source provenance')
   }
   if (!(fs.statSync(path.join(dir, 'ffprobe')).mode & 0o111)) throw new Error('ffprobe is not executable')
-  assertDigest(readRegular(path.join(dir, 'ffprobe.LICENSE')), SOURCE.license, 'LGPL license')
-  assertDigest(readRegular(path.join(dir, 'ffprobe.README')), SOURCE.readme, 'source README')
+  assertDigest(readRegular(path.join(sidecarDir, 'ffprobe.LICENSE')), SOURCE.license, 'LGPL license')
+  assertDigest(readRegular(path.join(sidecarDir, 'ffprobe.README')), SOURCE.readme, 'source README')
 }
 function run(command, args, cwd, env, log) {
   const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000 })
