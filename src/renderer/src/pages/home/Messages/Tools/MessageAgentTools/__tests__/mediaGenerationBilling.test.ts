@@ -24,6 +24,32 @@ describe('mediaGenerationBilling', () => {
     })
   })
 
+  it('extracts normalized video-portrait-matte billing (backend consumed_points mapped to billing.total_consumed_points)', () => {
+    expect(
+      extractMediaGenerationBillingSummary({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              provider: 'vectcut', action: 'submit_and_wait', task: 'submit_video_portrait_matte_task',
+              status: 'success', video_url: 'https://example.com/matte.webm',
+              billing_status: 'charged', consumed_points: '25.00', project_id: '517',
+              billing: { total_consumed_points: 25 }
+            })
+          }
+        ]
+      })
+    ).toEqual({ totalConsumedPoints: 25, displayText: '25.00' })
+  })
+
+  it('does not extract the legacy matte shape (top-level consumed_points without billing)', () => {
+    expect(
+      extractMediaGenerationBillingSummary({
+        content: [{ type: 'text', text: JSON.stringify({ status: 'success', consumed_points: '25.00' }) }]
+      })
+    ).toBeNull()
+  })
+
   it('extracts nested points_consumed from stringified response payload', () => {
     expect(
       extractMediaGenerationBillingSummary({

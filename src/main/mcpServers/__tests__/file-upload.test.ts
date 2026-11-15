@@ -60,6 +60,9 @@ describe('FileUploadServer', () => {
 
     expect(result.tools).toHaveLength(1)
     expect(result.tools[0].name).toBe('upload_file_to_oss')
+    expect(result.tools[0].description).toContain('accept absolute local paths directly')
+    expect(result.tools[0].description).toContain('Do not pre-upload local files')
+    expect(result.tools[0].description).toContain('Only pre-render (render_draft) requires cloud-accessible')
   })
 
   it('should upload a local file with fixed OSS options', async () => {

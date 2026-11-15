@@ -438,9 +438,18 @@ class SubtitleTemplateServer {
 
   private resolveFfprobePath() {
     const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+    let packaged = ''
+    if (process.resourcesPath) {
+      if (process.platform === 'darwin') {
+        packaged = path.join(process.resourcesPath, '..', 'Frameworks', 'ffprobe', 'darwin', process.arch, executableName)
+      } else if (process.platform === 'win32') {
+        packaged = path.join(process.resourcesPath, 'ffprobe', 'win32', process.arch, executableName)
+      }
+    }
+    const development = path.join(getResourcePath(), 'ffmpeg', process.platform, process.arch, executableName)
     const bundled = String((ffprobeStatic as { path?: string } | undefined)?.path || '').trim()
     const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
-    const candidates = [bundled, unpacked, 'ffprobe'].filter(Boolean)
+    const candidates = [packaged, development, bundled, unpacked, 'ffprobe'].filter(Boolean)
 
     for (const candidate of candidates) {
       if (candidate === 'ffprobe' || fs.existsSync(candidate)) {

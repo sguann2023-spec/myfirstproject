@@ -8,6 +8,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/renderer/src/pages/home/Messages/Blocks/__tests__/mainTextEllipsis.test.tsx']
+    include: [
+      'src/renderer/src/pages/home/Messages/Blocks/__tests__/mainTextEllipsis.test.tsx',
+      'src/renderer/src/utils/messageUtils/__tests__/thinkingTags.test.ts'
+    ]
   }
 })

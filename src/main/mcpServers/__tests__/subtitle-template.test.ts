@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { createRequire } from 'node:module'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
@@ -172,6 +174,38 @@ describe('SubtitleTemplateServer', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it.each([
+    ['darwin', 'arm64'], ['darwin', 'x64'], ['win32', 'arm64'], ['win32', 'x64']
+  ])('resolves installed and development ffprobe before legacy fallbacks on %s/%s', (platform, arch) => {
+    const properties = ['platform', 'arch', 'resourcesPath'] as const
+    const originals = properties.map((key) => Object.getOwnPropertyDescriptor(process, key))
+    Object.defineProperty(process, 'platform', { configurable: true, value: platform })
+    Object.defineProperty(process, 'arch', { configurable: true, value: arch })
+    Object.defineProperty(process, 'resourcesPath', { configurable: true, value: '/app/resources' })
+    try {
+      const name = platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+      const packaged = platform === 'darwin'
+        ? path.join('/app/resources', '..', 'Frameworks', 'ffprobe', platform, arch, name)
+        : path.join('/app/resources', 'ffprobe', platform, arch, name)
+      const development = path.join('/mock/resources', 'ffmpeg', platform, arch, name)
+      // The runtime uses CommonJS require, so inspect the actual legacy path rather than the ESM mock.
+      const bundled = createRequire(import.meta.url)('ffprobe-static').path
+      const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
+      const candidates = [...new Set([packaged, development, bundled, unpacked])]
+      const server = createServer() as unknown as { resolveFfprobePath(): string }
+      for (let index = 0; index <= candidates.length; index++) {
+        mockExistsSync.mockImplementation((candidate) => candidates.slice(index).includes(String(candidate)))
+        expect(server.resolveFfprobePath()).toBe(candidates[index] || 'ffprobe')
+      }
+    } finally {
+      properties.forEach((key, index) => {
+        const descriptor = originals[index]
+        if (descriptor) Object.defineProperty(process, key, descriptor)
+        else delete (process as Partial<NodeJS.Process>)[key]
+      })
+    }
   })
 
   it('should expose only the long-running subtitle template tool', async () => {

@@ -225,6 +225,20 @@ describe('classifyError', () => {
     expect(result.category).not.toBe('content')
   })
 
+  it('classifies provider usage-policy moderation rejections as content without a status', () => {
+    const result = classifyError(makeError({
+      message: 'Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt'
+    }))
+    expect(result.category).toBe('content')
+    expect(result.i18nKey).toBe('error.diagnosis.content')
+    expect(result.navTarget).toBeNull()
+  })
+
+  it('classifies content_policy_violation codes as content', () => {
+    const result = classifyError(makeError({ code: 'content_policy_violation', message: '' }))
+    expect(result.category).toBe('content')
+  })
+
   // Server
   it('classifies 500 as server', () => {
     const result = classifyError(makeError({ statusCode: 500 }))

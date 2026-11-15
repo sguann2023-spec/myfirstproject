@@ -665,7 +665,8 @@ const MessageItem = ({
   onCopyAssistantMessage,
   onRetryAssistantMessage,
   actionsDisabled = false,
-  formatMessageTime,
+  // Embedded hosts may omit the formatter; never crash the message row over it.
+  formatMessageTime = () => '',
   model,
   modelOptions,
   formatModelDisplayName,

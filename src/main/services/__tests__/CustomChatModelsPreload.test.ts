@@ -27,4 +27,10 @@ describe('custom chat models preload bridge', () => {
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(channel, listener)
     expect(source).toContain('customChatModels: api.customChatModels')
   })
+  it('maps legacy openExternal to api.shell.openExternal so 获取 API Key links navigate', () => {
+    const source = readFileSync(new URL('../../../preload/index.ts', import.meta.url), 'utf8')
+    // 回归：曾误写 api.openExternal（不存在）导致 window.electronAPI.openExternal 为 undefined。
+    expect(source).toContain('openExternal: api.shell.openExternal')
+    expect(source).not.toContain('openExternal: api.openExternal,')
+  })
 })

@@ -35,6 +35,7 @@ import RevertPrompt, { REVERT_PROMPT_HINT, getRevertPromptSendState } from '../.
 import PartSplitToolDetail from '../../PartSplitToolDetail/index';
 import { ChatTaskContext } from '../ChatShell/ChatTaskContext';
 import ToolArea from './ToolArea/index';
+import composerDraftCache from './composerDraftCache';
 import TemplatePickerDialog from '../../../page/TemplateEditPage/TemplatePickerDialog';
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
@@ -2357,6 +2358,10 @@ const Composer = ({
   const latestSkillsRef = React.useRef(skills);
   const latestUploadedFileMetaRef = React.useRef(uploadedFileMeta);
   const latestReferenceSuggestionItemsRef = React.useRef([]);
+  // 会话草稿缓存需要读取最新的工具/附件状态，统一走 ref 快照，避免闭包过期。
+  const draftStateRef = React.useRef({});
+  const draftSessionIdRef = React.useRef(String(sessionProp?.id || '').trim());
+  const restoringDraftRef = React.useRef(false);
   const handleSendWithAttachmentsRef = React.useRef(() => {});
   const mentionPanelPointerDownRef = React.useRef(false);
   const requestUploadPickerRef = React.useRef(() => {});
@@ -2727,6 +2732,54 @@ const Composer = ({
   React.useEffect(() => {
     latestUploadedFileMetaRef.current = uploadedFileMeta;
   }, [uploadedFileMeta]);
+
+  // 未发送草稿按会话隔离：切走时把文本、附件、快捷工具状态存进内存缓存，
+  // 切回时原样恢复；不持久化，发送成功即清除。
+  const chatSessionId = String(sessionProp?.id || '').trim();
+  draftStateRef.current = {
+    input,
+    uploadFileList,
+    uploadedFileMeta,
+    activeTool,
+    selectedAiWritePresetId,
+    selectedDraftResolution,
+    selectedDraftDownloadIds,
+    selectedDraftModifyIds,
+    selectedDraftInspectIds,
+    selectedTextAddDraftIds,
+    textAddSettings,
+    textAddInput,
+    selectedPresetAddDraftIds,
+    selectedPresetAddPreset,
+    presetAddSettings,
+    selectedAudioAddDraftIds,
+    audioAddSettings,
+    selectedImageAddDraftIds,
+    imageAddSettings,
+    subtitleSettings,
+    selectedImagePanModel,
+    selectedImagePanResolution,
+    selectedVideoModel,
+    selectedVideoGenerationMode,
+    selectedVideoResolution,
+    selectedVideoDuration,
+    selectedVideoGenerateAudio,
+    selectedVideoSeedanceOffline,
+    selectedVideoSuperResolve,
+    selectedDigitalHumanMode,
+    selectedDigitalHumanAvatar,
+    selectedDigitalHumanPackagingTemplate,
+    selectedVoiceLibraryItem,
+    selectedSpeechModel,
+    skillExample,
+    skillExampleGroups,
+    activeSkillExampleSlot,
+    skillExampleSnapshot: skillExampleSnapshotRef.current,
+    skillExampleDetail: skillExampleDetailRef.current,
+    restoredQueueOptions: restoredQueueOptionsRef.current,
+    restoredQueueOwner: restoredQueueOwnerRef.current,
+    hasRestoredQueueDraft,
+  };
 
   const loadLocalReferenceTree = React.useCallback(async (rootPath, options = {}) => {
     if (!rootPath || !window?.api?.file?.listDirectory) return [];
@@ -3172,6 +3225,86 @@ const Composer = ({
     },
   });
 
+  const captureComposerDraft = React.useCallback(() => {
+    const state = draftStateRef.current;
+    return {
+      ...state,
+      document: editor && !editor.isDestroyed ? editor.getJSON() : null,
+    };
+  }, [editor]);
+
+  const restoreComposerDraft = React.useCallback((draft) => {
+    const state = draft || {};
+    setUploadFileList(Array.isArray(state.uploadFileList) ? state.uploadFileList : []);
+    setUploadedFileMeta(Array.isArray(state.uploadedFileMeta) ? state.uploadedFileMeta : []);
+    setActiveTool(state.activeTool || null);
+    setSelectedAiWritePresetId(state.selectedAiWritePresetId || getDefaultAiWritePresetId());
+    setSelectedDraftResolution(state.selectedDraftResolution || readPersistedDraftResolution());
+    setSelectedDraftDownloadIds(state.selectedDraftDownloadIds || []);
+    setSelectedDraftModifyIds(state.selectedDraftModifyIds || []);
+    setSelectedDraftInspectIds(state.selectedDraftInspectIds || []);
+    setSelectedTextAddDraftIds(state.selectedTextAddDraftIds || []);
+    setTextAddSettings(state.textAddSettings || DEFAULT_TEXT_ADD_SETTINGS);
+    setTextAddInput(state.textAddInput || '');
+    setSelectedPresetAddDraftIds(state.selectedPresetAddDraftIds || []);
+    setSelectedPresetAddPreset(state.selectedPresetAddPreset || null);
+    setPresetAddSettings(state.presetAddSettings || DEFAULT_PRESET_ADD_SETTINGS);
+    setSelectedAudioAddDraftIds(state.selectedAudioAddDraftIds || []);
+    setAudioAddSettings(state.audioAddSettings || DEFAULT_AUDIO_ADD_SETTINGS);
+    setSelectedImageAddDraftIds(state.selectedImageAddDraftIds || []);
+    setImageAddSettings(state.imageAddSettings || DEFAULT_IMAGE_ADD_SETTINGS);
+    setSubtitleSettings(state.subtitleSettings || DEFAULT_SUBTITLE_SETTINGS);
+    setSelectedImagePanModel(state.selectedImagePanModel || readPersistedImagePanModel());
+    setSelectedImagePanResolution(state.selectedImagePanResolution || readPersistedImagePanResolution());
+    setSelectedVideoModel(state.selectedVideoModel || readPersistedVideoModel());
+    setSelectedVideoGenerationMode(state.selectedVideoGenerationMode || readPersistedVideoGenerationMode());
+    setSelectedVideoResolution(state.selectedVideoResolution || readPersistedVideoResolution());
+    setSelectedVideoDuration(state.selectedVideoDuration || readPersistedVideoDuration());
+    setSelectedVideoGenerateAudio(state.selectedVideoGenerateAudio ?? readPersistedVideoGenerateAudio());
+    setSelectedVideoSeedanceOffline(state.selectedVideoSeedanceOffline ?? readPersistedVideoSeedanceOffline());
+    setSelectedVideoSuperResolve(state.selectedVideoSuperResolve ?? readPersistedVideoSuperResolve());
+    setSelectedDigitalHumanMode(state.selectedDigitalHumanMode || readPersistedDigitalHumanMode());
+    setSelectedDigitalHumanAvatar(state.selectedDigitalHumanAvatar || null);
+    setSelectedDigitalHumanPackagingTemplate(state.selectedDigitalHumanPackagingTemplate || '');
+    setSelectedVoiceLibraryItem(state.selectedVoiceLibraryItem || getInitialSelectedVoiceLibraryItem());
+    setSelectedSpeechModel(state.selectedSpeechModel || '');
+    setSkillExample(state.skillExample || null);
+    setSkillExampleGroups(Array.isArray(state.skillExampleGroups) ? state.skillExampleGroups : []);
+    setActiveSkillExampleSlot(state.activeSkillExampleSlot || '');
+    setSkillExampleLoading(false);
+    setSkillExampleUploadsPending(0);
+    setSkillExampleError('');
+    skillExampleSnapshotRef.current = state.skillExampleSnapshot || null;
+    skillExampleDetailRef.current = state.skillExampleDetail || null;
+    pendingSkillExamplePromptRef.current = null;
+    pendingSkillExampleModelRef.current = '';
+    pendingTemplateSlotAutoReferenceRef.current = '';
+    restoredQueueOptionsRef.current = state.restoredQueueOptions || null;
+    restoredQueueOwnerRef.current = state.restoredQueueOwner || null;
+    setHasRestoredQueueDraft(Boolean(state.hasRestoredQueueDraft));
+    const nextInput = String(state.input || '');
+    latestInputRef.current = nextInput;
+    // 先标记再提交输入，确保 input 同步 effect 跳过本次纯文本重建。
+    restoringDraftRef.current = true;
+    setInput(nextInput);
+    if (editor && !editor.isDestroyed) {
+      const document = state.document || buildEditorDocument(nextInput, mentionHighlightRegex);
+      editor.commands.setContent(document, { emitUpdate: false });
+      editor.commands.blur();
+    }
+    closeMentionPanel();
+  }, [editor, mentionHighlightRegex, closeMentionPanel, setInput]);
+
+  React.useEffect(() => {
+    const previousSessionId = draftSessionIdRef.current;
+    if (previousSessionId === chatSessionId) return;
+    draftSessionIdRef.current = chatSessionId;
+    if (previousSessionId) {
+      composerDraftCache.save(previousSessionId, captureComposerDraft());
+    }
+    restoreComposerDraft(composerDraftCache.take(chatSessionId));
+  }, [chatSessionId, captureComposerDraft, restoreComposerDraft]);
+
   React.useEffect(() => {
     if (!mentionState.open || !editor || editor.isDestroyed) return undefined;
 
@@ -3194,6 +3327,12 @@ const Composer = ({
 
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    // 会话切换恢复草稿时已直接写入完整 document（含文件引用节点），
+    // 这里跳过一次，避免用纯文本重建覆盖富文本内容。
+    if (restoringDraftRef.current) {
+      restoringDraftRef.current = false;
+      return;
+    }
 
     const currentText = getEditorPlainText(editor);
     const nextText = String(input || '');
@@ -4885,6 +5024,7 @@ const Composer = ({
       pendingLocalAttachments
     });
     if (!accepted) return;
+    composerDraftCache.clear(chatSessionId);
     restoredQueueOptionsRef.current = null;
     setHasRestoredQueueDraft(false);
     if (skillExample) {
@@ -5323,21 +5463,7 @@ const Composer = ({
     const previous = skillExampleSessionRef.current;
     skillExampleSessionRef.current = runtimeSessionId;
     if (previous && previous !== runtimeSessionId) pendingSkillExamplePromptRef.current = null;
-    if (!previous || previous === runtimeSessionId || !skillExampleSnapshotRef.current) return;
-    ++skillExampleGenerationRef.current;
-    [...uploadedFileMeta, ...skillExampleSnapshotRef.current.files].forEach((file) => revokeLocalObjectUrl(file.localThumbUrl));
-    skillExampleSnapshotRef.current = null;
-    skillExampleDetailRef.current = null;
-    setSkillExample(null);
-    setSkillExampleGroups([]);
-    setUploadedFileMeta([]);
-    setUploadFileList([]);
-    setSkillExampleLoading(false);
-    setSkillExampleUploadsPending(0);
-    setSkillExampleError('');
-    setActiveSkillExampleSlot('');
-    pendingSkillExampleModelRef.current = '';
-    pendingTemplateSlotAutoReferenceRef.current = '';
+    // 技能示例草稿已随会话草稿缓存保存/恢复，这里不再做会话级清理。
   }, [runtimeSessionId]);
 
   const handleToolSelect = React.useCallback((toolId) => {

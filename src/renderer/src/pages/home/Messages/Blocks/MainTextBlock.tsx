@@ -3,14 +3,16 @@ import { getModelUniqId } from '@renderer/services/ModelService'
 import type { RootState } from '@renderer/store'
 import { selectFormattedCitationsByBlockId } from '@renderer/store/messageBlock'
 import { type Model } from '@renderer/types'
-import type { MainTextMessageBlock, Message } from '@renderer/types/newMessage'
+import { MessageBlockType, type MainTextMessageBlock, type Message, type ThinkingMessageBlock } from '@renderer/types/newMessage'
 import { determineCitationSource, withCitationTags } from '@renderer/utils/citation'
+import { repairBoldRunConcatenation, splitThinkingTags } from '@renderer/utils/messageUtils/thinkingTags'
 import { Flex } from 'antd'
 import React, { useCallback } from 'react'
 import { useSelector } from 'react-redux'
 import styled from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
+import ThinkingBlock from './ThinkingBlock'
 
 interface Props {
   block: MainTextMessageBlock
@@ -40,12 +42,30 @@ const MainTextBlock: React.FC<Props> = ({ block, citationBlockId, role, mentions
     [block.citationReferences, citationBlockId, rawCitations]
   )
 
-  // 模型在连续工具调用之间偶尔输出仅含省略号的占位文本块（如 "..."），
-  // 渲染出来就是会话里孤立的一行点点点；这里隐藏纯省略号块（用户消息除外）。
-  const compactContent = (block.content || '').replace(/\s/g, '')
-  if (role !== 'user' && compactContent && /^[.。…]+$/.test(compactContent)) {
+  // 模型在连续工具调用之间偶尔输出占位文本块：仅含省略号（如 "..."）或仅含
+  // Markdown 水平线语法（如 "---"，渲染成 <hr> 分割线）。这里隐藏这两类纯占位块
+  // （用户消息除外），避免会话里出现孤立的点点点或分割线。
+  const { main, thinking } = role === 'user' ? { main: block.content || '', thinking: '' } : splitThinkingTags(block.content)
+  const compactContent = main.replace(/\s/g, '')
+  if (role !== 'user' && compactContent && (/^[.。…]+$/.test(compactContent) || /^[-*_]{3,}$/.test(compactContent))) {
     return null
   }
+
+  // 部分网关把推理以 <thinking> 标签内联在正文里（且 bold 列表项之间无换行），
+  // 展示时拆回「深度思考」折叠块，正文只保留标签外内容并修复粘连的 bold 行。
+  const inlineThinkingBlock: ThinkingMessageBlock | null =
+    role !== 'user' && thinking.trim()
+      ? {
+          id: `${block.id}-inline-thinking`,
+          messageId: block.messageId,
+          type: MessageBlockType.THINKING,
+          status: block.status,
+          createdAt: block.createdAt,
+          content: thinking,
+          thinking_millsec: 0
+        }
+      : null
+  const mainBlock = main === (block.content || '') ? block : { ...block, content: repairBoldRunConcatenation(main) }
 
   return (
     <>
@@ -57,12 +77,13 @@ const MainTextBlock: React.FC<Props> = ({ block, citationBlockId, role, mentions
           ))}
         </Flex>
       )}
+      {inlineThinkingBlock && <ThinkingBlock block={inlineThinkingBlock} />}
       {role === 'user' && !renderInputMessageAsMarkdown ? (
         <p className="markdown" style={{ whiteSpace: 'pre-wrap' }}>
           {block.content}
         </p>
       ) : (
-        <Markdown block={block} postProcess={processContent} />
+        <Markdown block={mainBlock} postProcess={processContent} />
       )}
     </>
   )

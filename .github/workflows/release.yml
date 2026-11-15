@@ -17,7 +17,7 @@ jobs:
   # 注意：保留 Job 名称以避免影响外部状态检查配置
   build-and-upload-mac:
     runs-on: macos-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     strategy:
       matrix:
         node-version: [22.x]
@@ -41,8 +41,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
+      - name: Check macOS ffprobe source build toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --find clang
+          xcrun --show-sdk-path
+          clang --version
+          command -v make
+          make --version
+
       - name: Prepare bundled ffmpeg (macOS)
-        run: pnpm run prepare:portable-ffmpeg:mac
+        timeout-minutes: 60
+        run: |
+          pnpm run prepare:portable-ffmpeg:mac
+          pnpm run prepare:portable-ffprobe:mac
+          node --test util/portable-ffprobe.test.js util/portable-ffmpeg.test.js util/ffmpeg-builder-hooks.test.js
+          node util/prepare-portable-ffprobe.js --target-platform darwin --target-arches "$(node -p 'process.arch')" --check-only --smoke-test
+          PORTRAIT_REQUIRE_BUNDLED=1 PORTRAIT_TEST_FFPROBE="$PWD/resources/ffmpeg/darwin/$(node -p 'process.arch')/ffprobe" pnpm exec vitest run src/main/utils/__tests__/prepare-portrait-mov.integration.test.ts src/main/utils/__tests__/portrait-ffmpeg-path.test.ts
         shell: bash
 
       - name: Import macOS signing certificate
@@ -67,6 +83,10 @@ jobs:
           rm -rf build
           pnpm run build:vite
           pnpm run prepare:portable-ffmpeg:mac
+          pnpm run prepare:portable-ffprobe:mac
+          node --test util/portable-ffprobe.test.js util/portable-ffmpeg.test.js util/ffmpeg-builder-hooks.test.js
+          node util/prepare-portable-ffprobe.js --target-platform darwin --target-arches "$(node -p 'process.arch')" --check-only --smoke-test
+          PORTRAIT_REQUIRE_BUNDLED=1 PORTRAIT_TEST_FFPROBE="$PWD/resources/ffmpeg/darwin/$(node -p 'process.arch')/ffprobe" pnpm exec vitest run src/main/utils/__tests__/prepare-portrait-mov.integration.test.ts src/main/utils/__tests__/portrait-ffmpeg-path.test.ts
           pnpm exec electron-builder --config electron-builder.config.cjs --mac dmg zip --x64 --arm64 --publish never --config.mac.forceCodeSigning=true
         shell: bash
         env:
@@ -361,7 +381,12 @@ jobs:
 
       - name: Prepare bundled ffmpeg (Windows)
         shell: bash
-        run: pnpm run prepare:portable-ffmpeg:win
+        run: |
+          pnpm run prepare:portable-ffmpeg:win
+          pnpm run prepare:portable-ffprobe:win
+          node --test util/portable-ffprobe.test.js util/portable-ffmpeg.test.js util/ffmpeg-builder-hooks.test.js
+          node util/prepare-portable-ffprobe.js --target-platform win32 --target-arches x64 --check-only --smoke-test
+          PORTRAIT_REQUIRE_BUNDLED=1 PORTRAIT_TEST_FFPROBE="$PWD/resources/ffmpeg/win32/x64/ffprobe.exe" pnpm exec vitest run src/main/utils/__tests__/prepare-portrait-mov.integration.test.ts src/main/utils/__tests__/portrait-ffmpeg-path.test.ts
 
       - name: Rebuild Electron native dependencies (Windows)
         shell: bash

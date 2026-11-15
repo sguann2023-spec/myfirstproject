@@ -7,7 +7,7 @@ import type { ErrorMessageBlock, Message } from '@renderer/types/newMessage'
 import { MessageBlockType } from '@renderer/types/newMessage'
 import { getHttpErrorStatus, isInsufficientBalanceError, type ErrorClassification } from '@renderer/utils/errorClassifier'
 import { openCreditsPayment } from '../../../../../../shared/openCreditsPayment'
-import { CircleAlert, LoaderCircle, X } from 'lucide-react'
+import { CircleAlert, LoaderCircle, ShieldAlert, X } from 'lucide-react'
 import React, { useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -64,6 +64,9 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
   const needsCredits = isInsufficientBalanceError(block.error)
   const needsExplanation = !isAborted && !needsCredits && classification.i18nKey === 'error.diagnosis.unknown'
   const requiresRelogin = classification.category === 'auth_session'
+  // Provider content-policy rejections are terminal for the current wording:
+  // retrying the same prompt or checking the network cannot help.
+  const isContentPolicy = classification.category === 'content'
   const errorMessage = block.error?.message?.trim() || ''
   const httpStatus = getHttpErrorStatus(block.error)
   const hasNoErrorDetails = httpStatus !== undefined && /\(no body\)/i.test(errorMessage)
@@ -133,13 +136,17 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
     <div className="error-recovery">
       {!messageHasPriorContent && (
         <p className="error-recovery__reply">
-          {t(requiresRelogin ? 'error.diagnosis.session_expired_reply' : 'error.diagnosis.recovery_reply')}
+          {t(requiresRelogin
+            ? 'error.diagnosis.session_expired_reply'
+            : isContentPolicy
+              ? 'error.diagnosis.content_reply'
+              : 'error.diagnosis.recovery_reply')}
         </p>
       )}
       {!dismissed && (
         <div
           role="alert"
-          className="error-recovery__banner">
+          className={`error-recovery__banner${isContentPolicy ? ' error-recovery__banner--policy' : ''}`}>
           <button
             type="button"
             aria-label={t('common.close')}
@@ -148,40 +155,46 @@ const ErrorRecoveryBlock: React.FC<Props> = ({ block, message, classification })
             <X size={16} />
           </button>
           <div className="error-recovery__header">
-            <CircleAlert size={16} className="error-recovery__icon" />
+            {isContentPolicy
+              ? <ShieldAlert size={16} className="error-recovery__icon" />
+              : <CircleAlert size={16} className="error-recovery__icon" />}
             <div className="error-recovery__content">
               <div className="error-recovery__title">
                 {aiSummary || t(titleKey)}
               </div>
-              {(needsExplanation || hasNoErrorDetails) && (
+              {(needsExplanation || hasNoErrorDetails || isContentPolicy) && (
                 <div className="error-recovery__reason">
-                  {hasNoErrorDetails
-                    ? t('error.diagnosis.no_error_details')
-                    : errorMessage
-                    ? <>{t('error.diagnosis.error_reason')}{errorMessage}</>
-                    : t('error.diagnosis.missing_reason')}
+                  {isContentPolicy
+                    ? t('error.diagnosis.content_hint')
+                    : hasNoErrorDetails
+                      ? t('error.diagnosis.no_error_details')
+                      : errorMessage
+                      ? <>{t('error.diagnosis.error_reason')}{errorMessage}</>
+                      : t('error.diagnosis.missing_reason')}
                 </div>
               )}
               {details && <div className="error-recovery__metadata">{details}</div>}
             </div>
           </div>
-          <div className="error-recovery__actions">
-            <button
-              type="button"
-              className="error-recovery__retry"
-              aria-busy={retrying}
-              disabled={retryDisabled}
-              onClick={onRetry}>
-              {retrying && <LoaderCircle size={13} className="error-recovery__spinner" aria-hidden="true" />}
-              {t('common.retry')}
-            </button>
-            {classification.category !== 'startup_timeout' && <button
-              type="button"
-              className="error-recovery__retry error-recovery__network"
-              onClick={() => needsCredits ? void openCreditsPayment() : setNetworkCheckOpen(true)}>
-              {t(needsCredits ? 'error.diagnosis.buy_credits' : 'network_check.button')}
-            </button>}
-          </div>
+          {!isContentPolicy && (
+            <div className="error-recovery__actions">
+              <button
+                type="button"
+                className="error-recovery__retry"
+                aria-busy={retrying}
+                disabled={retryDisabled}
+                onClick={onRetry}>
+                {retrying && <LoaderCircle size={13} className="error-recovery__spinner" aria-hidden="true" />}
+                {t('common.retry')}
+              </button>
+              {classification.category !== 'startup_timeout' && <button
+                type="button"
+                className="error-recovery__retry error-recovery__network"
+                onClick={() => needsCredits ? void openCreditsPayment() : setNetworkCheckOpen(true)}>
+                {t(needsCredits ? 'error.diagnosis.buy_credits' : 'network_check.button')}
+              </button>}
+            </div>
+          )}
         </div>
       )}
       {networkCheckOpen && (

@@ -5,6 +5,7 @@ import { css, keyframes, styled } from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
 import { toolRunningShimmerCss } from '../Tools/shared/toolShimmer'
+import { repairBoldRunConcatenation, thinkingPreviewLines } from '@renderer/utils/messageUtils/thinkingTags'
 import { hasMeaningfulThinkingContent } from './thinkingContent'
 
 interface Props {
@@ -38,7 +39,7 @@ const ThinkingBlock: React.FC<Props> = ({ block, blocks }) => {
     ?? latestFirst.find((item) => hasMeaningfulThinkingContent(item.content))
   const duration = reasoningBlocks.reduce((sum, item) => sum + Math.max(0, item.thinking_millsec || 0), 0)
   // Only normalize the preview; the stored reasoning and its Markdown remain untouched.
-  const lines = useMemo(() => (previewBlock?.content || '').split(/\r\n|\r|\n/).map((line) => line.trim()).filter(hasMeaningfulThinkingContent), [previewBlock?.content])
+  const lines = useMemo(() => thinkingPreviewLines(previewBlock?.content), [previewBlock?.content])
   const latestLine = lines.at(-1)
 
   if (!latestLine) return null
@@ -66,12 +67,14 @@ const ThinkingBlock: React.FC<Props> = ({ block, blocks }) => {
           </PreviewTrack>
         </Preview>
       ) : (
-        <span style={{ fontSize: 14, fontWeight: 400 }}>用时 {Math.round(duration / 100) / 10} 秒</span>
+        duration > 0 && <span style={{ fontSize: 14, fontWeight: 400 }}>用时 {Math.round(duration / 100) / 10} 秒</span>
       )}
     </ThinkingRow>
     {expanded && (
       <ThinkingContent id={`thinking-content-${block.id}`}>
-        {reasoningBlocks.map((item) => <Markdown key={item.id} block={item} />)}
+        {reasoningBlocks.map((item) => (
+          <Markdown key={item.id} block={item.content ? { ...item, content: repairBoldRunConcatenation(item.content) } : item} />
+        ))}
       </ThinkingContent>
     )}
     </div>

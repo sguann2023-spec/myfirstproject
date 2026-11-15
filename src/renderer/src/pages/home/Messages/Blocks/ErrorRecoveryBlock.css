@@ -168,6 +168,15 @@
   color: var(--error-banner-muted);
 }
 
+.error-recovery__banner--policy {
+  --error-banner-icon: #a16207;
+  min-height: 0;
+}
+
+[theme-mode='dark'] .error-recovery__banner--policy {
+  --error-banner-icon: #e2b76a;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .error-recovery__spinner {
     animation: none;

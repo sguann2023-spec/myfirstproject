@@ -67,6 +67,7 @@ export default defineConfig({
     }
   },
   renderer: {
+    cacheDir: resolve('node_modules/.vite-electron-renderer'),
     define: {
       'import.meta.env.RENDERER_VITE_CHANNEL_BRAND': JSON.stringify(channelBrand),
       'import.meta.env.RENDERER_VITE_AUTH_INVITE_CODE': JSON.stringify(rendererChannelInviteCode)

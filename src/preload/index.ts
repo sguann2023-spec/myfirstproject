@@ -123,6 +123,7 @@ const api = {
     save: (models: CustomChatModel[]): Promise<CustomChatModel[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_Save, models),
     listProviders: (): Promise<CustomChatProvider[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_ListProviders),
     saveProviders: (providers: CustomChatProvider[]): Promise<CustomChatProvider[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_SaveProviders, providers),
+    testModel: (input: { baseUrl: string; protocol: 'openai' | 'anthropic' | 'openai-responses'; apiKey: string; modelId: string }): Promise<{ ok: boolean; error?: string; latencyMs: number }> => ipcRenderer.invoke(IpcChannel.CustomChatModels_TestModel, input),
     onChanged: (callback: () => void): (() => void) => {
       const listener = () => callback()
       ipcRenderer.on(IpcChannel.CustomChatModels_Changed, listener)
@@ -933,6 +934,9 @@ const shellBridge = {
 const legacyElectronAPI = {
   customChatModels: api.customChatModels,
   officialChatModels: api.officialChatModels,
+  // 根因修复：openExternal 实际定义在 api.shell 下，此前误引 api.openExternal（undefined），
+  // 导致渲染层 window.electronAPI.openExternal?.() 静默无效、「获取 API Key」点击不跳转。
+  openExternal: api.shell.openExternal,
   openDownloadDirectory: (directoryPath: string) => ipcRenderer.send('open-download-directory', directoryPath),
   startFileMonitor: (monitorData: any) => ipcRenderer.send('start-file-monitor', monitorData),
   onFileFound: (callback: (value: any) => void): (() => void) => {

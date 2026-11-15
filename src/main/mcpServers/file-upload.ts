@@ -28,7 +28,7 @@ const parseBase64DataUrl = (value: string): { mediaType: string; data: string } 
 const UPLOAD_FILE_TO_OSS_TOOL: Tool = {
   name: 'upload_file_to_oss',
   description:
-    'Upload content to VectCut temporary OSS storage. Supports a local absolute file path, base64 image data, or a data URL. For attached chat images, provide attachmentIndex when the runtime supports resolving the current attachment.',
+    'Upload content to VectCut temporary OSS storage. Supports a local absolute file path, base64 image data, or a data URL. For attached chat images, provide attachmentIndex when the runtime supports resolving the current attachment. Draft and media-generation tools accept absolute local paths directly; use this tool only for inline base64/data URL/attachment inputs without a stable local file path, or when a reusable public URL is explicitly needed. Do not pre-upload local files just to feed URLs into those tools. Only pre-render (render_draft) requires cloud-accessible HTTP(S) assets.',
   inputSchema: {
     type: 'object',
     properties: {

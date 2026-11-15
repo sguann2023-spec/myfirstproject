@@ -53,16 +53,19 @@ const BLACK_FRAME_LUMA = 6
 const MATCH_REFERENCE_GRADE_TOOL: Tool = {
   name: 'match_reference_grade',
   description:
-    '调色 / 复刻参考片色调 / 参考视频色调迁移 / 统一色调 / 色彩风格匹配 / 生成 3D LUT 滤镜。' +
-    '给一段参考视频或参考图，把它的色调复刻到一批目标素材上：本地 ffmpeg 抽帧 + 色彩分布拟合，产出可复用的 .cube 滤镜，全程本地计算、无上游 API 费用。' +
-    '一次返回三个语义不同的候选：preserve_hue（只对齐影调，色相与彩度完全保留，商品保真最安全）、trend（色彩趋势匹配，保留素材色彩骨架）、full（三通道直方图匹配，最强也最容易失真）。' +
-    '每个候选附一张对比图（左列原片、右列调色后，每行一段素材），看图即可同时判断效果与批内一致性。' +
-    'Fit a reusable 3D LUT that transfers the colour look of a reference video/image onto a batch of target clips, using the bundled ffmpeg and local computation only (no upstream API, no network cost). ' +
+    'Color grading / match reference look / reference video color transfer / unify color across clips / batch LUT / 3D LUT cube filter. ' +
+    'Transfer the colour look of a reference video or image onto a batch of target clips: bundled ffmpeg frame sampling plus colour-distribution fitting, producing a reusable .cube LUT. ' +
+    'Capability boundary: global per-pixel colour mapping over the whole frame only. It does not redraw content, does not do local edits, and does not change composition or subjects. ' +
+    'Strengths: fully local computation, free, seconds instead of minutes, batch-capable, reproducible, and the pixel structure of products and faces is never rewritten. ' +
+    'Trade-off: a lower quality ceiling than generative image editing — it can only re-colour existing footage, it cannot make the footage itself more refined. ' +
+    'Routing: use this tool for video grading, for unifying colour across a whole batch, and when product colour fidelity must be preserved. For a single still image where the best possible visual quality or generative editing is wanted, use image.generate_or_edit_image instead — that path looks better but takes 3-5 minutes, is billed per call, and cannot process video. ' +
+    'Returns three semantically different candidates: preserve_hue (luma only, hue and chroma fully preserved, safest for product colour), trend (colour-trend transfer, keeps the footage colour skeleton), full (per-channel histogram matching, strongest and most likely to distort). ' +
+    'Each candidate ships a contact sheet: 2 columns (left = original, right = graded) by N rows (one row per sampled clip), so one image shows both the look and the cross-clip consistency. ' +
     'Statistics are merged across the whole batch, so ONE LUT is shared by every clip — never re-fit per clip, that would make the same product change colour between shots. ' +
     'Read `gamut_overlap` before choosing: a low value means the reference contains colours the footage does not have, and full matching will distort it. ' +
-    'Also read `luma_shift_ratio`: a reference much darker than the footage will drag the whole batch down, which crushed-blacks alone cannot detect. ' +
+    'Also read `luma_shift_ratio`: a reference much darker than the footage drags the whole batch down, which crushed-blacks alone cannot detect. ' +
     'Preview generation only decodes a few frames and never transcodes, so trying several references is cheap. Inspect the contact sheets, pick one candidate, then pass its `lut_path` to apply_grade. ' +
-    'A LUT carries per-pixel colour only; clarity, sharpening, grain and vignette are spatial effects and are handled by apply_grade instead.',
+    'Clarity, sharpening, grain and vignette are spatial effects handled by apply_grade instead.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -92,10 +95,9 @@ const MATCH_REFERENCE_GRADE_TOOL: Tool = {
 const APPLY_GRADE_TOOL: Tool = {
   name: 'apply_grade',
   description:
-    '批量调色 / 套用 LUT 滤镜 / 整批素材统一色调 / 商品保真锁色 / 质感（清晰度、锐化、颗粒、暗角）/ 死黑与高光溢出护栏。' +
-    '把 match_reference_grade 产出的同一张 .cube 滤镜套用到一批素材上，全批共用一个色彩映射，保证同一件商品在不同片段里颜色一致。' +
-    '两段式：先按批内中位数做逐片曝光对齐（只消拍摄差异、不动色相），再套统一风格滤镜。' +
-    'Apply one shared .cube LUT (from match_reference_grade) to a batch of clips with the bundled ffmpeg, keeping every clip on the same colour mapping so the same product keeps the same colour across shots. ' +
+    'Batch color grading / apply LUT / apply cube filter to clips / unify color across a batch / product color fidelity / texture (clarity, sharpen, grain, vignette) / crushed-blacks and clipped-highlights guard. ' +
+    'Apply one shared .cube LUT produced by match_reference_grade to a batch of clips with the bundled ffmpeg, keeping every clip on the same colour mapping so the same product keeps the same colour across shots. ' +
+    'Two stages: a per-clip exposure alignment to the batch median that only removes shooting differences and never touches hue, then the shared style LUT. ' +
     '`protect_product` locks chroma back to the source in the YUV domain (luma from the graded stream, U/V from the original) so product colour, lipstick shades and fabric colour cannot drift. ' +
     '`texture` adds spatial effects that a LUT cannot carry; `film` includes grain and is roughly 3x slower than real time, so leave it off unless asked. ' +
     'After encoding, each clip is sampled at several timestamps and checked for crushed blacks, clipped highlights and overall darkening — damage that is invisible in a downscaled preview frame. Clips over threshold are automatically corrected once and re-checked; a clip that still fails is reported as `warn` with its output kept, so you can decide rather than silently shipping broken footage. ' +

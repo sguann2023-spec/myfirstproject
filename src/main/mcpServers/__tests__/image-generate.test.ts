@@ -55,6 +55,13 @@ const { mockSend, mockGetMainWindow } = vi.hoisted(() => ({ mockSend: vi.fn(), m
 vi.mock('@main/services/WindowService', () => ({ windowService: { getMainWindow: mockGetMainWindow } }))
 
 import ImageGenerateServer from '../image-generate'
+import ColorGradeServer from '../color-grade'
+import VideoPortraitMatteServer from '../video-portrait-matte'
+import { rankCodemodeTools } from '../../services/agents/services/claudecode/harness/codemode-search'
+
+vi.mock('@main/utils', () => ({ getResourcePath: () => '/nonexistent-resource-path' }))
+vi.mock('@main/utils/prepare-subtitle-audio', () => ({ probeVideoSource: vi.fn() }))
+vi.mock('@main/utils/prepare-portrait-mov', () => ({ preparePortraitMovForJianying: vi.fn() }))
 
 type ImageGenerateServerInstance = InstanceType<typeof ImageGenerateServer>
 
@@ -926,3 +933,70 @@ describe('ImageGenerateServer', () => {
     expect(request).not.toHaveBeenCalled()
   })
  })
+
+// ====================================================================
+// codemode BM25 可发现性：图像编辑意图必须落到 AI 生图，且不得抢邻居的意图
+// ====================================================================
+describe('image-generate codemode 可发现性', () => {
+  const entry = (server: string, name: string, description: string, inputSchema?: Record<string, unknown>) => ({
+    name: `mcp__vectcut__${server}__${name}`,
+    description: `[${server}] ${description}`,
+    inputSchema
+  })
+
+  // 邻居描述为对应源文件的逐字摘录，作为真实竞争项
+  const neighborFixtures = [
+    entry('subtitle-recognition', 'submit_subtitle_recognition_task', 'Run subtitle recognition for an audio or video source and wait until the same tool call finishes. This extracts subtitle text and timed segments only, without writing anything back into a draft.'),
+    entry('video-understand', 'submit_video_detail_task', 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues.'),
+    entry('ffmpeg-media', 'capture_frame_at_timestamp', 'Capture a frame image from a video at a specific timestamp with the bundled ffmpeg.')
+  ]
+
+  const buildCatalog = async () => {
+    const imageTools = (await listTools(createServer())).tools
+    const gradeTools = (await listToolsFromMcpServer(new ColorGradeServer().mcpServer)).tools
+    const matteTools = (await listToolsFromMcpServer(new VideoPortraitMatteServer().mcpServer)).tools
+    return [
+      ...imageTools.map((t: any) => entry('image', t.name, t.description, t.inputSchema)),
+      ...gradeTools.map((t: any) => entry('color-grade', t.name, t.description, t.inputSchema)),
+      ...matteTools.map((t: any) => entry('video-portrait-matte', t.name, t.description, t.inputSchema)),
+      ...neighborFixtures
+    ]
+  }
+
+  // codemode 要求模型用英文关键词检索，故断言全部用英文。
+  // 其中 remove watermark / remove object 等形式是 A/B 实测里旧描述真实漏掉、
+  // 且会被 video-portrait-matte 的工具名加权抢走的 case。
+  const imageEditQueries = [
+    'change background', 'replace background', 'sky replacement',
+    'face swap', 'replace face', 'virtual try-on', 'outfit swap', 'change clothes',
+    'outpainting', 'uncrop', 'extend canvas', 'change aspect ratio',
+    'photo retouching', 'inpainting', 'beauty retouch', 'skin smoothing', 'face slimming',
+    'remove watermark', 'remove logo', 'watermark removal',
+    'remove subtitles', 'erase text', 'remove object', 'remove person',
+    'image restoration', 'old photo restoration', 'denoise', 'upscale photo', 'super resolution',
+    'colorize photo', 'restyle anime', 'ID photo', 'transparent cutout',
+    'replace product', 'product photo', 'poster layout', 'generate image'
+  ]
+
+  it.each(imageEditQueries)('英文图像编辑查询「%s」排第一的是 AI 生图', async (query) => {
+    const catalog = await buildCatalog()
+    const ranked = rankCodemodeTools(catalog, query, 5)
+    expect(ranked.length).toBeGreaterThan(0)
+    expect(ranked[0].name).toContain('generate_or_edit_image')
+  })
+
+  const neighborQueries: Array<[string, string]> = [
+    ['color grading', 'color-grade'],
+    ['match reference look', 'color-grade'],
+    ['apply lut to batch', 'color-grade'],
+    ['unify color across clips', 'color-grade'],
+    ['video understanding', 'video-understand']
+  ]
+
+  it.each(neighborQueries)('邻居意图「%s」不得被 AI 生图抢走', async (query, expectedServer) => {
+    const catalog = await buildCatalog()
+    const ranked = rankCodemodeTools(catalog, query, 5)
+    expect(ranked.length).toBeGreaterThan(0)
+    expect(ranked[0].name).toContain(expectedServer)
+  })
+})

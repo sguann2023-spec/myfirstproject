@@ -38,6 +38,50 @@
     </div>
     <script>
       console.time('init')
+      // Install before module scripts: a failed static dependency prevents their handlers from running.
+      window.addEventListener('vectcut:startup-error', (event) => {
+        const spinner = document.getElementById('spinner')
+        if (!spinner) return
+        const error = event.detail
+        const message = error instanceof Error ? error.message : String(error || '未知启动错误')
+        const moduleLoadFailed = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Outdated Optimize Dep|Unable to preload CSS/i.test(message)
+        const reloadFlag = '__vectcut_init_reload__'
+        if ('%DEV%' === 'true' && moduleLoadFailed) {
+          try {
+            if (!sessionStorage.getItem(reloadFlag)) {
+              sessionStorage.setItem(reloadFlag, '1')
+              window.location.reload()
+              return
+            }
+          } catch {
+            // Without a persistent guard, show the error instead of risking a reload loop.
+          }
+        }
+        spinner.replaceChildren()
+        spinner.style.flexDirection = 'column'
+        spinner.style.gap = '16px'
+        const title = document.createElement('strong')
+        title.textContent = '启动失败，请重新加载'
+        const details = document.createElement('pre')
+        details.textContent = message
+        details.style.cssText = 'max-width:80vw;white-space:pre-wrap;overflow-wrap:anywhere'
+        const reload = document.createElement('button')
+        reload.textContent = '重新加载'
+        reload.addEventListener('click', () => window.location.reload())
+        spinner.append(title, details, reload)
+      })
+      window.addEventListener('unhandledrejection', (event) => {
+        window.dispatchEvent(new CustomEvent('vectcut:startup-error', { detail: event.reason }))
+      })
+      window.addEventListener('error', (event) => {
+        if (event.target instanceof HTMLScriptElement && event.target.type === 'module') {
+          window.dispatchEvent(new CustomEvent('vectcut:startup-error', {
+            detail: new Error('Failed to fetch dynamically imported module: ' + event.target.src)
+          }))
+        } else if (event.error) {
+          window.dispatchEvent(new CustomEvent('vectcut:startup-error', { detail: event.error }))
+        }
+      }, true)
     </script>
     <script type="module" src="/src/init.ts"></script>
     <script type="module" src="/src/entryPoint.tsx"></script>

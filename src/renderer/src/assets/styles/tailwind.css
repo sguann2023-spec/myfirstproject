@@ -1,8 +1,11 @@
-@config '../../../../../tailwind.config.js';
 @layer theme, base, components, utilities;
 @import 'tailwindcss/theme.css' layer(theme);
 @import 'tailwindcss/utilities.css' layer(utilities);
 @import 'tw-animate-css';
+@config '../../../../../tailwind.config.js';
+
+/* Test fixtures contain bracketed text that is not intended as utility classes. */
+@source not '../../../../../**/__tests__/**';
 
 @custom-variant dark (&:is(.dark *));
 

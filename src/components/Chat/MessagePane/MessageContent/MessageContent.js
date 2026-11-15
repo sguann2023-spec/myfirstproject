@@ -9,6 +9,7 @@ import { upsertManyBlocks } from '../../../../renderer/src/store/messageBlock';
 import Markdown from '../Markdown/Markdown';
 import './MessageContent.css';
 import { shouldSuppressCancelledTurnError } from '../../../../shared/chatError';
+import { toMediaSrc } from '../../../../shared/mediaSrc.js';
 import { formatProcessedDuration } from '@shared/processedDuration';
 
 const isCancelledTurn = (message) => Boolean(message?.aborted)
@@ -16,7 +17,7 @@ const isCancelledTurn = (message) => Boolean(message?.aborted)
 const visibleTurnError = (message) => shouldSuppressCancelledTurnError(message?.error, isCancelledTurn(message))
   ? null : message?.error;
 
-const getUserImageAttachmentPreviewUrl = (attachment = {}) => (
+const getUserImageAttachmentPreviewUrl = (attachment = {}) => toMediaSrc(
   String(
     attachment?.previewUrl
     || attachment?.thumbnailUrl

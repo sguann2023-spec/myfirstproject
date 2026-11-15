@@ -46,4 +46,7 @@ async function bootstrap() {
   root.render(<App />)
 }
 
-void bootstrap()
+void bootstrap().catch((error) => {
+  logger.error('Renderer bootstrap failed', error)
+  window.dispatchEvent(new CustomEvent('vectcut:startup-error', { detail: error }))
+})

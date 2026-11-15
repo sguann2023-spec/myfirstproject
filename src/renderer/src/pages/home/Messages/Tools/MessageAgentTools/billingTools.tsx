@@ -6,10 +6,8 @@ import { isSubtitleRecognitionToolName } from './SubtitleRecognitionTool'
 import { isMediaGenerationToolName } from './mediaGenerationShared'
 import { isReversePromptToolName } from '../../../../../../../shared/reversePrompt'
 
-const REMOVE_BG_TOOL_NAMES = [
-  'submit_remove_bg_text_behind_task',
-  'submit_remove_bg_pip_task',
-  'submit_remove_bg_task'
+const VIDEO_PORTRAIT_MATTE_TOOL_NAMES = [
+  'submit_video_portrait_matte_task'
 ]
 
 // Single source of truth for which MCP tools render a media-generation billing
@@ -24,7 +22,7 @@ export function isMediaGenerationBillingToolName(toolName?: string, serverName?:
     isKouboTemplateToolName(name) ||
     isMediaGenerationToolName(name) ||
     isSubtitleRecognitionToolName(name) ||
-    REMOVE_BG_TOOL_NAMES.some((tool) => name === tool || name.endsWith(`__remove-bg__${tool}`)) ||
+    VIDEO_PORTRAIT_MATTE_TOOL_NAMES.some((tool) => name === tool || name.endsWith(`__video-portrait-matte__${tool}`)) ||
     isReversePromptToolName(name)
   )
 }

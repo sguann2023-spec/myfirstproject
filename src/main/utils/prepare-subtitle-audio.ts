@@ -16,14 +16,14 @@ const PROCESS_MAX_BUFFER = 1024 * 1024
 type ProbeStream = { codec_type?: string; duration?: number | string }
 type ProbeResult = { streams?: ProbeStream[]; format?: { duration?: number | string } }
 
-const resolveFfmpegPath = () => {
+export const resolveFfmpegPath = () => {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
   const binaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
   const candidate = path.join(getResourcePath(), 'ffmpeg', process.platform, arch, binaryName)
   return fs.existsSync(candidate) ? candidate : 'ffmpeg'
 }
 
-const resolveFfprobePath = () => {
+export const resolveFfprobePath = () => {
   const executableName = process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
   let packaged = ''
   if (process.resourcesPath) {
@@ -33,12 +33,22 @@ const resolveFfprobePath = () => {
       packaged = path.join(process.resourcesPath, 'ffprobe', 'win32', process.arch, executableName)
     }
   }
+  const development = path.join(getResourcePath(), 'ffmpeg', process.platform, process.arch, executableName)
   const bundled = String(ffprobeStatic?.path || '').trim()
   const unpacked = bundled.replace(/app\.asar([\\/])/g, 'app.asar.unpacked$1')
-  return [packaged, bundled, unpacked, 'ffprobe'].find((candidate) =>
+  return [packaged, development, bundled, unpacked, 'ffprobe'].find((candidate) =>
     candidate && (candidate === 'ffprobe' || fs.existsSync(candidate))
   ) || 'ffprobe'
 }
+
+const isFfprobeArchitectureError = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false
+  const { code, errno, message } = error as { code?: unknown; errno?: unknown; message?: unknown }
+  return code === 'EBADARCH' || errno === 'EBADARCH' || code === -86 || errno === -86 ||
+    (typeof message === 'string' && /(?:\bEBADARCH\b|spawn\b.*-86\b)/i.test(message))
+}
+
+const FFPROBE_ARCHITECTURE_ERROR = 'ffprobe 组件架构不兼容，无法读取音视频信息。请安装适配当前系统架构的应用版本；此错误并非视频时长过长。'
 
 const parseDuration = (probe: ProbeResult) => {
   const values = [probe.format?.duration, ...(probe.streams || []).map((stream) => stream.duration)]
@@ -59,6 +69,7 @@ export async function probeVideoSource(source: string, maxDurationSeconds: numbe
     )
     probeOutput = String(stdout || '')
   } catch (error) {
+    if (isFfprobeArchitectureError(error)) throw new Error(FFPROBE_ARCHITECTURE_ERROR)
     throw new Error(`无法读取视频信息：${error instanceof Error ? error.message : String(error)}`)
   }
 
@@ -130,6 +141,7 @@ async function prepareAudio(sourcePath: string, options?: { maxDurationSeconds: 
     )
     probeOutput = `${stdout || ''}\n${stderr || ''}`
   } catch (error) {
+    if (isFfprobeArchitectureError(error)) throw new Error(FFPROBE_ARCHITECTURE_ERROR)
     throw new Error(`无法读取音视频信息：${error instanceof Error ? error.message : String(error)}`)
   }
 

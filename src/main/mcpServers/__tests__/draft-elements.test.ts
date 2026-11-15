@@ -47,6 +47,7 @@ import { draftTestRegistry } from '../draft-test-registry'
 type DraftElementsServerInstance = InstanceType<typeof DraftElementsServer>
 type ListedTool = {
   name: string
+  description: string
   inputSchema: {
     properties: Record<string, unknown>
     required?: string[]
@@ -162,6 +163,27 @@ describe('DraftElementsServer', () => {
     ])
   })
 
+  it('should prioritize a style or font preview before add_text/add_batch_text/add_subtitle/modify_text', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    for (const name of ['add_text', 'add_batch_text', 'add_subtitle', 'modify_text']) {
+      const description = toolsByName.get(name).description
+      expect(description).toContain('HIGH-PRIORITY PREVIEW BEFORE ADDING OR MODIFYING TEXT')
+      expect(description).toContain('always check the visual effect first with get_text_style_preview')
+      expect(description).toContain('get_font_previews')
+      expect(description).toContain('skip it only when the user explicitly asks to skip previews')
+      // 预览规则必须排在字号规则之前，避免被长描述埋没导致不触发
+      expect(description.indexOf('HIGH-PRIORITY PREVIEW BEFORE ADDING OR MODIFYING TEXT')).toBeLessThan(
+        description.indexOf('MANDATORY FONT-SIZE LIMITS')
+      )
+      // font 参数不能只说「随机选推荐字体」而短路字体预览
+      const font = toolsByName.get(name).inputSchema.properties.font as { description: string }
+      expect(font.description).toContain('get_font_previews')
+    }
+  })
+
   it('should expose official VectCut params and required fields for representative tools', async () => {
     const server = createServer()
     const result = await listTools(server)
@@ -212,6 +234,14 @@ describe('DraftElementsServer', () => {
     expect(Object.keys(toolsByName.get('add_batch_video').inputSchema.properties)).toEqual(
       expect.arrayContaining(['durations', 'speed', 'transition', 'volume', 'mask_type'])
     )
+    expect(toolsByName.get('add_batch_video').inputSchema.required).toEqual([
+      'video_urls',
+      'starts',
+      'ends',
+      'durations',
+      'target_starts',
+      'target_ends'
+    ])
     expect(Object.keys(toolsByName.get('modify_video').inputSchema.properties)).toEqual(
       expect.arrayContaining(['target_start', 'speed', 'duration', 'transition', 'rotation'])
     )
@@ -225,6 +255,14 @@ describe('DraftElementsServer', () => {
     expect(Object.keys(toolsByName.get('add_batch_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['durations', 'speed', 'effect_type', 'effect_params', 'fade_out_duratioin'])
     )
+    expect(toolsByName.get('add_batch_audio').inputSchema.required).toEqual([
+      'audio_urls',
+      'starts',
+      'ends',
+      'durations',
+      'target_starts',
+      'target_ends'
+    ])
     expect(Object.keys(toolsByName.get('modify_audio').inputSchema.properties)).toEqual(
       expect.arrayContaining(['speed', 'duration', 'effect_type', 'effect_params', 'fade_out_duratioin'])
     )
@@ -241,6 +279,32 @@ describe('DraftElementsServer', () => {
       expect.arrayContaining(['track_name', 'relative_index', 'intensity', 'width', 'height'])
     )
     expect(toolsByName.get('modify_filter').inputSchema.required).toEqual(['material_id'])
+  })
+
+  it('should require all timing arrays on batch video/audio tools in both description and schema', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    for (const [toolName, urlField] of [
+      ['add_batch_video', 'video_urls'],
+      ['add_batch_audio', 'audio_urls']
+    ] as const) {
+      const tool = toolsByName.get(toolName)
+      const description = tool.description
+      // 工具级描述必须点名全部必填数组，避免模型漏传 durations/starts/ends
+      expect(description).toContain('REQUIRED')
+      for (const field of [urlField, 'starts', 'ends', 'durations', 'target_starts', 'target_ends']) {
+        expect(description).toContain(field)
+      }
+      expect(description).toContain('must ALL be provided')
+      // 参数级描述与 schema required 口径一致
+      const properties = tool.inputSchema.properties as Record<string, { description: string }>
+      for (const field of ['starts', 'ends', 'durations', 'target_starts', 'target_ends']) {
+        expect(properties[field].description).toMatch(/^Required/)
+      }
+      expect(tool.inputSchema.required).toEqual([urlField, 'starts', 'ends', 'durations', 'target_starts', 'target_ends'])
+    }
   })
 
   it('should add a text template with aliases normalized to official fields', async () => {
@@ -777,6 +841,31 @@ describe('DraftElementsServer', () => {
         draft_url: 'https://www.vectcut.com/draft/downloader?draft_id=dfd_batch_preset_1'
       }
     })
+  })
+
+  it('should advertise local path support on batch media tools to avoid pre-uploads', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    for (const [toolName, field] of [
+      ['add_batch_video', 'video_urls'],
+      ['add_batch_audio', 'audio_urls'],
+      ['add_batch_image', 'image_urls']
+    ] as const) {
+      const properties = toolsByName.get(toolName).inputSchema.properties as Record<string, { description: string }>
+      expect(properties[field].description).toContain('local file paths')
+      expect(properties[field].description).toContain('do not pre-upload')
+    }
+
+    for (const [toolName, field] of [
+      ['modify_video', 'video_url'],
+      ['modify_audio', 'audio_url'],
+      ['modify_image', 'image_url']
+    ] as const) {
+      const properties = toolsByName.get(toolName).inputSchema.properties as Record<string, { description: string }>
+      expect(properties[field].description).toContain('local file path')
+    }
   })
 
   it('should keep local file paths in image_url before add_image', async () => {

@@ -4,6 +4,7 @@ export enum IpcChannel {
   CustomChatModels_ListProviders = 'custom-chat-models:list-providers',
   CustomChatModels_SaveProviders = 'custom-chat-models:save-providers',
   CustomChatModels_Changed = 'custom-chat-models:changed',
+  CustomChatModels_TestModel = 'custom-chat-models:test-model',
   OfficialChatModels_GetPrefs = 'official-chat-models:get-prefs',
   OfficialChatModels_SetPrefs = 'official-chat-models:set-prefs',
   OfficialChatModels_Changed = 'official-chat-models:changed',

@@ -308,6 +308,26 @@ describe('ErrorRecoveryBlock', () => {
     expect(container.textContent).not.toContain('中文旧解释')
   })
 
+  it.each(['zh-CN', 'en-US', 'zh-TW'])('explains content-policy rejections readably without retry or network actions in %s', async (language) => {
+    await i18n.changeLanguage(language)
+    await render({ ...block, error: {
+      name: 'Error', statusCode: 400, stack: null,
+      message: 'Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt: https://platform.openai.com/docs/guides/reasoning#advice-on-prompting'
+    } } as ErrorMessageBlock)
+    expect(container.querySelector('.error-recovery__banner--policy')).not.toBeNull()
+    expect(container.querySelector('.error-recovery__title')?.textContent).toBe(i18n.t('error.diagnosis.content'))
+    expect(container.querySelector('.error-recovery__reason')?.textContent).toBe(i18n.t('error.diagnosis.content_hint'))
+    expect(container.querySelector('p')?.textContent).toBe(i18n.t('error.diagnosis.content_reply'))
+    expect(container.querySelector('.error-recovery__actions')).toBeNull()
+    expect(container.querySelector('.error-recovery__retry')).toBeNull()
+    expect(container.querySelector('.error-recovery__network')).toBeNull()
+    expect(container.textContent).not.toContain('Invalid prompt')
+    expect(container.textContent).not.toContain('platform.openai.com')
+    expect(container.textContent).not.toContain(i18n.t('common.retry'))
+    expect(container.textContent).not.toContain(i18n.t('network_check.button'))
+    expect(mocks.classifyByAI).not.toHaveBeenCalled()
+  })
+
   it('shows a localized timeout reason without waiting for AI', async () => {
     await render({ ...block, error: { name: 'Error', message: 'Request timed out.', stack: null } })
     expect(container.querySelector('.error-recovery__title')?.textContent).toBe(zhCN.error.diagnosis.timeout)
