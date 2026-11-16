@@ -42,6 +42,7 @@ import TemplatePickerDialog from '../../../page/TemplateEditPage/TemplatePickerD
 import DigitalHumanToolDetail from './DigitalHumanToolDetail/index';
 import ImagePanToolDetail from './ImagePanToolDetail/index';
 import LocalFilePreviewList from './LocalFilePreviewList/index';
+import { usePresetReferences } from './usePresetReferences';
 import { filterTreeNodesByQuery, replaceLazyTreeChildren, scheduleReferenceRoots, collectVisibleReferenceNodes, flatReferencePathsToTree } from './referenceTree';
 import {
   SKILL_EXAMPLE_APPLY_EVENT,
@@ -2327,7 +2328,6 @@ const Composer = ({
   const [skillsLoading, setSkillsLoading] = React.useState(true);
   const [skillsError, setSkillsError] = React.useState('');
   const [skills, setSkills] = React.useState([]);
-  const [skillReferenceTrees, setSkillReferenceTrees] = React.useState({});
   const [workspaceReferenceTrees, setWorkspaceReferenceTrees] = React.useState({});
   const referenceGeneration = React.useRef(0);
   const pendingReferenceFolders = React.useRef(new Set());
@@ -2347,7 +2347,6 @@ const Composer = ({
   React.useEffect(() => {
     const invalidate = () => {
       setWorkspaceReferenceTrees({});
-      setSkillReferenceTrees({});
       setExpandedReferenceNodeKeys(new Set());
       setMentionState((previous) => ({ ...previous, open: false }));
     };
@@ -2811,7 +2810,6 @@ const Composer = ({
     const generation = ++referenceGeneration.current;
     pendingReferenceFolders.current.clear();
     if (!mentionState.open || mentionState.symbol !== '#') return undefined;
-    setSkillReferenceTrees({});
     setWorkspaceReferenceTrees({});
     setExpandedReferenceNodeKeys(new Set());
     setReferenceFolderStatus({});
@@ -2825,12 +2823,6 @@ const Composer = ({
         setter: setWorkspaceReferenceTrees,
         load: () => loadLocalReferenceTree(primarySkillWorkdir, { excludeClaude: true, query }),
       }] : []),
-      ...skills.filter((skill) => skill.__skillRoot).map((skill) => ({
-        key: `skill-root:${getSkillStableId(skill)}`,
-        id: getSkillStableId(skill),
-        setter: setSkillReferenceTrees,
-        load: () => loadLocalReferenceTree(skill.__skillRoot, { query }),
-      })),
     ];
     setReferenceRootStatus(Object.fromEntries(roots.map((root) => [root.key, '加载中...'])));
     const cancel = scheduleReferenceRoots(roots, {
@@ -2848,9 +2840,9 @@ const Composer = ({
       complete: () => setReferenceTreesLoading(false),
     }, query ? 200 : 0);
     return () => { cancel(); referenceGeneration.current += 1; };
-  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, mentionState.query, primarySkillWorkdir, skills]);
+  }, [loadLocalReferenceTree, mentionState.open, mentionState.symbol, mentionState.query, primarySkillWorkdir]);
 
-  const loadReferenceFolder = React.useCallback(async (node, rootPath, key, sourceType) => {
+  const loadReferenceFolder = React.useCallback(async (node, rootPath, key) => {
     if (node.children !== undefined || pendingReferenceFolders.current.has(key)) return;
     const generation = referenceGeneration.current;
     pendingReferenceFolders.current.add(key);
@@ -2859,9 +2851,8 @@ const Composer = ({
       const children = await loadLocalReferenceTree(resolveListedEntryPath(rootPath, node.path));
       if (generation !== referenceGeneration.current) return;
       const update = (nodes) => replaceLazyTreeChildren(nodes, node.path, children);
-      const setter = sourceType === 'skill' ? setSkillReferenceTrees : setWorkspaceReferenceTrees;
-      setter((prev) => Object.fromEntries(Object.entries(prev).map(([id, nodes]) =>
-        [id, (sourceType === 'skill' ? key.startsWith(`skill-root:${id}:`) : id === rootPath) ? update(nodes) : nodes])));
+      setWorkspaceReferenceTrees((prev) => Object.fromEntries(Object.entries(prev).map(([id, nodes]) =>
+        [id, id === rootPath ? update(nodes) : nodes])));
       setReferenceFolderStatus((prev) => ({ ...prev, [key]: '' }));
     } catch (error) {
       if (generation === referenceGeneration.current) setReferenceFolderStatus((prev) => ({ ...prev, [key]: '加载失败，点击箭头重试' }));
@@ -3007,22 +2998,10 @@ const Composer = ({
     () => String(mentionState.query || '').trim().toLowerCase(),
     [mentionState.query]
   );
-  const filteredSkillReferenceGroups = React.useMemo(() => (
-    skills
-      .map((skill) => {
-        const skillKey = getSkillStableId(skill);
-        const skillLabel = getSkillMentionLabel(skill);
-        const nodes = skillReferenceTrees[skillKey] || [];
-        return {
-          skill,
-          skillKey,
-          label: skillLabel,
-          rootPath: normalizePath(skill?.__skillRoot || ''),
-          nodes: filterTreeNodesByQuery(nodes, referenceQuery),
-        };
-      })
-      .filter((group) => group.label && group.rootPath)
-  ), [referenceQuery, skillReferenceTrees, skills]);
+  const presetReferences = usePresetReferences(mentionState.open && mentionState.symbol === '#', referenceQuery);
+  const presetReferenceFiles = React.useMemo(() => presetReferences.items.map((node) => (
+    createLocalReferenceFile({ rootPath: presetReferences.root, node, sourceType: 'preset', sourceLabel: '剪映预设' })
+  )), [presetReferences.items, presetReferences.root]);
   const filteredWorkspaceReferenceNodes = React.useMemo(
     () => filterTreeNodesByQuery(workspaceReferenceTrees[primarySkillWorkdir] || [], referenceQuery),
     [primarySkillWorkdir, referenceQuery, workspaceReferenceTrees]
@@ -3030,20 +3009,6 @@ const Composer = ({
   const filteredLocalReferenceFiles = React.useMemo(() => {
     const forceExpanded = Boolean(referenceQuery);
     const localFiles = [];
-
-    filteredSkillReferenceGroups.forEach((group) => {
-      const rootNodeKey = `skill-root:${group.skillKey}`;
-      localFiles.push(createLocalReferenceFile({ rootPath: group.rootPath, node: { path: '', name: group.label, type: 'directory' }, sourceType: 'skill', sourceLabel: group.label }));
-      if (forceExpanded || expandedReferenceNodeKeys.has(rootNodeKey)) {
-        localFiles.push(
-          ...collectVisibleTreeFiles(group.nodes, group.rootPath, rootNodeKey, expandedReferenceNodeKeys, {
-            forceExpanded,
-            sourceType: 'skill',
-            sourceLabel: group.label,
-          })
-        );
-      }
-    });
 
     const workspaceRootNodeKey = `workspace-root:${primarySkillWorkdir}`;
     if (primarySkillWorkdir) localFiles.push(createLocalReferenceFile({ rootPath: primarySkillWorkdir, node: { path: '', name: workspaceReferenceRootLabel, type: 'directory' }, sourceType: 'workspace', sourceLabel: workspaceReferenceRootLabel }));
@@ -3057,17 +3022,19 @@ const Composer = ({
       );
     }
 
+    localFiles.push(...presetReferenceFiles);
+
     return localFiles;
   }, [
     expandedReferenceNodeKeys,
-    filteredSkillReferenceGroups,
+    presetReferenceFiles,
     filteredWorkspaceReferenceNodes,
     primarySkillWorkdir,
     referenceQuery,
     workspaceReferenceRootLabel,
   ]);
   const activeSuggestionItems = mentionState.symbol === '#'
-    ? [...filteredLocalReferenceFiles, ...filteredUploadedFiles]
+    ? [...filteredUploadedFiles, ...filteredLocalReferenceFiles]
     : filteredSkills;
 
   React.useEffect(() => {
@@ -3095,6 +3062,7 @@ const Composer = ({
         orderedList: false,
         codeBlock: false,
         horizontalRule: false,
+        link: false,
       }),
       Mention.extend({
         renderText({ node }) {
@@ -3134,11 +3102,11 @@ const Composer = ({
           })
           : [];
         const liveSuggestionItems = liveMentionState?.symbol === '#'
-          ? [...latestReferenceSuggestionItemsRef.current, ...latestUploadedFileMetaRef.current.filter((file) => {
+          ? [...latestUploadedFileMetaRef.current.filter((file) => {
             const liveQuery = String(liveMentionState.query || '').trim().toLowerCase();
             if (!liveQuery) return true;
             return String(file?.name || '').toLowerCase().includes(liveQuery);
-          })]
+          }), ...latestReferenceSuggestionItemsRef.current]
           : liveFilteredSkills;
 
         if (liveMentionState?.open) {
@@ -6114,46 +6082,6 @@ const Composer = ({
                     {!referenceTreesLoading && referenceTreesError ? (
                       <div className="chat-panel__skill-mention-empty">{referenceTreesError}</div>
                     ) : null}
-                    {filteredSkillReferenceGroups.length > 0 ? (
-                      <div className="chat-panel__reference-section">
-                        <div className="chat-panel__reference-section-title">技能成员</div>
-                        {filteredSkillReferenceGroups.map((group) => (
-                          renderReferenceRoot(
-                            `skill-root:${group.skillKey}`,
-                            group.label,
-                            group.nodes,
-                            group.rootPath,
-                            'skill'
-                          )
-                        ))}
-                      </div>
-                    ) : null}
-                    {primarySkillWorkdir ? (
-                      <div className="chat-panel__reference-section">
-                        <div className="chat-panel__reference-section-title">工作空间</div>
-                        {renderReferenceRoot(
-                          `workspace-root:${primarySkillWorkdir}`,
-                          workspaceReferenceRootLabel,
-                          filteredWorkspaceReferenceNodes,
-                          primarySkillWorkdir,
-                          'workspace'
-                        )}
-                      </div>
-                    ) : null}
-                    {!referenceTreesLoading
-                    && !referenceTreesError
-                    && filteredSkillReferenceGroups.length === 0
-                    && !primarySkillWorkdir
-                    && filteredWorkspaceReferenceNodes.length === 0
-                    && filteredUploadedFiles.length === 0 ? (
-                      <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
-                        <Empty
-                          description={referenceQuery ? '没有匹配的文件' : '你还没有可引用的文件'}
-                          image={Empty.PRESENTED_IMAGE_SIMPLE}
-                          className="chat-panel__skill-mention-empty-state"
-                        />
-                      </div>
-                      ) : null}
                     <div className="chat-panel__reference-section">
                       <div className="chat-panel__reference-section-header">
                         <span className="chat-panel__reference-section-title">本地文件</span>
@@ -6203,6 +6131,67 @@ const Composer = ({
                         );
                       })}
                     </div>
+                    {primarySkillWorkdir ? (
+                      <div className="chat-panel__reference-section">
+                        <div className="chat-panel__reference-section-title">工作空间</div>
+                        {renderReferenceRoot(
+                          `workspace-root:${primarySkillWorkdir}`,
+                          workspaceReferenceRootLabel,
+                          filteredWorkspaceReferenceNodes,
+                          primarySkillWorkdir,
+                          'workspace'
+                        )}
+                      </div>
+                    ) : null}
+                    <div className="chat-panel__reference-section">
+                      <div className="chat-panel__reference-section-title">剪映预设</div>
+                      {presetReferenceFiles.map((file) => (
+                        <button
+                          key={file.uid}
+                          type="button"
+                          className={`chat-panel__reference-tree-item${activeSuggestionUid === file.uid ? ' active' : ''}`}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => insertFileReference(file)}
+                        >
+                          <Folder className="chat-panel__reference-tree-icon" size={14} />
+                          <span className="chat-panel__reference-tree-label">{file.name}</span>
+                        </button>
+                      ))}
+                      {!presetReferences.root ? (
+                        <div className="chat-panel__reference-empty">请先在设置中配置预设目录</div>
+                      ) : null}
+                      {presetReferences.root && !presetReferences.loading && !presetReferences.error && presetReferenceFiles.length === 0 ? (
+                        <div className="chat-panel__reference-empty">{referenceQuery ? '没有匹配的剪映预设' : '暂无本地剪映预设'}</div>
+                      ) : null}
+                      {presetReferences.error ? <div className="chat-panel__reference-empty" role="alert">{presetReferences.error}</div> : null}
+                      {presetReferences.loading || presetReferences.hasMore || presetReferences.error ? (
+                        <button
+                          type="button"
+                          className="chat-panel__reference-load-more"
+                          disabled={presetReferences.loading}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={presetReferences.loadMore}
+                        >
+                          {presetReferences.loading ? '加载中...' : presetReferences.error ? '重试' : '加载更多'}
+                        </button>
+                      ) : null}
+                    </div>
+                    {!referenceTreesLoading
+                    && !referenceTreesError
+                    && presetReferenceFiles.length === 0
+                    && !presetReferences.loading
+                    && !presetReferences.error
+                    && !primarySkillWorkdir
+                    && filteredWorkspaceReferenceNodes.length === 0
+                    && filteredUploadedFiles.length === 0 ? (
+                      <div className="chat-panel__skill-mention-empty chat-panel__skill-mention-empty--upload">
+                        <Empty
+                          description={referenceQuery ? '没有匹配的文件' : '你还没有可引用的文件'}
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          className="chat-panel__skill-mention-empty-state"
+                        />
+                      </div>
+                      ) : null}
                   </>
                 )}
               </div>

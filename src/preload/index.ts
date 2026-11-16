@@ -93,6 +93,10 @@ type DirectoryListOptions = {
   includeFiles?: boolean
   includeDirectories?: boolean
   maxEntries?: number
+  /** Only used for typed, non-recursive directory browsing. */
+  offset?: number
+  /** Case-insensitive literal name filter for typed, non-recursive browsing only. */
+  nameQuery?: string
   searchPattern?: string
 }
 

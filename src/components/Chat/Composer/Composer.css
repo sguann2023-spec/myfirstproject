@@ -1074,6 +1074,25 @@
   color: #8a8a8a;
 }
 
+.chat-panel__reference-load-more {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: transparent;
+  color: #666666;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.chat-panel__reference-load-more:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.chat-panel__reference-load-more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .chat-panel__reference-tree-children {
   display: flex;
   flex-direction: column;

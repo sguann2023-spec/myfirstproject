@@ -134,6 +134,10 @@ interface DirectoryListOptions {
   includeFiles?: boolean
   includeDirectories?: boolean
   maxEntries?: number
+  /** Only used for typed, non-recursive directory browsing. */
+  offset?: number
+  /** Case-insensitive literal name filter for typed, non-recursive browsing only. */
+  nameQuery?: string
   searchPattern?: string
   fuzzy?: boolean
 }
@@ -147,6 +151,8 @@ const DEFAULT_DIRECTORY_LIST_OPTIONS: Required<DirectoryListOptions> = {
   includeFiles: true,
   includeDirectories: true,
   maxEntries: 20,
+  offset: 0,
+  nameQuery: '',
   searchPattern: '.',
   fuzzy: true
 }
@@ -925,11 +931,16 @@ class FileStorage {
     // Typed shallow browsing uses Dirents: no recursive walk or per-entry IPC/stat.
     if (mergedOptions.typed && mergedOptions.recursive === false) {
       const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true })
+      const offset = Number.isFinite(mergedOptions.offset)
+        ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(mergedOptions.offset)))
+        : 0
+      const nameQuery = typeof mergedOptions.nameQuery === 'string' ? mergedOptions.nameQuery.toLowerCase() : ''
       return entries
         .filter((entry) => (mergedOptions.includeHidden || !entry.name.startsWith('.')) &&
-          (entry.isDirectory() ? mergedOptions.includeDirectories : mergedOptions.includeFiles))
+          (entry.isDirectory() ? mergedOptions.includeDirectories : mergedOptions.includeFiles) &&
+          entry.name.toLowerCase().includes(nameQuery))
         .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
-        .slice(0, mergedOptions.maxEntries)
+        .slice(offset, offset + mergedOptions.maxEntries)
         .map((entry) => ({ name: entry.name, path: entry.name, type: entry.isDirectory() ? 'directory' : 'file' }))
     }
 

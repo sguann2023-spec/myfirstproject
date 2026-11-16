@@ -1,8 +1,17 @@
 import { defineConfig } from 'vitest/config'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@logger': fileURLToPath(new URL('../LoggerService.ts', import.meta.url)),
+      '@main': fileURLToPath(new URL('../../', import.meta.url)),
+      '@shared': fileURLToPath(new URL('../../../packages/shared/', import.meta.url)),
+      '@types': fileURLToPath(new URL('../../../renderer/src/types/index.ts', import.meta.url))
+    }
+  },
   test: {
     environment: 'node',
-    include: ['src/main/services/__tests__/referenceSearch.test.ts']
+    include: ['src/main/services/__tests__/referenceSearch.test.ts', 'src/main/services/__tests__/FileStorage.listDirectory.test.ts']
   }
 })

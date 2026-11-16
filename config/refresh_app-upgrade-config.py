@@ -240,6 +240,28 @@ def parse_latest_yml_path(latest_yml_text: str) -> str:
     raise RuntimeError("Failed to parse 'path' from latest.yml")
 
 
+def parse_latest_yml_size(latest_yml_text: str) -> int | None:
+    match = re.search(r"^size:\s*(\d+)\s*$", latest_yml_text, flags=re.MULTILINE)
+    if match:
+        return int(match.group(1))
+    # Fall back to the top-level per-file size when the top-level field is absent.
+    match = re.search(r"^\s+size:\s*(\d+)\s*$", latest_yml_text, flags=re.MULTILINE)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def build_tail_range(size: int | None, chunk_bytes: int, fallback_range: str) -> str:
+    """Build a Range header covering the last `chunk_bytes` of the file.
+
+    Falls back to the hardcoded range (designed for ~630MB installers) when the
+    release size is unknown or too small for a meaningful deep-range probe.
+    """
+    if size is None or size <= 2 * chunk_bytes:
+        return fallback_range
+    return f"{size - chunk_bytes}-{size - 1}"
+
+
 def probe_range(
     prefix: str,
     target_url: str,
@@ -410,7 +432,20 @@ def main() -> int:
         latest_yml_target = build_latest_yml_target(args.repo)
         latest_yml_text = resolve_latest_yml_text(all_candidates, latest_yml_target)
         zip_path = parse_latest_yml_path(latest_yml_text)
+        zip_size = parse_latest_yml_size(latest_yml_text)
         zip_target = f"https://github.com/{args.repo}/releases/latest/download/{zip_path}"
+
+        initial_deep_range = build_tail_range(
+            zip_size, 262144, DEFAULT_INITIAL_DEEP_RANGE
+        )
+        strict_deep_range = build_tail_range(
+            zip_size, 1048576, DEFAULT_STRICT_DEEP_RANGE
+        )
+        if zip_size is not None:
+            print(
+                f"Latest asset: {zip_path} ({zip_size} bytes); "
+                f"deep ranges: initial={initial_deep_range} strict={strict_deep_range}"
+            )
 
         initial_results = [
             probe_candidate(
@@ -418,7 +453,7 @@ def main() -> int:
                 latest_yml_target=latest_yml_target,
                 zip_target=zip_target,
                 head_range=DEFAULT_INITIAL_HEAD_RANGE,
-                deep_range=DEFAULT_INITIAL_DEEP_RANGE,
+                deep_range=initial_deep_range,
                 max_time_seconds=DEFAULT_INITIAL_MAX_TIME_SECONDS,
                 min_bytes=131072,
             )
@@ -436,7 +471,7 @@ def main() -> int:
                 latest_yml_target=latest_yml_target,
                 zip_target=zip_target,
                 head_range=DEFAULT_STRICT_HEAD_RANGE,
-                deep_range=DEFAULT_STRICT_DEEP_RANGE,
+                deep_range=strict_deep_range,
                 max_time_seconds=DEFAULT_STRICT_MAX_TIME_SECONDS,
                 min_bytes=262144,
             )

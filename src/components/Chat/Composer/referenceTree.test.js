@@ -1,5 +1,38 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { scheduleReferenceRoots, collectVisibleReferenceNodes, flatReferencePathsToTree, filterTreeNodesByQuery, replaceLazyTreeChildren, loadReferenceRoots } from './referenceTree.js';
+
+describe('reference menu group order', () => {
+  const source = readFileSync(`${process.cwd()}/src/components/Chat/Composer/Composer.js`, 'utf8');
+
+  it('renders local files before workspace and skills', () => {
+    const menu = source.slice(source.indexOf("{mentionState.symbol === '#' && ("));
+    expect(menu.indexOf('>本地文件</span>')).toBeLessThan(menu.indexOf('>工作空间</div>'));
+    expect(menu.indexOf('>工作空间</div>')).toBeLessThan(menu.indexOf('>剪映预设</div>'));
+  });
+
+  it('collects workspace roots before skill roots', () => {
+    const start = source.indexOf('  const filteredLocalReferenceFiles = React.useMemo(() => {');
+    const body = source.slice(start, source.indexOf('    return localFiles;', start));
+    expect(body.indexOf('const workspaceRootNodeKey')).toBeLessThan(body.indexOf('localFiles.push(...presetReferenceFiles)'));
+  });
+
+  it.each([true, false])('keeps highlighted and keyboard-selected items in the same order (local files: %s)', (hasLocal) => {
+    const local = hasLocal ? [{ uid: 'local', name: 'image.png' }] : [];
+    const references = [{ uid: 'workspace' }, { uid: 'skill' }];
+    const activeStart = source.indexOf('  const activeSuggestionItems =');
+    const activeEnd = source.indexOf(';', activeStart);
+    const active = new Function('mentionState', 'filteredUploadedFiles', 'filteredLocalReferenceFiles', 'filteredSkills',
+      `${source.slice(activeStart, activeEnd + 1)} return activeSuggestionItems;`);
+    const liveStart = source.indexOf('        const liveSuggestionItems =');
+    const liveEnd = source.indexOf(';\n\n', liveStart);
+    const live = new Function('liveMentionState', 'latestUploadedFileMetaRef', 'latestReferenceSuggestionItemsRef', 'liveFilteredSkills',
+      `${source.slice(liveStart, liveEnd + 1)} return liveSuggestionItems;`);
+    const expected = [...local, ...references];
+    expect(active({ symbol: '#' }, local, references, [])).toEqual(expected);
+    expect(live({ symbol: '#', query: '' }, { current: local }, { current: references }, [])).toEqual(expected);
+  });
+});
 
 describe('independent root refresh', () => {
   const deferred = () => {
