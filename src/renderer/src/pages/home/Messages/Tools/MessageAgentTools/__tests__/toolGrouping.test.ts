@@ -21,6 +21,7 @@ const boundary = (type: MessageBlockType, content = '') => ({ id: type, type, co
 
 const searchOperations = [
   ['scrapt', 'douyin_search_fetch_music_search'],
+  ['douyin-shop-search', 'search_products'],
   ['search', 'web_search'],
   ['media-search', 'search_images'],
   ['pixabay', 'search_videos'],
@@ -278,4 +279,10 @@ describe('consecutive tool grouping', () => {
       expect(groupConsecutiveTools(blocks)).toEqual([blocks])
     }
   })
+  it('groups shop queries and scrapt identity lookups under the same PRO title', () => {
+    const blocks = [tool('mcp__vectcut__scrapt__douyin_web_fetch_one_video', 'a'),
+      tool('mcp__vectcut__douyin-shop-search__get_product_details', 'b')]
+    expect(groupConsecutiveTools(blocks)).toEqual([blocks])
+  })
+
 })

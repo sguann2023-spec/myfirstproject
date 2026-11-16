@@ -18,6 +18,7 @@ export function isMediaGenerationBillingToolName(toolName?: string, serverName?:
   const server = parseMcpToolName(name).serverName || serverName
   return (
     server === 'scrapt' ||
+    server === 'douyin-shop-search' ||
     server === 'audio-understand' ||
     isKouboTemplateToolName(name) ||
     isMediaGenerationToolName(name) ||

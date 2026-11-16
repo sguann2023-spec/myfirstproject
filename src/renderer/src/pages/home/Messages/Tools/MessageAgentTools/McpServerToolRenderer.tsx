@@ -100,7 +100,7 @@ export function McpServerToolRenderer({
             {mediaGenerationBillingSummary ? (
               <MediaGenBillingBadge
                 displayText={mediaGenerationBillingSummary.displayText}
-                title={`总消耗 ${mediaGenerationBillingSummary.displayText}`}
+                title={`${mediaGenerationBillingSummary.estimated ? '预估消耗（计费排队中，非最终扣费）' : '总消耗'} ${mediaGenerationBillingSummary.displayText}`}
               />
             ) : null}
             {typeof progress === 'number' && progress > 0 ? <span>{Math.round(progress * 100)}%</span> : null}

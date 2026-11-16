@@ -45,6 +45,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: PhotoSearchServer },
       { default: VideoPortraitMatteServer },
       { default: ScraptToolServer },
+      { default: DouyinShopSearchServer },
       { default: SeedAudioServer },
       { default: SocialCopywritingServer },
       { default: SkillsServer },
@@ -86,6 +87,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       import('@main/mcpServers/photo-search'),
       import('@main/mcpServers/video-portrait-matte'),
       import('@main/mcpServers/scrapt-tool'),
+      import('@main/mcpServers/douyin-shop-search'),
       import('@main/mcpServers/seed-audio'),
       import('@main/mcpServers/social-copywriting'),
       import('@main/mcpServers/skills'),
@@ -201,6 +203,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'scrapt',
         serverName: 'scrapt',
         createInstance: () => new ScraptToolServer().mcpServer
+      },
+      {
+        serverId: 'douyin-shop-search',
+        serverName: 'douyin-shop-search',
+        createInstance: () => new DouyinShopSearchServer().mcpServer
       },
       {
         serverId: 'seed-audio',

@@ -27,6 +27,7 @@ import MediaSearchServer from '@main/mcpServers/media-search'
 import PhotoSearchServer from '@main/mcpServers/photo-search'
 import VideoPortraitMatteServer from '@main/mcpServers/video-portrait-matte'
 import ScraptToolServer from '@main/mcpServers/scrapt-tool'
+import DouyinShopSearchServer from '@main/mcpServers/douyin-shop-search'
 import SeedAudioServer from '@main/mcpServers/seed-audio'
 import SocialCopywritingServer from '@main/mcpServers/social-copywriting'
 import SkillsServer from '@main/mcpServers/skills'
@@ -236,6 +237,13 @@ export async function mountRuntimeMcpServers(input: {
       timeout: 150
     })
     allowMcpPattern(vp('scrapt'))
+    mountMcpServer('douyin-shop-search', {
+      type: 'sdk',
+      name: 'douyin-shop-search',
+      instance: new DouyinShopSearchServer().mcpServer,
+      timeout: 180
+    })
+    allowMcpPattern(vp('douyin-shop-search'))
   }
 
   if (hasWorkspaceDomain) {

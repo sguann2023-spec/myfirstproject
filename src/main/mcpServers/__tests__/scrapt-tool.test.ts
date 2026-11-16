@@ -206,4 +206,13 @@ describe('Bundled social-media tools', () => {
     expect(result.structuredContent).toEqual({ billing })
     expect(result.content[0].text).toBe(text)
   })
+  it('guides Douyin profile and video lookups toward product search without claiming creator attribution', () => {
+    for (const name of ['douyin_web_fetch_one_video', 'douyin_app_v3_fetch_user_post_videos', 'douyin_search_fetch_user_search']) {
+      const tool = SCRAPT_TOOLS.find(item => item.name === name)!
+      expect(tool.description).toContain('douyin-shop-search')
+      expect(tool.description).toContain('anchor_info.extra')
+      expect(tool.description).toContain('不等于该达人独立成交')
+    }
+  })
+
 })

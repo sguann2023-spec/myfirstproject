@@ -32,6 +32,7 @@ import ToolPermissionRequestCard from '../../ToolPermissionRequestCard'
 
 const searchNames = [
   'mcp__vectcut__scrapt__douyin_search_fetch_music_search',
+  'mcp__vectcut__douyin-shop-search__search_products',
   'mcp__search__web_search',
   'media-search:search_images',
   'mcp__pixabay__search_videos',
@@ -86,4 +87,15 @@ describe('search cards never expose details', () => {
       container.remove()
     }
   })
+  it('renders the shop PRO title and estimated points without expanding private data', () => {
+    const result = response('mcp__vectcut__douyin-shop-search__search_products')
+    result.responseRaw = { content: [{ type: 'text', text: 'PRIVATE_OUTPUT' }],
+      structuredContent: { billing: { status: 'queued', estimated_points: 2, project_id: 48 } } }
+    const html = renderToStaticMarkup(<MessageAgentTools toolResponse={result} />)
+    assertHidden(html)
+    expect(html).toContain('Web Search: Web Search PRO')
+    expect(html).toContain('≈2.00')
+    expect(html).toContain('预估消耗')
+  })
+
 })

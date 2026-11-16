@@ -49,6 +49,7 @@ import {
   extractMediaGenerationBillingSummary,
   getMediaGenerationPointIconUrl
 } from './MessageAgentTools/mediaGenerationBilling'
+import { isMediaGenerationBillingToolName } from './MessageAgentTools/billingTools'
 import { getMcpToolDisplayName, shouldHideSearchToolDetails } from './shared/mcpToolDisplay'
 import { extractPreviewContentFromToolResult } from './shared/callToolResult'
 import { truncateOutput } from './shared/truncateOutput'
@@ -279,7 +280,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
         return extractVideoUnderstandeBillingSummary(toolResponse.response)
       }
       if (
-        tool?.serverName === 'scrapt' ||
+        isMediaGenerationBillingToolName(toolName, tool?.serverName) ||
         isKouboTemplateToolName(toolName) ||
         isMediaGenerationToolName(toolName) ||
         isSubtitleRecognitionToolName(toolName) ||
@@ -395,7 +396,7 @@ const MessageMcpTool: FC<Props> = ({ block }) => {
               <span
                 className="image-understand-tool-billing-badge"
                 style={isMediaGeneration || isKouboTemplate ? mediaGenerationLegacyHeaderBillingBadgeStyle : undefined}
-                title={`总消耗 ${billingSummary.displayText}`}>
+                title={`${'estimated' in billingSummary && billingSummary.estimated ? '预估消耗（计费排队中，非最终扣费）' : '总消耗'} ${billingSummary.displayText}`}>
                 <img
                   className="image-understand-tool-billing-icon"
                   src={

@@ -102,7 +102,7 @@ export function shouldHideSearchToolDetails(rawName?: string, serverName?: strin
   const parts = parseMcpToolName(rawName)
   const serverKey = normalizeKeyPart(parts.serverName || serverName)
   const toolKey = normalizeKeyPart(parts.toolName)
-  if (['scrapt', 'search', 'media_search', 'pixabay'].includes(serverKey)) return true
+  if (['scrapt', 'douyin_shop_search', 'search', 'media_search', 'pixabay'].includes(serverKey)) return true
   if (serverKey === 'stock_search') return Object.hasOwn(STOCK_SEARCH_TITLES, toolKey)
   if (serverKey === 'footage_search' || serverKey === 'ai_library') {
     return Object.hasOwn(MATERIAL_SEARCH_TITLES[serverKey], toolKey)
@@ -121,7 +121,7 @@ export function getMcpToolDisplayName(
   const fallbackServer = rawServerKey === 'pixabay' ? 'Media Search' : humanizeName(args.serverName)
   const fallbackTool = humanizeName(args.toolName) || args.toolName
 
-  if (serverKey === 'scrapt') {
+  if (serverKey === 'scrapt' || serverKey === 'douyin_shop_search') {
     return args.t('message.tools.mcp.webSearchPro', { defaultValue: 'Web Search: Web Search PRO' })
   }
 

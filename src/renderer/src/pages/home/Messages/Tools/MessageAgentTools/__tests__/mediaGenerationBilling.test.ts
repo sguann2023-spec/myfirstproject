@@ -205,4 +205,30 @@ describe('mediaGenerationBilling', () => {
       ])
     ).toBeNull()
   })
+  it('shows queued proxy estimates distinctly, including nested structuredContent', () => {
+    const billing = { status: 'queued', estimated_points: 2, project_id: 48 }
+    for (const output of [
+      { billing },
+      { content: [{ type: 'text', text: JSON.stringify({ code: 0, billing }) }] },
+      { responseRaw: { structuredContent: { billing } } }
+    ]) {
+      expect(extractMediaGenerationBillingSummary(output)).toEqual({
+        totalConsumedPoints: 2, displayText: '≈2.00', estimated: true
+      })
+    }
+    expect(sumMediaGenerationBillingSummaries([
+      { billing }, { billing: { total_consumed_points: 3 } }
+    ])).toEqual({ totalConsumedPoints: 5, displayText: '≈5.00', estimated: true })
+  })
+
+  it('does not turn unknown, failed or absent quotes into consumed points', () => {
+    for (const status of ['unknown', 'not_charged', 'failed', undefined]) {
+      expect(extractMediaGenerationBillingSummary({ billing: { status, estimated_points: 2 } })).toBeNull()
+    }
+    expect(extractMediaGenerationBillingSummary({ billing: { status: 'queued', estimated_points: -2 } })).toBeNull()
+    expect(extractMediaGenerationBillingSummary({ billing: {
+      status: 'queued', total_consumed_points: 1.5, estimated_points: 2
+    } })).toEqual({ totalConsumedPoints: 1.5, displayText: '1.50' })
+  })
+
 })

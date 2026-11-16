@@ -266,4 +266,16 @@ describe('pre-render collapsed screen billing', () => {
     expect(renderToStaticMarkup(<ToolHeader block={block('mcp__vectcut__image__generate_or_edit_image')} />)).not.toContain('本次渲染消耗')
     expect(renderToStaticMarkup(<ToolHeader block={block(undefined, { billing: null })} />)).not.toContain('本次渲染消耗')
   })
+  it('combines shop quotes with scrapt consumption into one explicitly estimated group badge', () => {
+    const shop = searchBlock('shop', { structuredContent: { billing: {
+      status: 'queued', estimated_points: 2, project_id: 48
+    } } })
+    shop.metadata!.rawMcpToolResponse!.tool.name = 'mcp__vectcut__douyin-shop-search__search_products'
+    shop.metadata!.rawMcpToolResponse!.tool.serverName = 'douyin-shop-search'
+    const html = renderToStaticMarkup(<ToolBlockGroup blocks={[shop, searchBlock('scrapt', billedSearchRaw(2))]} />)
+    expect(html).toContain('联网搜索 · 2 次')
+    expect(html).toContain('预估消耗（含排队计费） ≈4.00 点')
+    expect(html.match(/tool-header-billing-badge/g)).toHaveLength(1)
+  })
+
 })

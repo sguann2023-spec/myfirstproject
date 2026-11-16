@@ -333,4 +333,21 @@ describe('mcpToolDisplay', () => {
       expect(Object.values(titles).every((title) => title.length > 0 && !title.includes('Scrapt'))).toBe(true)
     }
   })
+  it.each([
+    [zhCn, '联网搜索：联网搜索PRO'],
+    [zhTw, '聯網搜尋：聯網搜尋PRO'],
+    [enUs, 'Web Search: Web Search PRO']
+  ])('uses the localized PRO title and hidden-details policy for Douyin shop tools', (locale, expected) => {
+    const translate = ((key: string, options?: { defaultValue?: string }) =>
+      key.split('.').reduce<unknown>((value, part) => value && typeof value === 'object'
+        ? (value as Record<string, unknown>)[part] : undefined, locale) ?? options?.defaultValue ?? key) as any
+    for (const operation of ['search_products', 'get_product_details', 'get_product_skus', 'get_product_comments', 'get_shop_products']) {
+      for (const name of [`mcp__vectcut__douyin-shop-search__${operation}`, `mcp__douyin-shop-search__${operation}`, `douyin-shop-search:${operation}`]) {
+        expect(getMcpToolDisplayName({ ...parseMcpToolName(name), t: translate })).toBe(expected)
+        expect(shouldHideSearchToolDetails(name)).toBe(true)
+      }
+      expect(shouldHideSearchToolDetails(operation, 'douyin-shop-search')).toBe(true)
+    }
+  })
+
 })

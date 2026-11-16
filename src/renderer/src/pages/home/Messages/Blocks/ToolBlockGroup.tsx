@@ -175,8 +175,8 @@ const GroupHeaderContent = React.memo(({ blocks, expanded }: GroupHeaderContentP
       {billedPointsSummary && (
         <MediaGenBillingBadge
           centered
-          displayText={billedPointsSummary.totalConsumedPoints.toFixed(2)}
-          title={`总消耗 ${billedPointsSummary.totalConsumedPoints.toFixed(2)} 点`}
+          displayText={billedPointsSummary.displayText}
+          title={`${billedPointsSummary.estimated ? '预估消耗（含排队计费）' : '总消耗'} ${billedPointsSummary.displayText} 点`}
         />
       )}
     </GroupHeader>

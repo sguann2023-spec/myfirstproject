@@ -9,6 +9,7 @@ type GenericRecord = Record<string, unknown>
 export type MediaGenerationBillingSummary = {
   totalConsumedPoints: number
   displayText: string
+  estimated?: boolean
 }
 
 export function getMediaGenerationPointIconUrl(): string {
@@ -310,7 +311,12 @@ export function extractMediaGenerationBillingSummary(output: unknown): MediaGene
     billing?.total_consumed_points ?? billing?.points_consumed ?? billing?.deduct_points ?? billing?.consume
   )
 
-  if (totalConsumedPoints === null) return null
+  if (totalConsumedPoints === null) {
+    // Proxy quotes are not settled consumption. Only display them when durably queued.
+    const estimate = asFiniteNumber(billing?.estimated_points)
+    if (billing?.status !== 'queued' || estimate === null || estimate < 0) return null
+    return { totalConsumedPoints: estimate, displayText: `≈${formatConsumedPoints(estimate)}`, estimated: true }
+  }
 
   return {
     totalConsumedPoints,
@@ -323,15 +329,18 @@ export function extractMediaGenerationBillingSummary(output: unknown): MediaGene
 export function sumMediaGenerationBillingSummaries(outputs: unknown[]): MediaGenerationBillingSummary | null {
   let total = 0
   let found = false
+  let estimated = false
   for (const output of outputs) {
     const summary = extractMediaGenerationBillingSummary(output)
     if (!summary) continue
     found = true
     total += summary.totalConsumedPoints
+    estimated ||= summary.estimated === true
   }
   if (!found) return null
   return {
     totalConsumedPoints: total,
-    displayText: formatConsumedPoints(total)
+    displayText: `${estimated ? '≈' : ''}${formatConsumedPoints(total)}`,
+    ...(estimated ? { estimated: true } : {})
   }
 }
