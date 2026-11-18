@@ -2496,7 +2496,12 @@
       "code_style": "Code style",
       "compact": {
         "title": "Conversation Compacted",
-        "processing": "Compressing conversation context..."
+        "processing": "Compressing conversation context",
+        "failed": "Context compression failed",
+        "cancelled": "Context compression interrupted",
+        "chunk": "Chunk: {{count}}",
+        "tokens_before": "Tokens before: {{count}}",
+        "tokens_after": "Tokens after: {{count}}"
       },
       "delete": {
         "content": "Are you sure you want to delete this message?",
@@ -2870,6 +2875,10 @@
           },
           "draft_render": {
             "render_draft": "Pre-render"
+          },
+          "blender_local": {
+            "blender_status": "Check Local Blender",
+            "blender_render": "Local Blender Rendering"
           },
           "audio_understand": {
             "submit_audio_understanding_task": "Audio Understanding"
@@ -7441,6 +7450,61 @@
     "quit": "Quit",
     "show_window": "Show Window",
     "visualization": "Visualization"
+  },
+  "previewTab": {
+    "newTab": "New tab",
+    "mySkills": "My skills",
+    "open": "Open",
+    "openItem": "Open {{name}}",
+    "workspace": {
+      "title": "Workspace",
+      "description": "Select files from the workspace",
+      "create": "New",
+      "createLabel": "Create workspace",
+      "refresh": "Refresh workspace",
+      "reveal": "Open in file manager",
+      "loading": "Loading workspace...",
+      "error": "Unable to open the workspace. Please try again."
+    },
+    "browser": { "title": "Browser", "description": "Browse websites and preview apps.", "addressPlaceholder": "Enter a URL and press Enter" },
+    "artifacts": { "title": "Artifacts", "description": "Artifacts generated in this conversation" },
+    "stats": {
+      "title": "Statistics",
+      "tokenTitle": "Token statistics",
+      "loading": "Loading token usage…",
+      "contextLoading": "Loading context…",
+      "refreshing": "Refreshing…",
+      "loadError": "Unable to load token usage. Please try again.",
+      "retry": "Retry",
+      "contextTitle": "Current context",
+      "cacheHit": "Cache hit",
+      "contextUsed": "context used",
+      "providerReported": "Provider reported",
+      "estimateNote": "Categories estimate actual request content, not provider metering. Cached tokens are included in input.",
+      "estimatedTotal": "Category estimate ≈{{tokens}} tokens",
+      "noBreakdown": "Historical categories were not collected. Showing reported input/output shares. Cache is included in input.",
+      "partialBreakdown": "Some requests, categories or multimodal content were not fully observed.",
+      "partialHistory": "Full history is not loaded. Showing the available portion.",
+      "contextEstimate": "Estimated from a runtime context snapshot, not cumulative consumption.",
+      "contextUnknown": "Context has not been collected or is invalid. Waiting for the next request.",
+      "observedAt": "Snapshot at {{time}}",
+      "categories": {
+        "system": "System prompt", "user": "User messages", "skills": "Skill injection", "injections": "Injected content",
+        "toolDefinitions": "Tool definitions", "toolCalls": "Tool calls", "toolResults": "Tool results",
+        "assistant": "Assistant history", "reasoning": "Model thinking", "reply": "Model reply", "unattributed": "Unattributed",
+        "input": "Input tokens", "output": "Output tokens"
+      },
+      "description": "Token usage for this conversation",
+      "total": "Total usage",
+      "input": "Input tokens",
+      "output": "Output tokens",
+      "cacheRead": "Cache read tokens",
+      "cacheWrite": "Cache write tokens",
+      "cacheNote": "Cache reads and writes are included in input tokens, not added again.",
+      "empty": "No token usage in this conversation yet.",
+      "unknown": "Token usage has not been reported for this conversation.",
+      "incomplete": "Some usage is missing or incomplete. Values shown are known lower bounds."
+    }
   },
   "workspaceFileMenu": {
     "open": "Open",

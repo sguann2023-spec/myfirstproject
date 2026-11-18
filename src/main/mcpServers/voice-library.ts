@@ -4,7 +4,7 @@ import { mainHttpClient } from '@main/services/network/MainHttpClient'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 
 import { requestWithVectcutAuth } from './vectcut-auth'
 import { CLONE_VOICE_TOOL, prepareCloneVoiceRequest } from './voice-clone'
@@ -94,7 +94,9 @@ function buildQuery(args: Record<string, unknown>, tool: Tool): URLSearchParams 
 
 class VoiceLibraryServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
 
   constructor() {
     this.mcpServer = new McpServer(

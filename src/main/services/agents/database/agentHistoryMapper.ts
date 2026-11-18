@@ -1,4 +1,5 @@
 import type { AgentPersistedMessage } from '@types'
+import { isTokenTelemetry, mergeTokenTelemetry } from '@shared/tokenTelemetry'
 import { extractDirectRequestMetadata } from '../../../../shared/directRequestMetadata'
 
 import type {
@@ -25,6 +26,16 @@ const persistedUsage = (value: unknown): Record<string, any> => {
     if (normalized[legacy] == null && usage[canonical] != null) normalized[legacy] = usage[canonical]
   }
   return normalized
+}
+
+/** Keep telemetry and step snapshots in usage_json, without changing billable usage. */
+export const persistedMessageUsage = (message: Record<string, any>): Record<string, unknown> | undefined => {
+  const usage = { ...record(message.usage) }
+  const previous = isTokenTelemetry(usage.tokenTelemetry) ? usage.tokenTelemetry : undefined
+  const next = isTokenTelemetry(message.tokenTelemetry) ? message.tokenTelemetry : undefined
+  if (previous || next) usage.tokenTelemetry = mergeTokenTelemetry(previous, next)
+  if (Array.isArray(message.usageSteps)) usage.usageSteps = message.usageSteps
+  return Object.keys(usage).length > 0 ? usage : undefined
 }
 
 // An absent legacy error must not become a truthy `{}` in error_json.
@@ -66,6 +77,7 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
   const { message } = entry
   const status = messageStatus(message.status, message.role)
   const messageError = optionalError(message.error)
+  const { tokenTelemetry, usageSteps, ...usage } = persistedUsage(message.usage)
   const blockOrder = (part: AgentMessageWithParts['parts'][number]): number => {
     const index = part.data?.transcriptBlockIndex
     return typeof index === 'number' && Number.isInteger(index) && index >= 0 ? index : part.sequence
@@ -89,7 +101,8 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
       status: blockStatus(message.status, data),
       ...(content !== undefined ? { content } : {}),
       ...(type === 'thinking' && data.thinking_millsec === undefined ? { thinking_millsec: 0 } : {}),
-      error
+      // Compaction lifecycle belongs to the operation, not a later reply failure.
+      error: type === 'compact' ? optionalError(data.error) : error
     }
   })
 
@@ -116,7 +129,9 @@ export function canonicalEntryToPersisted(entry: AgentMessageWithParts): AgentPe
       blocks: blocks.map((block) => block.id),
       ...(message.provider?.modelId ? { modelId: message.provider.modelId } : {}),
       ...(message.provider?.requestId ? { traceId: message.provider.requestId } : {}),
-      ...(message.usage ? { usage: persistedUsage(message.usage) } : {}),
+      ...(Object.keys(usage).length > 0 ? { usage } : {}),
+      ...(isTokenTelemetry(tokenTelemetry) ? { tokenTelemetry: mergeTokenTelemetry(undefined, tokenTelemetry) } : {}),
+      ...(Array.isArray(usageSteps) ? { usageSteps } : {}),
       ...(messageError ? { error: messageError } : {}),
       ...(message.status === 'cancelled' ? { aborted: true } : {}),
       canonicalStatus: message.status,
@@ -177,7 +192,7 @@ export function persistedToCanonicalInputs(
         ...(legacyMessage.modelId ? { modelId: legacyMessage.modelId } : {}),
         ...(legacyMessage.traceId ? { requestId: legacyMessage.traceId } : {})
       },
-      usage: record(legacyMessage.usage),
+      usage: persistedMessageUsage(legacyMessage),
       error: optionalError(legacyMessage.error),
       createdAt,
       updatedAt,

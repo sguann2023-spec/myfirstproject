@@ -1,3 +1,4 @@
+import { SOCIAL_MEDIA_SOURCE_ROUTING } from './social-media-source-routing'
 import ipaddr from 'ipaddr.js'
 import { createWriteStream } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -16,7 +17,7 @@ import { prepareAudioUnderstanding } from '@main/utils/prepare-subtitle-audio'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken, Tool } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 
 import { requestWithVectcutAuth } from './vectcut-auth'
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
@@ -28,13 +29,13 @@ const POLL_TIMEOUT_MS = 35 * 60 * 1000
 const TOOL: Tool = {
   name: 'submit_audio_understanding_task',
   description:
-    'Deeply understand the audio of an audio or video source using the fixed qwen3.8-omni-flash model and your prompt. Analyze speech, vocal emotion, music, environmental sounds, animal calls, and audible events, not just subtitle text. This is audio-only understanding, not visual inspection, speaker identity verification, or precise subtitle alignment. For videos under 10 minutes, call this alongside video-understand (submit_video_detail_task) so background music, sound effects and music/beat rhythm are analyzed together with the visuals. Specify the information and output format you need in prompt; distinguish audible evidence from uncertain inference. Downloads remote media, extracts and uploads a temporary audio track, submits one chat task, and waits for the answer. Only the first 15 minutes are analyzed for longer sources; the result explicitly reports truncation. Original media is unchanged.',
+    SOCIAL_MEDIA_SOURCE_ROUTING + 'Deeply understand the audio of an audio or video source using the fixed qwen3.8-omni-flash model and your prompt. Analyze speech, vocal emotion, music, environmental sounds, animal calls, and audible events, not just subtitle text. This is audio-only understanding, not visual inspection, speaker identity verification, or precise subtitle alignment. For videos under 10 minutes, call this alongside video-understand (submit_video_detail_task) so background music, sound effects and music/beat rhythm are analyzed together with the visuals. Specify the information and output format you need in prompt; distinguish audible evidence from uncertain inference. Downloads remote media, extracts and uploads a temporary audio track, submits one chat task, and waits for the answer. Only the first 15 minutes are analyzed for longer sources; the result explicitly reports truncation. Original media is unchanged.',
   inputSchema: {
     type: 'object',
     properties: {
       url: {
         type: 'string',
-        description: 'Audio/video HTTP(S) URL, file URL, or absolute local path.'
+        description: 'Resolved audio/video direct-media HTTP(S) URL, file URL, or absolute local media path. Not a social share/watch page; reuse the file already downloaded for video-understand.'
       },
       prompt: {
         type: 'string',
@@ -152,7 +153,9 @@ const EXTERNAL_TOOLS: Tool[] = [
 
 export default class AudioUnderstandServer {
   public readonly mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
 
   constructor(
     private readonly workspacePath?: string,

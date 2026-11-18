@@ -94,6 +94,7 @@ function isRetriablePiError(error: Error): boolean {
   const isNonRetriable =
     name === 'AbortError'
     || name === 'PiHistoryLimitError'
+    || normalized.includes('pi context compaction:')
     // The harness can turn a thrown local error into a plain errorMessage.
     || normalized.includes('pi history exceeds safe reading limits')
     || (nonRetriableStatusCodePattern.test(message) && !isUnexplainedBadRequest)
@@ -365,6 +366,7 @@ export async function processPiHarnessQuery(input: {
   let currentAssistantUsage: LanguageModelUsage = convertPiUsage()
   let currentAssistantStopReason: 'stop' | 'length' | 'tool-calls' | 'error' = 'stop'
   let textDeltaCount = 0
+  let firstTextEmitted = false
   let reasoningDeltaCount = 0
   let toolCallCount = 0
   let toolResultCount = 0
@@ -381,11 +383,6 @@ export async function processPiHarnessQuery(input: {
   let idleTimeoutTriggered = false
   let externalAbortRequested = abortSignal?.aborted === true
   let cancellationPending = false
-  const compactionTriggerTokens =
-    runtimeBridge.tokenLimits?.compactionTriggerTokens ??
-    (runtimeBridge.tokenLimits?.maxInputTokens
-      ? Math.floor(runtimeBridge.tokenLimits.maxInputTokens * 0.9)
-      : undefined)
 
   const clearTerminalTimeout = () => {
     if (!terminalTimeoutHandle) return
@@ -401,7 +398,7 @@ export async function processPiHarnessQuery(input: {
 
   const armTerminalTimeout = () => {
     clearTerminalTimeout()
-    if (executingToolCallIds.size > 0) return
+    if (executingToolCallIds.size > 0 || runtimeBridge.contextCompaction?.isCompacting()) return
     terminalTimeoutHandle = setTimeout(() => {
       terminalTimeoutTriggered = true
       void runtimeBridge.harness.abort().catch((abortError) => {
@@ -413,7 +410,7 @@ export async function processPiHarnessQuery(input: {
   const armIdleTimeout = () => {
     clearIdleTimeout()
     // Tool execution has its own deadline; silence is not an idle model stream.
-    if (executingToolCallIds.size > 0) return
+    if (executingToolCallIds.size > 0 || runtimeBridge.contextCompaction?.isCompacting()) return
     idleTimeoutHandle = setTimeout(() => {
       idleTimeoutTriggered = true
       logger.warn('[PiQuery] idle timeout reached without any chunk, aborting for retry', {
@@ -656,6 +653,25 @@ export async function processPiHarnessQuery(input: {
     )
   }
 
+  const unsubscribeTelemetry = runtimeBridge.tokenTelemetry?.subscribe(data => {
+    emitChunk(stream, { type: 'raw', rawValue: { type: 'token-telemetry', data } } as TextStreamPart<any>, harness)
+  })
+  const flushTelemetry = async (status: 'failed' | 'aborted' = 'failed') => {
+    // Let result() observers of an already settled provider stream run before
+    // terminal projection. Unsettled streams are finalized by flush, not awaited
+    // indefinitely (a broken provider may never resolve result after abort).
+    await Promise.resolve()
+    await runtimeBridge.flushTokenTelemetryQueue?.()
+    runtimeBridge.tokenTelemetry?.flush(status)
+  }
+  const unsubscribeCompaction = runtimeBridge.contextCompaction?.subscribe(event => {
+    clearIdleTimeout()
+    clearTerminalTimeout()
+    emitChunk(stream, {
+      type: 'raw', rawValue: { type: 'context_compaction', ...event }
+    } as TextStreamPart<any>, harness)
+    if (event.phase === 'complete') armIdleTimeout()
+  })
   const unsubscribeNestedTools = runtimeBridge.subscribeNestedToolEvents(handleNestedToolEvent)
   const unsubscribe = runtimeBridge.harness.subscribe(async (event) => {
     if (event.type === 'tool_execution_start') {
@@ -716,21 +732,35 @@ export async function processPiHarnessQuery(input: {
           textBlockContents.set(blockId, '')
           emitChunk(stream, { type: 'text-start', id: blockId, providerMetadata } as TextStreamPart<any>, harness)
           return
-        case 'text_delta':
-          streamedAssistantText += String(assistantEvent.delta || '')
-          textBlockContents.set(blockId, `${textBlockContents.get(blockId) || ''}${String(assistantEvent.delta || '')}`)
+        case 'text_delta': {
+          const delta = String(assistantEvent.delta || '')
+          streamedAssistantText += delta
+          textBlockContents.set(blockId, `${textBlockContents.get(blockId) || ''}${delta}`)
           textDeltaCount += 1
+          if (!firstTextEmitted && delta.length > 0) {
+            firstTextEmitted = true
+            const atEpochMs = Date.now()
+            logger.info('[FirstTextTiming]', {
+              traceId: harness.invokeContext.runtime.traceId,
+              sessionId,
+              stage: 'first-text-emit',
+              atEpochMs,
+              textLength: delta.length,
+              queryElapsedMs: atEpochMs - queryStartedAt
+            })
+          }
           emitChunk(
             stream,
             {
               type: 'text-delta',
               id: blockId,
-              text: String(assistantEvent.delta || ''),
+              text: delta,
               providerMetadata
             } as TextStreamPart<any>,
             harness
           )
           return
+        }
         case 'text_end':
           const completedText = textBlockContents.get(blockId) || ''
           emitChunk(
@@ -1148,6 +1178,8 @@ export async function processPiHarnessQuery(input: {
       clearTerminalTimeout()
       clearIdleTimeout()
 
+      const compactionFailure = runtimeBridge.contextCompaction?.getFailure()
+      if (compactionFailure) throw compactionFailure
       const resultStopReason = String((result as any).stopReason || '').trim()
       if (terminalTimeoutTriggered) {
         const timeoutError = createPiTerminalTimeoutError(terminalTimeoutMs)
@@ -1252,29 +1284,8 @@ export async function processPiHarnessQuery(input: {
       cumulativeInputTokens: Number((result as any).usage?.input ?? latestInputTokens)
     })
 
-    if (compactionTriggerTokens && finalUsage.inputTokens >= compactionTriggerTokens) {
-      try {
-        logger.info('[PiQuery] compacting context after token threshold', {
-          sessionId,
-          traceId: architectureContext.traceId,
-          inputTokens: finalUsage.inputTokens,
-          compactionTriggerTokens,
-          maxInputTokens: runtimeBridge.tokenLimits?.maxInputTokens,
-          contextWindowTokens: runtimeBridge.tokenLimits?.contextWindowTokens
-        })
-        await runtimeBridge.harness.compact()
-      } catch (error) {
-        logger.warn('[PiQuery] automatic context compaction failed', {
-          sessionId,
-          traceId: architectureContext.traceId,
-          inputTokens: finalUsage.inputTokens,
-          compactionTriggerTokens,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-    }
-
     flushUnreconciledToolResults()
+    await flushTelemetry()
     emitChunk(
       stream,
       {
@@ -1318,6 +1329,7 @@ export async function processPiHarnessQuery(input: {
       attemptsUsed: currentAttempt,
       error: errorObj.message
     })
+    await flushTelemetry('failed')
     emitError(stream, errorObj, harness)
   } finally {
     clearTerminalTimeout()
@@ -1325,7 +1337,12 @@ export async function processPiHarnessQuery(input: {
     if (abortSignal) {
       abortSignal.removeEventListener('abort', onAbort)
     }
+    await flushTelemetry(cancellationPending ? 'aborted' : 'failed')
+    unsubscribeTelemetry?.()
+    runtimeBridge.unsubscribeTokenTelemetry?.()
+    runtimeBridge.tokenTelemetry?.close()
     unsubscribe()
+    unsubscribeCompaction?.()
     unsubscribeNestedTools()
     await Promise.allSettled((runtimeBridge.mcpClients ?? []).map((client) => client.close()))
     // A cancellation acknowledgement can immediately unlock the next request.

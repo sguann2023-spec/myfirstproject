@@ -26,6 +26,7 @@ export interface CustomChatModel extends CustomChatModelMetadata {
   apiKey: string
   modelId: string
   read_image: boolean
+  context_window_tokens?: number
 }
 
 export interface CustomChatProvider {

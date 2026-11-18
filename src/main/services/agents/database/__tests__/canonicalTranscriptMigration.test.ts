@@ -171,6 +171,57 @@ describe('canonical transcript migration and crash reconciliation', () => {
     expect((await client.execute("SELECT * FROM entity_records WHERE json_extract(payload,'$.session_id')='session-b' ORDER BY position")).rows).toEqual(retained.rows)
   })
 
+  it('backfills compact metadata and settles only active operations after a restart', async () => {
+    const { canonicalEntryToPersisted } = await import('../agentHistoryMapper')
+    const { eq } = await import('drizzle-orm')
+    const phases = ['start', 'chunk', 'complete', 'error', 'cancelled']
+    const blocks = phases.map(phase => ({
+      id: `assistant:context-compaction:${phase}`, messageId: 'assistant', type: 'compact',
+      status: phase === 'complete' ? 'success' : phase === 'error' ? 'error' : phase === 'cancelled' ? 'paused' : 'processing',
+      content: phase === 'complete' ? 'UI-only summary' : '', compactedContent: '',
+      metadata: { contextCompaction: { operationId: phase, phase, chunk: 2, tokensBefore: 1000,
+        ...(phase === 'complete' ? { tokensAfter: 250 } : {}), ...(phase === 'error' ? { error: 'Failed' } : {}) } }
+    }))
+    await client.execute({ sql: 'INSERT INTO session_messages(session_id,role,content,created_at,updated_at) VALUES (?,?,?,?,?)',
+      args: ['session-a', 'assistant', JSON.stringify({ message: { id: 'assistant', role: 'assistant', status: 'streaming' }, blocks }), '2026-01-01', '2026-01-01'] })
+    await backfillCanonicalTranscript(db as any)
+    const before = await db.select().from(schema.agentMessagePartsTable).orderBy(schema.agentMessagePartsTable.sequence)
+    expect(before.map(part => part.type)).toEqual(Array(5).fill('compact'))
+    expect(before.map(part => part.data_json.metadata)).toEqual(blocks.map(block => block.metadata))
+    const result = await reconcileInterruptedAgentWork(db as any)
+    expect(result).toMatchObject({ messagesInterrupted: 1, partsInterrupted: 2, toolsInterrupted: 0 })
+    const after = await db.select().from(schema.agentMessagePartsTable).orderBy(schema.agentMessagePartsTable.sequence)
+    expect(after.map(part => (part.data_json.metadata as any).contextCompaction.phase)).toEqual(['error', 'error', 'complete', 'error', 'cancelled'])
+    expect(after.map(part => part.data_json.status)).toEqual(['error', 'error', 'success', 'error', 'paused'])
+    expect(after[0].data_json).toMatchObject({ metadata: { contextCompaction: {
+      operationId: 'start', tokensBefore: 1000, error: 'Context compaction was interrupted before completion.'
+    } } })
+    const [message] = await db.select().from(schema.agentMessagesTable).where(eq(schema.agentMessagesTable.id, 'assistant'))
+    const projected = canonicalEntryToPersisted({
+      message: { id: message.id, sessionId: message.session_id, sequence: message.sequence, role: 'assistant', status: 'interrupted',
+        createdAt: message.created_at, updatedAt: message.updated_at, error: message.error_json ?? undefined },
+      parts: after.map(part => ({ id: part.id, sessionId: part.session_id, messageId: part.message_id,
+        type: part.type, sequence: part.sequence, data: part.data_json, createdAt: part.created_at, updatedAt: part.updated_at }))
+    })
+    expect(projected.blocks[2]).toMatchObject({ type: 'compact', content: 'UI-only summary', status: 'success' })
+    expect(projected.blocks[2].error).toBeUndefined()
+    expect((await reconcileInterruptedAgentWork(db as any)).partsInterrupted).toBe(0)
+  })
+
+  it('backfills telemetry and usageSteps into usage_json without changing usage totals', async () => {
+    const tokenTelemetry = { version: 1, requests: [] }
+    const usageSteps = [{ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }]
+    const message = { id: 'telemetry', role: 'assistant', status: 'success', createdAt: '2026-01-01',
+      usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }, tokenTelemetry, usageSteps }
+    await client.execute({
+      sql: 'INSERT INTO session_messages(session_id, role, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      args: ['session-a', 'assistant', JSON.stringify({ message, blocks: [] }), '2026-01-01', '2026-01-01']
+    })
+    await backfillCanonicalTranscript(db as any)
+    const rows = await client.execute("SELECT usage_json FROM agent_messages WHERE id='telemetry'")
+    expect(JSON.parse(String(rows.rows[0].usage_json))).toEqual({ ...message.usage, tokenTelemetry, usageSteps })
+  })
+
   it('backfills legacy messages, prefers the terminal duplicate, and is idempotent', async () => {
     await client.execute({
       sql: 'INSERT INTO session_messages(session_id, role, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',

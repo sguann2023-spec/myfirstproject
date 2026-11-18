@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ validate: vi.fn(), refresh: vi.fn(), listCustom: vi.fn<() => any[]>(() => []) }))
+const mocks = vi.hoisted(() => ({
+  validate: vi.fn(), refresh: vi.fn(), listCustom: vi.fn<() => any[]>(() => []),
+  getModels: vi.fn<() => Promise<{ data: any[] }>>()
+}))
 vi.mock('@main/services/CustomChatModelsService', () => ({ CustomChatModelsService: class { list = mocks.listCustom } }))
 vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn() }) } }))
 vi.mock('@main/apiServer/config', () => ({ config: { get: async () => ({}) } }))
-vi.mock('@main/apiServer/services/models', () => ({ modelsService: { getModels: async () => ({ data: [] }) } }))
+vi.mock('@main/apiServer/services/models', () => ({ modelsService: { getModels: mocks.getModels } }))
 vi.mock('@main/apiServer/utils', () => ({ validateModelId: mocks.validate }))
 vi.mock('@main/constant', () => ({ isWin: false }))
 vi.mock('@main/services/proxy/nodeProxy', () => ({ getProxyEnvironment: () => ({}) }))
@@ -28,6 +31,7 @@ const build = () => buildClaudeRuntimeEnvironment({
 describe('runtime gateway credential scoping', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.getModels.mockReset().mockResolvedValue({ data: [] })
     mocks.refresh.mockResolvedValue('fresh-runtime-token')
     mocks.listCustom.mockReturnValue([{ id: 'custom-123', modelId: 'model', baseUrl: custom }])
   })
@@ -123,6 +127,77 @@ describe('runtime gateway credential scoping', () => {
     mocks.listCustom.mockReturnValue([{ ...model, id: 'custom-other', reasoning_level_map: '{"reasoning_effort":"wrong"}' }, model])
     return model
   }
+
+  it.each(['openai', 'anthropic'])('uses exact persisted custom %s token limits instead of remote or sibling metadata', async (type) => {
+    const model = configureReasoning({ context_window_tokens: 262144, max_output_tokens: 32768 })
+    mocks.validate.mockResolvedValue({ valid: true, modelId: model.modelId, provider: { id: model.id, type, apiHost: custom, apiKey: 'custom-key' } })
+    mocks.listCustom.mockReturnValue([
+      { ...model, id: 'custom-other', context_window_tokens: 64000, max_output_tokens: 4096 },
+      { ...model, modelId: 'other-model', context_window_tokens: 96000, max_output_tokens: 8192 },
+      model
+    ])
+    mocks.getModels.mockResolvedValue({ data: [{
+      id: 'custom-exact:model:version', provider: 'custom-exact', provider_model_id: model.modelId,
+      context_window_tokens: 128000, max_input_tokens: 120000, max_output_tokens: 8000,
+      compaction_trigger_tokens: 100000
+    }] })
+
+    const runtime = await buildCustom()
+
+    expect(runtime.modelTokenLimits).toEqual({ contextWindowTokens: 262144, maxOutputTokens: 32768 })
+    expect(runtime.modelTokenLimits?.maxInputTokens).toBeUndefined()
+    expect(runtime.modelTokenLimits?.compactionTriggerTokens).toBeUndefined()
+    expect(mocks.listCustom).toHaveBeenCalledTimes(1)
+    expect(mocks.getModels).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { context_window_tokens: 262144, max_output_tokens: 32768 },
+    { context_window_tokens: 262144, max_output_tokens: undefined },
+    { context_window_tokens: undefined, max_output_tokens: 32768 },
+    { context_window_tokens: undefined, max_output_tokens: undefined }
+  ])('keeps custom optional token limits local when remote metadata is unavailable %#', async (metadata) => {
+    configureReasoning(metadata)
+    mocks.getModels.mockRejectedValue(new Error('remote metadata unavailable'))
+
+    const runtime = await buildCustom()
+
+    expect(runtime.modelTokenLimits?.contextWindowTokens).toBe(metadata.context_window_tokens)
+    expect(runtime.modelTokenLimits?.maxOutputTokens).toBe(metadata.max_output_tokens)
+    expect(runtime.modelTokenLimits?.maxInputTokens).toBeUndefined()
+    expect(runtime.modelTokenLimits?.compactionTriggerTokens).toBeUndefined()
+    expect(mocks.getModels).not.toHaveBeenCalled()
+  })
+
+  it.each(['composite ID', 'provider model ID'])('preserves all noncustom remote token limits matched by %s', async (match) => {
+    mocks.validate.mockResolvedValue({ valid: true, modelId: 'model', provider: { id: 'official', type: 'openai', apiHost: custom, apiKey: 'provider-key' } })
+    mocks.getModels.mockResolvedValue({ data: [{
+      id: match === 'composite ID' ? 'official:model' : 'remote-model',
+      provider: match === 'composite ID' ? 'remote-provider' : 'official', provider_model_id: 'model',
+      context_window_tokens: 200000, max_input_tokens: 180000, max_output_tokens: 16000,
+      compaction_trigger_tokens: 150000
+    }] })
+
+    const runtime = await buildClaudeRuntimeEnvironment({
+      session: { id: 'session', model: 'official:model' } as any,
+      cwd: '/tmp', enableToolSearch: false
+    })
+
+    expect(runtime.modelTokenLimits).toEqual({
+      contextWindowTokens: 200000, maxInputTokens: 180000, maxOutputTokens: 16000,
+      compactionTriggerTokens: 150000
+    })
+    expect(mocks.getModels).toHaveBeenCalledTimes(1)
+    expect(mocks.listCustom).not.toHaveBeenCalled()
+  })
+
+  it('retains default token limits for noncustom providers when the remote lookup fails', async () => {
+    mocks.validate.mockResolvedValue({ valid: true, modelId: 'model', provider: { id: 'official', type: 'openai', apiHost: custom, apiKey: 'provider-key' } })
+    mocks.getModels.mockRejectedValue(new Error('remote metadata unavailable'))
+
+    expect((await build()).modelTokenLimits).toBeUndefined()
+    expect(mocks.listCustom).not.toHaveBeenCalled()
+  })
 
   it('resolves the exact composite override once, preserves case, and defaults to the first level', async () => {
     configureReasoning()

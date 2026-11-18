@@ -3,6 +3,70 @@ import { describe, expect, it } from 'vitest'
 import { TextStreamAccumulator } from '../session-stream-accumulator'
 
 describe('TextStreamAccumulator', () => {
+  it('upserts compaction progress by operation without fabricating tools or model text', () => {
+    const accumulator = new TextStreamAccumulator()
+    const progress = (event: Record<string, unknown>) => accumulator.add({
+      type: 'raw', rawValue: { type: 'context_compaction', operationId: 'compact-a', ...event }
+    } as any)
+    accumulator.add({ type: 'text-delta', text: 'Before' } as any)
+    progress({ phase: 'start', tokensBefore: 1000 })
+    const initial = accumulator.getAssistantBlocks('message-1')[1]
+    expect(initial).toMatchObject({ type: 'compact', status: 'processing', content: '', compactedContent: '',
+      metadata: { contextCompaction: { operationId: 'compact-a', phase: 'start', tokensBefore: 1000 } } })
+    progress({ phase: 'chunk', chunk: 2 })
+    const snapshot = accumulator.getAssistantBlocks('message-1')[1]
+    expect(snapshot.id).toBe(initial.id)
+    expect(snapshot.metadata.contextCompaction).toEqual({ operationId: 'compact-a', phase: 'chunk', chunk: 2, tokensBefore: 1000 })
+    snapshot.metadata.contextCompaction.chunk = 99
+    progress({ phase: 'complete', tokensAfter: 250, summary: 'UI-only summary' })
+    progress({ phase: 'chunk', chunk: 3 })
+    progress({ phase: 'start' })
+    accumulator.add({ type: 'text-delta', text: 'After' } as any)
+    const blocks = accumulator.getAssistantBlocks('message-1')
+    expect(blocks.map(block => block.type)).toEqual(['main_text', 'compact', 'main_text'])
+    expect(blocks[1]).toMatchObject({ id: initial.id, status: 'success', content: 'UI-only summary', compactedContent: '',
+      metadata: { contextCompaction: { operationId: 'compact-a', phase: 'complete', chunk: 2, tokensBefore: 1000, tokensAfter: 250 } } })
+    expect(accumulator.getText()).toBe('BeforeAfter')
+    expect(accumulator.getReasoningText()).toBe('')
+    expect(accumulator.getUsage()).toBeUndefined()
+    expect(accumulator.summarizeState()).toMatchObject({ toolCallCount: 0, toolResultCount: 0 })
+  })
+
+  it.each([['error', 'error'], ['cancelled', 'paused']] as const)('retains %s compaction state and isolates operations', (phase, status) => {
+    const accumulator = new TextStreamAccumulator()
+    for (const event of [
+      { operationId: 'first', phase: 'chunk', chunk: 1, tokensBefore: 1000 },
+      { operationId: 'second', phase: 'start', tokensBefore: 2000 },
+      { operationId: 'first', phase, error: phase === 'error' ? 'Summarization failed' : undefined },
+      { operationId: 'first', phase: 'complete', summary: 'late' }
+    ]) accumulator.add({ type: 'raw', rawValue: { type: 'context_compaction', ...event } } as any)
+    const blocks = accumulator.getAssistantBlocks('message-1')
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toMatchObject({ type: 'compact', status, content: '',
+      metadata: { contextCompaction: { operationId: 'first', phase, chunk: 1, tokensBefore: 1000,
+        ...(phase === 'error' ? { error: 'Summarization failed' } : {}) } } })
+    expect(blocks[1]).toMatchObject({ type: 'compact', status: 'processing',
+      metadata: { contextCompaction: { operationId: 'second', phase: 'start', tokensBefore: 2000 } } })
+    expect(blocks[0].id).not.toBe(blocks[1].id)
+  })
+
+  it('ignores malformed compaction events and invalid optional progress fields', () => {
+    const accumulator = new TextStreamAccumulator()
+    for (const rawValue of [null, [], 'bad', { type: 'context_compaction' },
+      { type: 'context_compaction', operationId: '', phase: 'start' },
+      { type: 'context_compaction', operationId: ' ', phase: 'start' },
+      { type: 'context_compaction', operationId: 42, phase: 'start' },
+      { type: 'context_compaction', operationId: 'bad', phase: 'unknown' }
+    ]) accumulator.add({ type: 'raw', rawValue } as any)
+    expect(accumulator.getAssistantBlocks('message-1')).toEqual([])
+    accumulator.add({ type: 'raw', rawValue: { type: 'context_compaction', operationId: 'valid', phase: 'complete',
+      tokensBefore: -1, tokensAfter: 0, chunk: NaN, summary: {}, error: [] } } as any)
+    expect(accumulator.getAssistantBlocks('message-1')[0]).toMatchObject({ content: '', status: 'success',
+      metadata: { contextCompaction: { operationId: 'valid', phase: 'complete', tokensAfter: 0 } } })
+    expect(accumulator.getAssistantBlocks('message-1')[0].metadata.contextCompaction).not.toHaveProperty('tokensBefore')
+    expect(accumulator.getAssistantBlocks('message-1')[0].metadata.contextCompaction).not.toHaveProperty('chunk')
+  })
+
   it('accumulates partial arguments and parses complete JSON without a tool-call', () => {
     const accumulator = new TextStreamAccumulator()
     accumulator.add({ type: 'tool-input-start', id: 'tool-1', toolName: 'Read' } as any)

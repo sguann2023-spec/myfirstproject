@@ -1,7 +1,19 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages'
 
+export interface ContextCompactionEvent {
+  type: 'context_compaction'
+  operationId: string
+  phase: 'start' | 'chunk' | 'complete' | 'error' | 'cancelled'
+  chunk?: number
+  tokensBefore?: number
+  tokensAfter?: number
+  summary?: string
+  error?: string
+}
+
 export type ClaudeCodeRawValue =
+  | ContextCompactionEvent
   | {
       type: string
       session_id: string

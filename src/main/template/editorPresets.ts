@@ -1,5 +1,6 @@
 import { isTemplatePresetId } from '../../shared/templatePresets'
 import type { DraftTemplate, DraftSceneSegment } from './draftTemplate'
+import { createWelcomePreset } from './welcomePreset'
 
 function createMixedTrackPreset(template: DraftTemplate): DraftTemplate {
   delete template.duration
@@ -42,6 +43,7 @@ function createMixedTrackPreset(template: DraftTemplate): DraftTemplate {
 
 export function createEditorPreset(presetId: unknown = 'empty'): DraftTemplate {
   if (!isTemplatePresetId(presetId)) throw new Error('不支持的模版')
+  if (presetId === 'personalized-welcome') return createWelcomePreset()
   const template: DraftTemplate = {
     canvas_config: { width: 720, height: 1280 },
     duration: 15_000_000,

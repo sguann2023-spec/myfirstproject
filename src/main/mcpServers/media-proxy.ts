@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, CallToolResultSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { net } from 'electron'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
 import { getStoredVectcutApiKey, requestWithVectcutAuth } from './vectcut-auth'
@@ -64,7 +64,9 @@ async function readMessage(response: Response): Promise<unknown> {
 export default class StatelessMediaProxyServer {
   public readonly mcpServer: McpServer
   private readonly endpoint: URL
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
 
   constructor(private readonly config: MediaProxyConfig) {
     this.endpoint = new URL(config.endpoint)

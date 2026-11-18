@@ -46,6 +46,34 @@ describe('模版本地持久化', () => {
     expect(formatTemplateModifiedAt(new Date('2026-10-08T12:00:00'), now)).toBe('10/08')
   })
 
+  it('内置欢迎图片解析到实际资源路径，旧几何版本加载时定向升级并备份', async () => {
+    const { createStoredTemplateDocument, loadStoredTemplateDocument } = await import('./templateStorage')
+    const stored = createStoredTemplateDocument('personalized-welcome')
+    const draft = JSON.parse(stored.templateJson)
+    const logo = draft.materials.videos.find((item: { id: string }) => item.id === 'welcome-brand-logo-material')
+    expect(logo.path).toMatch(/^file:.*template-presets\/personalized-welcome\/logo\/vectcut\.png$/)
+    const intro = draft.scenes[0].tracks[0].segments[0]
+    const background = intro.tracks[0]
+    const materialId = background.segments[0].material_id
+    background.type = 'shape'
+    draft.materials.videos = draft.materials.videos.filter((item: { id: string }) => item.id !== materialId)
+    draft.materials.shapes = [{ id: materialId, type: 'shape', geometry: 'rectangle', width: 720, height: 1280, fill: '#FFD43B' }]
+    const name = draft.materials.texts.find((item: { id: string }) => item.id === 'welcome-name-material')
+    name.content = JSON.stringify({ text: '嗨，小雨！' })
+    const before = JSON.stringify(draft)
+    fs.writeFileSync(stored.templateStorage.templatePath, before)
+    const loaded = loadStoredTemplateDocument(stored.templateStorage.templatePath)
+    const upgraded = JSON.parse(loaded.templateJson)
+    expect(upgraded.materials.shapes).toBeUndefined()
+    expect(upgraded.materials.texts.find((item: { id: string }) => item.id === name.id).content).toBe(name.content)
+    expect(upgraded.materials.videos.find((item: { id: string }) => item.id === 'welcome-intro-background-image-material').path)
+      .toMatch(/^file:.*background-yellow\.png$/)
+    const backup = path.join(stored.templateStorage.directory, 'template.before-image-logo.json')
+    expect(fs.readFileSync(backup, 'utf8')).toBe(before)
+    expect(loadStoredTemplateDocument(stored.templateStorage.templatePath).templateJson).toBe(loaded.templateJson)
+    expect(fs.readFileSync(backup, 'utf8')).toBe(before)
+  })
+
   it('把旧 workspace agent 目录中的模版迁移到新的 template 目录', async () => {
     const legacyDirectory = path.join(userDataPath, 'Data', 'Workspaces', 'vectcut_claw_default', 'template', 'scenes', '一句一图')
     fs.mkdirSync(legacyDirectory, { recursive: true })

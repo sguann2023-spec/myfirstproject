@@ -9,6 +9,21 @@ import { getMcpToolDisplayName, parseMcpToolName, shouldHideSearchToolDetails } 
 
 describe('mcpToolDisplay', () => {
   it.each([
+    ['zh-cn', zhCn, '检测本地 Blender', '本地 Blender 渲染'],
+    ['zh-tw', zhTw, '偵測本機 Blender', '本機 Blender 算圖'],
+    ['en-us', enUs, 'Check Local Blender', 'Local Blender Rendering']
+  ] as const)('shows local Blender titles in %s', async (lng, locale, status, render) => {
+    const i18n = createInstance()
+    const language = lng.replace(/-([a-z]+)/, (_, region: string) => `-${region.toUpperCase()}`)
+    await i18n.init({ lng: language, fallbackLng: false, resources: { [language]: { translation: locale } } })
+    for (const [tool, title] of [['blender_status', status], ['blender_render', render]]) {
+      expect(getMcpToolDisplayName({
+        ...parseMcpToolName(`mcp__vectcut__blender-local__${tool}`), t: i18n.t
+      })).toBe(title)
+    }
+  })
+
+  it.each([
     ['zh-cn', zhCn, '产出', '添加产出', '查看产出', '：'],
     ['zh-tw', zhTw, '產出', '新增產出', '檢視產出', '：'],
     ['en-us', enUs, 'Artifacts', 'Add Artifact', 'List Artifacts', ': ']

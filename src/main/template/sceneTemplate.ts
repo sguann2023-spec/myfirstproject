@@ -4,6 +4,7 @@ import { STICKER_TRANSFORMS, stickerTransformParams, type StickerTransforms } fr
 import { validateResource, type ResourceFields } from './resourceWorkflow'
 import { visualParams } from './propertyWorkflow'
 import { validateWorkflowConfiguration } from './configurationWorkflow'
+import { validateScenePreviewTransition, type ScenePreviewTransition } from '../../shared/templateShapes'
 
 export interface SceneElement extends StickerTransforms, ResourceFields {
   id: string
@@ -22,6 +23,7 @@ export interface SceneElement extends StickerTransforms, ResourceFields {
   auto_duration?: boolean
   batch_scene?: unknown
   fill_color?: string
+  preview_transition?: ScenePreviewTransition
   height?: number | string
   source?: string
   elements?: SceneElement[]
@@ -176,6 +178,11 @@ function processSceneTemplate(
       if (!['composition', 'image', 'text', 'video', 'audio', 'sticker', 'filter', 'effect'].includes(element.type)) {
         throw new Error(`${element.id} 暂不支持元素类型：${element.type}`)
       }
+      if (element.preview_transition !== undefined) {
+        if (element.type !== 'composition') throw new Error(`${element.id}.preview_transition 仅支持分镜`)
+        validateScenePreviewTransition(element.preview_transition, element.id)
+        if (!timelineOnly) throw new Error(`${element.id}: preview_transition 圆形擦除仅支持本地预览，当前编译/导出不支持该转场，不能无损导出`)
+      }
       track(element)
       relativeTrack(element)
       validateWorkflowConfiguration(element.type, element.configuration)
@@ -187,7 +194,7 @@ function processSceneTemplate(
         'track_name', 'track_relative_index',
         ...(['image', 'video', 'text'].includes(element.type)
           ? ['transform_x', 'transform_y', 'scale_x', 'scale_y', 'rotation', element.type === 'text' ? 'font_alpha' : 'alpha'] : []),
-        ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration', 'batch_scene'] :
+        ...(element.type === 'composition' ? ['fill_color', 'elements', 'auto_duration', 'batch_scene', 'preview_transition'] :
           element.type === 'text' ? ['text', 'fill_color', 'x', 'y', 'x_anchor', 'y_anchor', 'font_family', 'font_size'] :
           element.type === 'sticker' ? ['sticker_id', ...STICKER_TRANSFORMS.map(([key]) => key)] :
           element.type === 'filter' ? ['filter_type', 'intensity'] :

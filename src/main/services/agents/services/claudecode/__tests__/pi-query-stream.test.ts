@@ -2,12 +2,12 @@ import { EventEmitter } from 'node:events'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { terminalStorageLogger } = vi.hoisted(() => ({ terminalStorageLogger: vi.fn() }))
+const { terminalStorageLogger, infoLogger } = vi.hoisted(() => ({ terminalStorageLogger: vi.fn(), infoLogger: vi.fn() }))
 
 vi.mock('@logger', () => ({
   loggerService: {
     withContext: () => ({
-      info: vi.fn(),
+      info: infoLogger,
       warn: vi.fn(),
       error: terminalStorageLogger
     })
@@ -48,6 +48,7 @@ import { conversationSegmentService } from '../session-architecture/Conversation
 import type { AgentStream, AgentStreamEvent } from '../../../interfaces/AgentStreamInterface'
 import type { AgentConversationSegment, AgentTurn } from '../session-architecture/types'
 import { convertPiUsage, processPiHarnessQuery } from '../harness/pi-query-stream'
+import { createTokenTelemetryCollector } from '../harness/token-telemetry'
 
 function createStreamRecorder(): AgentStream & { events: AgentStreamEvent[] } {
   const stream = new EventEmitter() as AgentStream & { events: AgentStreamEvent[] }
@@ -189,6 +190,221 @@ describe('processPiHarnessQuery', () => {
     vi.useRealTimers()
     delete process.env.PI_TERMINAL_TIMEOUT_MS
     delete process.env.PI_IDLE_TIMEOUT_MS
+  })
+
+  it.each(['stop', 'aborted', 'error'] as const)('flushes telemetry raw chunks before terminal events and unsubscribes for %s', async stopReason => {
+    const stream = createStreamRecorder()
+    const tokenTelemetry = createTokenTelemetryCollector({ runtimeSessionId: 'r', invocationId: 'i', modelId: 'm', providerId: 'p' })
+    const unsubscribeRuntime = vi.fn()
+    const stub = createHarnessStub({ prompt: async () => {
+      const call = tokenTelemetry.begin({}, 'model')
+      call.prepared({ messages: [{ role: 'user', content: 'private prompt' }] })
+      // Error is non-retriable so this test terminates without timer delays.
+      if (stopReason === 'error') throw new Error('401 Unauthorized')
+      call.finish({ role: 'assistant', content: [], stopReason })
+      return { role: 'assistant', content: [], stopReason }
+    } })
+    stub.harness.runtimeBridge.tokenTelemetry = tokenTelemetry
+    stub.harness.runtimeBridge.unsubscribeTokenTelemetry = unsubscribeRuntime
+    await processPiHarnessQuery({ stream, sessionId: 'topic-1', agentId: 'agent-1', architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any, harness: stub.harness, prompt: 'hello' })
+    const raw = stream.events.filter((event: any) => event.chunk?.type === 'raw') as any[]
+    expect(raw.length).toBeGreaterThan(0)
+    const terminal = raw.flatMap(event => event.chunk.rawValue.data.requests).filter(request => request.status !== 'prepared')
+    expect(terminal.at(-1).status).toBe(stopReason === 'stop' ? 'completed' : stopReason === 'error' ? 'failed' : 'aborted')
+    expect(raw.every(event => event.chunk.rawValue.type === 'token-telemetry')).toBe(true)
+    expect(JSON.stringify(raw)).not.toContain('private prompt')
+    const endIndex = stream.events.findIndex((event: any) => event.type === 'error' || event.type === 'complete' || event.type === 'cancelled' || event.chunk?.type === 'finish')
+    const terminalRawIndex = stream.events.findIndex((event: any) => event.chunk?.type === 'raw' && event.chunk.rawValue.data.requests.some(request => request.status !== 'prepared'))
+    expect(terminalRawIndex).toBeLessThan(endIndex)
+    expect(unsubscribeRuntime).toHaveBeenCalledOnce()
+    const count = stream.events.length
+    tokenTelemetry.observeContext({}, 'invalidated')
+    expect(stream.events).toHaveLength(count)
+  })
+
+  it('awaits the independent telemetry queue before finish projection', async () => {
+    const stream = createStreamRecorder()
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    let flushStarted!: () => void
+    const started = new Promise<void>(resolve => { flushStarted = resolve })
+    const stub = createHarnessStub()
+    stub.harness.runtimeBridge.flushTokenTelemetryQueue = vi.fn(async () => { flushStarted(); await gate })
+    const run = processPiHarnessQuery({ stream, sessionId: 'topic-1', agentId: 'agent-1', architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any, harness: stub.harness, prompt: 'hello' })
+    await started
+    expect(stream.events.some((event: any) => event.type === 'complete' || event.chunk?.type === 'finish')).toBe(false)
+    release(); await run
+    expect(stream.events.some((event: any) => event.chunk?.type === 'finish')).toBe(true)
+  })
+
+  it('does not retry a compaction failure flattened by the Pi harness', async () => {
+    const stream = createStreamRecorder()
+    const failure = new Error('PI context compaction: summarization deadline exceeded')
+    const stub = createHarnessStub({ prompt: async () => ({ role: 'assistant', content: [], stopReason: 'error', errorMessage: failure.message, usage: {} }) })
+    const unsubscribe = vi.fn()
+    stub.harness.runtimeBridge.contextCompaction = { getFailure: () => failure, isCompacting: () => false, subscribe: () => unsubscribe }
+    await processPiHarnessQuery({
+      stream, sessionId: 'topic-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'continue'
+    })
+    expect(stub.prompt).toHaveBeenCalledTimes(1)
+    expect(stream.events.find(event => event.type === 'error')).toMatchObject({ error: failure })
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('shows compaction progress without applying the ordinary idle timeout to summarization', async () => {
+    vi.useFakeTimers()
+    process.env.PI_IDLE_TIMEOUT_MS = '1000'
+    const stream = createStreamRecorder()
+    let progress: (event: any) => void = () => {}
+    let compacting = false
+    const stub = createHarnessStub({ prompt: async () => {
+      await stub.emitAgentEvent({ type: 'turn_start' })
+      compacting = true
+      progress({ operationId: 'compact-1', phase: 'start', tokensBefore: 800_000 })
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      progress({ operationId: 'compact-1', phase: 'chunk', chunk: 1 })
+      compacting = false
+      progress({ operationId: 'compact-1', phase: 'complete', tokensAfter: 10_000, summary: 'preserved checkpoint' })
+      return { role: 'assistant', content: [], stopReason: 'stop', usage: {} }
+    } })
+    stub.harness.runtimeBridge.contextCompaction = {
+      getFailure: () => undefined, isCompacting: () => compacting,
+      subscribe(listener: typeof progress) { progress = listener; return vi.fn() }
+    }
+    const run = processPiHarnessQuery({
+      stream, sessionId: 'topic-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'continue'
+    })
+    await vi.runAllTimersAsync()
+    await run
+    expect(stub.abort).not.toHaveBeenCalled()
+    expect(stub.prompt).toHaveBeenCalledTimes(1)
+    const statuses = stream.events.filter(event => event.type === 'chunk' && (event.chunk as any).rawValue?.type === 'context_compaction')
+    expect(statuses.map((event: any) => event.chunk.rawValue)).toEqual([
+      { type: 'context_compaction', operationId: 'compact-1', phase: 'start', tokensBefore: 800_000 },
+      { type: 'context_compaction', operationId: 'compact-1', phase: 'chunk', chunk: 1 },
+      { type: 'context_compaction', operationId: 'compact-1', phase: 'complete', tokensAfter: 10_000, summary: 'preserved checkpoint' }
+    ])
+    expect(stream.events.some(event => event.type === 'chunk' && (event.chunk as any).type === 'tool-call')).toBe(false)
+    expect(stream.events.at(-1)?.type).toBe('complete')
+  })
+
+  it.each(['error', 'cancelled'] as const)('forwards terminal compaction %s data and detaches progress listener', async phase => {
+    const stream = createStreamRecorder()
+    let progress: (event: any) => void = () => {}
+    const unsubscribe = vi.fn(() => { progress = () => {} })
+    const stub = createHarnessStub({ prompt: async () => {
+      progress({ operationId: 'compact-terminal', phase: 'start', tokensBefore: 900_000 })
+      progress({ operationId: 'compact-terminal', phase, error: phase === 'error' ? 'summary failed' : undefined })
+      return { role: 'assistant', content: [], stopReason: 'stop', usage: {} }
+    } })
+    stub.harness.runtimeBridge.contextCompaction = {
+      getFailure: () => undefined, isCompacting: () => false,
+      subscribe(listener: typeof progress) { progress = listener; return unsubscribe }
+    }
+    await processPiHarnessQuery({
+      stream, sessionId: 'topic-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'continue'
+    })
+    const rawEvents = stream.events.filter((event: any) => event.type === 'chunk' && event.chunk.rawValue?.type === 'context_compaction')
+    expect(rawEvents.map((event: any) => event.chunk.rawValue.phase)).toEqual(['start', phase])
+    expect(unsubscribe).toHaveBeenCalledOnce()
+    const count = stream.events.length
+    progress({ operationId: 'late', phase: 'chunk' })
+    expect(stream.events).toHaveLength(count)
+  })
+
+  it('logs first nonempty text immediately before emit, once across blocks/rounds/retries and independently per invoke', async () => {
+    vi.useFakeTimers()
+    const epoch = 1_800_000_000_000
+    vi.setSystemTime(epoch)
+    const timings = () => infoLogger.mock.calls.filter(([message]) => message === '[FirstTextTiming]').map(([, fields]) => fields)
+    for (const invocation of [1, 2]) {
+      const traceId = `runtime-trace-${invocation}`
+      const sessionId = `session-${invocation}`
+      let attempt = 0
+      let queryStart = 0
+      let firstTextAt = 0
+      const stream = createStreamRecorder()
+      stream.on('data', (event: AgentStreamEvent) => {
+        if (event.type !== 'chunk' || event.chunk?.type !== 'text-delta' || event.chunk.text.length === 0) return
+        // The log must already exist when the first visible chunk reaches consumers.
+        expect(timings().filter(fields => fields.traceId === traceId)).toHaveLength(1)
+      })
+      const stub = createHarnessStub({ prompt: async () => {
+        attempt += 1
+        if (attempt === 1) queryStart = Date.now()
+        for (let round = 0; round < 2; round++) {
+          await stub.emitAgentEvent({ type: 'message_start', message: { role: 'assistant', content: [] } })
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 0 } })
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: '' } })
+          if (attempt === 1 && round === 0) {
+            await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 1, delta: 'private reasoning' } })
+            await stub.emitNestedToolEvent({ type: 'start', toolCallId: 'nested-1', toolName: 'tool', input: {} })
+            await stub.emitNestedToolEvent({ type: 'success', toolCallId: 'nested-1', toolName: 'tool', input: {}, result: { content: [{ type: 'text', text: 'private tool output' }] } })
+            await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 2, delta: 'private tool args' } })
+            expect(timings().filter(fields => fields.traceId === traceId)).toEqual([])
+            vi.setSystemTime(Date.now() + 25)
+            firstTextAt = Date.now()
+          }
+          // Whitespace is nonempty: do not trim deltas before deciding to log.
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: ' ' } })
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'private visible text' } })
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_end', contentIndex: 0 } })
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_start', contentIndex: 3 } })
+          await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 3, delta: 'second block' } })
+          await stub.emitAgentEvent({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'stop', usage: {} } })
+        }
+        return { role: 'assistant', content: [], stopReason: attempt === 1 ? 'error' : 'stop', errorMessage: attempt === 1 ? '502' : undefined, usage: {} }
+      } })
+      stub.harness.invokeContext.runtime.traceId = traceId
+      const run = processPiHarnessQuery({
+        stream, sessionId, agentId: 'agent-1',
+        architectureContext: { traceId: 'different-architecture-trace', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+        harness: stub.harness, prompt: 'private prompt'
+      })
+      await vi.runAllTimersAsync()
+      await run
+      expect(timings().filter(fields => fields.traceId === traceId)).toEqual([{
+        traceId, sessionId, stage: 'first-text-emit', atEpochMs: firstTextAt, textLength: 1, queryElapsedMs: firstTextAt - queryStart
+      }])
+      expect(firstTextAt - queryStart).toBe(25)
+      expect(stub.prompt).toHaveBeenCalledTimes(2)
+      const textChunks = stream.events.filter(event => event.type === 'chunk' && event.chunk?.type === 'text-delta')
+      expect(textChunks.map(event => (event.chunk as any).text)).toEqual(Array(4).fill(['', ' ', 'private visible text', 'second block']).flat())
+      expect(stream.events.at(-1)?.type).toBe('complete')
+    }
+    expect(timings()).toHaveLength(2)
+    expect(JSON.stringify(timings())).not.toMatch(/private|second block|different-architecture-trace/)
+  })
+
+  it('does not log first text for text-start, empty delta, reasoning, tools or a final snapshot alone', async () => {
+    const stub = createHarnessStub({ prompt: async () => {
+      await stub.emitAgentEvent({ type: 'message_start', message: { role: 'assistant', content: [] } })
+      for (const event of [
+        { type: 'text_start', contentIndex: 0 },
+        { type: 'text_delta', contentIndex: 0, delta: '' },
+        { type: 'text_end', contentIndex: 0 },
+        { type: 'thinking_delta', contentIndex: 1, delta: 'private reasoning' },
+        { type: 'toolcall_delta', contentIndex: 2, delta: 'private arguments' }
+      ]) await stub.emitAgentEvent({ type: 'message_update', assistantMessageEvent: event })
+      await stub.emitNestedToolEvent({ type: 'start', toolCallId: 'nested-1', toolName: 'tool', input: {} })
+      await stub.emitNestedToolEvent({ type: 'success', toolCallId: 'nested-1', toolName: 'tool', input: {}, result: { content: [{ type: 'text', text: 'private tool text' }] } })
+      return { role: 'assistant', content: [{ type: 'text', text: 'private final snapshot' }], stopReason: 'stop', usage: {} }
+    } })
+    const stream = createStreamRecorder()
+    await processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'hello'
+    })
+    expect(infoLogger.mock.calls.filter(([message]) => message === '[FirstTextTiming]')).toEqual([])
+    expect(stream.events.some(event => event.type === 'chunk' && event.chunk?.type === 'text-delta' && event.chunk.text === '')).toBe(true)
+    expect(stream.events.at(-1)?.type).toBe('complete')
   })
 
   it('emits one history checkpoint per PI turn without terminating the invocation', async () => {

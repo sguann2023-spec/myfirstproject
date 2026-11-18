@@ -1,3 +1,4 @@
+import { mergeTokenTelemetry } from '@shared/tokenTelemetry'
 import { isAskUserQuestionTool } from '@shared/userInteraction'
 import { resolveToolArguments } from '@shared/parseToolArguments'
 import { loggerService } from '@logger'
@@ -54,6 +55,7 @@ interface BaseCallbacksDependencies {
   saveUpdatesToDB: any
   assistant: Assistant
   getCurrentThinkingInfo?: () => { blockId: string | null; millsec: number }
+  finalizeContextCompactions?: (status: AssistantMessageStatus, error?: string) => Promise<void>
 }
 
 export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
@@ -65,7 +67,8 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
     assistantMsgId,
     saveUpdatesToDB,
     assistant,
-    getCurrentThinkingInfo
+    getCurrentThinkingInfo,
+    finalizeContextCompactions
   } = deps
 
   const startTime = Date.now()
@@ -79,14 +82,16 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
     // 优先使用 BlockManager 中的 activeBlockInfo
     const activeBlockInfo = blockManager.activeBlockInfo
 
-    if (activeBlockInfo) {
+    if (activeBlockInfo && activeBlockInfo.type !== MessageBlockType.COMPACT) {
       return activeBlockInfo.id
     }
 
     // 如果没有活跃的block，从message中查找最新的block作为备选
     const targetMessage = message || getState().messages.entities[assistantMsgId]
     if (targetMessage) {
-      const allBlocks = findAllBlocks(targetMessage)
+      // Compact cards have their own lifecycle. Generic finish/error must not
+      // overwrite an explicit complete/error/cancelled operation.
+      const allBlocks = findAllBlocks(targetMessage).filter((block) => block.type !== MessageBlockType.COMPACT)
       if (allBlocks.length > 0) {
         return allBlocks[allBlocks.length - 1].id // 返回最新的block
       }
@@ -152,7 +157,7 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
       const currentMessage = getState().messages.entities[assistantMsgId]
       if (!currentMessage) return
       const nextUsageSteps = mergeUsageSteps(currentMessage.usageSteps, response?.usageSteps)
-      if (!response?.usage && nextUsageSteps.length === (currentMessage.usageSteps?.length || 0)) {
+      if (!response?.tokenTelemetry && !response?.usage && nextUsageSteps.length === (currentMessage.usageSteps?.length || 0)) {
         return
       }
       dispatch(
@@ -162,7 +167,10 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
           updates: {
             usage: response?.usage ?? currentMessage.usage,
             usageSteps: nextUsageSteps.length > 0 ? nextUsageSteps : currentMessage.usageSteps,
-            metrics: response.metrics ?? currentMessage.metrics
+            tokenTelemetry: response?.tokenTelemetry
+              ? mergeTokenTelemetry(currentMessage.tokenTelemetry, response.tokenTelemetry)
+              : currentMessage.tokenTelemetry,
+            metrics: response?.metrics ?? currentMessage.metrics
           }
         })
       )
@@ -171,10 +179,12 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
     onError: async (error: AISDKError) => {
       logger.debug('onError', error)
       if (NoOutputGeneratedError.isInstance(error)) {
+        void finalizeContextCompactions?.(AssistantMessageStatus.ERROR, error.message)
         return
       }
       const isErrorTypeAbort = isAbortError(error)
       terminalErrorStatus = isErrorTypeAbort ? AssistantMessageStatus.PAUSED : AssistantMessageStatus.ERROR
+      void finalizeContextCompactions?.(terminalErrorStatus, error.message)
       const isErrorTypeTimeout = isTimeoutError(error)
       const serializableError = serializeError(error)
       if (isErrorTypeAbort) {
@@ -235,7 +245,8 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
           if (
             block.id !== possibleBlockId &&
             block.status === MessageBlockStatus.STREAMING &&
-            block.type !== MessageBlockType.TOOL
+            block.type !== MessageBlockType.TOOL &&
+            block.type !== MessageBlockType.COMPACT
           ) {
             const changes: Partial<ThinkingMessageBlock> = {
               status: isErrorTypeAbort ? MessageBlockStatus.PAUSED : MessageBlockStatus.ERROR
@@ -309,6 +320,7 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
         status: terminalErrorStatus,
         usage: currentMessage?.usage,
         usageSteps: currentMessage?.usageSteps,
+        tokenTelemetry: currentMessage?.tokenTelemetry,
         metrics: currentMessage?.metrics
       }
       dispatch(
@@ -335,6 +347,7 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
 
     onComplete: async (status: AssistantMessageStatus, response?: Response) => {
       if (terminalErrorStatus) return
+      void finalizeContextCompactions?.(status)
 
       const finalStateOnComplete = getState()
       const finalAssistantMsg = finalStateOnComplete.messages.entities[assistantMsgId]
@@ -432,7 +445,10 @@ export const createBaseCallbacks = (deps: BaseCallbacksDependencies) => {
         updatedAt: new Date().toISOString(),
         metrics: response?.metrics,
         usage: response?.usage,
-        usageSteps: latestMessage?.usageSteps
+        usageSteps: latestMessage?.usageSteps,
+        tokenTelemetry: response?.tokenTelemetry
+          ? mergeTokenTelemetry(latestMessage?.tokenTelemetry, response.tokenTelemetry)
+          : latestMessage?.tokenTelemetry
       }
       dispatch(
         newMessagesActions.updateMessage({

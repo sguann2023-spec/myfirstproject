@@ -5,6 +5,7 @@ import AiLibraryServer from '@main/mcpServers/ai-library'
 import AssistantServer from '@main/mcpServers/assistant'
 import ArtifactServer from '@main/mcpServers/artifact-server'
 import AudioUnderstandServer from '@main/mcpServers/audio-understand'
+import BlenderLocalServer from '@main/mcpServers/blender-local'
 import type BrowserServer from '@main/mcpServers/browser/server'
 import ClawServer from '@main/mcpServers/claw'
 import CutWorkflowServer from '@main/mcpServers/cut-workflow'
@@ -44,6 +45,7 @@ import VoiceLibraryServer from '@main/mcpServers/voice-library'
 import WorkspaceMemoryServer from '@main/mcpServers/workspaceMemory'
 import ZhipuSearchServer from '@main/mcpServers/zhipu-search'
 import { buildVectcutMcpPattern, buildVectcutMcpToolName } from '@shared/mcp'
+import { BLENDER_MCP_TIMEOUT_SECONDS } from '@shared/blender'
 
 import type { GetAgentSessionResponse } from '../..'
 
@@ -283,7 +285,7 @@ export async function mountRuntimeMcpServers(input: {
     mountMcpServer('video', {
       type: 'sdk',
       name: 'video',
-      instance: new VideoGenerateServer({ runtimeSessionId: session.id, workspaceRoot: cwd }).createMcpServer(),
+      instance: new VideoGenerateServer({ runtimeSessionId: session.id, workspaceRoot: cwd }).mcpServer,
       longRunning: true,
       timeout: 35 * 60
     })
@@ -326,7 +328,13 @@ export async function mountRuntimeMcpServers(input: {
 
   if (hasAiMediaDomain) {
     const seedAudioServer = new SeedAudioServer({ runtimeSessionId: session.id, workspaceRoot: cwd })
-    mountMcpServer('seed-audio', { type: 'sdk', name: 'seed-audio', instance: seedAudioServer.mcpServer })
+    mountMcpServer('seed-audio', {
+      type: 'sdk',
+      name: 'seed-audio',
+      instance: seedAudioServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
+    })
     autoAllowTools.add(vt('seed-audio', 'generate_seed_audio'))
     allowMcpPattern(vp('seed-audio'))
   }
@@ -451,6 +459,17 @@ export async function mountRuntimeMcpServers(input: {
       autoAllowTools.add(vt('draft-elements', 'get_combo_animation_types'))
     }
     allowMcpPattern(vp('draft-elements'))
+  }
+
+  if (hasCutDomain) {
+    mountMcpServer('blender-local', {
+      type: 'sdk',
+      name: 'blender-local',
+      instance: new BlenderLocalServer(cwd, { runtimeSessionId: session.id }).mcpServer,
+      longRunning: true,
+      timeout: BLENDER_MCP_TIMEOUT_SECONDS
+    })
+    autoAllowTools.add(vt('blender-local', 'blender_status'))
   }
 
   if (hasCutDomain) {

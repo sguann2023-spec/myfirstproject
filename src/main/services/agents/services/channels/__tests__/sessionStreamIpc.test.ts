@@ -5,14 +5,18 @@ import { runInNewContext } from 'node:vm'
 import { transpileModule } from 'typescript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { handleMock, publishMock, getSessionMock, listSessionsMock, createSessionMessageMock, sessionChangedMock, loggerError } = vi.hoisted(() => ({
+const { handleMock, publishMock, getSessionMock, listSessionsMock, createSessionMessageMock, sessionChangedMock, loggerError, loggerInfo } = vi.hoisted(() => ({
   handleMock: vi.fn(),
   publishMock: vi.fn(),
   getSessionMock: vi.fn(),
   listSessionsMock: vi.fn(),
   createSessionMessageMock: vi.fn(),
   sessionChangedMock: vi.fn(),
-  loggerError: vi.fn()
+  loggerError: vi.fn(),
+  loggerInfo: vi.fn()
+}))
+const { updateContextMock, tokenStatsMock, contextGenerationMock, mainWebContents } = vi.hoisted(() => ({
+  updateContextMock: vi.fn(), tokenStatsMock: vi.fn(), contextGenerationMock: vi.fn(async () => 0), mainWebContents: { send: vi.fn() }
 }))
 const { digitalHumanCall, packagingCall, exportCall, persistDirect, saveTurn } = vi.hoisted(() => ({
   digitalHumanCall: vi.fn(), packagingCall: vi.fn(), exportCall: vi.fn(), persistDirect: vi.fn(), saveTurn: vi.fn()
@@ -20,7 +24,7 @@ const { digitalHumanCall, packagingCall, exportCall, persistDirect, saveTurn } =
 
 vi.mock('@logger', () => ({
   loggerService: {
-    withContext: () => ({ info: vi.fn(), error: loggerError, warn: vi.fn(), debug: vi.fn(), silly: vi.fn() })
+    withContext: () => ({ info: loggerInfo, error: loggerError, warn: vi.fn(), debug: vi.fn(), silly: vi.fn() })
   }
 }))
 
@@ -32,6 +36,7 @@ vi.mock('@shared/IpcChannel', () => ({
     AgentSessionStream_Chunk: 'AgentSessionStream_Chunk',
     CherryChatStream_SessionCreate: 'CherryChatStream_SessionCreate',
     CherryChatStream_SessionGet: 'CherryChatStream_SessionGet',
+    CherryChatStream_TokenStats: 'CherryChatStream_TokenStats',
     CherryChatStream_SessionUpdate: 'CherryChatStream_SessionUpdate',
     CherryChatStream_SessionList: 'CherryChatStream_SessionList',
     CherryChatStream_MessageCreate: 'CherryChatStream_MessageCreate',
@@ -96,13 +101,18 @@ vi.mock('../../claudecode/session-architecture/ConversationSegmentService', () =
 
 vi.mock('../../../../WindowService', () => ({
   windowService: {
-    getMainWindow: vi.fn(() => ({ isDestroyed: () => false, webContents: { send: sessionChangedMock } }))
+    getMainWindow: vi.fn(() => ({ isDestroyed: () => false, webContents: Object.assign(mainWebContents, { send: sessionChangedMock }) }))
   }
 }))
 
 vi.mock('../../SessionService', () => ({
   sessionService: {
     getSession: getSessionMock,
+    getTokenStats: tokenStatsMock,
+    ingestTokenTelemetry: updateContextMock,
+    onTokenStatsChanged: vi.fn(),
+    getTokenContextGeneration: contextGenerationMock,
+    invalidateTokenContext: vi.fn(),
     listSessions: listSessionsMock,
     updateSession: vi.fn(),
     createSession: vi.fn()
@@ -174,6 +184,117 @@ describe('sessionStreamIpc abort handling', () => {
     vi.useRealTimers()
   })
 
+  it('exposes matching token statistics methods in both preloads', async () => {
+    const invoke = vi.fn().mockResolvedValue({ ok: true })
+    const typescript = readFileSync(new URL('../../../../../../preload/index.ts', import.meta.url), 'utf8')
+    const start = typescript.indexOf('    getTokenStats: (sessionId: string)')
+    const end = typescript.indexOf('\n    updateSession:', start)
+    expect(start).toBeGreaterThan(-1)
+    const source = `const bridge = { ${typescript.slice(start, end)} }; bridge.getTokenStats('session')`
+    runInNewContext(transpileModule(source, { compilerOptions: { target: 99 } }).outputText,
+      { ipcRenderer: { invoke }, IpcChannel: { CherryChatStream_TokenStats: 'cherry-chat-stream:token-stats' } })
+    expect(invoke).toHaveBeenLastCalledWith('cherry-chat-stream:token-stats', { sessionId: 'session' })
+    const legacy = readFileSync(new URL('../../../../../../preload.js', import.meta.url), 'utf8')
+    const line = legacy.split('\n').find(line => line.includes('getTokenStats:'))!
+    expect(line).toBeTruthy()
+    runInNewContext(`const bridge = { ${line} }; bridge.getTokenStats('legacy')`, { ipcRenderer: { invoke } })
+    expect(invoke).toHaveBeenLastCalledWith('cherry-chat-stream:token-stats', { sessionId: 'legacy' })
+  })
+
+  it('authorizes token statistics before reading session history', async () => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const getStats = handlers.get('CherryChatStream_TokenStats')
+    expect(await getStats({ sender: {} }, { sessionId: 'session-1' })).toMatchObject({ ok: false, error: 'Untrusted sender' })
+    expect(tokenStatsMock).not.toHaveBeenCalled()
+    expect(await getStats({ sender: mainWebContents }, {})).toMatchObject({ ok: false })
+    expect(await getStats({ sender: mainWebContents }, { sessionId: 'session-1', agent_id: 'other-agent' })).toMatchObject({ ok: false })
+    tokenStatsMock.mockResolvedValue({ ok: true, historyComplete: true })
+    expect(await getStats({ sender: mainWebContents }, { sessionId: 'session-1' })).toMatchObject({ ok: true })
+    expect(tokenStatsMock).toHaveBeenCalledWith('agent-1', 'session-1')
+  })
+
+  it('captures generation once, ingests full telemetry and broadcasts the service accepted snapshot', async () => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    contextGenerationMock.mockResolvedValueOnce(4)
+    const cacheWrite = deferred<boolean>()
+    updateContextMock.mockReturnValueOnce(cacheWrite.promise)
+    let controller!: ReadableStreamDefaultController<any>
+    createSessionMessageMock.mockImplementationOnce(async () => {
+      expect(contextGenerationMock).toHaveBeenCalledWith('agent-1', 'session-1')
+      return createMockStream(new ReadableStream({ start(value) { controller = value } }))
+    })
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    await handlers.get('CherryChatStream_MessageCreate')(null, { sessionId: 'session-1', content: 'hello', requestId: 'epoch-test' })
+    contextGenerationMock.mockResolvedValueOnce(5)
+    const context = { id: 'c', revision: 999, runtimeSessionId: 'session-1', modelId: 'claude-3', providerId: 'p',
+      observedAt: Date.now() + 100_000, basis: 'request', validity: 'valid', input: { categories: {}, total: 0, status: 'unknown', method: 'test' }, contextWindowTokens: null }
+    controller.enqueue({ type: 'raw', rawValue: { type: 'token-telemetry', data: { version: 1, requests: [], context } } })
+    controller.close()
+    await flushMicrotasks(30)
+    expect(updateContextMock).toHaveBeenCalledWith('agent-1', 'session-1', { version: 1, requests: [], context }, 4)
+    expect(contextGenerationMock).toHaveBeenCalledTimes(1)
+    expect(publishMock).toHaveBeenCalledWith('session-1', expect.objectContaining({ type: 'complete' }))
+    expect(sessionChangedMock).not.toHaveBeenCalled()
+    cacheWrite.resolve(true)
+    await flushMicrotasks(10)
+    const { sessionService } = await import('../../SessionService')
+    const listener = vi.mocked(sessionService.onTokenStatsChanged).mock.calls[0][0]
+    const snapshot = { sessionId: 'session-1', revision: 42, contextGeneration: 4, tokenTelemetry: { version: 1 as const, requests: [], context }, context } as any
+    listener('agent-1', snapshot)
+    expect(sessionChangedMock).toHaveBeenCalledWith('AgentSession_Changed', expect.objectContaining({ reason: 'token-stats', tokenStats: snapshot }))
+    contextGenerationMock.mockReset().mockResolvedValue(0)
+  })
+
+  it('ingests ledger-only chunks without waiting for history persistence', async () => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    updateContextMock.mockReset().mockResolvedValue(null)
+    const telemetry = { version: 1, requests: [{ id: 'r', revision: 1, runtimeSessionId: 'runtime', invocationId: 'i', sequence: 1,
+      modelId: 'm', providerId: 'p', operation: 'chat', status: 'prepared', startedAt: 1, attempts: 1,
+      input: { categories: {}, total: 0, status: 'unknown', method: 'test' } }] }
+    const persisted = deferred<unknown>()
+    createSessionMessageMock.mockResolvedValue(createMockStream(new ReadableStream({ start(controller) {
+      controller.enqueue({ type: 'raw', rawValue: { type: 'token-telemetry', data: telemetry } })
+      controller.close()
+    } }), Promise.resolve(), persisted.promise))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    await handlers.get('CherryChatStream_MessageCreate')(null, { sessionId: 'session-1', content: 'hello', requestId: 'ledger-only' })
+    await flushMicrotasks(30)
+    expect(updateContextMock).toHaveBeenCalledWith('agent-1', 'session-1', telemetry, 0)
+    expect(publishMock).toHaveBeenCalledWith('session-1', expect.objectContaining({ type: 'complete' }))
+    persisted.resolve({})
+  })
+
+  it.each(['reject', 'throw'])('continues forwarding telemetry if the context observer fails (%s)', async failure => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    const context = { id: 'c', revision: 1, runtimeSessionId: 'r', modelId: 'm', providerId: 'p',
+      observedAt: 1, basis: 'request', validity: 'valid', input: { categories: {}, total: 0, status: 'unknown', method: 'test' }, contextWindowTokens: null }
+    const chunk = { type: 'raw', rawValue: { type: 'token-telemetry', data: { version: 1, requests: [], context } } }
+    if (failure === 'throw') updateContextMock.mockImplementation(() => { throw new Error('observer failed') })
+    else updateContextMock.mockRejectedValue(new Error('observer failed'))
+    createSessionMessageMock.mockResolvedValue(createMockStream(new ReadableStream({ start(controller) {
+      controller.enqueue(chunk)
+      controller.enqueue({ type: 'text-delta', textDelta: 'hello' })
+      controller.close()
+    } })))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const result = await handlers.get('CherryChatStream_MessageCreate')(null, { sessionId: 'session-1', content: 'hello', requestId: 'telemetry-test' })
+    await flushMicrotasks(30)
+    expect(result.ok).toBe(true)
+    expect(updateContextMock).toHaveBeenCalledWith('agent-1', 'session-1', { version: 1, requests: [], context }, 0)
+    expect(publishMock).toHaveBeenCalledWith('session-1', expect.objectContaining({ chunk }))
+    expect(publishMock).toHaveBeenCalledWith('session-1', expect.objectContaining({ type: 'complete' }))
+    expect(publishMock.mock.calls.some(([, event]) => event.type === 'error')).toBe(false)
+  })
+
   it.each(['packaging', 'export'])('commits completed digital-human stages when %s throws', async failedStage => {
     const handlers = new Map<string, (event: unknown, payload?: any) => Promise<any>>()
     handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
@@ -203,6 +324,34 @@ describe('sessionStreamIpc abort handling', () => {
     expect(tools[tools.length - 1]).toMatchObject({ status: 'error',
       metadata: { rawMcpToolResponse: { responseRaw: { error: failure.message } } } })
     if (failedStage === 'packaging') expect(exportCall).not.toHaveBeenCalled()
+  })
+
+  it('correlates submit timing before startup without logging message content', async () => {
+    const handlers = new Map<string, any>()
+    handleMock.mockImplementation((channel, handler) => handlers.set(channel, handler))
+    const sessionLookup = deferred<any>()
+    getSessionMock.mockReturnValueOnce(sessionLookup.promise)
+    createSessionMessageMock.mockResolvedValue(createMockStream(new ReadableStream({ start(c) { c.close() } })))
+    const { registerSessionStreamIpc } = await import('../sessionStreamIpc')
+    registerSessionStreamIpc()
+    const pending = handlers.get('CherryChatStream_MessageCreate')(null, {
+      sessionId: 'session-1', content: 'private-message-not-in-timing', requestId: 'timing-request'
+    })
+    await flushMicrotasks()
+    expect(loggerInfo).toHaveBeenCalledWith('[FirstTextTiming]', expect.objectContaining({
+      stage: 'main-workspace-guard-start', requestId: 'timing-request', traceId: 'timing-request', sessionId: 'session-1'
+    }))
+    expect(createSessionMessageMock).not.toHaveBeenCalled()
+    sessionLookup.resolve({ id: 'session-1', agent_id: 'agent-1', model: 'claude-3', configuration: {} })
+    expect((await pending).ok).toBe(true)
+    const entries = loggerInfo.mock.calls.filter(([label]) => label === '[FirstTextTiming]').map(([, entry]) => entry)
+    expect(entries.map(entry => entry.stage)).toEqual([
+      'main-workspace-guard-start', 'main-workspace-guard-ready', 'main-submit', 'main-submit-prepared', 'main-stream-created'
+    ])
+    expect(entries.every(entry => entry.traceId === 'timing-request' && typeof entry.atEpochMs === 'number')).toBe(true)
+    expect(entries[1].elapsedMs).toBeGreaterThanOrEqual(0)
+    expect(createSessionMessageMock.mock.calls[0][3].invocationIds.traceId).toBe('timing-request')
+    expect(JSON.stringify(entries)).not.toContain('private-message-not-in-timing')
   })
 
   it('gets a session by ID without listing or enriching unrelated sessions', async () => {
@@ -451,6 +600,35 @@ describe('sessionStreamIpc abort handling', () => {
     ).toEqual(['first'])
     expect(streamCancelMock).not.toHaveBeenCalled()
     expect(sessionChangedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('frontend first-text timing', () => {
+  it('logs only the first nonempty text receipt without changing chunks or exposing content', () => {
+    const home = readFileSync(new URL('../../../../../../page/HomePage/HomePage.jsx', import.meta.url), 'utf8')
+    const start = home.indexOf('        if (perfEntry && !perfEntry.firstNonemptyTextAt')
+    const end = home.indexOf('        const chunkStart = getPerfTimestamp();', start)
+    expect(start).toBeGreaterThan(0)
+    const log = vi.fn()
+    const context = {
+      perfEntry: { firstNonemptyTextAt: null, createdPerfAt: 10 },
+      payload: { sessionId: 'session-1', chunk: { text: '' } },
+      chunkType: 'text-start', requestId: 'request-1', logger: { info: log }, getPerfTimestamp: () => 25
+    }
+    const run = () => runInNewContext(home.slice(start, end), context)
+    run()
+    context.chunkType = 'text-delta'
+    run()
+    expect(log).not.toHaveBeenCalled()
+    context.payload.chunk.text = 'private-first-text'
+    run()
+    run()
+    expect(log).toHaveBeenCalledTimes(1)
+    expect(log).toHaveBeenCalledWith('[FirstTextTiming]', expect.objectContaining({
+      stage: 'renderer-first-text-received', traceId: 'request-1', sinceSubmitMs: 15, textLength: 18
+    }))
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private-first-text')
+    expect(context.payload.chunk.text).toBe('private-first-text')
   })
 })
 

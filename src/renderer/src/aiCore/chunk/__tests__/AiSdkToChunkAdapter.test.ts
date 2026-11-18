@@ -42,6 +42,18 @@ describe('AiSdkToChunkAdapter', () => {
     vi.useRealTimers()
   })
 
+  it('forwards context compaction lifecycle events as raw data without fake tools or text', () => {
+    const { emitted, emit, state } = createAdapterHarness()
+    state.text = 'Normal answer'
+    const events = (['start', 'chunk', 'complete', 'error', 'cancelled'] as const).map((phase) => ({
+      type: 'context_compaction', operationId: 'compact-op', phase,
+      ...(phase === 'complete' ? { summary: 'Summary', tokensBefore: 50000, tokensAfter: 12000 } : {})
+    }))
+    for (const rawValue of events) emit({ type: 'raw', rawValue })
+    expect(emitted).toEqual(events.map(content => ({ type: ChunkType.RAW, content })))
+    expect(state.text).toBe('Normal answer')
+  })
+
   it('completes thinking before tool input starts', () => {
     const { emitted, emit, state } = createAdapterHarness()
 
@@ -142,3 +154,11 @@ describe('AiSdkToChunkAdapter', () => {
   expect(first.emitted.filter(c => c.type === ChunkType.MCP_TOOL_COMPLETE)).toMatchObject([{ responses: [{ status: 'done' }] }])
   expect(second.emitted.filter(c => c.type === ChunkType.MCP_TOOL_COMPLETE)).toMatchObject([{ responses: [{ status: 'error' }] }])
  })
+
+it('routes validated raw telemetry through response-in-progress without touching usage', () => {
+  const { emitted, emit } = createAdapterHarness()
+  const tokenTelemetry = { version: 1, requests: [] }
+  emit({ type: 'raw', rawValue: { type: 'token-telemetry', data: tokenTelemetry } })
+  emit({ type: 'raw', rawValue: { type: 'token-telemetry', data: { version: 1, requests: [{}] } } })
+  expect(emitted).toEqual([{ type: ChunkType.LLM_RESPONSE_IN_PROGRESS, response: { tokenTelemetry } }])
+})

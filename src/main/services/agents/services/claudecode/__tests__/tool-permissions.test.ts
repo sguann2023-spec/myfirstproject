@@ -75,6 +75,29 @@ describe('promptForToolApproval', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it.each([
+    'mcp__vectcut__blender-local__blender_render',
+    'mcp__blender-local__blender_render',
+    'blender-local:blender_render'
+  ])('uses the existing automatic execution policy for %s', async (name) => {
+    const { promptForToolApproval } = await import('../tool-permissions')
+    const input = { script: 'import bpy' }
+    await expect(promptForToolApproval(name, input, {
+      signal: new AbortController().signal,
+      toolCallId: 'session-1:blender'
+    })).resolves.toEqual({ behavior: 'allow', updatedInput: input })
+    expect(handleMock).not.toHaveBeenCalled()
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
+  it('allows local Blender installation checks without execution approval', async () => {
+    const { promptForToolApproval } = await import('../tool-permissions')
+    await expect(promptForToolApproval('mcp__vectcut__blender-local__blender_status', {}, {
+      signal: new AbortController().signal, toolCallId: 'session-1:status'
+    })).resolves.toEqual({ behavior: 'allow', updatedInput: {} })
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
   it.each(['AskUserQuestion', 'mcp__vectcut__user-interaction__AskUserQuestion'])('still prompts for %s even when auto allow is enabled', async (name) => {
     let responseHandler: ((event: unknown, payload: any) => Promise<{ success: boolean; error?: string }>) | undefined
     handleMock.mockImplementation((_channel, handler) => {

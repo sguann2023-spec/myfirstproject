@@ -13,7 +13,7 @@ import { prepareVideoUnderstanding } from '@main/utils/prepare-subtitle-audio'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { net } from 'electron'
 
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
@@ -317,7 +317,9 @@ function extractCompletionText(payload: ChatCompletionResponse): string {
 
 class ImageUnderstandServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null

@@ -40,15 +40,19 @@ it('选择后才通知打开指定模版', async () => {
   expect(cards[0].textContent).toContain('新建模版');
   await act(async () => cards[0].click());
   cards = document.querySelectorAll('.template-picker-card');
-  expect(cards).toHaveLength(3);
+  expect(cards).toHaveLength(4);
   await act(async () => cards[0].click());
   expect(onSelect).toHaveBeenLastCalledWith('empty');
-  await act(async () => cards[1].click());
+  const sentence = [...cards].find(card => card.textContent.includes('一句一图'));
+  await act(async () => sentence.click());
   expect(onSelect).toHaveBeenLastCalledWith('sentence-image');
-  expect(cards[2].textContent).toContain('混排演示');
-  expect(cards[2].querySelectorAll('.template-picker-mixed-clip')).toHaveLength(4);
-  await act(async () => cards[2].click());
+  const mixed = [...cards].find(card => card.textContent.includes('混排演示'));
+  expect(mixed.querySelectorAll('.template-picker-mixed-clip')).toHaveLength(4);
+  await act(async () => mixed.click());
   expect(onSelect).toHaveBeenLastCalledWith('mixed-track');
+  const welcome = [...cards].find(card => card.textContent.includes('欢迎使用 VectCut 🎉'));
+  await act(async () => welcome.click());
+  expect(onSelect).toHaveBeenLastCalledWith('personalized-welcome');
 });
 
 it('展示本地已保存模版并按文件路径打开', async () => {

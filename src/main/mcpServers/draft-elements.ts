@@ -7,7 +7,7 @@ import { windowService } from '@main/services/WindowService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { net } from 'electron'
 
 import { draftTestRegistry } from './draft-test-registry'
@@ -1399,7 +1399,9 @@ type VectCutResponse = {
 
 class DraftElementsServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null

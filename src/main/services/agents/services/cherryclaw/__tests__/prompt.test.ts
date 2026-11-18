@@ -15,6 +15,8 @@ vi.mock('node:fs/promises', () => ({
 import { readdir, readFile, stat } from 'node:fs/promises'
 
 import { PromptBuilder } from '../prompt'
+import { getPromptTokenSources } from '../../claudecode/runtime/prompt-provenance'
+import { estimateTokenPayload } from '../../claudecode/harness/token-telemetry'
 
 const mockedStat = vi.mocked(stat)
 const mockedReadFile = vi.mocked(readFile)
@@ -77,6 +79,19 @@ describe('PromptBuilder', () => {
     expect(result).not.toContain('<soul>')
     expect(result).not.toContain('<user>')
     expect(result.length).toBeLessThan(2000)
+  })
+
+  it('registers producer-side system/environment and workspace injection attribution without prompt tags', async () => {
+    setupFiles({ '/workspace/CLAUDE.md': 'Use this workspace convention' })
+    const result = await builder.buildSystemPrompt('/workspace')
+    const sources = getPromptTokenSources(result)
+    expect(sources.some(source => source.category === 'system' && source.text.includes('# Environment'))).toBe(true)
+    expect(sources.some(source => source.category === 'injections' && source.text.includes('Use this workspace convention'))).toBe(true)
+    const measured = estimateTokenPayload({ system: result }, sources)
+    expect(measured.categories.system).toBeGreaterThan(0)
+    expect(measured.categories.injections).toBeGreaterThan(0)
+    expect(measured.categories.unattributed).toBeUndefined()
+    expect(result).not.toContain('token-telemetry')
   })
 
   it('includes web verification rules even without capability-scoped guidance', async () => {

@@ -1,3 +1,109 @@
+.skill-members-section--preview {
+  min-width: 0;
+  color: #666;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.skill-members-section--preview .chat-panel__members-title--skills {
+  padding: 0 0 8px;
+}
+
+.skill-members-section--preview .skill-members-section__preview-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.skill-members-section--preview .chat-panel__members-count {
+  font-size: 14px;
+}
+
+.skill-members-section--preview button {
+  font-family: inherit;
+}
+
+.skill-members-section__view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #888;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.skill-members-section__view-all:hover {
+  color: #333;
+}
+
+[theme-mode='dark'] .skill-members-section__view-all:hover {
+  color: var(--color-text, #eee);
+}
+
+.skill-members-section__card {
+  min-width: 0;
+  align-items: center;
+  margin: 0 -8px 10px;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+
+.skill-members-section__card.is-clickable {
+  cursor: pointer;
+}
+
+.skill-members-section__card.is-clickable:focus-visible {
+  outline: 2px solid #888;
+  outline-offset: 2px;
+}
+
+.skill-members-section__cover-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a8a8a;
+}
+
+.skill-members-section__description {
+  min-width: 0;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #888;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.skill-members-section__card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.skill-members-section__card-actions .artifact-preview__export {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.skill-members-section__card-actions .artifact-preview__export:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .chat-panel__members-title {
   padding: 12px 10px 8px;
   font-size: 14px;

@@ -4,6 +4,7 @@ import path from 'node:path'
 
 import { loggerService } from '@logger'
 import type { CherryClawConfiguration } from '@types'
+import { registerPromptTokenSources } from '../claudecode/runtime/prompt-provenance'
 
 export type ToolGuidanceOptions = {
   hasClaw?: boolean
@@ -79,7 +80,8 @@ export class PromptBuilder {
     ].filter(Boolean)
 
     const rendered = sections.join('\n\n')
-    return rendered
+    const instructions = instructionFiles.length > 0 ? renderInstructionFiles(instructionFiles) : ''
+    return registerPromptTokenSources(rendered, sections.map(text => ({ text, role: 'system' as const, category: text === instructions ? 'injections' as const : 'system' as const })))
   }
 
   buildToolGuidance(workspacePath: string, opts: ToolGuidanceOptions = {}): string {

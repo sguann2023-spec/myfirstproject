@@ -2567,6 +2567,7 @@ const Composer = ({
     if (!targetSessionId || typeof api?.onSessionChanged !== 'function') return undefined;
 
     return api.onSessionChanged((payload) => {
+      if (payload?.reason === 'token-stats') return;
       if (String(payload?.sessionId || '').trim() !== targetSessionId) return;
       void (async () => {
         try {

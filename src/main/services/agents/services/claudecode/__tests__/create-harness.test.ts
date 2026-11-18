@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import { createServer } from 'node:http'
 import path from 'node:path'
@@ -6,7 +6,7 @@ import sharp from 'sharp'
 import { net } from 'electron'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 import * as agentCore from '@earendil-works/pi-agent-core'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -78,6 +78,11 @@ import { findGitBash, validateGitBashPath } from '@main/utils/process'
 
 import { buildPiRuntimeBridge, createClaudeCodeHarness, buildBuiltinTools, resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
+import { estimateContextText } from '../harness/context-compaction'
+import { createTokenTelemetryCollector } from '../harness/token-telemetry'
+import { createRuntimeTelemetryObserver } from '../harness/create-harness'
+import { mergeTokenTelemetry, isTokenTelemetry, type TokenTelemetry } from '@shared/tokenTelemetry'
+
 const textEncoder = new TextEncoder()
 const getUtf8ByteLength = (value: string) => textEncoder.encode(value).length
 const MAX_INLINE_TOOL_PAYLOAD_BYTES = 16 * 1024
@@ -97,6 +102,50 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('runtime telemetry background projection queue', () => {
+  it.each(['buildContext', 'projector'] as const)('does not make harness events await a blocked %s and flushes serially', async blocked => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const order: string[] = []
+    const collector = createTokenTelemetryCollector({ runtimeSessionId: 'real-session', invocationId: 'i', modelId: 'm', providerId: 'p' })
+    let telemetry: TokenTelemetry | undefined
+    collector.subscribe(next => { telemetry = mergeTokenTelemetry(telemetry, next) })
+    let builds = 0
+    const observer = createRuntimeTelemetryObserver({
+      harness: { getModel: () => ({ id: 'm' }) },
+      session: { buildContext: async () => { builds++; order.push('build'); if (blocked === 'buildContext') await gate; return { messages: [] } } },
+      projectReadImageContext: async messages => { order.push('project'); if (blocked === 'projector') await gate; return messages },
+      contextPayload: messages => ({ messages }), tokenTelemetry: collector, modelId: 'm', providerId: 'p'
+    })
+    // Mimic Pi emitAny's sequential await of each subscription return value.
+    const dispatch = async () => { await observer.listener({ type: 'message_end' }); order.push('next-listener') }
+    await dispatch()
+    expect(order).toContain('next-listener')
+    expect(telemetry).toBeUndefined()
+    expect(observer.listener({ type: 'turn_end' })).toBeUndefined()
+    let flushed = false
+    const flush = observer.flush().then(() => { flushed = true })
+    await Promise.resolve()
+    expect(flushed).toBe(false)
+    expect(builds).toBe(1)
+    release(); await flush
+    expect(builds).toBe(2)
+    expect(telemetry!.context).toMatchObject({ runtimeSessionId: 'real-session', basis: 'post-response' })
+  })
+  it('contains failed projection to telemetry invalidation and keeps the queue usable', async () => {
+    const collector = createTokenTelemetryCollector({ runtimeSessionId: 'session', invocationId: 'i', modelId: 'm', providerId: 'p' })
+    let telemetry: TokenTelemetry | undefined
+    collector.subscribe(next => { telemetry = mergeTokenTelemetry(telemetry, next) })
+    const project = vi.fn().mockRejectedValueOnce(new Error('disk projection failed')).mockResolvedValue([])
+    const observer = createRuntimeTelemetryObserver({ harness: { getModel: () => ({ id: 'm' }) }, session: { buildContext: async () => ({ messages: [] }) }, projectReadImageContext: project, contextPayload: messages => ({ messages }), tokenTelemetry: collector, modelId: 'm', providerId: 'p' })
+    expect(observer.listener({ type: 'message_end' })).toBeUndefined()
+    await expect(observer.flush()).resolves.toBeUndefined()
+    expect(telemetry!.context).toMatchObject({ basis: 'invalidated', reason: 'runtime-context-rebuild-unavailable' })
+    observer.listener({ type: 'turn_end' }); await observer.flush()
+    expect(telemetry!.context!.basis).toBe('post-response')
+  })
 })
 
 describe('real Pi adapters against loopback HTTP (no paid services)', () => {
@@ -137,6 +186,9 @@ describe('real Pi adapters against loopback HTTP (no paid services)', () => {
       const environment = { env: { ANTHROPIC_API_KEY: 'must-not-use-login-token' }, modelInfo: { provider: { id: 'custom-local', type: api === 'openai-completions' ? 'openai' : 'anthropic', apiHost: baseUrl, apiKey: 'local-only-key' } } } as any
       const key = resolvePiRuntimeApiKey(environment, baseUrl)
       const models = pi.createModels()
+      const tokenTelemetry = createTokenTelemetryCollector({ runtimeSessionId: 'local-runtime', invocationId: 'local-invocation', modelId: 'local-model', providerId: 'custom-local', provenance: [{ text: 'hello-local', category: 'user', role: 'user' }] })
+      let telemetry: TokenTelemetry | undefined
+      tokenTelemetry.subscribe(next => { telemetry = mergeTokenTelemetry(telemetry, next) })
       const model = { id: 'local-model', name: 'Local', api, provider: 'local-test', baseUrl, reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 64 } as any
       models.setProvider(pi.createProvider({
         id: 'local-test', baseUrl,
@@ -146,6 +198,7 @@ describe('real Pi adapters against loopback HTTP (no paid services)', () => {
           apiModule: realAdapter as any,
           invokeContext: { thinkingLevel, runtime: { provider: { id: 'bailian' }, model: { id: 'qwen3.8-flash' } } } as any,
           providerApiType: api,
+          tokenTelemetry,
           // Only the adapter's transport is redirected to loopback. Exercise the
           // real gateway eligibility guard without sending credentials off-host.
           baseUrl: 'https://open.vectcut.com/v1'
@@ -154,6 +207,15 @@ describe('real Pi adapters against loopback HTTP (no paid services)', () => {
       const result = await models.completeSimple(model, { messages: [{ role: 'user', content: 'hello-local', timestamp: 1 }], tools: [{ name: 'local_tool', description: 'Local test tool', parameters: { type: 'object', properties: {} } }] }, { maxTokens: 32 })
       expect(result.stopReason).toBe('stop')
       expect(result.content).toContainEqual({ type: 'text', text: 'local-ok' })
+      expect(isTokenTelemetry(telemetry)).toBe(true)
+      expect(telemetry!.requests).toHaveLength(1)
+      expect(telemetry!.requests[0]).toMatchObject({ status: 'completed', attempts: 1, providerId: 'custom-local' })
+      expect(telemetry!.requests[0].input.categories.user).toBeGreaterThan(0)
+      expect(telemetry!.requests[0].input.categories.toolDefinitions).toBeGreaterThan(0)
+      expect(telemetry!.requests[0].output?.categories.reply).toBeGreaterThan(0)
+      expect(telemetry!.context?.contextWindowTokens).toBeNull()
+      expect(JSON.stringify(telemetry)).not.toContain('local-only-key')
+      expect(JSON.stringify(telemetry)).not.toContain('hello-local')
       expect(requests).toHaveLength(1)
       expect(requests[0].url).toBe(api === 'openai-completions' ? '/explicit/v1/chat/completions' : '/explicit/v1/messages')
       expect(requests[0].headers.authorization).toBe('Bearer local-only-key')
@@ -192,6 +254,297 @@ describe('real Pi adapters against loopback HTTP (no paid services)', () => {
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
     }
   })
+})
+
+describe('production Pi bridge pre-request context compaction', () => {
+  const contextWindowTokens = 30000
+  const maxOutputTokens = 1000
+  const checkpointText = 'LOCAL_CHECKPOINT: preserve the goal, completed work and next action.'
+  const currentRequest = 'RECENT_USER: finish the small current task.'
+  const oldUserText = `OLD_USER_TRANSCRIPT ${'historical-user '.repeat(4000)}`
+  const oldAssistantText = `OLD_ASSISTANT_TRANSCRIPT ${'historical-assistant '.repeat(2000)}`
+
+  afterEach(() => vi.restoreAllMocks())
+
+  async function fixture(input: {
+    mode?: 'history' | 'tool-round'
+    gateway?: boolean
+    api?: 'openai-completions' | 'anthropic-messages'
+    maxOutputTokens?: number
+    maxInputTokens?: number
+    summaryText?: string
+    summaryUsage?: { input: number; output: number }
+  } = {}) {
+    const api = input.api ?? 'openai-completions'
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-bridge-compaction-'))
+    const storage = new agentCore.InMemorySessionStorage()
+    const seed = new agentCore.Session(storage)
+    if (input.mode !== 'tool-round') {
+      await seed.appendMessage({ role: 'user', content: oldUserText, timestamp: 1 })
+      await seed.appendMessage({
+        ...((await import('@earendil-works/pi-ai')).fauxAssistantMessage(oldAssistantText)),
+        api: 'openai-completions', provider: 'old-provider', model: 'old-model', timestamp: 2
+      })
+    }
+    await writeFile(path.join(directory, 'local-result.txt'), 'LOCAL_TOOL_RESULT: the local file was read successfully.')
+    const requests: Array<{ kind: 'summary' | 'task'; body: any; checkpoints: number; metadata: any; options: any }> = []
+    const adapterOptions: any[] = []
+    const progress: any[] = []
+    const order: string[] = []
+    let taskCalls = 0
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const body = JSON.parse(Buffer.concat(chunks).toString())
+      const options = adapterOptions[requests.length]
+      const metadata = options?.metadata
+      const kind = metadata?.context_compaction === 'true' ? 'summary' : 'task'
+      requests.push({ kind, body, metadata, options, checkpoints: (await storage.findEntries('compaction')).length })
+      order.push(`request:${kind}`)
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      const summaryText = input.summaryText ?? checkpointText
+      const usage = kind === 'summary' ? input.summaryUsage : undefined
+      if (api === 'anthropic-messages') {
+        const events = [
+          { type: 'message_start', message: { id: 'local-compaction', type: 'message', role: 'assistant', content: [], model: 'deepseek-local', stop_reason: null, stop_sequence: null, usage: { input_tokens: usage?.input ?? 1, output_tokens: 0 } } },
+          { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: kind === 'summary' ? summaryText : 'local-task-complete' } },
+          { type: 'content_block_stop', index: 0 },
+          { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: usage?.output ?? 1 } },
+          { type: 'message_stop' }
+        ]
+        res.end(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(''))
+        return
+      }
+      const chunk = (delta: unknown, finish_reason: string | null = null) =>
+        `data: ${JSON.stringify({ id: 'local-compaction', object: 'chat.completion.chunk', created: 1, model: 'deepseek-local', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
+      if (kind === 'summary') {
+        // Keep usage absent by default: existing OpenAI fixtures must remain valid.
+        const usageChunk = usage ? `data: ${JSON.stringify({ id: 'local-compaction', object: 'chat.completion.chunk', created: 1, model: 'deepseek-local', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output, total_tokens: usage.input + usage.output } })}\n\n` : ''
+        res.end(chunk({ role: 'assistant', content: summaryText }) + chunk({}, 'stop') + usageChunk + 'data: [DONE]\n\n')
+      } else {
+        taskCalls += 1
+        if (input.mode === 'tool-round' && taskCalls === 1) {
+          // The large assistant response crosses 70% only after the first tool
+          // round. No second prompt or idle-only harness.compact() can mask it.
+          res.end(chunk({ role: 'assistant', content: `ROUND_ONE_TRANSCRIPT ${'round-one-history '.repeat(5200)}`, tool_calls: [{
+            index: 0, id: 'local-read-call', type: 'function',
+            function: { name: 'Read', arguments: JSON.stringify({ path: 'local-result.txt' }) }
+          }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n')
+        } else {
+          res.end(chunk({ role: 'assistant', content: 'local-task-complete' }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
+        }
+      }
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as import('node:net').AddressInfo).port
+    const localBaseUrl = `http://127.0.0.1:${port}${api === 'openai-completions' ? '/v1' : ''}`
+    const piAi = await import('@earendil-works/pi-ai')
+    const realAdapter = api === 'openai-completions'
+      ? await import('@earendil-works/pi-ai/api/openai-completions')
+      : await import('@earendil-works/pi-ai/api/anthropic-messages')
+    // Only redirect the physical transport for the gateway case; the production
+    // wrapper still receives the trusted gateway URL and real auth/provider.
+    const localAdapter = Object.fromEntries((['stream', 'streamSimple'] as const).map(method => [method,
+      (model: any, context: any, options: any) => {
+        adapterOptions.push(options)
+        return (realAdapter[method] as any)({ ...model, baseUrl: localBaseUrl }, context, options)
+      }
+    ]))
+    const provider = { id: input.gateway ? 'builtin' : 'custom-local', type: api === 'openai-completions' ? 'openai' : 'anthropic', apiHost: input.gateway ? 'https://open.vectcut.com/v1' : localBaseUrl, apiKey: 'local-only-key' }
+    const open = vi.spyOn(SqlitePiSessionStorage, 'openOrCreate').mockResolvedValueOnce(storage as any)
+    let bridge: Awaited<ReturnType<typeof buildPiRuntimeBridge>> | undefined
+    let unsubscribe = () => {}
+    const cleanup = async () => {
+      unsubscribe()
+      if (bridge) {
+        await bridge.harness.abort()
+        await Promise.allSettled(bridge.mcpClients.map(client => client.close()))
+      }
+      open.mockRestore()
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await rm(directory, { recursive: true, force: true })
+    }
+    try {
+      bridge = await buildPiRuntimeBridge({
+        packageBridge: { agentCore, agentNode, piAi, openAiCompletionsApi: localAdapter, anthropicMessagesApi: localAdapter } as any,
+        invokeContext: {
+          runtime: { workspacePath: directory, traceId: 'compaction-trace', sessionId: 'compaction-session', model: { id: 'deepseek-local', supportsImageInput: false }, provider },
+          projection: { topicId: 'compaction-topic', userMessageId: 'compaction-user', piSessionId: 'old-segment-sdk-id' },
+          tools: { activeToolNames: input.mode === 'tool-round' ? ['Read'] : [] },
+          thinkingLevel: 'max', skills: {},
+          prompt: { systemPrompt: 'Follow the current user request.', resources: {
+            skills: [{ name: 'local-skill', description: 'A local test skill', content: 'LOCAL_SKILL_BODY: preserve this skill instruction.', filePath: path.join(directory, 'SKILL.md') }],
+            promptTemplates: []
+          } }
+        } as any,
+        runtimeEnvironment: {
+          env: { ANTHROPIC_API_KEY: 'local-only-key' }, modelInfo: { valid: true, modelId: 'deepseek-local', provider },
+          modelTokenLimits: { contextWindowTokens, maxOutputTokens: input.maxOutputTokens ?? maxOutputTokens, maxInputTokens: input.maxInputTokens },
+          customReasoning: input.gateway ? undefined : { level: 'max', patch: {
+            enable_thinking: true, reasoning_effort: 'max', thinking: { type: 'enabled', budget_tokens: 8192 },
+            chat_template_kwargs: { enable_thinking: true }
+          } }
+        } as any,
+        options: {}, pendingFileChanges: new Map()
+      })
+      expect(bridge.contextCompaction).toBeDefined()
+      unsubscribe = bridge.contextCompaction!.subscribe(event => { progress.push(event); order.push(`progress:${event.phase}`) })
+      return { bridge, storage, requests, progress, order, cleanup }
+    } catch (error) {
+      await cleanup()
+      throw error
+    }
+  }
+
+  it.each(['prompt', 'skill'] as const)('compacts persisted history before the first %s task request through the real Pi adapter', async method => {
+    const local = await fixture()
+    try {
+      let telemetry: TokenTelemetry | undefined
+      const unsubscribeTelemetry = local.bridge.tokenTelemetry!.subscribe(next => { telemetry = mergeTokenTelemetry(telemetry, next) })
+      expect(local.requests).toEqual([])
+      expect(await local.storage.findEntries('compaction')).toEqual([])
+      const result = method === 'skill'
+        ? await local.bridge.harness.skill('local-skill', currentRequest)
+        : await local.bridge.harness.prompt(currentRequest)
+      expect(result.stopReason).toBe('stop')
+      expect(result.content).toContainEqual({ type: 'text', text: 'local-task-complete' })
+      const summaries = local.requests.filter(request => request.kind === 'summary')
+      const tasks = local.requests.filter(request => request.kind === 'task')
+      expect(summaries.length).toBeGreaterThan(0)
+      expect(tasks).toHaveLength(1)
+      expect(local.requests.at(-1)).toBe(tasks[0])
+      expect(tasks[0].checkpoints).toBe(1)
+      const summaryBodies = JSON.stringify(summaries.map(request => request.body.messages))
+      expect(summaryBodies).toContain('OLD_USER_TRANSCRIPT')
+      expect(summaryBodies).toContain('OLD_ASSISTANT_TRANSCRIPT')
+      const taskBody = JSON.stringify(tasks[0].body.messages)
+      expect(taskBody).toContain(checkpointText)
+      expect(taskBody).toContain(currentRequest)
+      expect(taskBody).not.toContain('OLD_USER_TRANSCRIPT')
+      expect(taskBody).not.toContain('OLD_ASSISTANT_TRANSCRIPT')
+      if (method === 'skill') expect(taskBody).toContain('LOCAL_SKILL_BODY')
+      expect(local.progress[0]).toMatchObject({ phase: 'start' })
+      expect(local.progress[0].tokensBefore).toBeGreaterThanOrEqual(contextWindowTokens * 0.7)
+      expect(local.progress.at(-1)).toMatchObject({ phase: 'complete' })
+      expect(local.progress.at(-1).tokensAfter).toBeLessThan(contextWindowTokens * 0.7)
+      expect(local.order.indexOf('progress:complete')).toBeLessThan(local.order.indexOf('request:task'))
+      expect(local.bridge.contextCompaction!.getFailure()).toBeUndefined()
+      expect(await local.storage.findEntries('compaction')).toMatchObject([{ fromHook: true, details: { policy: 'pre-request-70-percent' } }])
+      await local.bridge.flushTokenTelemetryQueue!()
+      expect(telemetry!.requests.length).toBeGreaterThan(0)
+      expect(telemetry!.requests.every(request => request.runtimeSessionId === 'compaction-session')).toBe(true)
+      expect(telemetry!.context!.runtimeSessionId).toBe('compaction-session')
+      expect(JSON.stringify(telemetry)).not.toContain('old-segment-sdk-id')
+      unsubscribeTelemetry()
+    } finally { await local.cleanup() }
+  })
+
+  it('compacts between tool rounds within one running prompt, not only while idle', async () => {
+    const local = await fixture({ mode: 'tool-round' })
+    const compact = vi.spyOn(local.bridge.harness, 'compact')
+    try {
+      const result = await local.bridge.harness.prompt(currentRequest)
+      expect(result.stopReason).toBe('stop')
+      const tasks = local.requests.filter(request => request.kind === 'task')
+      expect(tasks).toHaveLength(2)
+      expect(tasks[0].checkpoints).toBe(0)
+      expect(tasks[1].checkpoints).toBe(1)
+      const kinds = local.requests.map(request => request.kind)
+      expect(kinds[0]).toBe('task')
+      expect(kinds.slice(1, -1).length).toBeGreaterThan(0)
+      expect(kinds.slice(1, -1).every(kind => kind === 'summary')).toBe(true)
+      expect(kinds.at(-1)).toBe('task')
+      const summaries = JSON.stringify(local.requests.filter(request => request.kind === 'summary').map(request => request.body.messages))
+      expect(summaries).toContain('ROUND_ONE_TRANSCRIPT')
+      expect(summaries).toContain('LOCAL_TOOL_RESULT')
+      const nextTask = JSON.stringify(tasks[1].body.messages)
+      expect(nextTask).toContain(checkpointText)
+      expect(nextTask).toContain(currentRequest)
+      expect(nextTask).not.toContain('ROUND_ONE_TRANSCRIPT')
+      expect(local.progress[0].tokensBefore).toBeGreaterThanOrEqual(contextWindowTokens * 0.7)
+      expect(local.progress.at(-1).tokensAfter).toBeLessThan(contextWindowTokens * 0.7)
+      expect(compact).not.toHaveBeenCalled()
+      expect(local.bridge.contextCompaction!.getFailure()).toBeUndefined()
+    } finally { await local.cleanup() }
+  })
+
+  for (const api of ['openai-completions', 'anthropic-messages'] as const) {
+    it.each([
+      { gateway: false, maxOutputTokens: 8192, expectedCap: 2048 },
+      { gateway: true, maxOutputTokens: 8192, expectedCap: 2048 },
+      { gateway: false, maxOutputTokens, expectedCap: maxOutputTokens },
+      { gateway: true, maxOutputTokens, expectedCap: maxOutputTokens },
+      { gateway: false, maxOutputTokens: 8192, maxInputTokens: 12000, expectedCap: 1200 }
+    ])(`${api} preserves the bounded summary output without a thinking allowance: %j`, async limits => {
+      const local = await fixture({ api, ...limits })
+      try {
+        expect((await local.bridge.harness.prompt(currentRequest)).stopReason).toBe('stop')
+        const summaries = local.requests.filter(request => request.kind === 'summary')
+        expect(summaries.length).toBeGreaterThan(0)
+        for (const { body, metadata, options } of summaries) {
+          // Check before streamSimple can add a thinking budget, and again on wire.
+          expect(metadata).toMatchObject({ context_compaction: 'true' })
+          expect(options.reasoning).toBeUndefined()
+          expect(options.thinkingBudgets).toBeUndefined()
+          expect(options.maxTokens).toBe(limits.expectedCap)
+          expect(JSON.stringify(body.messages)).toContain('<transcript>')
+          expect(body.max_tokens ?? body.max_completion_tokens).toBe(limits.expectedCap)
+          expect(body.reasoning_effort).toBeUndefined()
+          expect(body.reasoning).toBeUndefined()
+          expect(body.output_config?.effort).toBeUndefined()
+          expect(body.chat_template_kwargs).toBeUndefined()
+          expect(body.thinking).toEqual(limits.gateway && api === 'anthropic-messages' ? { type: 'disabled' } : undefined)
+          expect(body.enable_thinking).toBe(limits.gateway && api === 'openai-completions' ? false : undefined)
+        }
+        const task = local.requests.find(request => request.kind === 'task')!.body
+        if (!limits.gateway) {
+          expect(task).toMatchObject({ reasoning_effort: 'max', enable_thinking: true, thinking: { type: 'enabled', budget_tokens: 8192 } })
+        } else if (api === 'openai-completions') {
+          expect(task).toMatchObject({ reasoning_effort: 'max', enable_thinking: true })
+        } else {
+          expect(task).toMatchObject({ thinking: { type: 'enabled' }, output_config: { effort: 'max' } })
+        }
+        expect(local.progress.at(-1)).toMatchObject({ phase: 'complete' })
+        expect(local.bridge.contextCompaction!.getFailure()).toBeUndefined()
+      } finally { await local.cleanup() }
+    })
+
+    it(`${api} accepts a stopped CJK summary with valid usage below the cap even when the local estimate exceeds it`, async () => {
+      const summaryText = '保留目标与约束，记录已完成工作、文件路径以及下一步。'.repeat(50)
+      const summaryUsage = { input: 6000, output: 800 }
+      expect(estimateContextText(summaryText)).toBeGreaterThan(maxOutputTokens)
+      expect(summaryUsage.output).toBeLessThan(maxOutputTokens)
+      const local = await fixture({ api, summaryText, summaryUsage })
+      let telemetry: TokenTelemetry | undefined
+      const unsubscribe = local.bridge.tokenTelemetry!.subscribe(next => { telemetry = mergeTokenTelemetry(telemetry, next) })
+      try {
+        const result = await local.bridge.harness.prompt(currentRequest)
+        expect(result.stopReason).toBe('stop')
+        expect(result.content).toContainEqual({ type: 'text', text: 'local-task-complete' })
+        const summaries = local.requests.filter(request => request.kind === 'summary')
+        expect(summaries.length).toBeGreaterThan(0)
+        expect(summaries.every(({ body }) => (body.max_tokens ?? body.max_completion_tokens) === maxOutputTokens)).toBe(true)
+        const tasks = local.requests.filter(request => request.kind === 'task')
+        expect(tasks).toHaveLength(1)
+        expect(tasks[0].checkpoints).toBe(1)
+        expect(JSON.stringify(tasks[0].body.messages)).toContain(summaryText)
+        expect(JSON.stringify(tasks[0].body.messages)).toContain(currentRequest)
+        expect(JSON.stringify(tasks[0].body.messages)).not.toContain('OLD_USER_TRANSCRIPT')
+        expect(await local.storage.findEntries('compaction')).toHaveLength(1)
+        expect(local.progress.at(-1)).toMatchObject({ phase: 'complete', summary: summaryText })
+        expect(local.progress.some(event => event.phase === 'failed')).toBe(false)
+        expect(local.bridge.contextCompaction!.getFailure()).toBeUndefined()
+        await local.bridge.flushTokenTelemetryQueue!()
+        const reportedSummaries = telemetry!.requests.filter(request => request.operation === 'compaction')
+        expect(reportedSummaries).toHaveLength(summaries.length)
+        for (const request of reportedSummaries) {
+          expect(request).toMatchObject({ status: 'completed', attempts: 1, reported: { inputTokens: summaryUsage.input, outputTokens: summaryUsage.output } })
+        }
+      } finally { unsubscribe(); await local.cleanup() }
+    })
+  }
 })
 
 describe('gateway thinking selection', () => {
@@ -251,6 +604,41 @@ describe('gateway thinking selection', () => {
 })
 
 describe('custom reasoning snapshot payload integration', () => {
+  it.each(['stream', 'streamSimple'] as const)('%s suppresses original custom/gateway max thinking only for context compaction', async method => {
+    for (const providerApiType of ['openai-completions', 'anthropic-messages'] as const) {
+      for (const custom of [false, true]) {
+        const underlying = vi.fn((_model, _context, options) => options)
+        const patch = { enable_thinking: true, thinking: { type: 'enabled', budget_tokens: 8192 }, reasoning_effort: 'max', output_config: { effort: 'max' }, chat_template_kwargs: { enable_thinking: true } }
+        const wrapper = wrapPiApiModuleWithPayloadNormalization({
+          apiModule: { stream: underlying, streamSimple: underlying } as any,
+          invokeContext: { thinkingLevel: 'max', runtime: { provider: { id: custom ? 'custom-exact' : 'builtin' }, model: { id: 'deepseek-local' } } } as any,
+          providerApiType, baseUrl: 'https://open.vectcut.com/v1',
+          customReasoning: custom ? { level: 'max', patch } : undefined
+        })
+        const payload = () => ({ ...structuredClone(patch), reasoning: { effort: 'max' }, output_config: { effort: 'max', format: 'json' }, messages: [{ role: 'user', content: 'local transcript' }] })
+        const summary: any = payload()
+        // Also exercise a replacement payload returned by the existing callback.
+        const summaryOptions = (wrapper[method] as any)({}, {}, {
+          metadata: { context_compaction: 'true' }, onPayload: () => summary
+        })
+        expect(await summaryOptions.onPayload({}, {})).toBe(summary)
+        expect(summaryOptions.metadata).toEqual({ context_compaction: 'true' })
+        expect(summary.reasoning_effort).toBeUndefined()
+        expect(summary.reasoning).toBeUndefined()
+        expect(summary.chat_template_kwargs).toBeUndefined()
+        expect(summary.output_config).toEqual({ format: 'json' })
+        expect(summary.enable_thinking).toBe(!custom && providerApiType === 'openai-completions' ? false : undefined)
+        expect(summary.thinking).toEqual(!custom && providerApiType === 'anthropic-messages' ? { type: 'disabled' } : undefined)
+        const task: any = payload()
+        await (wrapper[method] as any)({}, {}, {}).onPayload(task, {})
+        if (custom) expect(task).toMatchObject(patch)
+        else if (providerApiType === 'openai-completions') expect(task).toMatchObject({ enable_thinking: true, reasoning_effort: 'max' })
+        else expect(task).toMatchObject({ thinking: { type: 'enabled' }, output_config: { effort: 'max', format: 'json' } })
+        expect(patch.thinking).toEqual({ type: 'enabled', budget_tokens: 8192 })
+      }
+    }
+  })
+
   it.each(['stream', 'streamSimple'] as const)('%s applies independent custom snapshots after cleanup for both protocols', async method => {
     for (const providerApiType of ['openai-completions', 'anthropic-messages'] as const) {
       const underlying = vi.fn((_model, _context, options) => options)
@@ -282,6 +670,138 @@ describe('custom reasoning snapshot payload integration', () => {
       await (create({ reasoning_effort: 'CUSTOM' }, 'official') as any)[method]({}, {}, {}).onPayload(official, {})
       expect(official.reasoning_effort).not.toBe('CUSTOM')
     }
+  })
+})
+
+describe('first physical model fetch timing', () => {
+  const timings = () => logMocks.info.mock.calls
+    .filter(([message]) => message === '[FirstTextTiming]').map(([, fields]) => fields)
+  const createWrapper = (traceId = 'fetch-trace') => {
+    const underlying = vi.fn((_model, _context, options) => options)
+    return wrapPiApiModuleWithPayloadNormalization({
+      apiModule: { stream: underlying, streamSimple: underlying },
+      invokeContext: { runtime: { traceId, sessionId: 'fetch-session' } } as any,
+      providerApiType: 'openai-completions'
+    })
+  }
+  const normalize = (wrapper: ReturnType<typeof createWrapper>, method: 'stream' | 'streamSimple', options?: unknown) =>
+    (wrapper[method] as any)({}, {}, options)
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['stream', 'streamSimple'] as const)('%s times only the first physical fetch across normalization and concurrent calls', async method => {
+    let now = 1000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const wrapper = createWrapper()
+    const request = new Request('https://example.test/private', { method: 'POST', body: 'private-request' })
+    const signal = new AbortController().signal
+    const init = Object.freeze({ signal, headers: { Authorization: 'private-key' }, body: 'private-body', method: 'POST' })
+    const response = new Response('private-response', { status: 503 })
+    const readBody = vi.spyOn(response, 'text')
+    const clone = vi.spyOn(response, 'clone')
+    let resolveFirst!: (response: Response) => void
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+      .mockResolvedValue(response)
+    const originalOptions = Object.freeze({ fetch, signal, maxRetries: 3, headers: init.headers })
+    const first = normalize(wrapper, method, originalOptions)
+    const next = normalize(wrapper, method === 'stream' ? 'streamSimple' : 'stream', originalOptions)
+    expect(timings()).toEqual([])
+    expect(first.signal).toBe(signal)
+    expect(first.headers).toBe(init.headers)
+    expect(first.maxRetries).toBe(3)
+    expect(originalOptions.fetch).toBe(fetch)
+
+    const pending = first.fetch(request, init)
+    expect(timings()).toEqual([{ traceId: 'fetch-trace', sessionId: 'fetch-session', stage: 'model-fetch-start', atEpochMs: 1000 }])
+    // A second request can settle first, but must not steal the first request's measurement.
+    now = 1010
+    expect(await next.fetch(request, init)).toBe(response)
+    expect(timings()).toHaveLength(1)
+    now = 1042
+    resolveFirst(response)
+    expect(await pending).toBe(response)
+    expect(timings()).toEqual([
+      { traceId: 'fetch-trace', sessionId: 'fetch-session', stage: 'model-fetch-start', atEpochMs: 1000 },
+      { traceId: 'fetch-trace', sessionId: 'fetch-session', stage: 'model-fetch-headers', atEpochMs: 1042, elapsedMs: 42, status: 503 }
+    ])
+    expect(await first.fetch(request, init)).toBe(response)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    for (const args of fetch.mock.calls) {
+      expect(args).toHaveLength(2)
+      expect(args[0]).toBe(request)
+      expect(args[1]).toBe(init)
+      expect(args[1]?.signal).toBe(signal)
+    }
+    const laterFailure = new Error('private-later-failure')
+    fetch.mockRejectedValueOnce(laterFailure)
+    await expect(next.fetch(request, init)).rejects.toBe(laterFailure)
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(timings()).toHaveLength(2)
+    expect(readBody).not.toHaveBeenCalled()
+    expect(clone).not.toHaveBeenCalled()
+    expect(response.bodyUsed).toBe(false)
+    expect(JSON.stringify(timings())).not.toMatch(/private|example.test|Authorization/)
+  })
+
+  it.each(['reject', 'throw', 'abort'] as const)('logs a safe first-fetch error and preserves the exact %s reason without retrying', async failureMode => {
+    let now = 2000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const failure = failureMode === 'abort'
+      ? new DOMException('private cancellation reason', 'AbortError')
+      : new Error('private network error with credentials')
+    const controller = new AbortController()
+    if (failureMode === 'abort') controller.abort(failure)
+    const init = { signal: controller.signal }
+    const fetch = vi.fn<typeof globalThis.fetch>(() => {
+      now = 2037
+      if (failureMode === 'throw') throw failure
+      return Promise.reject(failure)
+    })
+    const wrapper = createWrapper()
+    const options = normalize(wrapper, 'stream', { fetch })
+    await expect(options.fetch('https://example.test/private', init)).rejects.toBe(failure)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[0][1]).toBe(init)
+    expect(timings()).toEqual([
+      { traceId: 'fetch-trace', sessionId: 'fetch-session', stage: 'model-fetch-start', atEpochMs: 2000 },
+      { traceId: 'fetch-trace', sessionId: 'fetch-session', stage: 'model-fetch-error', atEpochMs: 2037, elapsedMs: 37 }
+    ])
+    const response = new Response('not read')
+    fetch.mockResolvedValueOnce(response)
+    expect(await normalize(wrapper, 'streamSimple', { fetch }).fetch('https://example.test/retry', init)).toBe(response)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(timings()).toHaveLength(2)
+    expect(logMocks.warn).not.toHaveBeenCalled()
+    expect(logMocks.error).not.toHaveBeenCalled()
+    expect(JSON.stringify(timings())).not.toMatch(/private|credentials|AbortError|example.test/)
+  })
+
+  it.each(['stream', 'streamSimple'] as const)('%s delegates to global fetch when omitted and keeps invocation measurements independent', async method => {
+    const response = new Response('private-body')
+    const globalFetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(response)
+    vi.stubGlobal('fetch', globalFetch)
+    const first = createWrapper('first-invoke')
+    const second = createWrapper('second-invoke')
+    const request = new Request('https://example.test/private')
+    const options = normalize(first, method)
+    expect(globalFetch).not.toHaveBeenCalled()
+    expect(await options.fetch(request)).toBe(response)
+    expect(await options.fetch(request)).toBe(response)
+    expect(await normalize(second, method, {}).fetch(request)).toBe(response)
+    expect(globalFetch).toHaveBeenCalledTimes(3)
+    for (const args of globalFetch.mock.calls) {
+      expect(args).toHaveLength(1)
+      expect(args[0]).toBe(request)
+    }
+    expect(timings().map(fields => [fields.traceId, fields.stage])).toEqual([
+      ['first-invoke', 'model-fetch-start'], ['first-invoke', 'model-fetch-headers'],
+      ['second-invoke', 'model-fetch-start'], ['second-invoke', 'model-fetch-headers']
+    ])
+    expect(response.bodyUsed).toBe(false)
   })
 })
 
@@ -405,6 +925,31 @@ describe('OpenAI tool message normalization', () => {
     }
   })
 
+  it.each(['stream', 'streamSimple'] as const)('%s captures replaced normalized payload and only observes result without iterating', async method => {
+    const collector = createTokenTelemetryCollector({ runtimeSessionId: 'r', invocationId: 'i', modelId: 'm', providerId: 'p' })
+    let telemetry: TokenTelemetry | undefined
+    collector.subscribe(next => { telemetry = mergeTokenTelemetry(telemetry, next) })
+    let options: any
+    const iterator = vi.fn(() => { throw new Error('telemetry must not iterate') })
+    const stream = { result: vi.fn(() => Promise.resolve({ content: [{ type: 'text', text: 'ok' }], stopReason: 'stop', usage: { input: 1, cacheRead: 2, cacheWrite: 0, output: 3 } })), [Symbol.asyncIterator]: iterator }
+    let resolveResult: (value: any) => void = () => {}
+    stream.result.mockImplementation(() => new Promise(resolve => { resolveResult = resolve }))
+    const underlying = vi.fn((_model, _context, received) => { options = received; return stream })
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({ apiModule: { stream: underlying, streamSimple: underlying }, invokeContext: { runtime: { traceId: 'i' }, projection: {} } as any, providerApiType: 'openai-completions', tokenTelemetry: collector })
+    const result = (wrapper[method] as any)({ id: 'm' }, {}, { onPayload: () => ({ messages: [call('B')], tools: [] }), fetch: async () => new Response() })
+    expect(result).toBe(stream)
+    await options.onPayload({ messages: [{ role: 'user', content: 'original'.repeat(1000) }] }, {})
+    await options.fetch('https://example.test'); await options.fetch('https://example.test')
+    expect(telemetry!.requests[0].attempts).toBe(2)
+    expect(telemetry!.requests[0].input.categories.toolCalls).toBeGreaterThan(0)
+    expect(telemetry!.requests[0].input.categories.toolResults).toBeGreaterThan(0)
+    expect(telemetry!.requests[0].input.total).toBeLessThan(1000)
+    resolveResult({ content: [{ type: 'text', text: 'ok' }], stopReason: 'stop', usage: { input: 1, cacheRead: 2, cacheWrite: 0, output: 3 } })
+    await Promise.resolve(); await Promise.resolve()
+    expect(telemetry!.requests[0]).toMatchObject({ status: 'completed', reported: { inputTokens: 3, totalTokens: 6 } })
+    expect(iterator).not.toHaveBeenCalled()
+  })
+
   it.each(['stream', 'streamSimple'] as const)('%s forwards fetch and response callbacks with only scalar thinking diagnostics', async method => {
     const underlying = vi.fn((_model, _context, options) => options)
     const wrapper = wrapPiApiModuleWithPayloadNormalization({
@@ -416,7 +961,8 @@ describe('OpenAI tool message normalization', () => {
     const fetch = vi.fn()
     const model = { id: 'model', baseUrl: 'https://example.com/v1' }
     const options = (wrapper[method] as any)(model, {}, { onResponse, fetch })
-    expect(options.fetch).toBe(fetch)
+    expect(options.fetch).toEqual(expect.any(Function))
+    expect(options.fetch).not.toBe(fetch)
     expect(options.onResponse).toBe(onResponse)
     await options.onPayload({ messages: [] }, model)
     const success = { status: 200 }
@@ -433,7 +979,7 @@ describe('OpenAI tool message normalization', () => {
     expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
   })
 
-  it('preserves installed SDK HTTP 400 error events with only scalar thinking diagnostics', async () => {
+  it('preserves installed SDK HTTP 400 error events and records first physical fetch headers', async () => {
     const moduleName = '@earendil-works/pi-ai/api/openai-completions'
     const apiModule = await import(moduleName)
     const wrapper = wrapPiApiModuleWithPayloadNormalization({
@@ -457,7 +1003,11 @@ describe('OpenAI tool message normalization', () => {
     expect(events.some(event => event.type === 'error')).toBe(true)
     expect(onResponse).not.toHaveBeenCalled()
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
+    expect(logMocks.info).toHaveBeenCalledWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
+    const timings = logMocks.info.mock.calls.filter(([message]) => message === '[FirstTextTiming]')
+    expect(timings.map(([, fields]) => fields.stage)).toEqual(['model-fetch-start', 'model-fetch-headers'])
+    expect(timings[1][1]).toMatchObject({ status: 400, elapsedMs: expect.any(Number), atEpochMs: expect.any(Number) })
+    expect(JSON.stringify(timings)).not.toMatch(/private-api-key|invalid input|messages|backend-rejected|example.com/)
     expect(logMocks.warn).not.toHaveBeenCalled()
   })
 
@@ -825,6 +1375,111 @@ describe('resolveShellExecutable', () => {
     mockedFindGitBash.mockReturnValue(null)
 
     expect(() => resolveShellExecutable({})).toThrow('Git Bash is required for shell execution on Windows')
+  })
+})
+
+
+describe('Seed Audio MCP long-running integration', () => {
+  it('keeps concurrent generation results and billing after the default 60-second deadline', async () => {
+    const registry = await readFile(new URL('../tools/registry.ts', import.meta.url), 'utf8')
+    const registration = registry.match(/mountMcpServer\('seed-audio',\s*(\{[\s\S]*?\})\)/)?.[1]
+    expect(registration).toBeDefined()
+    expect(registration).toMatch(/longRunning:\s*true/)
+    expect(registration).toMatch(/timeout:\s*35\s*\*\s*60/)
+
+    const server = new McpServer({ name: 'seed-audio', version: '1' }, { capabilities: { tools: {} } })
+    server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [{ name: 'generate_seed_audio', inputSchema: { type: 'object' as const } }]
+    }))
+    const generate = vi.fn(async (request) => {
+      const part = Number(request.params.arguments?.part)
+      await new Promise(resolve => setTimeout(resolve, [95000, 100000, 105000][part]))
+      return { content: [{ type: 'text' as const, text: JSON.stringify({
+        success: true, url: `https://example.com/part-${part}.wav`, billing: { consume: part + 1 }
+      }) }] }
+    })
+    server.server.setRequestHandler(CallToolRequestSchema, generate)
+    const call = vi.spyOn(Client.prototype, 'callTool')
+    let clients: Awaited<ReturnType<typeof buildMcpTools>>['clients'] = []
+    try {
+      const built = await buildMcpTools({
+        packageBridge: {} as any,
+        invokeContext: {
+          runtime: { workspacePath: os.tmpdir(), traceId: 'trace-seed' },
+          projection: { topicId: 'topic-seed', piSessionId: 'session-seed' }
+        } as any,
+        options: { mcpServers: { 'seed-audio': {
+          type: 'sdk', name: 'seed-audio', instance: server, longRunning: true, timeout: 35 * 60
+        } } } as any
+      })
+      clients = built.clients
+      const tool = built.tools.find(tool => tool.name === 'mcp__vectcut__seed-audio__generate_seed_audio')!
+      const controller = new AbortController()
+      vi.useFakeTimers()
+      let completed = false
+      const pending = Promise.all([0, 1, 2].map(part => tool.execute(`seed-${part}`, { part }, controller.signal)))
+      void pending.then(() => { completed = true }, () => { completed = true })
+      await vi.advanceTimersByTimeAsync(60001)
+      expect(generate).toHaveBeenCalledTimes(3)
+      expect(completed).toBe(false)
+      expect(call).toHaveBeenCalledTimes(3)
+      expect(call).toHaveBeenCalledWith(
+        { name: 'generate_seed_audio', arguments: { part: 0 } }, undefined,
+        expect.objectContaining({
+          signal: controller.signal, timeout: 2100000,
+          resetTimeoutOnProgress: true, maxTotalTimeout: 2100000, onprogress: expect.any(Function)
+        })
+      )
+      await vi.advanceTimersByTimeAsync(45000)
+      const results = await pending
+      results.forEach((result, part) => {
+        expect(JSON.parse((result.content[0] as any).text)).toMatchObject({ success: true, billing: { consume: part + 1 } })
+        expect(result.details).toMatchObject({ billing: { consume: part + 1 } })
+      })
+    } finally {
+      vi.useRealTimers()
+      await Promise.allSettled(clients.map(client => client.close()))
+      await server.close()
+      call.mockRestore()
+    }
+  })
+})
+
+
+describe('local Blender MCP long-running integration', () => {
+  it('forwards the 61-minute timeout, cancellation signal and progress options', async () => {
+    const server = new McpServer({ name: 'blender-local', version: '1' }, { capabilities: { tools: {} } })
+    server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: [{ name: 'blender_render', inputSchema: { type: 'object' as const } }]
+    }))
+    const call = vi.spyOn(Client.prototype, 'callTool').mockResolvedValue({ content: [{ type: 'text', text: 'rendered' }] })
+    let clients: Awaited<ReturnType<typeof buildMcpTools>>['clients'] = []
+    try {
+      const built = await buildMcpTools({
+        packageBridge: {} as any,
+        invokeContext: {
+          runtime: { workspacePath: '/tmp/local-blender-test', traceId: 'trace-blender' },
+          projection: { topicId: 'topic-1', piSessionId: 'session-1' }
+        } as any,
+        options: { mcpServers: { 'blender-local': {
+          type: 'sdk', name: 'blender-local', instance: server, longRunning: true, timeout: 3660
+        } } } as any
+      })
+      clients = built.clients
+      const render = built.tools.find(tool => tool.name === 'mcp__vectcut__blender-local__blender_render')!
+      const controller = new AbortController()
+      await render.execute('render-1', { script: 'import bpy' }, controller.signal)
+      expect(call).toHaveBeenCalledWith(
+        { name: 'blender_render', arguments: { script: 'import bpy' } }, undefined,
+        expect.objectContaining({
+          signal: controller.signal, timeout: 3660000,
+          resetTimeoutOnProgress: true, maxTotalTimeout: 3660000, onprogress: expect.any(Function)
+        })
+      )
+    } finally {
+      await Promise.allSettled(clients.map(client => client.close()))
+      call.mockRestore()
+    }
   })
 })
 

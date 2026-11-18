@@ -236,6 +236,62 @@
         ]
       }
     },
+    "gpt-image-2.6": {
+      "reference_supported": true,
+      "transparent_background_supported": true,
+      "output_formats": ["png", "jpeg", "webp", "gif"],
+      "display_name": "GPT Image 2.6",
+      "description": "图片创作",
+      "badges": ["限时优惠"],
+      "icon": "https://player.install-ai-guider.top/example/model_icon/image_model_gpt_black.svg",
+      "resolutions": {
+        "1K": [
+          { "size": "1024x1024", "ratio": "1:1" },
+          { "size": "1344x752", "ratio": "16:9" },
+          { "size": "752x1344", "ratio": "9:16" },
+          { "size": "1152x864", "ratio": "4:3" },
+          { "size": "864x1152", "ratio": "3:4" },
+          { "size": "1248x832", "ratio": "3:2" },
+          { "size": "832x1248", "ratio": "2:3" },
+          { "size": "1152x928", "ratio": "5:4" },
+          { "size": "928x1152", "ratio": "4:5" },
+          { "size": "1440x720", "ratio": "2:1" },
+          { "size": "720x1440", "ratio": "1:2" },
+          { "size": "1536x656", "ratio": "21:9" },
+          { "size": "656x1536", "ratio": "9:21" }
+        ],
+        "2K": [
+          { "size": "2048x2048", "ratio": "1:1" },
+          { "size": "2688x1512", "ratio": "16:9" },
+          { "size": "1512x2688", "ratio": "9:16" },
+          { "size": "2304x1728", "ratio": "4:3" },
+          { "size": "1728x2304", "ratio": "3:4" },
+          { "size": "2496x1664", "ratio": "3:2" },
+          { "size": "1664x2496", "ratio": "2:3" },
+          { "size": "2304x1840", "ratio": "5:4" },
+          { "size": "1840x2304", "ratio": "4:5" },
+          { "size": "2880x1440", "ratio": "2:1" },
+          { "size": "1440x2880", "ratio": "1:2" },
+          { "size": "3072x1312", "ratio": "21:9" },
+          { "size": "1312x3072", "ratio": "9:21" }
+        ],
+        "4K": [
+          { "size": "2880x2880", "ratio": "1:1" },
+          { "size": "3840x2160", "ratio": "16:9" },
+          { "size": "2160x3840", "ratio": "9:16" },
+          { "size": "3312x2480", "ratio": "4:3" },
+          { "size": "2480x3312", "ratio": "3:4" },
+          { "size": "3520x2352", "ratio": "3:2" },
+          { "size": "2352x3520", "ratio": "2:3" },
+          { "size": "3200x2560", "ratio": "5:4" },
+          { "size": "2560x3200", "ratio": "4:5" },
+          { "size": "3840x1920", "ratio": "2:1" },
+          { "size": "1920x3840", "ratio": "1:2" },
+          { "size": "3696x1584", "ratio": "21:9" },
+          { "size": "1584x3696", "ratio": "9:21" }
+        ]
+      }
+    },
     "seedream-5.0": {
       "reference_supported": true,
       "display_name": "Seedream 5.0",
@@ -417,6 +473,7 @@
     "nano_banana_2": { "project_id": "41", "resource_points_per_unit": null },
     "gpt-image-2-all": { "project_id": "62", "resource_points_per_unit": null },
     "gpt-image-2.5-all": { "project_id": "361", "resource_points_per_unit": null },
+    "gpt-image-2.6": { "project_id": "480", "resource_points_per_unit": null },
     "seedream-5.0": { "project_id": "45", "resource_points_per_unit": null },
     "seedream-5.0-pro": { "project_id": "146", "resource_points_per_unit": null },
     "seedream-4.5": { "project_id": "26", "resource_points_per_unit": null },

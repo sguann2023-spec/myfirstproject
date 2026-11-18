@@ -47,7 +47,8 @@ export enum ConfigKeys {
   EnableDeveloperMode = 'enableDeveloperMode',
   ClientId = 'clientId',
   GitBashPath = 'gitBashPath',
-  GitBashPathSource = 'gitBashPathSource' // 'manual' | 'auto' | null
+  GitBashPathSource = 'gitBashPathSource', // 'manual' | 'auto' | null
+  BlenderPath = 'blenderPath'
 }
 
 export class ConfigManager {

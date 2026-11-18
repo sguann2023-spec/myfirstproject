@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(), prepare: vi.fn(), upload: vi.fn(), cleanup: vi.fn(), auth: vi.fn()
 }))
-vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ error: vi.fn() }) } }))
+vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ error: vi.fn(), info: vi.fn() }) } }))
 vi.mock('electron-store', () => ({ default: class { get() { return undefined } } }))
 vi.mock('@main/services/network/MainHttpClient', () => ({ mainHttpClient: { fetch: mocks.fetch } }))
 vi.mock('@main/services/agents/services/AgentRuntimeAuthService', () => ({

@@ -9,8 +9,6 @@ import {
   scheduleBeginnerGuideReopen
 } from '../../shared/beginnerGuide';
 
-const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
-
 const HELP_DOCS_URL = 'https://my.feishu.cn/wiki/GIjSwyWU6iunbTk9gqLcRFR7nIg';
 
 const HelpSettings = () => {
@@ -53,7 +51,6 @@ const HelpSettings = () => {
 
     try {
       scheduleBeginnerGuideReopen();
-      window.localStorage.setItem(MEMBERS_PANEL_COLLAPSED_STORE_KEY, 'true');
       const { ipcRenderer } = window.require('electron');
       await new Promise((resolve) => {
         window.setTimeout(resolve, 2000);

@@ -149,6 +149,7 @@ export enum IpcChannel {
   // Cherry chat stream (HomePage bridge)
   CherryChatStream_SessionCreate = 'cherry-chat-stream:session:create',
   CherryChatStream_SessionGet = 'cherry-chat-stream:session:get',
+  CherryChatStream_TokenStats = 'cherry-chat-stream:token-stats',
   CherryChatStream_SessionUpdate = 'cherry-chat-stream:session:update',
   CherryChatStream_SessionList = 'cherry-chat-stream:session:list',
   CherryChatStream_MessageCreate = 'cherry-chat-stream:message:create',
@@ -349,6 +350,8 @@ export enum IpcChannel {
   System_GetGitBashPath = 'system:getGitBashPath',
   System_GetGitBashPathInfo = 'system:getGitBashPathInfo',
   System_SetGitBashPath = 'system:setGitBashPath',
+  System_GetBlenderPathInfo = 'system:getBlenderPathInfo',
+  System_SetBlenderPath = 'system:setBlenderPath',
 
   // DevTools
   System_ToggleDevTools = 'system:toggleDevTools',

@@ -9,6 +9,8 @@ let workerPath: string
 let buildDirectory: string
 const createClient = (config: ConstructorParameters<typeof WorkerDatabaseClient>[0]) => new WorkerDatabaseClient(config, workerPath)
 import { Session } from '@earendil-works/pi-agent-core'
+import * as agentCore from '@earendil-works/pi-agent-core'
+import type { Models } from '@earendil-works/pi-ai'
 import { drizzle } from 'drizzle-orm/libsql'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,6 +40,7 @@ import * as schema from '../../schema'
 import { AgentTranscriptRepository } from '../agentTranscriptRepository'
 import { canonicalMessageToPi, PI_HISTORY_LIMITS, PI_PERSISTENCE_LIMITS, SqlitePiSessionStorage } from '../piSessionStorage'
 import { createReadImageContextProjector } from '../../../services/claudecode/harness/read-image-context'
+import { createContextCompactor } from '../../../services/claudecode/harness/context-compaction'
 import { persistDirectRequestExchange } from '../../../services/channels/directRequestPersistence'
 
 vi.mock('../../canonicalTranscriptMigration', () => ({ backfillCanonicalTranscript: vi.fn(() => { throw new Error('backfill forbidden') }) }))
@@ -1216,6 +1219,86 @@ describe('SqlitePiSessionStorage', () => {
       'compactionSummary',
       'assistant'
     ])
+  })
+
+  it('restores two generated context checkpoints from SQLite after cold worker restarts without stale-usage recompaction', async () => {
+    const model: Parameters<typeof createContextCompactor>[0]['model'] = {
+      id: 'model', name: 'Storage compaction test', api: 'openai-completions', provider: 'provider',
+      baseUrl: 'https://unused.invalid/v1', reasoning: false, input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 20_000, maxTokens: 2000
+    }
+    let checkpointText = ''
+    const completeSimple = vi.fn<Models['completeSimple']>().mockImplementation(async () => assistantMessage(checkpointText))
+    const log = vi.fn()
+    const makeCompactor = (session: Session) => createContextCompactor({
+      core: agentCore, models: { completeSimple } as unknown as Models, model, session,
+      systemPrompt: '', tools: [], log
+    })
+    await (client as WorkerDatabaseClient).finalizeSchema()
+    let storage = await open()
+    let session = new Session(storage)
+    const originalUsageEntries: string[] = []
+
+    for (const turn of [1, 2]) {
+      checkpointText = turn === 1
+        ? 'Checkpoint one: preserve the original goal and /tmp/first.txt.'
+        : 'Checkpoint two: preserve the original goal, /tmp/first.txt and /tmp/second.txt.'
+      const callsBefore = completeSimple.mock.calls.length
+      await session.appendMessage(assistantMessage(`OLD-HISTORY-${turn} ${'x'.repeat(32_000)}`))
+      const current = userMessage(`CURRENT REQUEST ${turn}: keep this verbatim`)
+      await session.appendMessage(current)
+      const response = assistantMessage(`RETAINED ANSWER ${turn}`)
+      response.usage = { ...response.usage, input: 18_000, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 18_000 }
+      originalUsageEntries.push(await session.appendMessage(response))
+      const projected = await makeCompactor(session).project((await session.buildContext()).messages)
+      const callsAfter = completeSimple.mock.calls.length
+      expect(callsAfter).toBeGreaterThan(callsBefore)
+      expect(projected.map(message => message.role)).toEqual(['compactionSummary', 'user', 'assistant'])
+      expect(projected[0]).toMatchObject({ summary: expect.stringContaining(turn === 1 ? 'Checkpoint one' : 'Checkpoint two') })
+      expect(projected.slice(1)).toEqual([
+        current,
+        { ...response, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: response.usage.cost } }
+      ])
+      if (turn === 2) expect(JSON.stringify(completeSimple.mock.calls[callsBefore][1])).toContain('Checkpoint one')
+      const checkpoints = await storage.findEntries('compaction')
+      expect(checkpoints).toHaveLength(turn)
+      expect(checkpoints.at(-1)).toMatchObject({
+        retainedTail: projected.slice(1), fromHook: true,
+        details: { policy: 'pre-request-70-percent', chunks: callsAfter - callsBefore }
+      })
+      const expectedContext = await session.buildContext()
+      const leaf = await storage.getLeafId()
+      await settlePersistence()
+      const diskCheckpoints = await client.execute("SELECT entry_json FROM pi_session_entries WHERE entry_type='compaction' ORDER BY sequence")
+      expect(diskCheckpoints.rows.map(row => JSON.parse(String(row.entry_json)))).toEqual(checkpoints)
+
+      // The topic cache is keyed by the Drizzle database object. A fresh worker
+      // and wrapper force a cache miss rather than reopening the live memory state.
+      const oldState = (storage as any).state
+      await (client as WorkerDatabaseClient).closeAsync()
+      client = createClient({ url: `file:${path.join(tempDirectory, 'sessions.db')}`, intMode: 'number' })
+      database = drizzle(client, { schema })
+      storage = await open('ignored-after-restart')
+      expect((storage as any).state).not.toBe(oldState)
+      expect(await storage.getMetadata()).toMatchObject({ id: 'pi-first', topicId: 'topic-a' })
+      expect(await storage.getLeafId()).toBe(leaf)
+      expect(await storage.findEntries('compaction')).toEqual(checkpoints)
+      session = new Session(storage)
+      const restored = await session.buildContext()
+      expect(restored).toEqual(expectedContext)
+      expect(restored.messages.filter(message => message.role === 'compactionSummary')).toHaveLength(1)
+      for (const id of originalUsageEntries) {
+        expect(await storage.getEntry(id)).toMatchObject({ type: 'message', message: { usage: { totalTokens: 18_000 } } })
+      }
+      log.mockClear()
+      const restoredCompactor = makeCompactor(session)
+      expect(await restoredCompactor.project(restored.messages)).toBe(restored.messages)
+      expect(await restoredCompactor.project((await session.buildContext()).messages)).toEqual(restored.messages)
+      expect(completeSimple).toHaveBeenCalledTimes(callsAfter)
+      expect(await storage.findEntries('compaction')).toEqual(checkpoints)
+      expect(log).toHaveBeenCalledWith('budget', expect.objectContaining({ latestUsageTokens: 0 }))
+      expect(restoredCompactor.getFailure()).toBeUndefined()
+    }
   })
 
   it('hydrates canonical history once and keeps the accepted current message out of reopened context', async () => {

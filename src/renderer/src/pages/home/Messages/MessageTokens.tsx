@@ -8,26 +8,21 @@ import { t } from 'i18next'
 import React from 'react'
 import { shallowEqual } from 'react-redux'
 import styled from 'styled-components'
-import { getReversePromptAccounting, isReversePromptToolName } from '../../../../../shared/reversePrompt'
+import {
+  extractBillingPointsFromToolResponse,
+  getCacheInputTokens,
+  getInternalToolUsage,
+  getMessageTokenUsage,
+  getUsageSteps,
+  mergeLiveTokenMessage,
+  resolveTokenUsageBlock,
+  type MessageUsageWithCacheDetails,
+  type TokenUsageMessage
+} from './tokenUsage'
 
 interface MessageTokensProps {
   message: Message
   isLastMessage?: boolean
-}
-
-type MessageUsageWithCacheDetails = Message['usage'] & {
-  cache_read_input_tokens?: number
-  cache_creation_input_tokens?: number
-  prompt_tokens_details?: {
-    cached_tokens?: number
-    cache_creation_input_tokens?: number
-    cache_write_tokens?: number
-  }
-  input_tokens_details?: {
-    cached_tokens?: number
-    cache_creation_input_tokens?: number
-    cache_write_tokens?: number
-  }
 }
 
 type MessagePricingWithPreciseFields = NonNullable<Message['model']>['pricing'] & {
@@ -40,135 +35,9 @@ type MessagePricingWithPreciseFields = NonNullable<Message['model']>['pricing'] 
   precise_cache_write_resource_points_per_unit?: number
 }
 
-type BillingRecord = Record<string, unknown>
 type ToolBillingDetail = {
   label: string
   points: number
-}
-
-type BlockLike = {
-  id?: string
-  type?: string
-  toolName?: string
-  metadata?: {
-    rawMcpToolResponse?: {
-      tool?: {
-        name?: string
-      }
-      toolName?: string
-      response?: unknown
-      responseRaw?: unknown
-    }
-  }
-}
-
-const asRecord = (value: unknown): BillingRecord | null =>
-  typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as BillingRecord) : null
-
-const asFiniteNumber = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value)
-    if (Number.isFinite(parsed)) return parsed
-  }
-  return null
-}
-
-function extractBillingPointsFromPayload(
-  payload: unknown,
-  visited = new WeakSet<object>(),
-  depth = 0
-): number | null {
-  if (depth >= 64) return null
-
-  if (typeof payload === 'string' && payload.trim()) {
-    try {
-      return extractBillingPointsFromPayload(JSON.parse(payload), visited, depth + 1)
-    } catch {
-      return null
-    }
-  }
-
-  const record = asRecord(payload)
-  if (!record || visited.has(record)) return null
-  visited.add(record)
-
-  const nestedBilling = asRecord(record.billing)
-  if (nestedBilling) {
-    return asFiniteNumber(
-      nestedBilling.total_consumed_points ??
-        nestedBilling.points_consumed ??
-        nestedBilling.deduct_points ??
-        nestedBilling.consume
-    )
-  }
-
-  if ('total_consumed_points' in record) {
-    return asFiniteNumber(record.total_consumed_points)
-  }
-
-  if ('points_consumed' in record) {
-    return asFiniteNumber(record.points_consumed)
-  }
-
-  if ('deduct_points' in record) {
-    return asFiniteNumber(record.deduct_points)
-  }
-
-  if ('consume' in record) {
-    return asFiniteNumber(record.consume)
-  }
-
-  if ('responseRaw' in record) {
-    const nestedResponseRawPoints = extractBillingPointsFromPayload(record.responseRaw, visited, depth + 1)
-    if (nestedResponseRawPoints !== null) {
-      return nestedResponseRawPoints
-    }
-  }
-
-  if ('response' in record) {
-    const nestedResponsePoints = extractBillingPointsFromPayload(record.response, visited, depth + 1)
-    if (nestedResponsePoints !== null) {
-      return nestedResponsePoints
-    }
-  }
-
-  if ('output' in record) {
-    const nestedOutputPoints = extractBillingPointsFromPayload(record.output, visited, depth + 1)
-    if (nestedOutputPoints !== null) {
-      return nestedOutputPoints
-    }
-  }
-
-  if ('result' in record) {
-    const nestedResultPoints = extractBillingPointsFromPayload(record.result, visited, depth + 1)
-    if (nestedResultPoints !== null) {
-      return nestedResultPoints
-    }
-  }
-
-  // Only traverse actual content; normalizing a plain object serializes it back
-  // to JSON text and causes the same payload to be parsed recursively forever.
-  const content = Array.isArray(record.content) ? record.content : []
-  for (const value of content) {
-    const item = asRecord(value)
-    if (item?.type !== 'text' || typeof item.text !== 'string' || !item.text.trim()) continue
-
-    const nestedPoints = extractBillingPointsFromPayload(item.text, visited, depth + 1)
-    if (nestedPoints !== null) {
-      return nestedPoints
-    }
-  }
-
-  return null
-}
-
-function extractBillingPointsFromToolResponse(toolResponse: unknown): number {
-  const record = asRecord(toolResponse)
-  const directPoints = extractBillingPointsFromPayload(record?.responseRaw ?? record?.response ?? toolResponse)
-  if (directPoints !== null) return directPoints
-
-  return 0
 }
 
 const formatPoints = (value: number) => (Number(value) || 0).toFixed(2)
@@ -197,36 +66,9 @@ const toolBillingDetailsEqual = (a: ToolBillingDetail[], b: ToolBillingDetail[])
   return true
 }
 
-const asBlockLike = (value: unknown): BlockLike | null =>
-  typeof value === 'object' && value !== null ? (value as BlockLike) : null
-
-function resolveMessageBlock(state: any, blockRef: unknown): BlockLike | null {
-  if (typeof blockRef === 'string') {
-    return asBlockLike(state.messageBlocks.entities[blockRef])
-  }
-
-  const inlineBlock = asBlockLike(blockRef)
-  if (!inlineBlock) return null
-
-  if (inlineBlock.id && state.messageBlocks.entities[inlineBlock.id]) {
-    return asBlockLike(state.messageBlocks.entities[inlineBlock.id]) ?? inlineBlock
-  }
-
-  return inlineBlock
-}
-
 const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
-  const currentMessage = useAppSelector((state: any) => {
-    const stored = state.messages?.entities?.[message.id]
-    if (!stored) return message
-    return {
-      ...message,
-      ...stored,
-      usage: stored.usage ?? message.usage,
-      usageSteps: stored.usageSteps?.length ? stored.usageSteps : message.usageSteps,
-      metrics: stored.metrics ?? message.metrics
-    }
-  }, shallowEqual)
+  const currentMessage: Message & TokenUsageMessage = useAppSelector((state: any) =>
+    mergeLiveTokenMessage(message, state.messages?.entities?.[message.id]), shallowEqual)
 
   // Persisted custom models may contain platform pricing from an older model lookup.
   // The provider or fully qualified model ID, not that pricing, determines who bills the conversation.
@@ -242,7 +84,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     if (!Array.isArray(currentMessage.blocks) || currentMessage.blocks.length === 0) return EMPTY_TOOL_BILLING_DETAILS
 
     return currentMessage.blocks.reduce<ToolBillingDetail[]>((details: ToolBillingDetail[], blockRef: unknown) => {
-      const block = resolveMessageBlock(state, blockRef)
+      const block = resolveTokenUsageBlock(blockRef, state.messageBlocks?.entities)
       if (!block || block.type !== 'tool') return details
 
       const rawToolName =
@@ -268,61 +110,10 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   const toolBillingPoints = toolBillingDetails.reduce((total: number, detail: ToolBillingDetail) => total + detail.points, 0)
 
-  const internalToolUsage = useAppSelector((state: any) => {
-    const total = {
-      prompt_tokens: 0, completion_tokens: 0, total_tokens: 0,
-      missing: false, missingBilling: false, hasKnownBilling: false
-    }
-    for (const blockRef of currentMessage.blocks || []) {
-      const block = resolveMessageBlock(state, blockRef)
-      const response = block?.metadata?.rawMcpToolResponse
-      if (block?.type !== 'tool' || !isReversePromptToolName(block.toolName || response?.tool?.name || response?.toolName || '')) continue
-      const accounting = getReversePromptAccounting(response)
-      const usage = accounting?.usage
-      const points = extractBillingPointsFromPayload(accounting)
-      if (points !== null) total.hasKnownBilling = true
-      if (points === null || accounting?.billing?.complete === false) total.missingBilling = true
-      const prompt = asFiniteNumber(usage?.prompt_tokens ?? usage?.input_tokens)
-      const completion = asFiniteNumber(usage?.completion_tokens ?? usage?.output_tokens)
-      const tokens = asFiniteNumber(usage?.total_tokens) ?? (
-        prompt !== null && completion !== null ? prompt + completion : null
-      )
-      if (tokens === null) total.missing = true
-      total.prompt_tokens += prompt || 0
-      total.completion_tokens += completion || 0
-      total.total_tokens += tokens || 0
-    }
-    return total
-  }, shallowEqual)
-
-  const getUsageSteps = () =>
-    Array.isArray(currentMessage.usageSteps) && currentMessage.usageSteps.length > 0
-      ? (currentMessage.usageSteps as MessageUsageWithCacheDetails[])
-      : []
-
-  const getCacheInputTokens = (usage?: MessageUsageWithCacheDetails) => {
-    const cacheReadTokens =
-      Number(
-        usage?.cache_read_input_tokens ??
-          usage?.prompt_tokens_details?.cached_tokens ??
-          usage?.input_tokens_details?.cached_tokens ??
-          0
-      ) || 0
-    const cacheWriteTokens =
-      Number(
-        usage?.cache_creation_input_tokens ??
-          usage?.prompt_tokens_details?.cache_creation_input_tokens ??
-          usage?.prompt_tokens_details?.cache_write_tokens ??
-          usage?.input_tokens_details?.cache_creation_input_tokens ??
-          usage?.input_tokens_details?.cache_write_tokens ??
-          0
-      ) || 0
-
-    return {
-      cacheReadTokens,
-      cacheWriteTokens
-    }
-  }
+  const internalToolUsage = useAppSelector((state: any) =>
+    getInternalToolUsage(currentMessage, state.messageBlocks?.entities), shallowEqual)
+  const tokenUsage = getMessageTokenUsage(currentMessage, internalToolUsage)
+  const { displayUsage } = tokenUsage
 
   const getUsagePrice = (usage?: MessageUsageWithCacheDetails) => {
     if (isThirdPartyModel) return 0
@@ -366,110 +157,21 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
     return (inputTokens * inputPointPerThousand + outputTokens * outputPointPerThousand) / 1000
   }
 
-  const getDisplayUsage = (): MessageUsageWithCacheDetails | undefined => {
-    const directUsage = currentMessage?.usage as MessageUsageWithCacheDetails | undefined
-    const usageSteps = getUsageSteps()
-
-    if (usageSteps.length > 0) {
-      return usageSteps.reduce(
-        (total, usage) => {
-          const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
-          const completionTokens = Number(usage?.completion_tokens ?? 0) || 0
-          const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
-          const { cacheReadTokens, cacheWriteTokens } = getCacheInputTokens(usage)
-
-          total.prompt_tokens += promptTokens
-          total.completion_tokens += completionTokens
-          total.total_tokens += totalTokens
-          total.cache_read_input_tokens += cacheReadTokens
-          total.cache_creation_input_tokens += cacheWriteTokens
-
-          return total
-        },
-        {
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: 0,
-          cache_read_input_tokens: 0,
-          cache_creation_input_tokens: 0,
-          prompt_tokens_details: {
-            cached_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_write_tokens: 0
-          },
-          input_tokens_details: {
-            cached_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_write_tokens: 0
-          }
-        }
-      )
-    }
-
-    if (!directUsage) {
-      return undefined
-    }
-
-    const directCache = getCacheInputTokens(directUsage)
-    const promptTokens = Number(directUsage?.prompt_tokens ?? 0) || 0
-    const completionTokens = Number(directUsage?.completion_tokens ?? 0) || 0
-    const totalTokens = Number(directUsage?.total_tokens ?? promptTokens + completionTokens) || 0
-    const cacheReadTokens = directCache.cacheReadTokens
-    const cacheWriteTokens = directCache.cacheWriteTokens
-
-    return {
-      ...(directUsage ?? {}),
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      total_tokens: totalTokens,
-      cache_read_input_tokens: cacheReadTokens,
-      cache_creation_input_tokens: cacheWriteTokens,
-      prompt_tokens_details: {
-        ...(directUsage?.prompt_tokens_details ?? {}),
-        cached_tokens: cacheReadTokens,
-        cache_creation_input_tokens: cacheWriteTokens,
-        cache_write_tokens: cacheWriteTokens
-      },
-      input_tokens_details: {
-        ...(directUsage?.input_tokens_details ?? {}),
-        cached_tokens: cacheReadTokens,
-        cache_creation_input_tokens: cacheWriteTokens,
-        cache_write_tokens: cacheWriteTokens
-      }
-    }
-  }
-
   const getPrice = () => {
     const usagePrice = (() => {
-      const usageSteps = getUsageSteps()
+      const usageSteps = getUsageSteps(currentMessage)
       if (usageSteps.length > 0) {
         return usageSteps.reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
       }
 
-      return getUsagePrice(getDisplayUsage())
+      return getUsagePrice(displayUsage)
     })()
 
     return usagePrice + toolBillingPoints
   }
 
-  const displayUsage = getDisplayUsage()
   const hasReportedUsage = Boolean(displayUsage) || Number(currentMessage?.metrics?.completion_tokens ?? 0) > 0
   const incompleteUsage = !displayUsage || internalToolUsage.missing || Boolean(currentMessage.error) || currentMessage.status === 'error' || currentMessage.aborted
-
-  const getAggregatedUsage = () => {
-    const usage = displayUsage
-    const completionTokensFallback = Number(currentMessage?.metrics?.completion_tokens ?? 0) || 0
-    const completionTokens = Number(usage?.completion_tokens ?? completionTokensFallback) || 0
-    const promptTokens = Number(usage?.prompt_tokens ?? 0) || 0
-    const totalTokens = Number(usage?.total_tokens ?? promptTokens + completionTokens) || 0
-
-    return {
-      // Tool-internal tokens are display-only; their cost is already included in toolBillingPoints.
-      prompt_tokens: promptTokens + internalToolUsage.prompt_tokens,
-      completion_tokens: completionTokens + internalToolUsage.completion_tokens,
-      total_tokens: totalTokens + internalToolUsage.total_tokens
-    }
-  }
 
   const getCacheReadSummaryString = () => {
     const cacheReadTokens = getCacheInputTokens(displayUsage).cacheReadTokens
@@ -529,7 +231,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   }
 
   if (currentMessage.role === 'assistant') {
-    const aggregatedUsage = getAggregatedUsage()
+    const aggregatedUsage = tokenUsage
     const cacheReadSummaryText = getCacheReadSummaryString()
     const cacheSavingText = getCacheSavingString()
     const usageBillingPoints = Math.max(0, getPrice() - toolBillingPoints)

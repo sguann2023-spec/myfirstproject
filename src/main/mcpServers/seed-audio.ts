@@ -8,7 +8,7 @@ import { loggerService } from '@logger'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { net } from 'electron'
 
 import { ossUploadService } from '@main/services/OssUploadService'
@@ -246,7 +246,9 @@ const getFileExtensionFromName = (source: string): string => {
 
 class SeedAudioServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 

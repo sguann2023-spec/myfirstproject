@@ -1,5 +1,6 @@
 import InlinePreviewPane from './InlinePreviewPane';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChatTaskContext } from './ChatTaskContext';
 import { readOptionalSkillExampleText } from '../Composer/skillExample';
 import { resolveMarkdownFilePath } from '../../../shared/markdownFileLinks';
@@ -22,9 +23,10 @@ import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
 import SkillMembersSection from './SkillMembers/SkillMembersSection';
+import { parseSkillDisplayMetadata } from './SkillMembers/skillDisplayMetadata';
 import MCPSettings from './MCPSettings/MCPSettings';
 import WebPagePreview from './WebPagePreview';
-import WorkSpace from './WorkSpace/WorkSpace';
+import { useWorkspaceController, WorkspaceDialogs } from './WorkSpace/WorkSpace';
 import { claimNewguiderReward } from '../../../api/newguiderReward';
 import { DownloadController } from '../../../shared/DownloadController.js';
 import { parseDraftDownloaderUrl } from '../../../shared/draftDownloaderUrl';
@@ -136,80 +138,20 @@ const getSelectedWorkspacePath = (session) => {
   return normalizePath(session?.accessible_paths?.[0] || '');
 };
 const WEB_PREVIEW_WIDTH_STORE_KEY = 'chat-web-preview-width:v1';
-const MEMBERS_PANEL_WIDTH_STORE_KEY = 'chat-members-panel-width:v2';
-const MEMBERS_PANEL_COLLAPSED_STORE_KEY = 'chat-members-panel-collapsed:v1';
 const TREE_LIST_MAX_ENTRIES = 20000;
 const DEFAULT_PREVIEW_PANE_WIDTH = 400;
-const DEFAULT_MEMBERS_PANEL_WIDTH = 260;
-const MIN_MEMBERS_PANEL_WIDTH = 160;
-const MAX_MEMBERS_PANEL_WIDTH = 360;
-const MEMBERS_PANEL_RESIZER_WIDTH = 8;
 const WEB_PREVIEW_RESIZER_WIDTH = 8;
 const MIN_WEB_PREVIEW_WIDTH = 320;
 const MIN_MAIN_PANEL_WIDTH = 260;
 const MAX_WEB_PREVIEW_WIDTH = 880;
 const isWindows = typeof process !== 'undefined' && process.platform === 'win32';
-const clampMembersPanelWidth = (nextWidth, containerWidth, hasLeadingFilePreview = false, trailingWebPreviewWidth = 0) => {
+const clampWebPreviewWidth = (nextWidth, containerWidth) => {
   const safeContainerWidth = Number(containerWidth) || 0;
-  const leadingWidth = hasLeadingFilePreview ? DEFAULT_PREVIEW_PANE_WIDTH : 0;
-  const trailingWidth = Math.max(0, Number(trailingWebPreviewWidth) || 0);
   const computedMaxWidth = safeContainerWidth > 0
-    ? safeContainerWidth - leadingWidth - trailingWidth - MIN_MAIN_PANEL_WIDTH - MEMBERS_PANEL_RESIZER_WIDTH - (trailingWidth > 0 ? WEB_PREVIEW_RESIZER_WIDTH : 0)
-    : MAX_MEMBERS_PANEL_WIDTH;
-  const maxWidth = Math.max(MIN_MEMBERS_PANEL_WIDTH, Math.min(MAX_MEMBERS_PANEL_WIDTH, computedMaxWidth));
-  return Math.min(maxWidth, Math.max(MIN_MEMBERS_PANEL_WIDTH, Math.round(Number(nextWidth) || DEFAULT_MEMBERS_PANEL_WIDTH)));
-};
-const clampWebPreviewWidth = (
-  nextWidth,
-  containerWidth,
-  hasLeadingFilePreview = false,
-  membersPanelWidth = DEFAULT_MEMBERS_PANEL_WIDTH,
-  membersPanelVisible = true
-) => {
-  const safeContainerWidth = Number(containerWidth) || 0;
-  const leadingWidth = hasLeadingFilePreview ? DEFAULT_PREVIEW_PANE_WIDTH : 0;
-  const occupiedMembersWidth = membersPanelVisible
-    ? Math.max(MIN_MEMBERS_PANEL_WIDTH, Number(membersPanelWidth) || DEFAULT_MEMBERS_PANEL_WIDTH)
-    : 0;
-  const computedMaxWidth = safeContainerWidth > 0
-    ? safeContainerWidth - leadingWidth - occupiedMembersWidth - MIN_MAIN_PANEL_WIDTH - (membersPanelVisible ? MEMBERS_PANEL_RESIZER_WIDTH : 0) - WEB_PREVIEW_RESIZER_WIDTH
+    ? safeContainerWidth - MIN_MAIN_PANEL_WIDTH - WEB_PREVIEW_RESIZER_WIDTH
     : MAX_WEB_PREVIEW_WIDTH;
   const maxWidth = Math.max(MIN_WEB_PREVIEW_WIDTH, Math.min(MAX_WEB_PREVIEW_WIDTH, computedMaxWidth));
   return Math.min(maxWidth, Math.max(MIN_WEB_PREVIEW_WIDTH, Math.round(Number(nextWidth) || DEFAULT_PREVIEW_PANE_WIDTH)));
-};
-const readMembersPanelWidth = () => {
-  if (typeof window === 'undefined' || !window.localStorage) return DEFAULT_MEMBERS_PANEL_WIDTH;
-  try {
-    return clampMembersPanelWidth(window.localStorage.getItem(MEMBERS_PANEL_WIDTH_STORE_KEY));
-  } catch (_error) {
-    return DEFAULT_MEMBERS_PANEL_WIDTH;
-  }
-};
-const writeMembersPanelWidth = (width) => {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    window.localStorage.setItem(MEMBERS_PANEL_WIDTH_STORE_KEY, String(Math.round(Number(width) || DEFAULT_MEMBERS_PANEL_WIDTH)));
-  } catch (_error) {
-    // ignore storage failures
-  }
-};
-const readMembersPanelCollapsed = () => {
-  if (typeof window === 'undefined' || !window.localStorage) return true;
-  try {
-    const rawValue = window.localStorage.getItem(MEMBERS_PANEL_COLLAPSED_STORE_KEY);
-    if (rawValue == null) return true;
-    return rawValue === 'true';
-  } catch (_error) {
-    return true;
-  }
-};
-const writeMembersPanelCollapsed = (collapsed) => {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    window.localStorage.setItem(MEMBERS_PANEL_COLLAPSED_STORE_KEY, collapsed ? 'true' : 'false');
-  } catch (_error) {
-    // ignore storage failures
-  }
 };
 const readWebPreviewWidth = () => {
   if (typeof window === 'undefined' || !window.localStorage) return DEFAULT_PREVIEW_PANE_WIDTH;
@@ -369,6 +311,7 @@ const ChatShell = ({
   onAddDraftToChat,
   onSubmitToolTask,
   sessionSending = false,
+  sessionMessages = [],
   webPreview = null,
   previewWindowReady = true,
   onCloseWebPreview,
@@ -397,8 +340,43 @@ const ChatShell = ({
   pinnedDraftPreviewErrorMessage = '',
   children
 }) => {
-  const [resolvedSessionId, setResolvedSessionId] = React.useState(runtimeSessionId || '');
-  const [runtimeSession, setRuntimeSession] = React.useState(null);
+  const { t } = useTranslation();
+  const sessionScopeKey = JSON.stringify([agentId || '', chatSessionId || '']);
+  const sessionScopeRef = React.useRef({ key: sessionScopeKey });
+  if (sessionScopeRef.current.key !== sessionScopeKey) sessionScopeRef.current = { key: sessionScopeKey };
+  const sessionScope = sessionScopeRef.current;
+  const [resolvedSessionState, setResolvedSessionState] = React.useState({ owner: sessionScope, id: runtimeSessionId || '' });
+  const [runtimeSessionState, setRuntimeSessionState] = React.useState({ owner: sessionScope, session: null });
+  const resolvedSessionId = runtimeSessionId || (resolvedSessionState.owner === sessionScope ? resolvedSessionState.id : '');
+  const runtimeSession = runtimeSessionState.owner === sessionScope && runtimeSessionState.session?.id === resolvedSessionId
+    ? runtimeSessionState.session : null;
+  const runtimeRequestRef = React.useRef(0);
+  const workspaceBindingRef = React.useRef(null);
+  const setResolvedSessionId = React.useCallback((id) => {
+    if (sessionScopeRef.current === sessionScope) setResolvedSessionState({ owner: sessionScope, id });
+  }, [sessionScope]);
+  const setRuntimeSession = React.useCallback((updater) => {
+    if (sessionScopeRef.current !== sessionScope) return;
+    setRuntimeSessionState((previous) => ({
+      owner: sessionScope,
+      session: typeof updater === 'function' ? updater(previous.owner === sessionScope ? previous.session : null) : updater
+    }));
+  }, [sessionScope]);
+  const applyRuntimeSessionSnapshot = React.useCallback((snapshot, targetSessionId) => {
+    setRuntimeSession((previous) => {
+      // A bound workspace cannot be removed within a session. A stale read (or read failure)
+      // must not undo a successful binding, even if the read starts after updateSession returns.
+      if (previous?.id === targetSessionId && getSelectedWorkspacePath(previous) && !getSelectedWorkspacePath(snapshot)) {
+        if (!snapshot) return previous;
+        return {
+          ...snapshot,
+          accessible_paths: previous.accessible_paths,
+          configuration: { ...getConfigObject(snapshot.configuration), selected_workspace_path: getSelectedWorkspacePath(previous) }
+        };
+      }
+      return snapshot;
+    });
+  }, [setRuntimeSession]);
   React.useEffect(() => {
     const renamed = ({ detail: { source, target } }) => {
       const remap = (value) => typeof value === 'string' && (value === source || value.startsWith(`${source}/`))
@@ -411,7 +389,7 @@ const ChatShell = ({
     };
     window.addEventListener('workspace-renamed', renamed);
     return () => window.removeEventListener('workspace-renamed', renamed);
-  }, []);
+  }, [setRuntimeSession]);
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [titleDraft, setTitleDraft] = React.useState(sessionTitle);
   const [skillsLoading, setSkillsLoading] = React.useState(true);
@@ -432,10 +410,9 @@ const ChatShell = ({
       ? { ...webPreview, previewType: 'web', activate: true }
       : null
   ));
-  const [membersPanelWidth, setMembersPanelWidth] = React.useState(() => readMembersPanelWidth());
-  const [membersPanelCollapsed, setMembersPanelCollapsed] = React.useState(() => readMembersPanelCollapsed());
+  const [inlinePreviewCollapsed, setInlinePreviewCollapsed] = React.useState(false);
+  const inlinePreviewId = React.useId();
   const [webPreviewWidth, setWebPreviewWidth] = React.useState(() => readWebPreviewWidth());
-  const [isResizingMembersPanel, setIsResizingMembersPanel] = React.useState(false);
   const [isResizingWebPreview, setIsResizingWebPreview] = React.useState(false);
   const [beginnerGuideOpen, setBeginnerGuideOpen] = React.useState(false);
   const [beginnerGuideCurrent, setBeginnerGuideCurrent] = React.useState(0);
@@ -446,7 +423,7 @@ const ChatShell = ({
   const pendingFilePreviewKeysRef = React.useRef(new Set());
   const closedFilePreviewKeysRef = React.useRef(new Set());
   const contentRef = React.useRef(null);
-  const beginnerGuideCreateWorkspaceButtonRef = React.useRef(null);
+  const previewResizeCleanupRef = React.useRef(null);
   const beginnerGuideWorkspaceDialogRef = React.useRef(null);
   const beginnerGuideWorkspaceNameInputRef = React.useRef(null);
   const beginnerGuideWebPreviewPaneRef = React.useRef(null);
@@ -456,11 +433,9 @@ const ChatShell = ({
   const currentWorkspacePath = React.useMemo(() => getSelectedWorkspacePath(runtimeSession), [runtimeSession]);
   React.useEffect(() => { setStoryboardTarget(null); }, [chatSessionId, currentWorkspacePath]);
   const hasLockedWorkspace = Boolean(currentWorkspacePath);
-  const showLeadingFilePreview = false;
-  const previewRequested = Boolean(panePreview);
+  const previewRequested = Boolean(panePreview) && !inlinePreviewCollapsed;
   const showTrailingWebPreview = previewRequested && previewWindowReady;
-  const showMembersPanel = !membersPanelCollapsed;
-  const isResizingAnyPanel = isResizingMembersPanel || isResizingWebPreview;
+  const isResizingAnyPanel = isResizingWebPreview;
   const shouldAutoStartBeginnerGuide = Boolean(
     beginnerGuideEligible &&
     !beginnerGuideDone &&
@@ -585,9 +560,9 @@ const ChatShell = ({
     prevButtonProps: { style: { display: 'none' } }
   }))), [beginnerGuideAiToolAreaRef, beginnerGuideDownloadPaneRef, beginnerGuideInputAreaRef, beginnerGuideModelPickerRef, beginnerGuideQuickSkillsViewportRef, beginnerGuideSettingsPaneRef, childrensBookQuickPromptRef, completeBeginnerGuide]);
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     setResolvedSessionId(runtimeSessionId || '');
-  }, [runtimeSessionId]);
+  }, [runtimeSessionId, setResolvedSessionId]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -637,45 +612,29 @@ const ChatShell = ({
   }, [beginnerGuideCurrent, beginnerGuideOpen]);
 
   React.useEffect(() => {
-    writeMembersPanelWidth(membersPanelWidth);
-  }, [membersPanelWidth]);
-
-  React.useEffect(() => {
-    writeMembersPanelCollapsed(membersPanelCollapsed);
-  }, [membersPanelCollapsed]);
-
-  React.useEffect(() => {
     writeWebPreviewWidth(webPreviewWidth);
   }, [webPreviewWidth]);
-
-  React.useEffect(() => {
-    const syncMembersPanelWidth = () => {
-      const containerWidth = contentRef.current?.clientWidth || 0;
-      const trailingWidth = showTrailingWebPreview ? webPreviewWidth : 0;
-      setMembersPanelWidth((prev) => clampMembersPanelWidth(prev, containerWidth, showLeadingFilePreview, trailingWidth));
-    };
-
-    syncMembersPanelWidth();
-    window.addEventListener('resize', syncMembersPanelWidth);
-    return () => window.removeEventListener('resize', syncMembersPanelWidth);
-  }, [showLeadingFilePreview, showTrailingWebPreview, webPreviewWidth]);
 
   React.useEffect(() => {
     if (!showTrailingWebPreview) return undefined;
     const syncWebPreviewWidth = () => {
       const containerWidth = contentRef.current?.clientWidth || 0;
-      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth, showLeadingFilePreview, membersPanelWidth, showMembersPanel));
+      setWebPreviewWidth((prev) => clampWebPreviewWidth(prev, containerWidth));
     };
 
     syncWebPreviewWidth();
     window.addEventListener('resize', syncWebPreviewWidth);
     return () => window.removeEventListener('resize', syncWebPreviewWidth);
-  }, [showLeadingFilePreview, showTrailingWebPreview, membersPanelWidth, showMembersPanel]);
+  }, [showTrailingWebPreview]);
 
   React.useEffect(() => {
-    if (!membersPanelCollapsed) return;
-    setIsResizingMembersPanel(false);
-  }, [membersPanelCollapsed]);
+    if (!showTrailingWebPreview) {
+      previewResizeCleanupRef.current?.();
+      setIsResizingWebPreview(false);
+    }
+  }, [showTrailingWebPreview]);
+
+  React.useEffect(() => () => previewResizeCleanupRef.current?.(), []);
 
   React.useEffect(() => {
     if (!isResizingAnyPanel) return undefined;
@@ -691,6 +650,7 @@ const ChatShell = ({
 
   React.useEffect(() => {
     let cancelled = false;
+    const requestId = ++runtimeRequestRef.current;
 
     const loadRuntimeSession = async () => {
       if (!resolvedSessionId) {
@@ -699,11 +659,11 @@ const ChatShell = ({
       }
       try {
         const result = await window.electronAPI.cherryChatStream.getSession(resolvedSessionId);
-        if (cancelled) return;
-        setRuntimeSession(result?.ok ? result.session || null : null);
+        if (cancelled || requestId !== runtimeRequestRef.current) return;
+        applyRuntimeSessionSnapshot(result?.ok ? result.session || null : null, resolvedSessionId);
       } catch (_error) {
-        if (!cancelled) {
-          setRuntimeSession(null);
+        if (!cancelled && requestId === runtimeRequestRef.current) {
+          applyRuntimeSessionSnapshot(null, resolvedSessionId);
         }
       }
     };
@@ -712,25 +672,29 @@ const ChatShell = ({
     return () => {
       cancelled = true;
     };
-  }, [resolvedSessionId]);
+  }, [resolvedSessionId, setRuntimeSession, applyRuntimeSessionSnapshot]);
 
   React.useEffect(() => {
     const api = window?.electronAPI?.agentSessionStream;
     const targetSessionId = String(resolvedSessionId || '').trim();
     if (!targetSessionId || typeof api?.onSessionChanged !== 'function') return undefined;
 
-    return api.onSessionChanged((payload) => {
+    let cancelled = false;
+    const unsubscribe = api.onSessionChanged((payload) => {
+      if (payload?.reason === 'token-stats') return;
       if (String(payload?.sessionId || '').trim() !== targetSessionId) return;
+      const requestId = ++runtimeRequestRef.current;
       void (async () => {
         try {
           const result = await window.electronAPI.cherryChatStream.getSession(targetSessionId);
-          setRuntimeSession(result?.ok ? result.session || null : null);
+          if (!cancelled && requestId === runtimeRequestRef.current) applyRuntimeSessionSnapshot(result?.ok ? result.session || null : null, targetSessionId);
         } catch (_error) {
-          setRuntimeSession(null);
+          if (!cancelled && requestId === runtimeRequestRef.current) applyRuntimeSessionSnapshot(null, targetSessionId);
         }
       })();
     });
-  }, [resolvedSessionId]);
+    return () => { cancelled = true; unsubscribe?.(); };
+  }, [resolvedSessionId, setRuntimeSession, applyRuntimeSessionSnapshot]);
 
   React.useEffect(() => {
     if (!isEditingTitle) {
@@ -745,18 +709,13 @@ const ChatShell = ({
     }
   }, [isEditingTitle]);
 
-  const resolveSkillPreviewPath = React.useCallback(async (skill) => {
+  const resolveSkillDisplayMetadata = React.useCallback(async (skill) => {
     const root = String(skill?.__skillRoot || '').trim();
-    if (!root) return '';
+    if (!root) return { webUrl: '', coverSrc: '' };
     try {
-      const raw = await readOptionalSkillExampleText(root);
-      if (!raw) return '';
-      const example = JSON.parse(raw);
-      const url = String(example?.display_info?.web_share || '').trim();
-      return /^https?:\/\//i.test(url) ? url : '';
-    } catch { return ''; }
+      return parseSkillDisplayMetadata(await readOptionalSkillExampleText(root), root);
+    } catch { return { webUrl: '', coverSrc: '' }; }
   }, []);
-  const resolveSkillExamplePath = resolveSkillPreviewPath;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -803,17 +762,17 @@ const ChatShell = ({
           return localSkillRoot ? { ...skill, __skillRoot: localSkillRoot } : skill;
         });
 
-        const previewEntries = await Promise.all(
-          normalizedSkills.map(async (skill) => [getSkillKey(skill), await resolveSkillPreviewPath(skill)])
-        );
-        const exampleEntries = await Promise.all(
-          normalizedSkills.map(async (skill) => [getSkillKey(skill), await resolveSkillExamplePath(skill)])
+        const displayEntries = await Promise.all(
+          normalizedSkills.map(async (skill) => ({ skill, metadata: await resolveSkillDisplayMetadata(skill) }))
         );
         if (cancelled) return;
 
-        setSkills(normalizedSkills);
-        setSkillPreviewPaths(Object.fromEntries(previewEntries.filter(([skillKey]) => Boolean(skillKey))));
-        setSkillExamplePaths(Object.fromEntries(exampleEntries.filter(([skillKey]) => Boolean(skillKey))));
+        const webPaths = Object.fromEntries(displayEntries
+          .map(({ skill, metadata }) => [getSkillKey(skill), metadata.webUrl])
+          .filter(([skillKey]) => Boolean(skillKey)));
+        setSkills(displayEntries.map(({ skill, metadata }) => ({ ...skill, __exampleCoverSrc: metadata.coverSrc })));
+        setSkillPreviewPaths(webPaths);
+        setSkillExamplePaths(webPaths);
       } catch (error) {
         if (!cancelled) {
           setSkills([]);
@@ -852,7 +811,7 @@ const ChatShell = ({
       }
       window.removeEventListener('skill-store-updated', handleSkillStoreUpdated);
     };
-  }, [agentId, currentWorkspacePath, resolveSkillExamplePath, resolveSkillPreviewPath, runtimeSessionId]);
+  }, [agentId, currentWorkspacePath, resolveSkillDisplayMetadata, runtimeSessionId]);
 
   React.useEffect(() => {
     setExpandedSkillKeys(new Set());
@@ -885,6 +844,7 @@ const ChatShell = ({
         activate: webPreview?.activate !== false
       };
       setPanePreview(nextPreview);
+      if (nextPreview.activate !== false) setInlinePreviewCollapsed(false);
     }
   }, [webPreview]);
 
@@ -1039,13 +999,17 @@ const ChatShell = ({
     }
 
     const normalizedSelected = normalizePath(workspacePath);
-    if (!normalizedSelected) return false;
+    if (!normalizedSelected || workspaceBindingRef.current?.owner === sessionScope) return false;
+    const request = { owner: sessionScope };
+    workspaceBindingRef.current = request;
+    const isCurrent = () => workspaceBindingRef.current === request && sessionScopeRef.current === sessionScope;
 
     try {
       let nextSessionId = String(resolvedSessionId || runtimeSessionId || runtimeSession?.id || '').trim();
       if (!nextSessionId && typeof onEnsureRuntimeSession === 'function') {
         nextSessionId = String(await onEnsureRuntimeSession()).trim();
       }
+      if (!isCurrent()) return false;
       if (!nextSessionId) {
         window.toast.warning('请稍后重试');
         return false;
@@ -1056,6 +1020,7 @@ const ChatShell = ({
 
       if (seedSkills) {
         const seedResult = await window.electronAPI.agentSkills.seedWorkspace({ workspace: normalizedSelected });
+        if (!isCurrent()) return false;
         if (!seedResult?.ok) {
           throw new Error(seedResult?.error || '同步技能缓存失败');
         }
@@ -1070,17 +1035,24 @@ const ChatShell = ({
           selected_workspace_path: normalizedSelected
         }
       });
+      if (!isCurrent()) return false;
       if (!updateResult?.ok || !updateResult?.session) {
         throw new Error(updateResult?.error || '绑定工作空间失败');
       }
 
+      ++runtimeRequestRef.current;
       setRuntimeSession(updateResult.session);
       return true;
     } catch (error) {
-      window.toast.error(error?.message || '绑定工作空间失败');
+      if (isCurrent()) window.toast.error(error?.message || '绑定工作空间失败');
       return false;
+    } finally {
+      if (workspaceBindingRef.current === request) workspaceBindingRef.current = null;
     }
   }, [
+    sessionScope,
+    setResolvedSessionId,
+    setRuntimeSession,
     agentId,
     hasLockedWorkspace,
     onEnsureRuntimeSession,
@@ -1089,6 +1061,17 @@ const ChatShell = ({
     runtimeSession?.configuration,
     runtimeSession?.id
   ]);
+
+  const workspaceController = useWorkspaceController({
+    agentId,
+    chatSessionId,
+    resolvedSessionId,
+    currentWorkspacePath,
+    hasLockedWorkspace,
+    workspaceStatus,
+    onBindWorkspace: bindWorkspaceToSession,
+    onAddWorkspaceFile
+  });
 
   const handlePreviewTabClose = React.useCallback((tab) => {
     if (String(tab?.type || '').trim() !== 'file') return;
@@ -1157,25 +1140,16 @@ const ChatShell = ({
     onCloseWebPreview?.();
   }, [onCloseWebPreview]);
 
-  const membersPanelVisibleWidth = showMembersPanel ? membersPanelWidth : 0;
-  const membersPanelStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
-  const membersSidebarStyle = { width: `${membersPanelVisibleWidth}px`, flexBasis: `${membersPanelVisibleWidth}px` };
-
-  const updateMembersPanelWidth = React.useCallback((nextWidth) => {
-    const containerWidth = contentRef.current?.clientWidth || 0;
-    const trailingWidth = showTrailingWebPreview ? webPreviewWidth : 0;
-    setMembersPanelWidth(clampMembersPanelWidth(nextWidth, containerWidth, showLeadingFilePreview, trailingWidth));
-  }, [showLeadingFilePreview, showTrailingWebPreview, webPreviewWidth]);
-
   const updateWebPreviewWidth = React.useCallback((nextWidth) => {
     const containerWidth = contentRef.current?.clientWidth || 0;
-    setWebPreviewWidth(clampWebPreviewWidth(nextWidth, containerWidth, showLeadingFilePreview, membersPanelWidth, showMembersPanel));
-  }, [membersPanelWidth, showLeadingFilePreview, showMembersPanel]);
+    setWebPreviewWidth(clampWebPreviewWidth(nextWidth, containerWidth));
+  }, []);
 
   const openInlinePreviewPane = React.useCallback((nextPreview) => {
     if (!nextPreview) return;
 
     setPanePreview(nextPreview);
+    if (nextPreview.activate !== false) setInlinePreviewCollapsed(false);
   }, []);
 
   const openWebUrlInPreview = React.useCallback((url, title = '') => {
@@ -1210,32 +1184,11 @@ const ChatShell = ({
     });
   }, [openInlinePreviewPane]);
 
-  const handleMembersPanelResizeStart = React.useCallback((event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startWidth = membersPanelWidth;
-    setIsResizingMembersPanel(true);
-
-    const handleMouseMove = (moveEvent) => {
-      const deltaX = startX - moveEvent.clientX;
-      updateMembersPanelWidth(startWidth + deltaX);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizingMembersPanel(false);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-  }, [membersPanelWidth, updateMembersPanelWidth]);
-
   const handleWebPreviewResizeStart = React.useCallback((event) => {
     if (!showTrailingWebPreview) return;
     event.preventDefault();
     event.stopPropagation();
+    previewResizeCleanupRef.current?.();
     const startX = event.clientX;
     const startWidth = webPreviewWidth;
     setIsResizingWebPreview(true);
@@ -1249,33 +1202,13 @@ const ChatShell = ({
       setIsResizingWebPreview(false);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      previewResizeCleanupRef.current = null;
     };
 
+    previewResizeCleanupRef.current = handleMouseUp;
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
   }, [showTrailingWebPreview, updateWebPreviewWidth, webPreviewWidth]);
-
-  const handleMembersPanelResizeKeyDown = React.useCallback((event) => {
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      updateMembersPanelWidth(membersPanelWidth + 20);
-      return;
-    }
-    if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      updateMembersPanelWidth(membersPanelWidth - 20);
-      return;
-    }
-    if (event.key === 'Home') {
-      event.preventDefault();
-      updateMembersPanelWidth(MIN_MEMBERS_PANEL_WIDTH);
-      return;
-    }
-    if (event.key === 'End') {
-      event.preventDefault();
-      updateMembersPanelWidth(MAX_MEMBERS_PANEL_WIDTH);
-    }
-  }, [membersPanelWidth, updateMembersPanelWidth]);
 
   const handleWebPreviewResizeKeyDown = React.useCallback((event) => {
     if (!showTrailingWebPreview) return;
@@ -1304,13 +1237,15 @@ const ChatShell = ({
     updateWebPreviewWidth(DEFAULT_PREVIEW_PANE_WIDTH);
   }, [updateWebPreviewWidth]);
 
-  const resetMembersPanelWidth = React.useCallback(() => {
-    updateMembersPanelWidth(DEFAULT_MEMBERS_PANEL_WIDTH);
-  }, [updateMembersPanelWidth]);
-
-  const toggleMembersPanelCollapsed = React.useCallback(() => {
-    setMembersPanelCollapsed((prev) => !prev);
-  }, []);
+  const toggleInlinePreview = () => {
+    setIsResizingWebPreview(false);
+    if (previewRequested) {
+      setInlinePreviewCollapsed(true);
+      return;
+    }
+    if (!panePreview) setPanePreview({ key: 'inline-preview:new-tab', previewType: 'new-tab', activate: true });
+    setInlinePreviewCollapsed(false);
+  };
 
   const loadFilePreviewByPath = React.useCallback(async (absolutePath, fileName = '') => {
     if (!absolutePath) return;
@@ -1554,13 +1489,12 @@ const ChatShell = ({
       const isExpanded = isDirectory && expandedNodeKeys.has(compositeKey);
       const FileIcon = isDirectory ? null : getFileIcon(node.name);
       const absolutePath = resolveListedEntryPath(rootPath, node.path);
-      const isPreviewSelected = !isDirectory && absolutePath && filePreview?.path === absolutePath;
       const showDeleteAction = Boolean(options?.showDeleteAction && typeof options?.onDeleteNode === 'function');
 
       return (
         <React.Fragment key={compositeKey}>
           <div
-            className={`chat-panel__tree-item ${isDirectory ? 'is-directory' : 'is-file'} ${isPreviewSelected ? 'is-selected' : ''}`.trim()}
+            className={`chat-panel__tree-item ${isDirectory ? 'is-directory' : 'is-file'}`}
             style={{ '--tree-depth': depth }}
             onClick={() => {
               if (isDirectory) {
@@ -1623,7 +1557,41 @@ const ChatShell = ({
         </React.Fragment>
       );
     });
-  }, [expandedNodeKeys, filePreview?.path, openFilePreview, toggleNodeExpanded]);
+  }, [expandedNodeKeys, openFilePreview, toggleNodeExpanded]);
+
+  const renderSkillMembers = () => (
+    <SkillMembersSection
+      variant="preview"
+      title={t('previewTab.mySkills')}
+      skillsLoading={skillsLoading}
+      skillsError={skillsError}
+      skills={skills}
+      skillPreviewPaths={skillPreviewPaths}
+      skillExamplePaths={skillExamplePaths}
+      expandedSkillKeys={expandedSkillKeys}
+      skillTrees={skillTrees}
+      skillTreeLoading={skillTreeLoading}
+      beginnerGuideOpen={beginnerGuideOpen}
+      beginnerGuideCurrent={beginnerGuideCurrent}
+      beginnerGuideChildrensBookRunButtonRef={beginnerGuideChildrensBookRunButtonRef}
+      beginnerGuideChildrensBookEditButtonRef={beginnerGuideChildrensBookEditButtonRef}
+      onToggleSkillExpanded={toggleSkillExpanded}
+      skillMembersCollapsed={skillMembersCollapsed}
+      onToggleSkillMembersCollapsed={toggleSkillMembersCollapsed}
+      onOpenSkillWebPreview={openSkillWebPreview}
+      onRunSkillExample={runSkillExample}
+      onSelectSkill={onSelectSkill}
+      onOpenSkillStore={onOpenSkillStore}
+      onModifySkill={onModifySkill}
+      onDeleteSkill={deleteSkill}
+      renderSkillTooltip={renderSkillTooltip}
+      renderTreeNodes={renderTreeNodes}
+      getSkillKey={getSkillKey}
+      getSkillFolderLabel={getSkillFolderLabel}
+      getSkillDisplayName={getSkillDisplayName}
+      childrensBookSkillLabel={CHILDRENS_BOOK_SKILL_LABEL}
+    />
+  );
 
   return (
     <div
@@ -1719,83 +1687,31 @@ const ChatShell = ({
               /> : null}
           </ChatTaskContext.Provider>
         </div>
-        {showMembersPanel && (
-          <div
-            className={`chat-panel__panel-resizer ${isResizingMembersPanel ? 'is-active' : ''}`.trim()}
-            role="separator"
-            tabIndex={0}
-            aria-label="调整工作空间宽度"
-            aria-orientation="vertical"
-            onMouseDown={handleMembersPanelResizeStart}
-            onDoubleClick={resetMembersPanelWidth}
-            onKeyDown={handleMembersPanelResizeKeyDown}
-          />
-        )}
-        <div className={`chat-panel__members ${membersPanelCollapsed ? 'is-collapsed' : ''}`.trim()} style={membersPanelStyle}>
-          <button
-            type="button"
-            className={`chat-panel__members-toggle ${membersPanelCollapsed ? 'is-collapsed' : ''}`.trim()}
-            onClick={toggleMembersPanelCollapsed}
-            aria-label={membersPanelCollapsed ? '展开技能成员和工作空间' : '折叠技能成员和工作空间'}
-            title={membersPanelCollapsed ? '展开技能成员和工作空间' : '折叠技能成员和工作空间'}>
-            <ChevronRight className="chat-panel__members-toggle-icon" size={14} aria-hidden="true" />
-          </button>
-          <div className={`chat-panel__members-sidebar ${membersPanelCollapsed ? 'is-hidden' : ''}`.trim()} style={membersSidebarStyle}>
-            <div className="chat-panel__members-list">
-            <SkillMembersSection
-              skillsLoading={skillsLoading}
-              skillsError={skillsError}
-              skills={skills}
-              skillPreviewPaths={skillPreviewPaths}
-              skillExamplePaths={skillExamplePaths}
-              expandedSkillKeys={expandedSkillKeys}
-              skillTrees={skillTrees}
-              skillTreeLoading={skillTreeLoading}
-              beginnerGuideOpen={beginnerGuideOpen}
-              beginnerGuideCurrent={beginnerGuideCurrent}
-              beginnerGuideChildrensBookRunButtonRef={beginnerGuideChildrensBookRunButtonRef}
-              beginnerGuideChildrensBookEditButtonRef={beginnerGuideChildrensBookEditButtonRef}
-              onToggleSkillExpanded={toggleSkillExpanded}
-              skillMembersCollapsed={skillMembersCollapsed}
-              onToggleSkillMembersCollapsed={toggleSkillMembersCollapsed}
-              onOpenSkillWebPreview={openSkillWebPreview}
-              onRunSkillExample={runSkillExample}
-              onSelectSkill={onSelectSkill}
-              onOpenSkillStore={onOpenSkillStore}
-              onModifySkill={onModifySkill}
-              onDeleteSkill={deleteSkill}
-              renderSkillTooltip={renderSkillTooltip}
-              renderTreeNodes={renderTreeNodes}
-              getSkillKey={getSkillKey}
-              getSkillFolderLabel={getSkillFolderLabel}
-              getSkillDisplayName={getSkillDisplayName}
-              childrensBookSkillLabel={CHILDRENS_BOOK_SKILL_LABEL}
-            />
-            <WorkSpace
-              agentId={agentId}
-              resolvedSessionId={resolvedSessionId}
-              currentWorkspacePath={currentWorkspacePath}
-              hasLockedWorkspace={hasLockedWorkspace}
-              workspaceStatus={workspaceStatus}
-              onAddWorkspaceFile={onAddWorkspaceFile}
-              onBindWorkspace={bindWorkspaceToSession}
-              renderTreeNodes={renderTreeNodes}
-              beginnerGuideCreateWorkspaceButtonRef={beginnerGuideCreateWorkspaceButtonRef}
-              beginnerGuideWorkspaceDialogRef={beginnerGuideWorkspaceDialogRef}
-              beginnerGuideWorkspaceNameInputRef={beginnerGuideWorkspaceNameInputRef}
-            />
-            </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          className={`chat-panel__preview-toggle ${previewRequested ? 'is-open' : ''}`.trim()}
+          onClick={toggleInlinePreview}
+          aria-label={previewRequested ? '收起预览面板' : '展开预览面板'}
+          title={previewRequested ? '收起预览面板' : '展开预览面板'}
+          aria-expanded={previewRequested}
+          aria-controls={inlinePreviewId}>
+          <ChevronRight className="chat-panel__preview-toggle-icon" size={14} aria-hidden="true" />
+        </button>
       </div>
-      <InlinePreviewPane open={showTrailingWebPreview} width={webPreviewWidth}
+      <InlinePreviewPane id={inlinePreviewId} open={showTrailingWebPreview} width={webPreviewWidth}
         paneRef={beginnerGuideWebPreviewPaneRef} resizing={isResizingWebPreview}
         onResizeStart={handleWebPreviewResizeStart} onResetWidth={resetWebPreviewWidth}
         onResizeKeyDown={handleWebPreviewResizeKeyDown}>
         {panePreview ? (
           <WebPagePreview
             preview={panePreview}
+            visible={showTrailingWebPreview}
             sessionId={chatSessionId}
+            runtimeSessionId={resolvedSessionId}
+            sessionMessages={sessionMessages}
+            workspaceController={workspaceController}
+            renderWorkspaceTreeNodes={renderTreeNodes}
+            renderSkillMembers={renderSkillMembers}
             artifactProps={{
               drafts: pinnedDrafts,
               audios: pinnedAudios,
@@ -1824,6 +1740,11 @@ const ChatShell = ({
           />
         ) : null}
       </InlinePreviewPane>
+      <WorkspaceDialogs
+        controller={workspaceController}
+        beginnerGuideWorkspaceDialogRef={beginnerGuideWorkspaceDialogRef}
+        beginnerGuideWorkspaceNameInputRef={beginnerGuideWorkspaceNameInputRef}
+      />
       <Tour
         open={beginnerGuideOpen}
         current={beginnerGuideCurrent}

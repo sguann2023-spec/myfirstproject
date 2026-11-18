@@ -2,6 +2,7 @@ import type { PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { SpanEntity, TokenUsage } from '@mcp-trace/trace-core'
 import type { SpanContext } from '@opentelemetry/api'
+import type { BlenderPathInfo, BlenderPathInfoOptions } from '@shared/blender'
 import type { GitBashPathInfo, TerminalConfig, UpgradeChannel } from '@shared/config/constant'
 import type { LogLevel, LogSourceWithContext } from '@shared/config/logger'
 import type {
@@ -218,6 +219,10 @@ const api = {
     getDeviceType: () => ipcRenderer.invoke(IpcChannel.System_GetDeviceType),
     getHostname: () => ipcRenderer.invoke(IpcChannel.System_GetHostname),
     getCpuName: () => ipcRenderer.invoke(IpcChannel.System_GetCpuName),
+    getBlenderPathInfo: (options?: BlenderPathInfoOptions): Promise<BlenderPathInfo> =>
+      ipcRenderer.invoke(IpcChannel.System_GetBlenderPathInfo, options),
+    setBlenderPath: (newPath: string | null): Promise<BlenderPathInfo> =>
+      ipcRenderer.invoke(IpcChannel.System_SetBlenderPath, newPath),
     checkGitBash: (): Promise<boolean> => ipcRenderer.invoke(IpcChannel.System_CheckGitBash),
     getGitBashPath: (): Promise<string | null> => ipcRenderer.invoke(IpcChannel.System_GetGitBashPath),
     getGitBashPathInfo: (): Promise<GitBashPathInfo> => ipcRenderer.invoke(IpcChannel.System_GetGitBashPathInfo),
@@ -670,11 +675,11 @@ const api = {
       return () => ipcRenderer.off(IpcChannel.AgentSessionStream_Chunk, listener)
     },
     onSessionChanged: (
-      callback: (data: { agentId: string; sessionId: string; headless?: boolean; reason?: 'metadata' | 'turn-completed'; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }) => void
+      callback: (data: { agentId: string; sessionId: string; headless?: boolean; reason?: 'metadata' | 'turn-completed' | 'token-stats'; tokenStats?: import('../packages/shared/tokenTelemetry').SessionTokenStatsSnapshot; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { agentId: string; sessionId: string; headless?: boolean; reason?: 'metadata' | 'turn-completed'; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }
+        data: { agentId: string; sessionId: string; headless?: boolean; reason?: 'metadata' | 'turn-completed' | 'token-stats'; tokenStats?: import('../packages/shared/tokenTelemetry').SessionTokenStatsSnapshot; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }
       ) => {
         callback(data)
       }
@@ -961,6 +966,8 @@ const legacyElectronAPI = {
     renameWorkspace: (payload: { source: string; name: string }) => ipcRenderer.invoke(IpcChannel.CherryChatStream_WorkspaceRename, payload),
     createSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionCreate, payload),
     getSession: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionGet, { sessionId }),
+    getTokenStats: (sessionId: string): Promise<import('../main/services/agents/services/SessionService').SessionTokenStatsResponse> =>
+      ipcRenderer.invoke(IpcChannel.CherryChatStream_TokenStats, { sessionId }),
     updateSession: (payload: any) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionUpdate, payload),
     listSessions: (payload: any = {}) => ipcRenderer.invoke(IpcChannel.CherryChatStream_SessionList, payload),
     listMessages: (sessionId: string) => ipcRenderer.invoke(IpcChannel.CherryChatStream_MessageList, { sessionId }),

@@ -15,7 +15,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import type { MCPProgressEvent } from '@shared/config/types'
 import { IpcChannel } from '@shared/IpcChannel'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { net } from 'electron'
 import { SocialCopywritingBilling } from './social-copywriting-billing'
 
@@ -227,7 +227,9 @@ const execFileAsync = promisify(execFile)
 
 class SocialCopywritingServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
 

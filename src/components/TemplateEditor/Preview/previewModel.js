@@ -124,6 +124,20 @@ export function sampleVisualTransform(native, type, localTime) {
 
 const MICRO = 1_000_000;
 
+// Masks stay in composition space, not leaf space: moving/rotating a child must
+// not move its reveal aperture. Nested descriptors are intersected by the view.
+export function sampleSceneMask(native, localTime, canvas, transform) {
+  const transition = native?.preview_transition;
+  const duration = number(transition?.duration, 0) / MICRO;
+  if (transition?.type !== 'circular-wipe' || duration <= 0 || localTime < 0 || localTime >= duration) return null;
+  const progress = Math.min(1, Math.max(0, localTime / duration));
+  return {
+    sceneId: native.id, type: 'circular-wipe', progress,
+    radius: Math.hypot(canvas.width, canvas.height) / 2 * progress,
+    transform: { ...transform },
+  };
+}
+
 // 收集当前_scope_在 time（scope 本地秒）下的可见元素，返回自底向顶的渲染顺序。
 export function collectPreviewFrame({ model, index, nativeIndex, scopeId = null, time = 0 }) {
   const items = [];
@@ -137,7 +151,7 @@ export function collectPreviewFrame({ model, index, nativeIndex, scopeId = null,
   };
   const cursor = Number.isFinite(time) ? Math.max(0, time) : 0;
 
-  const pushMedia = (segmentNode, timing, offset, inherit, local) => {
+  const pushMedia = (segmentNode, timing, offset, inherit, local, masks) => {
     const native = nativeIndex?.get(segmentNode.id) ?? {};
     const material = nativeIndex?.get(native.material_id) ?? {};
     const kind = segmentNode.type;
@@ -158,7 +172,7 @@ export function collectPreviewFrame({ model, index, nativeIndex, scopeId = null,
     const item = {
       id: segmentNode.id, name: segmentNode.name || segmentNode.id, kind,
       url: mediaSource(material), start, duration: timing.duration, sourceStart,
-      localTime: local, transform, parentTransform: inherit, material, segment: native,
+      localTime: local, transform, parentTransform: inherit, material, segment: native, masks,
     };
     if (kind === 'text') {
       item.textStyle = parseTextStyle(material);
@@ -169,8 +183,10 @@ export function collectPreviewFrame({ model, index, nativeIndex, scopeId = null,
     items.push(item);
   };
 
-  const walkScene = (sceneNode, baseTime, offset, inherit) => {
+  const walkScene = (sceneNode, baseTime, offset, inherit, inheritedMasks = []) => {
     if (!sceneNode) return;
+    const mask = sampleSceneMask(nativeIndex?.get(sceneNode.id), baseTime, canvas, inherit);
+    const masks = mask ? [...inheritedMasks, mask] : inheritedMasks;
     const tracks = sceneNode.children.filter(node => node.type === 'track')
       .sort((a, b) => (a.trackIndex ?? 0) - (b.trackIndex ?? 0));
     const visitSegment = (segmentNode, sceneOffset) => {
@@ -181,10 +197,10 @@ export function collectPreviewFrame({ model, index, nativeIndex, scopeId = null,
       if (segmentNode.type === 'composition') {
         // 子分镜：时钟相对子分镜，变换递归继承（位置/旋转相加，缩放/不透明度相乘）。
         const sceneTransform = sampleVisualTransform(nativeIndex?.get(segmentNode.id) ?? {}, 'composition', local);
-        walkScene(index?.get(segmentNode.id), local, sceneOffset + timing.localStart, composeTransform(inherit, sceneTransform));
+        walkScene(index?.get(segmentNode.id), local, sceneOffset + timing.localStart, composeTransform(inherit, sceneTransform), masks);
         return;
       }
-      pushMedia(segmentNode, timing, sceneOffset, inherit, local);
+      pushMedia(segmentNode, timing, sceneOffset, inherit, local, masks);
     };
     for (const track of tracks) for (const segmentNode of track.children) visitSegment(segmentNode, offset);
     // 旧 Scene.scenes 写法：放在父级所有轨道之后。

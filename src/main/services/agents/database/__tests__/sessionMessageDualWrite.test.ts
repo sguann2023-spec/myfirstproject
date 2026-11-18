@@ -33,6 +33,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('@main/constant', () => ({ isDev: false }))
+vi.mock('../../services/claudecode', () => ({ default: class MockClaudeCodeService {} }))
 
 vi.mock('../../BaseService', () => ({
   BaseService: class BaseService {
@@ -144,6 +145,57 @@ describe('agentMessageRepository dual-write part dedupe', () => {
   afterEach(async () => {
     client.close()
     await rm(dir, { recursive: true, force: true })
+  })
+
+  it('keeps one compact part per operation across snapshots and headless dual-write without replaying its summary to Pi', async () => {
+    const { agentMessageRepository } = await import('../sessionMessageRepository')
+    const { agentTranscriptRepository } = await import('../repositories/agentTranscriptRepository')
+    const { canonicalEntryToPersisted } = await import('../agentHistoryMapper')
+    const { canonicalMessageToPi } = await import('../repositories/piSessionStorage')
+    const { SessionMessageService } = await import('../../services/SessionMessageService')
+    const { TextStreamAccumulator } = await import('../../services/session-stream-accumulator')
+    ;(agentMessageRepository as any).getDatabase = async () => db
+    const service = new SessionMessageService()
+    const accumulator = new TextStreamAccumulator()
+    const invocationIds = { userMessageId: 'user-1', assistantMessageId: 'assistant-compact', turnId: 'turn-1', traceId: 'trace-1' }
+    const partIds = { assistantText: 'compact-text', assistantReasoning: 'compact-reasoning', assistantTools: new Map() }
+    await agentTranscriptRepository.upsertMessage({ id: invocationIds.assistantMessageId, sessionId: 'session-1',
+      parentMessageId: invocationIds.userMessageId, role: 'assistant', status: 'streaming' })
+    const progress = (event: Record<string, unknown>) => accumulator.add({ type: 'raw', rawValue: {
+      type: 'context_compaction', operationId: 'operation-a', ...event
+    } } as any)
+    const snapshot = (status: string) => (service as any).finalizeCanonicalAssistant({
+      sessionId: 'session-1', invocationIds, blocks: accumulator.getAssistantBlocks(invocationIds.assistantMessageId),
+      partIds, status, createdAtIso: '2026-01-01T00:00:01.000Z'
+    })
+    accumulator.add({ type: 'text-delta', text: 'Before' } as any)
+    progress({ phase: 'start', tokensBefore: 1000 })
+    await snapshot('streaming')
+    const initial = await agentTranscriptRepository.listMessageParts('session-1', invocationIds.assistantMessageId)
+    progress({ phase: 'chunk', chunk: 2 })
+    await snapshot('streaming')
+    progress({ phase: 'complete', tokensAfter: 250, summary: 'UI summary must never become provider context' })
+    accumulator.add({ type: 'text-delta', text: 'After' } as any)
+    await snapshot('completed')
+    await (service as any).persistHeadlessExchange(
+      { id: 'session-1', agent_id: 'agent-1' }, 'hello', accumulator.getAssistantBlocks(invocationIds.assistantMessageId),
+      'runtime-session', invocationIds.assistantMessageId, undefined, undefined, undefined, undefined, undefined,
+      undefined, false, invocationIds.userMessageId
+    )
+    const fresh = (await agentTranscriptRepository.listTranscript('session-1')).find(item => item.message.id === invocationIds.assistantMessageId)!
+    expect(fresh.parts.map(part => part.type)).toEqual(['text', 'compact', 'text'])
+    expect(fresh.parts[1].id).toBe(initial[1].id)
+    expect(fresh.parts[1].data).toMatchObject({ status: 'success', compactedContent: '',
+      content: 'UI summary must never become provider context', metadata: {
+        contextCompaction: { operationId: 'operation-a', phase: 'complete', chunk: 2, tokensBefore: 1000, tokensAfter: 250 }
+      } })
+    const canonical = canonicalEntryToPersisted(fresh)
+    const legacy = (await agentMessageRepository.getSessionHistory('session-1')).find(item => item.message.id === invocationIds.assistantMessageId)!
+    expect(legacy.blocks.map(block => block.type)).toEqual(['main_text', 'compact', 'main_text'])
+    expect(canonical.blocks[1]).toMatchObject({ ...legacy.blocks[1], createdAt: expect.any(String), updatedAt: expect.any(String) })
+    expect(canonicalMessageToPi(fresh)).toEqual([expect.objectContaining({ role: 'assistant', content: [
+      { type: 'text', text: 'Before' }, { type: 'text', text: 'After' }
+    ] })])
   })
 
   it.each([undefined, null, {}])('does not manufacture an error on successful digital-human exchange (error=%j)', async (error) => {

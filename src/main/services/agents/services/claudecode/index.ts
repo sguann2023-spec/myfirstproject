@@ -241,19 +241,28 @@ class ClaudeCodeService implements AgentServiceInterface {
     invocationIds?: AgentInvocationIds,
     persistenceHooks?: AgentPersistenceHooks
   ): Promise<AgentStream> {
+    const resolvedInvocationIds = invocationIds ?? allocateAgentInvocationIds()
+    const invokeStartedAt = performance.now()
+    const timingContext = { traceId: resolvedInvocationIds.traceId, sessionId: session.id }
+    logger.info('[FirstTextTiming]', { ...timingContext, stage: 'invoke-start', atEpochMs: Date.now() })
     const throwIfCancelled = () => {
       if (abortController.signal.aborted) throw new DOMException('Request was aborted', 'AbortError')
     }
     const startupStep = async <T>(stage: string, operation: () => Promise<T>): Promise<T> => {
       throwIfCancelled()
-      const startedAt = Date.now()
+      const startedAt = performance.now()
       const timer = setTimeout(() => logger.warn('Pre-harness startup stage still pending', {
-        sessionId: session.id, traceId: invocationIds?.traceId, stage,
-        elapsedMs: Date.now() - startedAt, cancelled: abortController.signal.aborted
+        ...timingContext, stage,
+        elapsedMs: Math.round(performance.now() - startedAt), cancelled: abortController.signal.aborted
       }), 3000)
       try {
         const result = await operation()
         throwIfCancelled()
+        logger.info('[FirstTextTiming]', {
+          ...timingContext, stage: `startup.${stage}`, atEpochMs: Date.now(),
+          elapsedMs: Math.round(performance.now() - startedAt),
+          sinceInvokeMs: Math.round(performance.now() - invokeStartedAt)
+        })
         return result
       } finally {
         clearTimeout(timer)
@@ -267,7 +276,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       throw new Error('No accessible paths defined for the agent session')
     }
 
-    const agent = await agentService.getAgent(session.agent_id)
+    const agent = await startupStep('agent_lookup', () => agentService.getAgent(session.agent_id))
     const agentConfig = agent?.configuration
     const autonomousEnabled = agentConfig?.soul_enabled === true || agentConfig?.scheduler_enabled === true
     const builtinRole = (session.configuration as Record<string, unknown> | undefined)?.builtin_role as
@@ -351,13 +360,13 @@ class ClaudeCodeService implements AgentServiceInterface {
 
     let runtimeEnvironment: ClaudeRuntimeEnvironment
     try {
-      runtimeEnvironment = await buildClaudeRuntimeEnvironment({
+      runtimeEnvironment = await startupStep('runtime_environment', () => buildClaudeRuntimeEnvironment({
         session,
         modelOverride,
         thinkingLevel: thinkingOptions?.thinkingLevel,
         cwd,
         enableToolSearch: false
-      })
+      }))
     } catch (error) {
       throw error instanceof Error ? error : new Error(String(error))
     }
@@ -444,7 +453,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       isAssistant,
       agentConfig,
       lastAgentSessionId,
-      invocationIds: invocationIds ?? allocateAgentInvocationIds()
+      invocationIds: resolvedInvocationIds
     }))
 
     // Build SDK options from session configuration.
@@ -596,7 +605,7 @@ class ClaudeCodeService implements AgentServiceInterface {
       referencedArtifactsCount: promptEnvelope.promptView.referencedArtifacts?.length ?? 0
     })
 
-    const invokeContext = await buildClaudeCodeInvokeContext({
+    const invokeContext = await startupStep('invoke_context', () => buildClaudeCodeInvokeContext({
       thinkingLevel: thinkingOptions?.thinkingLevel,
       traceId,
       prompt,
@@ -624,9 +633,13 @@ class ClaudeCodeService implements AgentServiceInterface {
         assistantSystemPrompt,
         clawSystemPrompt
       }
-    })
+    }))
 
     throwIfCancelled()
+    logger.info('[FirstTextTiming]', {
+      ...timingContext, stage: 'pre-harness-ready', atEpochMs: Date.now(),
+      sinceInvokeMs: Math.round(performance.now() - invokeStartedAt)
+    })
     const piHarness = await createClaudeCodeHarness({
       signal: abortController.signal,
       invokeContext,

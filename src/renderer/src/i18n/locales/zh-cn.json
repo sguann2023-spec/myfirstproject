@@ -2496,7 +2496,12 @@
       "code_style": "代码风格",
       "compact": {
         "title": "对话已压缩",
-        "processing": "正在压缩上下文..."
+        "processing": "正在压缩上下文",
+        "failed": "上下文压缩失败",
+        "cancelled": "上下文压缩已中断",
+        "chunk": "分块：{{count}}",
+        "tokens_before": "压缩前 Token：{{count}}",
+        "tokens_after": "压缩后 Token：{{count}}"
       },
       "delete": {
         "content": "确定要删除此消息吗？",
@@ -2870,6 +2875,10 @@
           },
           "draft_render": {
             "render_draft": "预渲染"
+          },
+          "blender_local": {
+            "blender_status": "检测本地 Blender",
+            "blender_render": "本地 Blender 渲染"
           },
           "audio_understand": {
             "submit_audio_understanding_task": "音频理解"
@@ -7441,6 +7450,61 @@
     "quit": "退出",
     "show_window": "显示窗口",
     "visualization": "可视化"
+  },
+  "previewTab": {
+    "newTab": "新标签页",
+    "mySkills": "我的技能",
+    "open": "打开",
+    "openItem": "打开{{name}}",
+    "workspace": {
+      "title": "工作空间",
+      "description": "从工作空间中选择文件",
+      "create": "新建",
+      "createLabel": "新建工作空间",
+      "refresh": "刷新工作空间",
+      "reveal": "打开文件管理器",
+      "loading": "加载工作空间中...",
+      "error": "无法打开工作空间，请重试"
+    },
+    "browser": { "title": "浏览器", "description": "浏览网页和预览应用。", "addressPlaceholder": "输入网址后回车" },
+    "artifacts": { "title": "产物", "description": "当前对话生成的产物" },
+    "stats": {
+      "title": "统计",
+      "tokenTitle": "Token 统计",
+      "loading": "正在获取 Token 用量…",
+      "contextLoading": "正在获取上下文…",
+      "refreshing": "正在刷新…",
+      "loadError": "Token 用量加载失败，请重试。",
+      "retry": "重试",
+      "contextTitle": "当前上下文",
+      "cacheHit": "缓存命中",
+      "contextUsed": "上下文已用",
+      "providerReported": "供应商上报",
+      "estimateNote": "分类占比为实际请求内容估算，不等同于供应商计量；缓存已包含在输入中。",
+      "estimatedTotal": "分类估算合计 ≈{{tokens}} tokens",
+      "noBreakdown": "历史分类未采集，暂显示供应商输入/输出占比。缓存已包含在输入中。",
+      "partialBreakdown": "部分请求、分类或多模态内容未完整采集，以上为可用统计。",
+      "partialHistory": "完整历史尚未加载，当前展示已加载部分。",
+      "contextEstimate": "当前上下文为运行时快照估算，不使用累计消耗代替。",
+      "contextUnknown": "当前上下文尚未采集或已失效，等待下一次请求刷新。",
+      "observedAt": "快照时间 {{time}}",
+      "categories": {
+        "system": "系统提示词", "user": "用户消息", "skills": "技能注入", "injections": "注入内容",
+        "toolDefinitions": "工具定义", "toolCalls": "工具调用", "toolResults": "工具结果",
+        "assistant": "助手消息", "reasoning": "模型思考", "reply": "模型回复", "unattributed": "未归因内容",
+        "input": "输入 tokens", "output": "输出 tokens"
+      },
+      "description": "对话消耗的 tokens",
+      "total": "总用量",
+      "input": "输入 tokens",
+      "output": "输出 tokens",
+      "cacheRead": "缓存读取 tokens",
+      "cacheWrite": "缓存写入 tokens",
+      "cacheNote": "缓存读写已包含在输入用量中，不额外累加。",
+      "empty": "当前对话暂无 token 用量。",
+      "unknown": "当前对话尚未上报 token 用量。",
+      "incomplete": "部分用量尚未上报或不完整，以上为已知用量下限。"
+    }
   },
   "workspaceFileMenu": {
     "open": "打开",

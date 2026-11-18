@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Modal } from 'antd';
 import { ArrowLeft, Image, Plus, Type } from 'lucide-react';
 import { TEMPLATE_PRESETS } from '../../shared/templatePresets';
+import welcomeLogo from '../../../resources/template-presets/personalized-welcome/logo/vectcut.png';
 import './TemplatePickerDialog.css';
 
 const invoke = (channel, ...args) => {
@@ -45,7 +46,14 @@ export default function TemplatePickerDialog({ open, onClose, onSelect }) {
           <button key={preset.id} type="button" className="template-picker-card"
             onClick={() => onSelect(preset.source === 'local' ? { templatePath: preset.templatePath } : preset.id)}>
             <div className={`template-picker-preview template-picker-preview--${previewId}`} aria-hidden="true">
-              {previewId === 'empty' ? <Plus size={30} strokeWidth={1.4} /> : previewId === 'mixed-track' ? (
+              {previewId === 'personalized-welcome' ? (
+                <div className="template-picker-welcome">
+                  <img className="template-picker-welcome-logo" src={welcomeLogo} alt="" />
+                  <strong>嗨，小明！</strong>
+                  <span>欢迎使用 VectCut 🎉</span>
+                  <small>个性化欢迎 · 9.5 秒</small>
+                </div>
+              ) : previewId === 'empty' ? <Plus size={30} strokeWidth={1.4} /> : previewId === 'mixed-track' ? (
                 <div className="template-picker-mixed">
                   <div className="template-picker-mixed-row">
                     {[Image, Type, Image, Type].map((Icon, index) =>

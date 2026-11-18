@@ -33,6 +33,9 @@ import { preserveMcpResult, projectMcpArtifactForContext } from './mcp-result-st
 import { ImageInspectionState } from './image-inspection-state'
 import { normalizeImageGenerationArguments } from './image-generation-action'
 import { buildImageInputGuidance, createReadImageContextProjector } from './read-image-context'
+import { createContextCompactor, type ContextCompactionProgress } from './context-compaction'
+import { createTokenTelemetryCollector, type TokenTelemetryCollector } from './token-telemetry'
+import { getPromptTokenSources } from '../runtime/prompt-provenance'
 
 const logger = loggerService.withContext('ClaudeCodeHarness')
 
@@ -172,10 +175,18 @@ type PiRuntimeBridge = {
   provider: PiProvider
   model: PiModel
   tokenLimits?: ClaudeRuntimeEnvironment['modelTokenLimits']
+  tokenTelemetry?: TokenTelemetryCollector
+  unsubscribeTokenTelemetry?: () => void
+  flushTokenTelemetryQueue?: () => Promise<void>
   harness: PiAgentHarness
   tools: PiAgentHarnessTool[]
   mcpClients: PiMcpClientBridge[]
   subscribeNestedToolEvents(listener: (event: PiNestedToolEvent) => void | Promise<void>): () => void
+  contextCompaction?: {
+    getFailure(): Error | undefined
+    isCompacting(): boolean
+    subscribe(listener: (event: ContextCompactionProgress) => void): () => void
+  }
 }
 
 export type ClaudeCodeHarnessAdapter = {
@@ -1361,24 +1372,54 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
   providerApiType: 'anthropic-messages' | 'openai-completions'
   baseUrl?: string
   customReasoning?: CustomReasoningSnapshot
+  tokenTelemetry?: TokenTelemetryCollector
 }): PiApiModule {
   const { apiModule, invokeContext, providerApiType, baseUrl, customReasoning } = input
-  const normalizeOptions = (options: unknown) => {
+  // One wrapper is created per invocation; normalization runs again for model turns/retries.
+  let firstModelFetchStarted = false
+  const normalizeOptions = (options: unknown, observation?: ReturnType<TokenTelemetryCollector['begin']>) => {
+    let fetchAttempts = 0
     const typedOptions = ((options && typeof options === 'object' ? options : {}) as Record<string, unknown>)
+    const originalFetch = typeof typedOptions.fetch === 'function' ? typedOptions.fetch as typeof globalThis.fetch : globalThis.fetch
     return {
       ...typedOptions,
+      fetch: async (...args: Parameters<typeof globalThis.fetch>) => {
+        if (++fetchAttempts > 1) observation?.attempt()
+        if (firstModelFetchStarted) return originalFetch(...args)
+        firstModelFetchStarted = true
+        const startedAt = Date.now()
+        const fields = { traceId: invokeContext.runtime.traceId, sessionId: invokeContext.runtime.sessionId }
+        logger.info('[FirstTextTiming]', { ...fields, stage: 'model-fetch-start', atEpochMs: startedAt })
+        try {
+          const response = await originalFetch(...args)
+          const atEpochMs = Date.now()
+          logger.info('[FirstTextTiming]', {
+            ...fields, stage: 'model-fetch-headers', atEpochMs, elapsedMs: atEpochMs - startedAt, status: response.status
+          })
+          return response
+        } catch (error) {
+          const atEpochMs = Date.now()
+          logger.info('[FirstTextTiming]', {
+            ...fields, stage: 'model-fetch-error', atEpochMs, elapsedMs: atEpochMs - startedAt
+          })
+          throw error
+        }
+      },
       onPayload: async (payload: unknown, payloadModel: unknown) => {
         const originalOnPayload = typeof typedOptions.onPayload === 'function' ? typedOptions.onPayload : undefined
         const replacement = originalOnPayload ? await originalOnPayload(payload, payloadModel as any) : undefined
         const effectivePayload = replacement ?? payload
-        normalizeProviderPayload({ payload: effectivePayload, providerApiType, invokeContext, baseUrl, customReasoning })
+        const isCompaction = (typedOptions.metadata as Record<string, unknown> | undefined)?.context_compaction === 'true'
+        const payloadContext = isCompaction ? { ...invokeContext, thinkingLevel: 'off' } : invokeContext
+        normalizeProviderPayload({ payload: effectivePayload, providerApiType, invokeContext: payloadContext, baseUrl, customReasoning: isCompaction ? undefined : customReasoning })
+        observation?.prepared(effectivePayload)
         // Whitelist scalar controls only: never log messages, URLs, headers or keys.
         const body = effectivePayload as Record<string, any> | null
         logger.info('[AgentCore] thinking payload', {
           traceId: invokeContext.runtime?.traceId,
           model: invokeContext.runtime?.model?.id,
           protocol: providerApiType,
-          selectedLevel: typeof invokeContext.thinkingLevel === 'string' ? invokeContext.thinkingLevel : null,
+          selectedLevel: typeof payloadContext.thinkingLevel === 'string' ? payloadContext.thinkingLevel : null,
           gatewayEligible: Boolean(invokeContext.runtime?.provider && !invokeContext.runtime.provider.id.startsWith('custom-') && isVectcutGatewayUrl(baseUrl || '')),
           // Explicit null survives JSON logging and means the control was omitted.
           enableThinking: typeof body?.enable_thinking === 'boolean' ? body.enable_thinking : null,
@@ -1390,14 +1431,58 @@ export function wrapPiApiModuleWithPayloadNormalization(input: {
       }
     }
   }
-  return {
-    stream(model: unknown, context: unknown, options: unknown) {
-      return (apiModule.stream as any)(model, context, normalizeOptions(options))
-    },
-    streamSimple(model: unknown, context: unknown, options: unknown) {
-      return (apiModule.streamSimple as any)(model, context, normalizeOptions(options))
+  const observe = (method: 'stream' | 'streamSimple', model: unknown, context: unknown, options: unknown) => {
+    const operation = (options as any)?.metadata?.context_compaction === 'true' ? 'compaction' : 'model'
+    const observation = input.tokenTelemetry?.begin(model, operation)
+    try {
+      const stream = (apiModule[method] as any)(model, context, normalizeOptions(options, observation))
+      // result() is an independent promise in pi's EventStream. Never iterate/tee
+      // the stream: doing so would steal events from the harness consumer.
+      if (observation && typeof stream?.result === 'function') {
+        void Promise.resolve(stream.result()).then(result => observation.finish(result), error => observation.finish(undefined, error))
+      }
+      return stream
+    } catch (error) {
+      observation?.finish(undefined, error)
+      throw error
     }
   }
+  return {
+    stream: (model: unknown, context: unknown, options: unknown) => observe('stream', model, context, options),
+    streamSimple: (model: unknown, context: unknown, options: unknown) => observe('streamSimple', model, context, options)
+  }
+}
+
+/** A synchronous subscription: projection IO runs only in its own serial queue. */
+export function createRuntimeTelemetryObserver(input: {
+  harness: { getModel(): { id: string } }
+  session: { buildContext(): Promise<{ messages: any[] }> }
+  projectReadImageContext(messages: any[]): Promise<any[]>
+  contextPayload(messages: any[]): unknown
+  tokenTelemetry: TokenTelemetryCollector
+  modelId: string
+  providerId: string
+}) {
+  let queue = Promise.resolve()
+  const listener = (event: { type: string }): void => {
+    if (!['model_update', 'thinking_level_update', 'tools_update', 'resources_update', 'session_before_compact', 'session_tree', 'message_end', 'turn_end', 'session_compact'].includes(event.type)) return
+    queue = queue.then(async () => {
+      try {
+        if (['model_update', 'thinking_level_update', 'tools_update', 'resources_update', 'session_before_compact', 'session_tree'].includes(event.type)) {
+          input.tokenTelemetry.observeContext({}, 'invalidated', input.harness.getModel().id, input.providerId, `runtime-${event.type}`)
+        } else {
+          const activeModel = input.harness.getModel()
+          const actual = await input.session.buildContext()
+          const messages = await input.projectReadImageContext(actual.messages)
+          input.tokenTelemetry.observeContext(input.contextPayload(messages), event.type === 'session_compact' ? 'post-compaction' : 'post-response', activeModel.id, input.providerId,
+            'rebuilt-from-runtime-session-and-active-tools')
+        }
+      } catch {
+        input.tokenTelemetry.observeContext({}, 'invalidated', input.modelId, input.providerId, 'runtime-context-rebuild-unavailable')
+      }
+    })
+  }
+  return { listener, flush: async () => { await queue } }
 }
 
 export function resolvePiRuntimeApiKey(runtimeEnvironment: ClaudeRuntimeEnvironment, baseUrl: string): string {
@@ -1432,6 +1517,25 @@ export async function buildPiRuntimeBridge(input: {
   const contextWindowTokens = runtimeEnvironment.modelTokenLimits?.contextWindowTokens ?? 200_000
   const maxOutputTokens = Math.min(runtimeEnvironment.modelTokenLimits?.maxOutputTokens ?? 32_000, 32_000)
 
+  const tokenProvenance = [
+    ...getPromptTokenSources(invokeContext.prompt?.systemPrompt),
+    ...getPromptTokenSources(invokeContext.runtime.prompt),
+    ...(invokeContext.prompt?.initialMessages || []).flatMap(message => getPromptTokenSources(message.content)),
+    ...(invokeContext.runtime.prompt ? [{ text: invokeContext.runtime.prompt, category: 'user' as const, role: 'user' as const }] : []),
+    ...(invokeContext.skills?.skillInvocationContext ? invokeContext.prompt.resources.skills
+      .filter(skill => skill.name === invokeContext.skills.skillInvocationContext?.skillName)
+      .map(skill => ({ text: packageBridge.agentCore.formatSkillInvocation(skill), category: 'skills' as const, role: 'user' as const })) : []),
+    { text: buildImageInputGuidance(invokeContext.runtime.model?.supportsImageInput === true), category: 'system' as const, role: 'system' as const }
+  ]
+  const telemetryProviderId = invokeContext.runtime.provider?.id || runtimeEnvironment.modelInfo.provider?.id || providerId
+  const tokenTelemetry = createTokenTelemetryCollector({
+    runtimeSessionId: invokeContext.runtime.sessionId,
+    invocationId: invokeContext.runtime.traceId,
+    modelId,
+    providerId: telemetryProviderId,
+    contextWindowTokens: runtimeEnvironment.modelTokenLimits?.contextWindowTokens,
+    provenance: tokenProvenance
+  })
   const rawApiModule =
     providerApiType === 'openai-completions'
       ? packageBridge.openAiCompletionsApi
@@ -1441,7 +1545,8 @@ export async function buildPiRuntimeBridge(input: {
     invokeContext,
     providerApiType,
     baseUrl,
-    customReasoning: runtimeEnvironment.customReasoning
+    customReasoning: runtimeEnvironment.customReasoning,
+    tokenTelemetry
   })
 
   const models = packageBridge.piAi.createModels()
@@ -1542,14 +1647,15 @@ export async function buildPiRuntimeBridge(input: {
     const tools = [...builtinTools, codemodeTool, ...mcpTools.tools]
     const activeToolNames = [...builtinTools.map((tool) => tool.name), codemodeTool.name]
 
+    const systemPrompt = [
+      invokeContext.prompt.systemPrompt,
+      buildImageInputGuidance(invokeContext.runtime.model?.supportsImageInput === true)
+    ].filter(Boolean).join('\n\n')
     const harness = new packageBridge.agentCore.AgentHarness({
       session,
       models,
       model,
-      systemPrompt: [
-        invokeContext.prompt.systemPrompt,
-        buildImageInputGuidance(invokeContext.runtime.model?.supportsImageInput === true)
-      ].filter(Boolean).join('\n\n'),
+      systemPrompt,
       tools,
       activeToolNames,
       resources: {
@@ -1572,9 +1678,47 @@ export async function buildPiRuntimeBridge(input: {
       beginNewTurn: true,
       supportsImageInput: invokeContext.runtime.model?.supportsImageInput === true
     })
-    harness.on('context', async (context: any) => ({
-      messages: await projectReadImageContext(context.messages)
-    }))
+    const compactionListeners = new Set<(event: ContextCompactionProgress) => void>()
+    const compactor = createContextCompactor({
+      core: packageBridge.agentCore, models, model, session, systemPrompt,
+      tools: tools.filter(tool => activeToolNames.includes(tool.name)),
+      limits: runtimeEnvironment.modelTokenLimits,
+      signal: input.signal,
+      onProgress(event) {
+        for (const listener of compactionListeners) listener(event)
+      },
+      log(event, fields) {
+        logger.info(`[PiContext] ${event}`, {
+          traceId: invokeContext.runtime.traceId, sessionId: invokeContext.runtime.sessionId,
+          model: model.id, ...fields
+        })
+      }
+    })
+    let compactionCompleted = false
+    compactionListeners.add(event => {
+      if (event.phase === 'start') tokenTelemetry.observeContext({}, 'invalidated', model.id, telemetryProviderId, 'context-compaction-in-progress')
+      if (event.phase === 'complete') compactionCompleted = true
+    })
+    const contextPayload = (messages: unknown[]) => ({
+      system: systemPrompt,
+      messages: messages.map((message: any) => message.role === 'compactionSummary'
+        ? { role: 'user', content: message.content ?? message.summary }
+        : message),
+      tools: harness.getActiveTools().map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))
+    })
+    harness.on('context', async (context: any) => {
+      const messages = await compactor.project(await projectReadImageContext(context.messages))
+      if (compactionCompleted) {
+        tokenTelemetry.observeContext(contextPayload(messages), 'post-compaction')
+        compactionCompleted = false
+      }
+      return { messages }
+    })
+    const runtimeTelemetryObserver = createRuntimeTelemetryObserver({
+      harness, session, projectReadImageContext, contextPayload, tokenTelemetry,
+      modelId: model.id, providerId: telemetryProviderId
+    })
+    const unsubscribeRuntimeTelemetry = harness.subscribe(runtimeTelemetryObserver.listener)
     harness.on('tool_result', (context: any) => {
       if (!mcpToolNames.has(context.toolName) || context.isError) return undefined
       return projectMcpArtifactForContext(context, invokeContext.runtime.workspacePath)
@@ -1645,7 +1789,18 @@ export async function buildPiRuntimeBridge(input: {
       provider,
       model,
       tokenLimits: runtimeEnvironment.modelTokenLimits,
+      tokenTelemetry,
+      unsubscribeTokenTelemetry: unsubscribeRuntimeTelemetry,
+      flushTokenTelemetryQueue: runtimeTelemetryObserver.flush,
       harness,
+      contextCompaction: {
+        getFailure: compactor.getFailure,
+        isCompacting: compactor.isCompacting,
+        subscribe(listener) {
+          compactionListeners.add(listener)
+          return () => { compactionListeners.delete(listener) }
+        }
+      },
       tools,
       mcpClients: mcpTools.clients,
       subscribeNestedToolEvents(listener) {

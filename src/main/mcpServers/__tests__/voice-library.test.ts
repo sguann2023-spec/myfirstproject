@@ -23,7 +23,7 @@ vi.mock('electron-store', () => ({
   }
 }))
 vi.mock('@logger', () => ({
-  loggerService: { withContext: () => ({ error: vi.fn() }) }
+  loggerService: { withContext: () => ({ error: vi.fn(), info: vi.fn() }) }
 }))
 
 import VoiceLibraryServer from '../voice-library'

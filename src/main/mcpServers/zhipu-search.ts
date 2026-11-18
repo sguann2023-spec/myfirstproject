@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { app, net } from 'electron'
 
 const logger = loggerService.withContext('MCPServer:WebSearch')
@@ -62,7 +62,9 @@ type PendingToken = {
 
 class ZhipuSearchServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
   private exaClient: Client | null = null

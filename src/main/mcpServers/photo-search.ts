@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, CallToolResultSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { net } from 'electron'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
 import { ASSET_SEARCH_ROUTING } from './asset-search-routing'
@@ -151,7 +151,9 @@ async function readJson(response: Response): Promise<unknown> {
 export default class PhotoSearchServer {
   public readonly mcpServer: McpServer
   private readonly endpoint: URL
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
 
   constructor(endpoint = process.env.PHOTO_SEARCH_MCP_URL || 'https://open.vectcut.com/unsplash/mcp') {
     this.endpoint = new URL(endpoint)

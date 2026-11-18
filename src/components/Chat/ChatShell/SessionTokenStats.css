@@ -1,0 +1,102 @@
+.chat-token-stats.token-dashboard {
+  --token-surface: #f5f5f5;
+  --token-text: #17191d;
+  --token-muted: #777d87;
+  --token-track: #e9eaec;
+  position: absolute;
+  inset: 0;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+  background: #fff;
+  color: var(--token-text);
+  container-type: inline-size;
+}
+.token-dashboard__card {
+  margin-bottom: 12px;
+  padding: 16px;
+  border: 1px solid #e6e6e7;
+  border-radius: 12px;
+  background: var(--token-surface);
+  box-shadow: 0 2px 7px #00000008;
+}
+.token-dashboard__loading { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--token-muted); font-size: 12px; }
+.token-dashboard__spinner { animation: token-dashboard-spin 0.9s linear infinite; flex-shrink: 0; }
+.token-dashboard__skeleton { display: flex; flex-direction: column; gap: 8px; width: min(240px, 80%); }
+.token-dashboard__skeleton i { height: 10px; border-radius: 4px; background: var(--token-track); }
+.token-dashboard__skeleton i:last-child { width: 65%; }
+.token-dashboard__refreshing { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 10px; color: var(--token-muted); font-size: 11px; }
+.token-dashboard__fetch-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; color: var(--token-muted); font-size: 12px; }
+.token-dashboard__fetch-error button { border: 1px solid var(--token-track); border-radius: 6px; background: transparent; padding: 4px 10px; color: var(--token-text); cursor: pointer; }
+@keyframes token-dashboard-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .token-dashboard__spinner { animation-duration: 2s; } }
+.token-dashboard__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--token-track);
+}
+.token-dashboard__header h1,
+.token-dashboard__header h2 {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.token-dashboard__header h1 svg,
+.token-dashboard__header h2 svg { color: var(--token-muted); flex-shrink: 0; }
+.token-dashboard__header > span { font-size: 12px; color: var(--token-muted); }
+.token-dashboard__header b { font-weight: 500; color: var(--token-text); }
+.token-dashboard__model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.token-dashboard__overview { display: flex; align-items: center; gap: 16px; padding: 18px 0; }
+.token-dashboard__donut { width: 124px; height: 124px; position: relative; flex: 0 0 124px; }
+.token-dashboard__donut svg { width: 100%; height: 100%; display: block; }
+.token-dashboard__donut-label { position: absolute; inset: 26px 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-align: center; }
+.token-dashboard__donut-label strong { max-width: 100%; overflow-wrap: anywhere; font-size: 12px; font-weight: 650; line-height: 1.2; }
+.token-dashboard__donut-label span { color: var(--token-muted); font-size: 12px; }
+.token-dashboard__donut-label { pointer-events: none; }
+.token-dashboard__arc { pointer-events: stroke; transition: opacity 0.15s ease, stroke-width 0.15s ease; }
+.token-dashboard__legend-item { padding: 4px; border-radius: 4px; transition: background-color 0.15s ease; }
+.token-dashboard__legend-item.is-active { background: #f1f2f4; }
+.token-dashboard__legend-item:focus-visible { outline: 2px solid #888; outline-offset: 1px; }
+[theme-mode='dark'] .token-dashboard__legend-item.is-active { background: #353535; }
+.token-dashboard__legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; flex: 1; min-width: 0; margin: 0; }
+.token-dashboard__legend-item { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; align-items: start; font-size: 12px; }
+.token-dashboard__legend dt { display: flex; align-items: center; gap: 7px; min-width: 0; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.token-dashboard__swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.token-dashboard__legend dd { display: contents; margin: 0; }
+.token-dashboard__legend dd strong { font-size: 12px; font-weight: 600; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.token-dashboard__legend dd > span { grid-column: 1 / -1; padding-left: 15px; color: var(--token-muted); font-size: 12px; }
+.token-dashboard__reported { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; padding: 10px 0; border-top: 1px solid var(--token-track); }
+.token-dashboard__reported > span { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; font-size: 11px; color: var(--token-muted); }
+.token-dashboard__reported b { font-weight: 500; color: var(--token-text); font-variant-numeric: tabular-nums; }
+.token-dashboard__note { margin: 8px 0 0; color: var(--token-muted); font-size: 11px; line-height: 1.6; }
+.token-dashboard__context-values { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 12px; margin: 18px 0 14px; }
+.token-dashboard__context-values > div { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+.token-dashboard__context-values strong { font-size: 24px; line-height: 1.3; font-weight: 650; font-variant-numeric: tabular-nums; }
+.token-dashboard__context-values span { font-size: 12px; color: var(--token-muted); }
+.token-dashboard__bar { height: 16px; overflow: hidden; display: flex; margin-bottom: 18px; border-radius: 5px; background: var(--token-track); }
+.token-dashboard__bar > span { flex-shrink: 1; height: 100%; }
+@container (max-width: 550px) {
+  .token-dashboard__overview { flex-direction: column; align-items: stretch; }
+  .token-dashboard__donut { align-self: center; }
+}
+@container (max-width: 330px) {
+  .token-dashboard__card { padding: 12px; }
+  .token-dashboard__legend { grid-template-columns: minmax(0, 1fr); }
+  .token-dashboard__reported { grid-template-columns: minmax(0, 1fr); }
+}
+[theme-mode='dark'] .chat-token-stats.token-dashboard {
+  --token-surface: #242424;
+  --token-text: #eee;
+  --token-muted: #aaa;
+  --token-track: #3c3c3c;
+  background: #1b1b1b;
+}
+[theme-mode='dark'] .token-dashboard__card { border-color: #383838; }

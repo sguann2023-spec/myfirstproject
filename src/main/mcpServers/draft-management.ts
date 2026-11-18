@@ -8,7 +8,7 @@ import { windowService } from '@main/services/WindowService'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { registerArtifact } from '../services/artifactIndex'
 import { net } from 'electron'
 
@@ -158,7 +158,9 @@ const HTTP_URL_PATTERN = /^https?:\/\//i
 
 class DraftManagementServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null

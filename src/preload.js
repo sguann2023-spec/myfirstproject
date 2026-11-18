@@ -133,6 +133,7 @@ const electronBridge = {
     // Cherry Studio chat bridge for HomePage (still powered by main-process session service)
     cherryChatStream: {
         ...createAgentSessionBridge(CHERRY_CHAT_CHANNELS, { hasSubscription: true }),
+        getTokenStats: (sessionId) => ipcRenderer.invoke('cherry-chat-stream:token-stats', { sessionId }),
         createReversePromptRequest: (payload) => ipcRenderer.invoke('cherry-chat-stream:reverse-prompt-request', payload),
         createSubtitleRecognitionRequest: (payload) => ipcRenderer.invoke('cherry-chat-stream:subtitle-recognition-request', payload),
     },

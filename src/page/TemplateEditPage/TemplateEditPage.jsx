@@ -116,6 +116,7 @@ const TemplateEditPage = () => {
       jsonRef.current = result.templateJson;
       setTemplateJson(result.templateJson);
       setTemplateStorage(result.templateStorage ?? null);
+      if (presetId === 'personalized-welcome') setCodeOpen(false);
       setReady(true);
     }).catch((err) => { if (active) { setError(err.message); setPending(false); } });
     return () => { active = false; };
@@ -443,6 +444,7 @@ const TemplateEditPage = () => {
         </div>
       </header>
 
+      {!codeOpen && (analysisError || error) && <div className="template-edit-error" role="alert">{analysisError || error}</div>}
       <div className="template-edit-body">
         <LayerPanel model={model} index={index} nativeIndex={nativeIndex} selectedId={selectedId} collapsed={collapsed} onToggle={toggleLayer}
           onSelect={select} onEnter={enter} onReveal={reveal} onAction={mutate} isLocked={isLocked} disabled={disabled} />

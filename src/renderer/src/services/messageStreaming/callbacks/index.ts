@@ -30,6 +30,15 @@ export const createCallbacks = (deps: CallbacksDependencies) => {
     assistantMsgId
   })
 
+  const compactCallbacks = createCompactCallbacks({
+    blockManager,
+    assistantMsgId,
+    dispatch,
+    getState,
+    topicId,
+    saveUpdatesToDB
+  })
+
   // 创建基础回调
   const baseCallbacks = createBaseCallbacks({
     blockManager,
@@ -39,7 +48,8 @@ export const createCallbacks = (deps: CallbacksDependencies) => {
     assistantMsgId,
     saveUpdatesToDB,
     assistant,
-    getCurrentThinkingInfo: thinkingCallbacks.getCurrentThinkingInfo
+    getCurrentThinkingInfo: thinkingCallbacks.getCurrentThinkingInfo,
+    finalizeContextCompactions: compactCallbacks.finalizeContextCompactions
   })
 
   const toolCallbacks = createToolCallbacks({
@@ -62,15 +72,6 @@ export const createCallbacks = (deps: CallbacksDependencies) => {
   })
 
   const videoCallbacks = createVideoCallbacks({ blockManager, assistantMsgId })
-
-  const compactCallbacks = createCompactCallbacks({
-    blockManager,
-    assistantMsgId,
-    dispatch,
-    getState,
-    topicId,
-    saveUpdatesToDB
-  })
 
   // 创建textCallbacks时传入citationCallbacks的getCitationBlockId方法和compactCallbacks的handleTextComplete方法
   const textCallbacks = createTextCallbacks({

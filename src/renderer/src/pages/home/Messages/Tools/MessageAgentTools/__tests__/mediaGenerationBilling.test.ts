@@ -3,6 +3,17 @@ import { describe, expect, it } from 'vitest'
 import { extractMediaGenerationBillingSummary, getMediaGenerationPointIconUrl, sumMediaGenerationBillingSummaries } from '../mediaGenerationBilling'
 
 describe('mediaGenerationBilling', () => {
+  it('shows actual settled points and never promotes expected compute cost to consumption', () => {
+    const charged = { content: [{ type: 'text', text: JSON.stringify({
+      provider: 'vectcut', job_id: 'job_test', billing: {
+        status: 'charged', complete: true, total_consumed_points: 71.18, consumption_log_id: 2345708
+      }
+    }) }] }
+    expect(extractMediaGenerationBillingSummary(charged)).toEqual({ totalConsumedPoints: 71.18, displayText: '71.18' })
+    expect(extractMediaGenerationBillingSummary({ billing: { status: 'pending', complete: false }, expected_points: 99 })).toBeNull()
+    expect(extractMediaGenerationBillingSummary({ billing: { status: 'uncertain', complete: false }, expected_points: 99 })).toBeNull()
+  })
+
   it('extracts billing.consume from MCP text output', () => {
     expect(
       extractMediaGenerationBillingSummary({
@@ -79,6 +90,31 @@ describe('mediaGenerationBilling', () => {
       totalConsumedPoints: 40,
       displayText: '40.00'
     })
+  })
+
+  it('extracts Seed Audio billing from nested tool results and sums each call only once', () => {
+    const outputs = [1.11, 2.22, 3.33].map(consume => {
+      const response = { content: [{ type: 'text', text: JSON.stringify({
+        provider: 'vectcut', action: 'generate_seed_audio', success: true,
+        resource_amount: 99, billing: { consume }
+      }) }], structuredContent: { billing: { consume } } }
+      return { response, responseRaw: response }
+    })
+    outputs.forEach((output, index) => {
+      expect(extractMediaGenerationBillingSummary(output)).toEqual({
+        totalConsumedPoints: [1.11, 2.22, 3.33][index], displayText: ['1.11', '2.22', '3.33'][index]
+      })
+    })
+    expect(sumMediaGenerationBillingSummaries(outputs)).toEqual({ totalConsumedPoints: 6.66, displayText: '6.66' })
+  })
+
+  it('does not invent Seed Audio points from resource amounts or timeout errors', () => {
+    for (const response of [
+      { content: [{ type: 'text', text: JSON.stringify({ success: true, resource_amount: 99 }) }] },
+      { isError: true, content: [{ type: 'text', text: 'MCP error -32001: Request timed out' }] }
+    ]) {
+      expect(extractMediaGenerationBillingSummary({ response, responseRaw: response })).toBeNull()
+    }
   })
 
   it('returns point icon url', () => {

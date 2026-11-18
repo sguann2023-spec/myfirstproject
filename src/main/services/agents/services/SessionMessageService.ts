@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { getWorkspaceActivityPaths, workspaceActivity } from './workspaceRename'
 
 import { loggerService } from '@logger'
+import type { TokenTelemetry } from '@shared/tokenTelemetry'
 import type {
   AgentPersistedMessage,
   AgentSessionMessageEntity,
@@ -303,14 +304,19 @@ export class SessionMessageService extends BaseService {
       finished = true
       acceptingEvents = false
       const serialized = serializeError(error)
+      accumulator.settleCompactions('failed')
       const blocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
       const usage = accumulator.getUsage()
+      const usageSteps = accumulator.getUsageSteps()
+      const tokenTelemetry = accumulator.getTokenTelemetry()
       void queuePersistence(() => this.finalizeCanonicalAssistant({
         sessionId: session.id,
         invocationIds,
         modelId: req.model,
         blocks,
         usage,
+        usageSteps,
+        tokenTelemetry,
         createdAtIso,
         status: 'failed',
         partIds: canonicalPartIds,
@@ -364,9 +370,11 @@ export class SessionMessageService extends BaseService {
       persistExchange = false
     ) => {
       try {
+        accumulator.settleCompactions(status)
         const assistantBlocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
         const usage = structuredClone(accumulator.getUsage())
         const usageSteps = structuredClone(accumulator.getUsageSteps())
+        const tokenTelemetry = accumulator.getTokenTelemetry()
         const resolvedSessionId = claudeStream.sdkSessionId || agentSessionId
         const serializedError = status === 'failed' ? serializeError(error) : undefined
         const finalized = queuePersistence(() => this.finalizeCanonicalAssistant({
@@ -375,13 +383,15 @@ export class SessionMessageService extends BaseService {
           modelId: req.model,
           blocks: assistantBlocks,
           usage,
+          usageSteps,
+          tokenTelemetry,
           createdAtIso,
           status,
           partIds: canonicalPartIds,
           error: serializedError,
           finish: status === 'failed' ? undefined : { reason: status === 'completed' ? 'complete' : 'cancelled' }
         }), 'Failed to finalize canonical assistant state')
-        if (options?.persist && persistExchange && (status === 'completed' || assistantBlocks.length > 0 || usage)) {
+        if (options?.persist && persistExchange && (status === 'completed' || assistantBlocks.length > 0 || usage || tokenTelemetry)) {
           void queuePersistence(() => this.persistHeadlessExchange(
             session,
             options?.displayContent ?? req.content,
@@ -395,7 +405,8 @@ export class SessionMessageService extends BaseService {
             usageSteps,
             req.createdAt,
             status === 'cancelled',
-            headlessUserMsgId
+            headlessUserMsgId,
+            tokenTelemetry
           ), 'Failed to persist headless exchange').then((result) => resolveHistoryPersisted(result ?? {}))
         } else {
           void finalized.then(() => resolveHistoryPersisted({}))
@@ -428,12 +439,16 @@ export class SessionMessageService extends BaseService {
                 // Freeze this boundary before later chunks mutate the accumulator.
                 const blocks = structuredClone(accumulator.getAssistantBlocks(headlessAssistantMsgId, req.model))
                 const usage = structuredClone(accumulator.getUsage())
+                const usageSteps = accumulator.getUsageSteps()
+                const tokenTelemetry = accumulator.getTokenTelemetry()
                 void queuePersistence(() => this.finalizeCanonicalAssistant({
                   sessionId: session.id,
                   invocationIds,
                   modelId: req.model,
                   blocks,
                   usage,
+                  usageSteps,
+                  tokenTelemetry,
                   createdAtIso,
                   status: 'streaming',
                   partIds: canonicalPartIds
@@ -600,6 +615,11 @@ export class SessionMessageService extends BaseService {
         }
         partId = toolPartId
         type = 'tool'
+      } else if (block.type === 'compact') {
+        // The accumulator retains one block identity per compaction operation.
+        // Keep it distinct from tool execution and provider-visible text.
+        partId = block.id
+        type = 'compact'
       } else {
         continue
       }
@@ -641,6 +661,8 @@ export class SessionMessageService extends BaseService {
     modelId?: string
     blocks: HeadlessPersistedBlock[]
     usage?: PersistedUsage
+    usageSteps?: PersistedUsage[]
+    tokenTelemetry?: TokenTelemetry
     createdAtIso: string
     status: 'streaming' | 'completed' | 'cancelled' | 'failed'
     partIds: {
@@ -660,7 +682,8 @@ export class SessionMessageService extends BaseService {
       createdAtIso: params.createdAtIso
     }).map((part) => ({
       ...part,
-      data: { ...part.data, status: params.status === 'streaming' ? 'streaming' : params.status }
+      // A compaction can fail or finish before the enclosing reply does.
+      data: part.type === 'compact' ? part.data : { ...part.data, status: params.status }
     }))
     // Publish terminal message status only after its content has been acknowledged.
     if (parts.length > 0) await agentTranscriptRepository.upsertParts(parts)
@@ -673,7 +696,13 @@ export class SessionMessageService extends BaseService {
       status: params.status,
       semantics: { origin: 'agent_runtime', uiVisibility: 'visible', providerVisibility: 'visible' },
       provider: { modelId: params.modelId, requestId: params.invocationIds.traceId },
-      usage: this.canonicalUsage(params.usage),
+      usage: params.usage || params.usageSteps?.length || params.tokenTelemetry
+        ? {
+            ...this.canonicalUsage(params.usage),
+            ...(params.usageSteps?.length ? { usageSteps: params.usageSteps } : {}),
+            ...(params.tokenTelemetry ? { tokenTelemetry: params.tokenTelemetry } : {})
+          }
+        : undefined,
       error: params.error,
       finish: params.finish,
       createdAt: params.createdAtIso,
@@ -789,6 +818,7 @@ export class SessionMessageService extends BaseService {
     modelId?: string
     usage?: PersistedUsage
     usageSteps?: PersistedUsage[]
+    tokenTelemetry?: TokenTelemetry
     aborted: boolean
     status: string
   }): AgentPersistedMessage {
@@ -801,6 +831,7 @@ export class SessionMessageService extends BaseService {
       modelId,
       usage,
       usageSteps,
+      tokenTelemetry,
       aborted,
       status
     } = params
@@ -829,6 +860,7 @@ export class SessionMessageService extends BaseService {
           time_completion_millsec: assistantDurationMs
         },
         usage,
+        tokenTelemetry,
         usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined
       },
       blocks: assistantBlocks
@@ -852,7 +884,8 @@ export class SessionMessageService extends BaseService {
     usageSteps?: PersistedUsage[],
     userCreatedAt?: number,
     aborted = false,
-    userMsgId?: string
+    userMsgId?: string,
+    tokenTelemetry?: TokenTelemetry
   ): Promise<{ userMessage?: AgentSessionMessageEntity; assistantMessage?: AgentSessionMessageEntity }> {
     const now = new Date().toISOString()
     const normalizedUserCreatedAt = SessionMessageService.toIsoCreatedAt(userCreatedAt, now)
@@ -877,6 +910,7 @@ export class SessionMessageService extends BaseService {
       modelId,
       usage,
       usageSteps,
+      tokenTelemetry,
       aborted,
       status: aborted ? 'cancelled' : 'success'
     })

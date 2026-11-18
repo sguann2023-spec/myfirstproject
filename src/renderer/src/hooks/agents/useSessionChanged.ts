@@ -13,6 +13,7 @@ export function useSessionChanged(agentId: string | undefined, mutate: () => voi
   useEffect(() => {
     if (!agentId) return
     const cleanup = window.api.agentSessionStream.onSessionChanged((data) => {
+      if (data.reason === 'token-stats') return
       if (data.agentId === agentId) {
         mutate()
         const topicId = buildAgentSessionTopicId(data.sessionId)

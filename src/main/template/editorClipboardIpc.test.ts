@@ -43,6 +43,13 @@ it('复制写入系统剪贴板，粘贴通过原编辑事务保存副本', asyn
   expect(state.save).toHaveBeenCalledWith({ ...payload, templateJson: result.templateJson })
 })
 
+it('桌面 IPC 拒绝不支持的形状类型且不保存', async () => {
+  const payload = { templateJson: JSON.stringify(createEditorPreset('empty')) }
+  await expect(state.handlers.get('template:editor-add')!({}, payload,
+    { type: 'shape', selectedId: 'scene-1' })).rejects.toThrow('不支持的素材类型')
+  expect(state.save).not.toHaveBeenCalled()
+})
+
 it('不信任渲染端传入的剪贴板内容，系统剪贴板无效时不保存', async () => {
   const payload = { templateJson: JSON.stringify(createEditorPreset('sentence-image')) }
   await state.handlers.get('template:editor-copy')!({}, payload, 'text-1')

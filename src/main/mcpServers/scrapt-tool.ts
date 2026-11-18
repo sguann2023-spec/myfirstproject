@@ -7,6 +7,7 @@ import { net } from 'electron'
 
 import catalog from './scrapt-catalog.json'
 import { PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE } from './asset-search-routing'
+import { SOCIAL_MEDIA_SOURCE_ROUTING } from './social-media-source-routing'
 
 type Schema = Record<string, any>
 type Entry = {
@@ -40,6 +41,10 @@ export const SCRAPT_TOOLS: Tool[] = ENTRIES.map((entry) => {
   }
   if (/^douyin_/.test(tool.name) && /user_search|user_profile|user_post_videos|fetch_one_video/.test(tool.name)) {
     tool.description = (tool.description || '') + ' 抖音电商组合查询：需要商品月销、每日销量、SKU、评论或店铺商品列表时，配合 douyin-shop-search 的 search_products/get_product_details/get_shop_products 等工具。先确认达人身份，再从单条视频 anchor_info.extra 的JSON商品卡取 product_id；主页列表 promotions/anchors 为空不代表没挂车。网页视频详情可设置 need_anchor_info=true。字段缺失时核对其他可用详情接口，不凭商品标题猜ID。商品月销/累计已售不等于该达人独立成交，不能由当前价乘销量或点赞量推断GMV。'
+  }
+  if (/^douyin_/.test(tool.name) && /fetch_one_video|user_post_videos/.test(tool.name)) {
+    // Media retrieval is the primary intent; commerce guidance must not bury it.
+    tool.description = SOCIAL_MEDIA_SOURCE_ROUTING + (tool.description || '')
   }
   // Hosted MCP schemas omit useful parameter descriptions from the REST contract.
   for (const parameter of entry.route.parameters) {

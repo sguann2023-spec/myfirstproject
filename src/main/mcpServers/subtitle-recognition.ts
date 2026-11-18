@@ -14,7 +14,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { net } from 'electron'
 
 import { SUBTITLE_RECOGNITION_LANGUAGES } from '../../shared/subtitleRecognitionLanguages'
@@ -166,7 +166,9 @@ type PreparedSubtitleRecognitionSource = {
 
 class SubtitleRecognitionServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null

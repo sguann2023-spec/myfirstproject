@@ -14,6 +14,20 @@ let container, root;
 const audio = { id: 'a', runtimeSessionId: 'r', audioUrl: 'test.mp3', createdAt: 1, status: 'completed' };
 beforeEach(() => { globalThis.IS_REACT_ACT_ENVIRONMENT = true; container = document.createElement('div'); document.body.append(container); root = createRoot(container); player.mockClear(); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+it('shows an Ant Design empty state inviting the first video when all artifacts are empty', async () => {
+  await act(async () => root.render(<ArtifactPreview />));
+  expect(container.querySelector('.ant-empty')).not.toBeNull();
+  expect(container.querySelector('.ant-empty-image svg')).not.toBeNull();
+  expect(container.querySelector('.ant-empty-description').textContent).toBe('快来和我对话，生成第一个视频吧！');
+  expect(container.querySelector('h3')).toBeNull();
+  expect(container.textContent).not.toContain('暂无草稿');
+  await act(async () => root.render(<ArtifactPreview documents={[{ id: 'doc', name: 'test.md' }]} />));
+  expect(container.querySelector('.ant-empty')).toBeNull();
+  expect(container.textContent).toContain('test.md');
+  await act(async () => root.render(<ArtifactPreview />));
+  expect(container.querySelector('.ant-empty')).not.toBeNull();
+});
+
 it('renders real audio-only section, no empty draft section, and adapts player output', async () => {
   await act(async () => root.render(<ArtifactPreview audios={[audio]} />));
   expect(container.querySelector('section[aria-label="音频"]')).not.toBeNull();

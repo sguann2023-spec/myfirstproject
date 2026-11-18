@@ -138,6 +138,19 @@ describe('SeedAudioServer', () => {
     expect(mockSend).not.toHaveBeenCalled()
   })
 
+  it('preserves settled billing alongside the saved audio without using resource credits as points', async () => {
+    const billing = { consume: 12.34, status: 'charged', consumption_log_id: 123 }
+    const result = await generateWithResult({
+      success: true, url: 'https://example.com/generated.wav', duration_seconds: 93.08,
+      resource_amount: 99, billing
+    }, 'session-seed')
+    expect(JSON.parse(result.content[0].text)).toMatchObject({
+      action: 'generate_seed_audio', success: true, billing, resource_amount: 99,
+      filePath: '/workspace/artifact/test.mp3', file_path: '/workspace/artifact/test.mp3'
+    })
+    expect(mockNetFetch).toHaveBeenCalledTimes(2)
+  })
+
   it('archives successful audio with runtime, actual payload prompt and duration, not resource credits', async () => {
     await generateWithResult({
       success: true, url: 'https://example.com/generated.wav', text_prompt: 'different response title',

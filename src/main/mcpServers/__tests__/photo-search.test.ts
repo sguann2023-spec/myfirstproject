@@ -8,6 +8,7 @@ const { mockFetch, mockEnsureToken, mockStoreGet } = vi.hoisted(() => ({
 }))
 vi.mock('electron', () => ({ net: { fetch: mockFetch } }))
 vi.mock('electron-store', () => ({ default: class { get = mockStoreGet } }))
+vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ info: vi.fn() }) } }))
 vi.mock('../../services/agents/services/AgentRuntimeAuthService', () => ({
   agentRuntimeAuthService: { ensureValidAccessToken: mockEnsureToken }
 }))

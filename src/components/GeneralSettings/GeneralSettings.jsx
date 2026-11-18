@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Modal, Switch, message } from 'antd';
 import './GeneralSettings.css';
 import JianyingImg from '../../../public/jianying.png';
@@ -50,6 +50,10 @@ const GeneralSettings = () => {
   const [isChangingStoragePath, setIsChangingStoragePath] = useState(false);
   const [isClearingCacheData, setIsClearingCacheData] = useState(false);
   const [isClearingAllData, setIsClearingAllData] = useState(false);
+  const [blenderInfo, setBlenderInfo] = useState(null);
+  const [blenderBusy, setBlenderBusy] = useState('load');
+  const [blenderError, setBlenderError] = useState('');
+  const blenderRequest = useRef({ mounted: false, id: 0, busy: false });
 
   // 统一的 IPC 调用封装：优先使用 preload 暴露的 window.ipc，降级到 ipcRenderer
   const ipcInvoke = (channel, data) => {
@@ -67,6 +71,78 @@ const GeneralSettings = () => {
       if (ipcRenderer?.send) return ipcRenderer.send(channel, data);
     } catch {}
   };
+
+  // Blender 仅在设置页挂载后检测；请求序号同时隔离卸载和 StrictMode 的旧响应。
+  const runBlenderAction = async (action) => {
+    const request = blenderRequest.current;
+    if (!request.mounted || request.busy) return;
+    const id = ++request.id;
+    const isCurrent = () => request.mounted && request.id === id;
+    request.busy = action !== 'load';
+    setBlenderBusy(action);
+    setBlenderError('');
+    try {
+      if (action === 'website') {
+        // 不使用后端返回的 installUrl，始终仅打开 Blender 官方下载页。
+        await ipcInvoke('open:website', 'https://www.blender.org/download/');
+        return;
+      }
+      let selectedPath;
+      if (action === 'set') {
+        const platform = typeof process !== 'undefined' ? process.platform : '';
+        const isMac = platform === 'darwin' || /Mac/i.test(window.navigator?.platform || '');
+        const isWindows = !isMac && (platform === 'win32' || /Win/i.test(window.navigator?.platform || ''));
+        selectedPath = await ipcInvoke('app:select', {
+          title: '选择 Blender 应用或可执行文件',
+          defaultPath: blenderInfo?.configuredPath || blenderInfo?.path || undefined,
+          properties: ['openFile'],
+          ...(isWindows ? { filters: [{ name: 'Blender 可执行文件', extensions: ['exe'] }] } : {})
+        });
+        if (!isCurrent() || typeof selectedPath !== 'string' || !selectedPath.trim()) return;
+      }
+      const info = action === 'set'
+        ? await ipcInvoke('system:setBlenderPath', selectedPath.trim())
+        : await ipcInvoke('system:getBlenderPathInfo', { force: false });
+      if (!isCurrent()) return;
+      if (!info || !['ready', 'not-found', 'invalid', 'error'].includes(info.status)) {
+        throw new Error('未收到有效的 Blender 检测结果');
+      }
+      // 无效保存既可能抛出 IPC 错误，也可能返回未持久化的待验证路径信息。
+      if (action === 'set' && info.status !== 'ready') {
+        throw new Error(info.error || '指定路径未通过 Blender 验证，请检查后重试');
+      }
+      setBlenderInfo(info);
+    } catch (error) {
+      if (isCurrent()) {
+        const labels = {
+          load: '检测 Blender 失败',
+          set: '设置 Blender 路径失败，原配置未更改',
+          website: '打开 Blender 官网失败'
+        };
+        const detail = error?.message || (typeof error === 'string' ? error : '请稍后重试');
+        setBlenderError(`${labels[action]}：${detail}`);
+      }
+    } finally {
+      if (isCurrent()) {
+        request.busy = false;
+        setBlenderBusy('');
+      }
+    }
+  };
+
+  useEffect(() => {
+    const request = blenderRequest.current;
+    request.mounted = true;
+    void runBlenderAction('load');
+    return () => {
+      request.mounted = false;
+      request.id += 1;
+      request.busy = false;
+    };
+  }, []);
+
+  const blenderPath = blenderInfo?.path || '';
+  const blenderActionBusy = Boolean(blenderBusy && blenderBusy !== 'load');
 
   const updateInterfaceMode = (nextMode) => {
     const normalizedMode = nextMode === 'capcut' ? 'capcut' : 'jianying';
@@ -513,6 +589,25 @@ const GeneralSettings = () => {
           </button>
         </div>
       </div>
+
+      <section className="gs-section gs-blender-section" aria-labelledby="gs-blender-title">
+        <div className="gs-section-title" id="gs-blender-title">Blender位置</div>
+        <div className="gs-save-row gs-blender-row" aria-busy={Boolean(blenderBusy)}>
+          <div className="gs-save-desc">
+            <div className="gs-save-text">Blender位置</div>
+            <div className={`gs-save-path ${!blenderPath ? 'empty' : ''}`} title={blenderPath || '未设置'}>
+              {blenderPath || '未设置'}
+            </div>
+            {(blenderError || (blenderInfo?.status !== 'not-found' && blenderInfo?.error)) && (
+              <div className="gs-blender-error" role="alert">{blenderError || blenderInfo.error}</div>
+            )}
+          </div>
+          <div className="gs-blender-actions">
+            <button type="button" className="gs-save-button" disabled={blenderActionBusy} onClick={() => void runBlenderAction('set')}>设置路径</button>
+            <button type="button" className="gs-save-button" title="https://www.blender.org/download/" disabled={blenderActionBusy} onClick={() => void runBlenderAction('website')}>Blender官网下载</button>
+          </div>
+        </div>
+      </section>
 
       <div className="gs-section">
         <div className="gs-section-title">下载设置</div>

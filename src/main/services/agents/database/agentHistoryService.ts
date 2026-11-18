@@ -16,12 +16,16 @@ export interface AgentHistoryPage {
   messages: AgentPersistedMessage[]
   sequences: number[]
   hasMore: boolean
+  /** False when a read or recovery degraded; independent of pagination hasMore. */
+  historyComplete?: boolean
   nextAfterSequence?: number
 }
 
 export interface AgentHistoryOptions {
   afterSequence?: number
   limit?: number
+  /** Read history without triggering legacy migration writes. */
+  readOnly?: boolean
 }
 
 const record = (value: unknown): Record<string, any> =>
@@ -38,10 +42,12 @@ export class AgentHistoryService {
   ) {}
 
   async getHistory(sessionId: string, options: AgentHistoryOptions = {}): Promise<AgentHistoryPage> {
+    let historyComplete = true
     let canonical: AgentMessageWithParts[] = []
     try {
       canonical = await this.transcript.listTranscript(sessionId)
     } catch (error) {
+      historyComplete = false
       logger.warn('Canonical history read failed; using legacy fallback', { sessionId, error: error as Error })
     }
 
@@ -49,11 +55,12 @@ export class AgentHistoryService {
     try {
       legacy = await this.legacy.getSessionHistory(sessionId)
     } catch (error) {
+      historyComplete = false
       if (canonical.length === 0) throw error
       logger.warn('Legacy history read failed; returning canonical history', { sessionId, error: error as Error })
     }
 
-    if (legacy.length && this.transcript.migrateLegacyHistory) {
+    if (!options.readOnly && legacy.length && this.transcript.migrateLegacyHistory) {
       try {
         const migrated = await this.transcript.migrateLegacyHistory(sessionId)
         // A no-op migration (overlay/skipped) leaves the canonical read valid;
@@ -62,6 +69,7 @@ export class AgentHistoryService {
           canonical = await this.transcript.listTranscript(sessionId)
         }
       } catch (error) {
+        historyComplete = false
         logger.warn('Session history migration failed; preserving legacy fallback for retry', { sessionId, error: error as Error })
         canonical = await this.transcript.listTranscript(sessionId).catch(() => canonical)
       }
@@ -117,11 +125,13 @@ export class AgentHistoryService {
     try {
       page = await recoverPiQuestionHistory(sessionId, page, this.piQuestions)
     } catch (error) {
+      historyComplete = false
       logger.warn('PI question recovery failed; returning available history', { sessionId, error: error as Error })
     }
     const sequences = page.map((item) => Number(record(item.message).sequence))
     return {
       messages: page,
+      historyComplete,
       sequences,
       hasMore: eligible.length > page.length,
       nextAfterSequence: sequences.length > 0 ? sequences[sequences.length - 1] : undefined

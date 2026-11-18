@@ -1,11 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Group, Image as CanvasImage, Layer, Rect, Shape, Stage } from 'react-konva';
 import { Code2, Maximize, Minus, Plus } from 'lucide-react';
+import mime from 'mime';
 import {
   PreviewTextNode, drawVerticalPreviewText, measurePreviewText, measureVerticalPreviewText,
 } from '../../TextAddDetail/previewLayout';
 import { getShadowPreview } from '../../../shared/textEffects';
 import { buildBackgroundRects } from '../../../shared/textBackgroundLayout';
+import { toMediaSrc } from '../../../shared/mediaSrc';
 import {
   PREVIEW_FONT_SIZE_CALIBRATION, collectPreviewFrame, fitMediaSize, textCanvasMetrics,
 } from './previewModel';
@@ -16,8 +18,31 @@ const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 8;
 const SELECTION_BLUE = '#2f7ff7';
 
+// Keep canonical web/file URLs intact. A leading slash alone is not an OS path
+// in a browser; built-in /resources assets must stay root-relative even on desktop.
+const previewMediaSrc = (url) => {
+  if (url.startsWith('/resources/') || url.startsWith('//')) return url;
+  const desktop = window.location.protocol === 'file:' || !!window.process?.versions?.electron
+    || typeof window.api?.fs?.read === 'function';
+  const osPath = /^[a-z]:[\\/]/i.test(url) || url.startsWith('\\\\') || (desktop && url.startsWith('/'));
+  return osPath ? toMediaSrc(url) : url;
+};
+
 // 跨组件共享的媒体缓存：避免时间轴 scrub 时反复重建 Image/Video 元素。
 const mediaCache = new Map();
+let previewUsers = 0;
+const disposeMedia = (entry) => {
+  entry.disposed = true;
+  entry.listeners.clear();
+  entry.element.onload = null;
+  entry.element.onloadeddata = null;
+  entry.element.onerror = null;
+  if (entry.element.pause && !entry.element.paused) entry.element.pause();
+  if (entry.objectUrl) {
+    URL.revokeObjectURL(entry.objectUrl);
+    entry.objectUrl = null;
+  }
+};
 const loadMedia = (url, kind) => {
   let entry = mediaCache.get(url);
   if (entry) return entry;
@@ -29,20 +54,30 @@ const loadMedia = (url, kind) => {
     element.preload = 'auto';
   }
   if (kind === 'audio') element.preload = 'auto';
-  entry = { element, status: 'loading', listeners: new Set() };
+  entry = { element, status: 'loading', listeners: new Set(), disposed: false, objectUrl: null };
   const settle = (status) => {
+    if (entry.disposed) return;
     entry.status = status;
     entry.listeners.forEach(listener => listener());
   };
-  if (kind === 'video') element.onloadeddata = () => settle('ready');
+  if (kind === 'video' || kind === 'audio') element.onloadeddata = () => settle('ready');
   else element.onload = () => settle('ready');
   element.onerror = () => settle('error');
-  element.src = url;
   mediaCache.set(url, entry);
+  const src = previewMediaSrc(url);
+  const readFile = window.api?.fs?.read;
+  if (kind === 'image' && /^file:/i.test(src) && typeof readFile === 'function') {
+    // HTTP-hosted Electron renderers cannot load file:// images directly with
+    // webSecurity enabled. Keep the canonical cache key and read via preload.
+    Promise.resolve().then(() => entry.disposed ? undefined : readFile(src)).then(bytes => {
+      if (entry.disposed) return;
+      entry.objectUrl = URL.createObjectURL(new Blob([bytes], { type: mime.getType(new URL(src).pathname) || 'application/octet-stream' }));
+      element.src = entry.objectUrl;
+    }).catch(() => settle('error'));
+  } else element.src = src;
   if (mediaCache.size > 80) {
     const oldest = mediaCache.keys().next().value;
-    const dropped = mediaCache.get(oldest);
-    if (dropped?.element?.pause) dropped.element.pause();
+    disposeMedia(mediaCache.get(oldest));
     mediaCache.delete(oldest);
   }
   return entry;
@@ -54,6 +89,9 @@ const useMedia = (url, kind) => {
   useEffect(() => {
     if (!entry) return undefined;
     entry.listeners.add(refresh);
+    // Cached/local images may settle after render but before this subscription.
+    // Render their loaded dimensions even when the canvas cursor is paused.
+    if (entry.status !== 'loading') refresh();
     return () => { entry.listeners.delete(refresh); };
   }, [entry]);
   return entry;
@@ -282,6 +320,22 @@ const TextItem = ({ item, canvas, scale, selected, onSelect, disabled, onMove, o
   );
 };
 
+// Each aperture is fixed in composition coordinates and intersects its ancestors.
+// Clip paths affect both drawing and picking, without adding any opaque overlay.
+const MaskedItem = ({ masks, canvas, scale, children }) => masks.reduceRight((child, mask) => (
+  <Group key={mask.sceneId} clipFunc={(context) => {
+    const transform = mask.transform;
+    context.save();
+    context.beginPath();
+    context.translate(canvas.width * scale / 2 * (1 + transform.x), canvas.height * scale / 2 * (1 - transform.y));
+    context.rotate(transform.rotation * Math.PI / 180);
+    context.scale(transform.scaleX * (transform.flipX ? -1 : 1), transform.scaleY * (transform.flipY ? -1 : 1));
+    context.arc(0, 0, mask.radius * scale, 0, Math.PI * 2);
+    context.closePath();
+    context.restore();
+  }}>{child}</Group>
+), children);
+
 const PreviewItem = (props) => {
   if (props.item.kind === 'text') return <TextItem {...props} />;
   return <MediaItem {...props} />;
@@ -393,8 +447,17 @@ const TemplatePreview = ({
     });
   }, [frame, cursor, playing]);
 
-  useEffect(() => () => {
-    mediaCache.forEach(entry => { if (entry.element.pause) entry.element.pause(); });
+  useEffect(() => {
+    previewUsers++;
+    return () => {
+      previewUsers--;
+      // Defer disposal past StrictMode's cleanup/setup probe and view remounts.
+      queueMicrotask(() => {
+        if (previewUsers) return;
+        mediaCache.forEach(disposeMedia);
+        mediaCache.clear();
+      });
+    };
   }, []);
 
   const changeZoom = (next) => {
@@ -458,9 +521,11 @@ const TemplatePreview = ({
                 <Rect width={displayWidth} height={displayHeight} fill="#000000" listening={false} />
                 <Group clipX={0} clipY={0} clipWidth={displayWidth} clipHeight={displayHeight}>
                   {frame.items.map(item => (
-                    <PreviewItem key={item.id} item={item} canvas={frame.canvas} scale={scale}
-                      selected={item.id === selectedId} onSelect={onSelect} onMove={onMove} disabled={disabled}
-                      onDragStateChange={(dragging) => { if (dragging) onPlayingChange(false); }} />
+                    <MaskedItem key={item.id} masks={item.masks} canvas={frame.canvas} scale={scale}>
+                      <PreviewItem item={item} canvas={frame.canvas} scale={scale}
+                        selected={item.id === selectedId} onSelect={onSelect} onMove={onMove} disabled={disabled}
+                        onDragStateChange={(dragging) => { if (dragging) onPlayingChange(false); }} />
+                    </MaskedItem>
                   ))}
                 </Group>
                 <Rect width={displayWidth} height={displayHeight} stroke="rgba(0,0,0,0.22)" strokeWidth={1} listening={false} />

@@ -9,7 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { registerArtifact } from '../services/artifactIndex'
 import { net } from 'electron'
 
@@ -60,15 +60,20 @@ const IMAGE_CAPABILITY_KEYWORDS =
   'restyle, turn into anime, style transfer; ' +
   'ID photo, avatar, sticker, icon, transparent cutout; ' +
   'add text, edit text, poster layout; ' +
-  'text-to-image, image-to-image, reference-guided generation. ' +
-  'Scope: still images only — this tool does not process video. '
+  'text-to-image, image-to-image, reference-guided generation; ' +
+  'animated GIF, looping animation, animated illustration, motion sticker; ' +
+  'animated sticker for video overlay, transparent-background GIF sticker, floating sticker, prop overlay; ' +
+  'pointing arrow, curved arrow, callout annotation, highlight mark, circle highlight; ' +
+  'label, tag, badge, name tag, price tag, title banner; ' +
+  'emoji, meme, reaction image, speech bubble, thought bubble, popup effect. ' +
+  'Scope: still images and animated GIF overlay assets — this tool does not process video. '
 
 const IMAGE_GENERATE_TOOL: Tool = {
   name: PRIMARY_IMAGE_TOOL_NAME,
   description:
     IMAGE_MODEL_SELECTION_GUIDANCE +
     IMAGE_CAPABILITY_KEYWORDS +
-    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. GPT Image 2/2.5 (models gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all) supports transparent-background PNG generation; when the user asks for stickers, icons, cutouts, overlays, or any image with no background, use one of those models with transparent_background=true and outputFormat="png", and also state the transparent background requirement in the prompt. Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image as JSON plus inline image content when the result image is small enough to embed; treat that returned image content as the source of truth for visual judgment. Do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
+    'Create, generate, edit, or restyle AI images via VectCut and wait until the same tool call finishes with the final image result. Use this for text-to-image, image-to-image, retouching, photo editing, changing backgrounds, replacing objects, applying style changes, or generating from one or more reference images. GPT Image 2/2.5 (models gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all) supports transparent-background PNG generation; when the user asks for static stickers, icons, cutouts, overlays, or any still image with no background, use one of those models with transparent_background=true and outputFormat="png", and also state the transparent background requirement in the prompt. GPT Image 2.6 (model gpt-image-2.6) additionally supports animated GIF output with optional transparent background (GIF transparency is 1-bit, so transparent edges are hard-edged). This makes gpt-image-2.6 the default choice for animated overlay assets that sit on top of footage in a video draft: animated stickers, pointing or curved arrows, callouts, highlight marks, labels/tags/badges, title banners, emoji/memes, speech bubbles, and looping decorative elements. When the user asks for any of these — or any GIF/animated image — select gpt-image-2.6, describe the animation loop explicitly in the prompt, set transparent_background=true and also state the transparent background requirement in the prompt so the asset composites cleanly onto footage, and optionally set outputFormat="gif". Remote reference image URLs are accepted directly, and local file URLs or absolute local paths are also accepted directly and uploaded internally before submission. Use workspace upload only when the input is a pasted screenshot/base64/data URL without a stable local file path, or when the user explicitly wants a reusable public URL. Always use action="submit_and_wait" for new image generation or editing requests (or omit action). This tool polls internally and returns the final image as JSON plus inline image content when the result image is small enough to embed; treat that returned image content as the source of truth for visual judgment. Do not use Bash sleep or manually poll a newly submitted task. Use action="status" only to recover the result of an existing task. The legacy submit action is accepted only for backward compatibility.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -92,7 +97,7 @@ const IMAGE_GENERATE_TOOL: Tool = {
         type: 'string',
         description:
           IMAGE_MODEL_SELECTION_GUIDANCE +
-          'Optional image model, such as seedream-4.5, nano_banana_2, gpt-image-2, or gpt-image-2.5. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities. Use gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all for transparent-background PNG generation.'
+          'Optional image model, such as seedream-4.5, nano_banana_2, gpt-image-2, gpt-image-2.5, or gpt-image-2.6. If a non-standard alias is provided, the server will try to map it to the closest supported model returned by capabilities. Use gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all for transparent-background PNG generation; use gpt-image-2.6 for animated GIF output such as animated stickers, arrows, labels, and emoji/meme overlay assets.'
       },
       size: {
         type: 'string',
@@ -100,14 +105,14 @@ const IMAGE_GENERATE_TOOL: Tool = {
       },
       outputFormat: {
         type: 'string',
-        enum: ['png', 'jpeg', 'jpg', 'webp'],
+        enum: ['png', 'jpeg', 'jpg', 'webp', 'gif'],
         description:
-          'Optional output format. Use png when requesting transparent-background output, especially with gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all.'
+          'Optional output format. Use png when requesting transparent-background output, especially with gpt-image-2, gpt-image-2-all, gpt-image-2.5, gpt-image-2.5-all, or gpt-image-2.6. Use gif for animated GIF output with gpt-image-2.6.'
       },
       transparent_background: {
         type: 'boolean',
         description:
-          'Backend-native flag for requesting a transparent background. Supported by GPT Image 2/2.5 (gpt-image-2, gpt-image-2-all, gpt-image-2.5, or gpt-image-2.5-all) for PNG/WebP outputs; set this to true and outputFormat="png" for stickers, icons, cutouts, overlays, and background-free assets.'
+          'Backend-native flag for requesting a transparent background. Supported by GPT Image 2/2.5/2.6 (gpt-image-2, gpt-image-2-all, gpt-image-2.5, gpt-image-2.5-all, or gpt-image-2.6) for PNG/WebP outputs, and for animated GIF with gpt-image-2.6; set this to true and outputFormat="png" for static stickers, icons, cutouts, overlays, and background-free assets; set it together with outputFormat="gif" for transparent animated stickers, arrows, labels, and memes that composite onto video footage.'
       },
       background: {
         type: 'string',
@@ -358,16 +363,20 @@ const LOCAL_IMAGE_PATH_HINT_PATTERN =
 const IMAGE_MODEL_ALIASES: Record<string, string[]> = {
   gptimage2: ['gpt-image-2-all'],
   gptimage25: ['gpt-image-2.5-all'],
+  gptimage26: ['gpt-image-2.6'],
   'gpt-image-2': ['gpt-image-2-all'],
   'gpt-image-2-all': ['gpt-image-2-all'],
   'gpt-image-2.5': ['gpt-image-2.5-all'],
-  'gpt-image-2.5-all': ['gpt-image-2.5-all']
+  'gpt-image-2.5-all': ['gpt-image-2.5-all'],
+  'gpt-image-2.6': ['gpt-image-2.6'],
+  'gpt-image-2.6-all': ['gpt-image-2.6']
 }
 const GPT_IMAGE_TRANSPARENT_BACKGROUND_MODELS = new Set([
   'gpt-image-2',
   'gpt-image-2-all',
   'gpt-image-2.5',
-  'gpt-image-2.5-all'
+  'gpt-image-2.5-all',
+  'gpt-image-2.6'
 ])
 const INLINE_PREVIEW_MAX_BYTES = 768 * 1024
 const INLINE_RESULT_IMAGE_MAX_BYTES = 4 * 1024 * 1024
@@ -401,7 +410,9 @@ const parseBase64DataUrl = (value: string): { mediaType: string; data: string } 
 
 class ImageGenerateServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
   private capabilitiesCache: CachedImageCapabilities | null = null

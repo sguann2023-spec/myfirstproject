@@ -8,6 +8,7 @@ import { resourceFields } from './resourceWorkflow'
 import { executableKeyframes } from './keyframeWorkflow'
 import { staticPropertyParams } from '../../shared/templateProperties'
 import { nativeConfigurationParams } from './configurationWorkflow'
+import { validateScenePreviewTransition, type ScenePreviewTransition } from '../../shared/templateShapes'
 
 export interface DraftDynamicFields {
   dynamic?: string[]
@@ -70,6 +71,7 @@ export interface DraftTrack extends DraftDynamicFields {
 }
 
 export interface DraftScene extends DraftDynamicFields {
+  preview_transition?: ScenePreviewTransition
   id: string
   name?: string
   target_timerange: DraftRange
@@ -227,6 +229,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
   function scene(item: DraftScene): SceneElement {
     unique(item?.id)
     validateKeyframes(item)
+    if (item.preview_transition !== undefined) validateScenePreviewTransition(item.preview_transition, item.id)
     if (item.visible === false) throw new Error(`${item.id} 暂不支持隐藏分镜`)
     if (item.speed !== undefined && item.speed !== 1) throw new Error(`${item.id} 暂不支持分镜整体变速`)
     if ('source_timerange' in item) throw new Error(`${item.id} 的分镜不使用 source_timerange，请设置内部媒体的源区间`)
@@ -347,6 +350,7 @@ export function normalizeDraftTemplate(draft: DraftTemplate) {
       delete range.target_end_time
     }
     return { id: item.id, name: item.name, type: 'composition', ...range, elements,
+      ...(item.preview_transition !== undefined ? { preview_transition: structuredClone(item.preview_transition) } : {}),
       ...(item.batch_scene !== undefined ? { batch_scene: structuredClone(item.batch_scene) } : {}),
       ...(item.auto_duration !== undefined ? { auto_duration: item.auto_duration } : {}) }
   }
@@ -371,6 +375,13 @@ export function compileDraftTemplate(draft: DraftTemplate, modifications: Record
   const dynamicInputs = getDynamicInputs(draft)
   draft = applyDynamicInputs(draft, modifications)
   const normalized = normalizeDraftTemplate(draft)
+  function guardPreviewOnly(elements: SceneElement[]) {
+    for (const element of elements) {
+      if (element.preview_transition !== undefined) throw new Error(`${element.id}: preview_transition 圆形擦除仅支持本地预览，当前编译/导出不支持该转场，不能无损导出`)
+      if (element.elements) guardPreviewOnly(element.elements)
+    }
+  }
+  guardPreviewOnly(normalized.template.elements)
   const animationTypes = new Map(normalized.analysis.timeline.map(element => [element.id, element.type]))
   function validateAnimation(scene: DraftScene) {
     executableKeyframes(scene, 'composition')

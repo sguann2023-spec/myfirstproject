@@ -215,4 +215,16 @@ describe('Bundled social-media tools', () => {
     }
   })
 
+  it('prioritizes social share resolution and workspace download before commerce and understanding', () => {
+    for (const name of ['douyin_app_v3_fetch_one_video_by_share_url', 'douyin_web_fetch_one_video_by_share_url',
+      'douyin_web_fetch_one_video', 'douyin_app_v3_fetch_user_post_videos']) {
+      const description = SCRAPT_TOOLS.find(tool => tool.name === name)!.description!
+      expect(description.startsWith('Social-media share/watch pages are NOT direct media files.')).toBe(true)
+      expect(description).toContain('share_url')
+      expect(description).toContain('filesystem.download')
+      expect(description).toContain('SAME downloaded local video path')
+      expect(description.indexOf('filesystem.download')).toBeLessThan(description.indexOf('抖音电商组合查询'))
+    }
+  })
+
 })

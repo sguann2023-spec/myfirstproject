@@ -2,8 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { TEMPLATE_PRESETS } from '../../shared/templatePresets'
-import { getDataPath } from '../utils'
+import { getDataPath, getResourcePath } from '../utils'
 import { createEditorPreset } from './editorPresets'
+import { resolveWelcomeAssetPaths } from './welcomeAssetPaths'
+import { upgradeLegacyWelcomePreset } from './welcomePresetMigration'
+import { normalizeDraftTemplate } from './draftTemplate'
 
 export interface TemplateStorageRef {
   directory: string
@@ -98,7 +101,7 @@ function readTemplateName(templatePath: string, fallback: string) {
 }
 
 export function createStoredTemplateDocument(presetId: unknown = 'empty'): StoredTemplateDocument {
-  const template = createEditorPreset(presetId)
+  const template = resolveWelcomeAssetPaths(createEditorPreset(presetId), getResourcePath())
   migrateLegacyTemplates()
   const root = getTemplateScenesDirectory()
   const directory = uniqueDirectory(root)
@@ -114,7 +117,17 @@ export function createStoredTemplateDocument(presetId: unknown = 'empty'): Store
 
 export function loadStoredTemplateDocument(templatePath: string): StoredTemplateDocument {
   const resolved = assertInsideScenesDirectory(templatePath)
-  const templateJson = fs.readFileSync(resolved, 'utf8')
+  const originalJson = fs.readFileSync(resolved, 'utf8')
+  const upgraded = upgradeLegacyWelcomePreset(JSON.parse(originalJson))
+  const template = resolveWelcomeAssetPaths(upgraded.template, getResourcePath())
+  if (upgraded.changed) normalizeDraftTemplate(template)
+  const changed = upgraded.changed || JSON.stringify(template) !== JSON.stringify(upgraded.template)
+  const templateJson = changed ? JSON.stringify(template, null, 2) : originalJson
+  if (upgraded.changed) {
+    const backup = path.join(path.dirname(resolved), 'template.before-image-logo.json')
+    if (!fs.existsSync(backup)) fs.writeFileSync(backup, originalJson, { encoding: 'utf8', flag: 'wx' })
+  }
+  if (changed) fs.writeFileSync(resolved, templateJson, 'utf8')
   return {
     templateJson,
     configJson: JSON.stringify({ timing_rules: {}, sources: {} }, null, 2),

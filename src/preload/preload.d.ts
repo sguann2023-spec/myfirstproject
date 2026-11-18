@@ -33,6 +33,7 @@ declare global {
         renameWorkspace: (payload: { source: string; name: string }) => Promise<any>
         createSession: (payload: any) => Promise<any>
         getSession: (sessionId: string) => Promise<any>
+        getTokenStats: (sessionId: string) => Promise<import('../main/services/agents/services/SessionService').SessionTokenStatsResponse>
         updateSession: (payload: any) => Promise<any>
         listSessions: (payload?: any) => Promise<any>
         listMessages: (sessionId: string) => Promise<any>

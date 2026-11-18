@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { net } from 'electron'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
 import { ASSET_SEARCH_ROUTING, PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE, suggestYouTubeSearch, YOUTUBE_VIDEO_FALLBACK_GUIDANCE } from './asset-search-routing'
@@ -153,7 +153,9 @@ export default class MediaSearchServer {
   public readonly mcpServer: McpServer
   private readonly baseUrl: string
   private readonly requiresAuth: boolean
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
 
   constructor(baseUrl = process.env.MEDIA_SEARCH_BASE_URL || process.env.PIXABAY_PROXY_BASE_URL || 'https://open.vectcut.com') {
     const url = new URL(baseUrl)

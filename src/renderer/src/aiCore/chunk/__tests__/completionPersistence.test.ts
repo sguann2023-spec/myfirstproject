@@ -101,3 +101,31 @@ describe('completion persistence boundary', () => {
     expect(emitMock).toHaveBeenCalledTimes(1)
   })
 })
+
+const telemetry = (revision = 1, runtimeSessionId = 'runtime-a') => ({
+  version: 1 as const,
+  requests: [{ id: 'request-a', revision, runtimeSessionId, invocationId: 'invocation-a', sequence: 0,
+    modelId: 'model', providerId: 'provider', operation: 'reply', status: 'prepared' as const,
+    startedAt: 1, attempts: 1, input: { categories: { user: 10 }, total: 10, status: 'estimated' as const, method: 'test' } }]
+})
+
+it.each(['complete', 'error', 'abort'])('keeps telemetry-only updates and revision upserts through %s persistence', async terminal => {
+  const block = { id: 'text', type: MessageBlockType.MAIN_TEXT, content: 'answer', status: MessageBlockStatus.SUCCESS }
+  const message: any = { id: 'assistant', blocks: [block], usage: { total_tokens: 42 } }
+  const saveUpdatesToDB = vi.fn()
+  const callbacks = createBaseCallbacks({
+    blockManager: { smartBlockUpdate: vi.fn(), lastBlockType: MessageBlockType.MAIN_TEXT, handleBlockTransition: vi.fn() } as any,
+    dispatch: (action: any) => { if (action.type === 'update') Object.assign(message, action.payload.updates) },
+    getState: () => ({ messages: { entities: { assistant: message } }, messageBlocks: { entities: { text: block } } }),
+    topicId: 'topic', assistantMsgId: 'assistant', saveUpdatesToDB, assistant: {} as any
+  })
+  callbacks.onLLMResponseInProgress({ tokenTelemetry: telemetry(1) })
+  callbacks.onLLMResponseInProgress({ tokenTelemetry: telemetry(2) })
+  callbacks.onLLMResponseInProgress({ tokenTelemetry: telemetry(1) })
+  expect(message.tokenTelemetry.requests).toHaveLength(1)
+  expect(message.tokenTelemetry.requests[0].revision).toBe(2)
+  expect(message.usage).toEqual({ total_tokens: 42 })
+  if (terminal === 'complete') await callbacks.onComplete(AssistantMessageStatus.SUCCESS)
+  else await callbacks.onError((terminal === 'abort' ? new DOMException('Stopped', 'AbortError') : new Error('failed')) as any)
+  expect(saveUpdatesToDB.mock.calls[0][2].tokenTelemetry).toEqual(telemetry(2))
+})

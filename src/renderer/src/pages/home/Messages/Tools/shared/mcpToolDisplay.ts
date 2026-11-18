@@ -150,7 +150,7 @@ export function getMcpToolDisplayName(
   }
 
   // Standalone titles do not need the internal server name.
-  if (serverKey === 'audio_understand' || serverKey === 'draft_render') {
+  if (serverKey === 'audio_understand' || serverKey === 'draft_render' || serverKey === 'blender_local') {
     return args.t(`message.tools.mcp.tools.${serverKey}.${toolKey}`, { defaultValue: fallbackTool })
   }
 

@@ -60,6 +60,7 @@ import {
 import { getMainTextContent } from '@renderer/utils/messageUtils/find'
 import { getTopicQueue, waitForTopicQueue } from '@renderer/utils/queue'
 import { IpcChannel } from '@shared/IpcChannel'
+import { isTokenTelemetry, mergeTokenTelemetry } from '@shared/tokenTelemetry'
 import { defaultAppHeaders } from '@shared/utils'
 import type { TextStreamPart } from 'ai'
 import { t } from 'i18next'
@@ -1000,10 +1001,15 @@ const fetchAndProcessAgentResponseImpl = async (
 
         const usage = persistedMessage.usage
         const usageSteps = persistedMessage.usageSteps
+        const currentTelemetry = getState().messages.entities[assistantMessage.id]?.tokenTelemetry
+        const tokenTelemetry = isTokenTelemetry(persistedMessage.tokenTelemetry)
+          ? mergeTokenTelemetry(currentTelemetry, persistedMessage.tokenTelemetry)
+          : currentTelemetry
         const metrics = persistedMessage.metrics
         const createdAt = persistedMessage.createdAt
         const updatedAt = persistedMessage.updatedAt
         if (
+          !tokenTelemetry &&
           !usage &&
           (!Array.isArray(usageSteps) || usageSteps.length === 0) &&
           !metrics &&
@@ -1019,6 +1025,7 @@ const fetchAndProcessAgentResponseImpl = async (
             messageId: assistantMessage.id,
             updates: {
               usage,
+              tokenTelemetry,
               usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined,
               metrics,
               createdAt: createdAt || assistantMessage.createdAt,
@@ -1031,6 +1038,7 @@ const fetchAndProcessAgentResponseImpl = async (
           topicId,
           {
             usage,
+            tokenTelemetry,
             usageSteps: Array.isArray(usageSteps) && usageSteps.length > 0 ? usageSteps : undefined,
             metrics,
             createdAt: createdAt || assistantMessage.createdAt,
@@ -1317,7 +1325,7 @@ export const sendMessage =
  */
 export const loadAgentSessionMessagesThunk =
   // oxlint-disable-next-line no-unused-vars
-  (sessionId: string) => async (dispatch: AppDispatch, _getState: () => RootState) => {
+  (sessionId: string) => async (dispatch: AppDispatch, getState: () => RootState) => {
     const topicId = buildAgentSessionTopicId(sessionId)
 
     try {
@@ -1334,7 +1342,10 @@ export const loadAgentSessionMessagesThunk =
 
         for (const persistedMsg of historicalMessages) {
           if (persistedMsg?.message) {
-            messages.push(persistedMsg.message)
+            const message = persistedMsg.message
+            const previous = getState().messages.entities[message.id]?.tokenTelemetry
+            const incoming = isTokenTelemetry(message.tokenTelemetry) ? message.tokenTelemetry : undefined
+            messages.push({ ...message, tokenTelemetry: previous || incoming ? mergeTokenTelemetry(previous, incoming) : undefined })
             if (persistedMsg.blocks && persistedMsg.blocks.length > 0) {
               blocks.push(...persistedMsg.blocks)
             }

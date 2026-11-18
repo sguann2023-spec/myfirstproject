@@ -60,6 +60,7 @@ import DxtService from './services/DxtService'
 import { ExportService } from './services/ExportService'
 import { externalAppsService } from './services/ExternalAppsService'
 import { localMcpAgentService } from './services/LocalMcpAgentService'
+import { localBlenderService } from './services/LocalBlenderService'
 import { feedbackMailService } from './services/FeedbackMailService'
 import { crashReportService } from './services/CrashReportService'
 import { fileStorage as fileManager } from './services/FileStorage'
@@ -1204,6 +1205,8 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
   ipcMain.handle(IpcChannel.System_GetDeviceType, getDeviceType)
   ipcMain.handle(IpcChannel.System_GetHostname, getHostname)
   ipcMain.handle(IpcChannel.System_GetCpuName, getCpuName)
+  ipcMain.handle(IpcChannel.System_GetBlenderPathInfo, (_, options) => localBlenderService.getPathInfo(options))
+  ipcMain.handle(IpcChannel.System_SetBlenderPath, (_, newPath: string | null) => localBlenderService.setPath(newPath))
   ipcMain.handle(IpcChannel.System_CheckGitBash, () => {
     if (!isWin) {
       return true // Non-Windows systems don't need Git Bash

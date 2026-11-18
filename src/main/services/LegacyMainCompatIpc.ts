@@ -1028,7 +1028,19 @@ function registerLegacyWindowChannels() {
   safeOn('open-template-edit-window', (_event, input = 'empty') => {
     const templatePath = typeof input === 'object' && input ? String((input as any).templatePath || '') : ''
     const presetId = typeof input === 'string' ? input : String((input as any)?.presetId || 'empty')
-    if (!templatePath && !isTemplatePresetId(presetId)) return
+    if (!templatePath && !isTemplatePresetId(presetId)) {
+      logger.warn('Cannot open unsupported template preset', { presetId })
+      const owner = BrowserWindow.fromWebContents(_event.sender)
+      const options = {
+        type: 'warning' as const,
+        title: '无法打开模版',
+        message: '当前客户端不支持这个模版',
+        detail: '如果刚更新了内置模版，请重新构建并重启开发客户端后再试。',
+        buttons: ['知道了']
+      }
+      void (owner ? dialog.showMessageBox(owner, options) : dialog.showMessageBox(options))
+      return
+    }
     const search = templatePath
       ? `?view=template-edit&templatePath=${encodeURIComponent(templatePath)}`
       : `?view=template-edit&preset=${encodeURIComponent(presetId)}`

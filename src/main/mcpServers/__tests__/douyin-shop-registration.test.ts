@@ -16,6 +16,7 @@ const stubbedModules = [
   "@main/mcpServers/artifact-server",
   "@main/mcpServers/assistant",
   "@main/mcpServers/audio-understand",
+  "@main/mcpServers/blender-local",
   "@main/mcpServers/browser/server",
   "@main/mcpServers/claw",
   "@main/mcpServers/color-grade",
@@ -78,6 +79,16 @@ describe('Douyin shop runtime registration', () => {
     })
     expect(options.mcpServers['douyin-shop-search']).toMatchObject({ type: 'sdk', name: 'douyin-shop-search', timeout: 180 })
     expect(options.mcpServers.scrapt).toBeDefined()
+    expect(options.mcpServers.blender).toBeUndefined()
+    expect(options.mcpServers['blender-local']).toMatchObject({
+      type: 'sdk', name: 'blender-local', longRunning: true, timeout: 3660
+    })
+    expect(result.mountedRuntimeMcpServers).toContain('blender-local')
+    expect(autoAllowTools.has('mcp__vectcut__blender-local__blender_status')).toBe(true)
+    expect(autoAllowTools.has('mcp__vectcut__blender-local__blender_render')).toBe(false)
+    expect(autoAllowTools.has('mcp__vectcut__blender-local__*')).toBe(false)
+    expect(result.mountedRuntimeMcpServers).not.toContain('blender')
+    expect([...autoAllowTools].some((name) => name.startsWith('mcp__vectcut__blender__'))).toBe(false)
     expect(result.mountedRuntimeMcpServers).toContain('douyin-shop-search')
     expect(autoAllowTools.has('mcp__vectcut__douyin-shop-search__*')).toBe(true)
     const server = options.mcpServers['douyin-shop-search'].instance
@@ -93,6 +104,8 @@ describe('Douyin shop runtime registration', () => {
     const entries = mocks.entries.mock.calls[0][0]
     const entry = entries.find((entry: any) => entry.serverId === 'douyin-shop-search')
     expect(entry.serverName).toBe('douyin-shop-search')
+    expect(entries.some((item: any) => item.serverId === 'blender' || item.serverName === 'blender')).toBe(false)
+    expect(entries.some((item: any) => item.serverId === 'blender-local')).toBe(false)
     expect(entries.some((entry: any) => entry.serverId === 'scrapt')).toBe(true)
     const server = entry.createInstance()
     const tools = await server.server._requestHandlers.get('tools/list')({ method: 'tools/list' }, {})

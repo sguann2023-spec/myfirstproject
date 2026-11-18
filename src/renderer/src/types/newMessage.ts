@@ -1,5 +1,7 @@
 import type { CompletionUsage } from '@cherrystudio/openai/resources'
 import type { ProviderMetadata } from 'ai'
+import type { TokenTelemetry } from '@shared/tokenTelemetry'
+import type { ContextCompactionEvent } from '@shared/agents/claudecode/types'
 
 import type {
   Assistant,
@@ -151,6 +153,9 @@ export interface CompactMessageBlock extends BaseMessageBlock {
   type: MessageBlockType.COMPACT
   content: string // 总结消息
   compactedContent: string // 从 <local-command-stdout> 提取的内容
+  metadata?: BaseMessageBlock['metadata'] & {
+    contextCompaction?: Omit<ContextCompactionEvent, 'type' | 'summary'>
+  }
 }
 
 // MessageBlock 联合类型
@@ -204,6 +209,7 @@ export type Message = {
 
   usage?: Usage
   usageSteps?: Usage[]
+  tokenTelemetry?: TokenTelemetry
   metrics?: Metrics
 
   // UI相关
@@ -229,6 +235,7 @@ export interface Response {
   reasoning_content?: string
   usage?: Usage
   usageSteps?: Usage[]
+  tokenTelemetry?: TokenTelemetry
   metrics?: Metrics
   webSearch?: WebSearchResponse
   mcpToolResponse?: MCPToolResponse[]

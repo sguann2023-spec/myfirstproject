@@ -9,7 +9,7 @@ import { preparePortraitMovForJianying } from '@main/utils/prepare-portrait-mov'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool, ProgressToken } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
@@ -131,7 +131,9 @@ function matteBilling(result: TaskResponse): Record<string, unknown> | undefined
 
 class VideoPortraitMatteServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private token: { value: string; expiresAt: number } | null = null
   private refreshPromise: Promise<string> | null = null
 

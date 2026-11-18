@@ -10,6 +10,7 @@ import { agentTurnRepository } from '../../../database/repositories/agentTurnRep
 import { channelService } from '../../ChannelService'
 import { PromptBuilder, type ToolGuidanceOptions } from '../../cherryclaw/prompt'
 import { buildAssistantContext } from './assistant-context'
+import { getPromptTokenSources, registerPromptTokenSources } from './prompt-provenance'
 import { conversationSegmentService } from '../session-architecture/ConversationSegmentService'
 import { promptViewBuilder } from '../session-architecture/PromptViewBuilder'
 import { segmentPromptService } from '../session-architecture/SegmentPromptService'
@@ -181,6 +182,17 @@ export async function buildInvocationPromptState(input: {
     builtinTools: toolSurface.builtinTools
   })
   const composedPrompt = composePromptViewText(promptEnvelope.promptView)
+  registerPromptTokenSources(promptEnvelope.systemPrompt, [
+    ...getPromptTokenSources(String(clawSystemPrompt || '').replace(`\n\n${USER_INTERACTION_GUIDANCE}`, '')),
+    { text: USER_INTERACTION_GUIDANCE, category: 'system', role: 'system' },
+    ...(session.instructions ? [{ text: session.instructions, category: 'injections' as const, role: 'system' as const }] : []),
+    ...(channelSecurityBlock ? [{ text: channelSecurityBlock, category: 'system' as const, role: 'system' as const }] : [])
+  ])
+  // Only the producer knows which bytes are the actual user request. Bootstrap
+  // history/skill expansions are deliberately not inferred from their labels.
+  registerPromptTokenSources(composedPrompt, [
+    ...(composedPrompt === requestPrompt ? [{ text: requestPrompt, category: 'user' as const, role: 'user' as const }] : [])
+  ])
 
   const currentTurn = activeSegment
     ? await step('save_current_turn', () => agentTurnRepository.save({

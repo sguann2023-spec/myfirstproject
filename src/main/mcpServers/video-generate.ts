@@ -8,7 +8,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import ipaddr from 'ipaddr.js'
 import { net } from 'electron'
 
@@ -269,7 +269,9 @@ const VIDEO_MODEL_ALIASES: Record<string, string[]> = {
 
 class VideoGenerateServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null
   private capabilitiesCache: CachedVideoCapabilities | null = null

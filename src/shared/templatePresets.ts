@@ -1,5 +1,6 @@
 export const TEMPLATE_PRESETS = [
   { id: 'empty', name: '空白模版', description: 'Empty template · 从零开始添加素材' },
+  { id: 'personalized-welcome', name: '个性化欢迎', description: 'VectCut · 官方 Logo、可编辑姓名与图片文字淡入动画' },
   { id: 'sentence-image', name: '一句一图', description: '每个子分镜一句一图，图片与文字同步，分镜自动串联' },
   { id: 'mixed-track', name: '混排演示', description: '同轨图片与文字交替出现，演示混排与上下层级' }
 ] as const

@@ -95,6 +95,37 @@ describe('direct request metadata', () => {
 })
 
 describe('agent history mapper', () => {
+  it.each(['streaming', 'completed', 'failed', 'cancelled', 'interrupted'] as const)(
+    'round-trips compact lifecycle metadata independently of parent %s state', async status => {
+      const source = entry('compact-history', 1, status)
+      source.parts = [
+        ['start', 'processing'], ['chunk', 'processing'], ['complete', 'success'], ['error', 'error'], ['cancelled', 'paused']
+      ].map(([phase, blockStatus], index) => ({
+        id: `compact-${phase}`, sessionId: 'session-a', messageId: source.message.id, sequence: index,
+        type: 'compact', createdAt: source.message.createdAt, updatedAt: source.message.updatedAt,
+        data: { content: phase === 'complete' ? 'UI summary' : '', compactedContent: '', status: blockStatus,
+          metadata: { contextCompaction: { operationId: `operation-${phase}`, phase,
+            chunk: 2, tokensBefore: 1000, ...(phase === 'complete' ? { tokensAfter: 250 } : {}),
+            ...(phase === 'error' ? { error: 'Cannot compact' } : {}) } } }
+      }))
+      const projected = canonicalEntryToPersisted(source)
+      expect(projected.blocks.map(block => block.type)).toEqual(Array(5).fill('compact'))
+      expect(projected.blocks.map(block => block.status)).toEqual(['streaming', 'streaming', 'success', 'error', 'paused'])
+      expect(projected.blocks.every(block => !block.error)).toBe(true)
+      const restored = persistedToCanonicalInputs('session-a', projected)!
+      expect(restored.parts.every(part => part.type === 'compact')).toBe(true)
+      expect(restored.parts.map(part => part.data.metadata)).toEqual(source.parts.map(part => part.data.metadata))
+      expect(restored.parts.map(part => part.data.content)).toEqual(['', '', 'UI summary', '', ''])
+      const transcript = { listTranscript: vi.fn().mockResolvedValue([source]) }
+      const legacy = { getSessionHistory: vi.fn().mockResolvedValue([projected]) }
+      const page = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a', { readOnly: true })
+      expect(page.messages).toEqual([projected])
+      transcript.listTranscript.mockRejectedValue(new Error('unavailable'))
+      expect((await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a', { readOnly: true })).messages[0].blocks)
+        .toEqual(projected.blocks)
+    }
+  )
+
   it('restores canonical token fields in the format consumed by the footer', () => {
     const source = entry('usage', 1)
     source.message.usage = { inputTokens: 100, outputTokens: 50, totalTokens: 150, cacheReadTokens: 80, cacheWriteTokens: 10 }
@@ -145,6 +176,51 @@ describe('agent history mapper', () => {
 })
 
 describe('AgentHistoryService', () => {
+  it.each(['canonical', 'legacy', 'migration', 'reload'] as const)('marks %s failure as incomplete while retaining available history', async failure => {
+    const transcript = {
+      listTranscript: vi.fn().mockResolvedValue([entry('canonical', 0)]),
+      migrateLegacyHistory: vi.fn().mockResolvedValue(true)
+    }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([canonicalEntryToPersisted(entry('legacy', 1))]) }
+    if (failure === 'canonical') transcript.listTranscript.mockRejectedValue(new Error('read failed'))
+    if (failure === 'legacy') legacy.getSessionHistory.mockRejectedValue(new Error('read failed'))
+    if (failure === 'migration') transcript.migrateLegacyHistory.mockRejectedValue(new Error('migration failed'))
+    if (failure === 'reload') transcript.listTranscript.mockResolvedValueOnce([entry('canonical', 0)]).mockRejectedValue(new Error('reload failed'))
+    const page = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a', { readOnly: failure === 'canonical' || failure === 'legacy' })
+    expect(page.historyComplete).toBe(false)
+    expect(page.messages.length).toBeGreaterThan(0)
+  })
+
+  it.each([true, false])('reports successful readOnly=%s pagination as complete independently of hasMore', async readOnly => {
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([entry('first', 0), entry('second', 1)]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([]) }
+    const service = new AgentHistoryService(transcript as any, legacy as any)
+    const first = await service.getHistory('session-a', { readOnly, limit: 1 })
+    expect(first).toMatchObject({ historyComplete: true, hasMore: true })
+    const second = await service.getHistory('session-a', { readOnly, afterSequence: first.nextAfterSequence, limit: 1 })
+    expect(second).toMatchObject({ historyComplete: true, hasMore: false })
+  })
+
+  it('reports a successful empty history as complete', async () => {
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([]) }
+    const page = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a', { readOnly: true })
+    expect(page).toMatchObject({ historyComplete: true, messages: [], hasMore: false })
+  })
+
+  it('marks failed PI question recovery incomplete without discarding the page', async () => {
+    const source = entry('question', 1)
+    source.message.parentMessageId = 'user'
+    source.parts[0].type = 'tool'
+    source.parts[0].data = { toolName: 'AskUserQuestion', toolId: 'tool-a' }
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([source]) }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([]) }
+    const questions = { getInvocationQuestions: vi.fn().mockRejectedValue(new Error('question read failed')) }
+    const page = await new AgentHistoryService(transcript as any, legacy as any, questions).getHistory('session-a', { readOnly: true })
+    expect(questions.getInvocationQuestions).toHaveBeenCalled()
+    expect(page).toMatchObject({ historyComplete: false, messages: [{ message: { id: 'question' } }] })
+  })
+
   it('hydrates legacy request cards on canonical users without reviving hidden messages', async () => {
     const visible = entry('request', 0)
     const hidden = entry('hidden-request', 2)
@@ -364,5 +440,41 @@ describe('AgentHistoryService', () => {
     await service.getHistory('session-a', { limit: 1 })
     const next = await service.getHistory('session-a', { afterSequence: first.nextAfterSequence, limit: 1 })
     expect(next.messages.map(item => item.message.id)).toEqual(['b'])
+  })
+})
+
+const telemetry = (revision = 1, runtimeSessionId = 'runtime-a') => ({
+  version: 1 as const,
+  requests: [{ id: 'request-a', revision, runtimeSessionId, invocationId: 'invocation-a', sequence: 0,
+    modelId: 'model', providerId: 'provider', operation: 'reply', status: 'prepared' as const,
+    startedAt: 1, attempts: 1, input: { categories: { user: 10 }, total: 10, status: 'estimated' as const, method: 'test' } }]
+})
+
+describe('telemetry persistence metadata', () => {
+  it.each(['completed', 'streaming', 'failed', 'cancelled', 'interrupted'] as const)('roundtrips telemetry and usageSteps for %s without polluting billable usage', status => {
+    const source = entry('telemetry', 1, status)
+    source.message.usage = { inputTokens: 10, outputTokens: 2, totalTokens: 12, tokenTelemetry: telemetry(), usageSteps: [{ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }] }
+    const mapped = canonicalEntryToPersisted(source)
+    expect((mapped.message as any).tokenTelemetry).toEqual(telemetry())
+    expect((mapped.message as any).usageSteps).toHaveLength(1)
+    expect(mapped.message.usage).not.toHaveProperty('tokenTelemetry')
+    expect(mapped.message.usage).not.toHaveProperty('usageSteps')
+    const restored = persistedToCanonicalInputs('session-a', mapped)!
+    expect(restored.message.usage).toMatchObject({ tokenTelemetry: telemetry(), usageSteps: [{ total_tokens: 12 }] })
+  })
+
+  it('preserves telemetry-only legacy messages without fabricating token counts', () => {
+    const mapped = canonicalEntryToPersisted(entry('telemetry-only', 1))
+    Object.assign(mapped.message, { tokenTelemetry: telemetry() })
+    const restored = persistedToCanonicalInputs('session-a', mapped)!
+    expect(restored.message.usage).toEqual({ tokenTelemetry: telemetry() })
+  })
+
+  it('reads fallback pages without invoking migration in readOnly mode', async () => {
+    const transcript = { listTranscript: vi.fn().mockResolvedValue([]), migrateLegacyHistory: vi.fn() }
+    const legacy = { getSessionHistory: vi.fn().mockResolvedValue([canonicalEntryToPersisted(entry('legacy', 1))]) }
+    const result = await new AgentHistoryService(transcript as any, legacy as any).getHistory('session-a', { readOnly: true, afterSequence: -1, limit: 500 })
+    expect(result.messages).toHaveLength(1)
+    expect(transcript.migrateLegacyHistory).not.toHaveBeenCalled()
   })
 })

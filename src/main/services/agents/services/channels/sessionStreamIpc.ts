@@ -49,6 +49,7 @@ import { persistDirectRequestExchange } from './directRequestPersistence'
 import { agentTurnRepository } from '../../database/repositories/agentTurnRepository'
 import { allocateAgentInvocationIds } from '../agent-invocation-ids'
 import { sessionService } from '../SessionService'
+import { isTokenTelemetry, type SessionTokenStatsSnapshot } from '@shared/tokenTelemetry'
 import { getWorkspaceActivityPaths, isWorkspaceRunning, workspaceActivity, workspacePathsOverlap } from '../workspaceRename'
 import { CHERRY_CLAW_AGENT_ID } from '../builtin/BuiltinAgentIds'
 import { conversationSegmentService } from '../claudecode/session-architecture/ConversationSegmentService'
@@ -2609,6 +2610,12 @@ export function registerSessionStreamIpc(): void {
     return
   }
 
+  // The service emits inside its session queue, so stream, model changes and clear
+  // all publish exactly the accepted snapshot using the same revision clock.
+  sessionService.onTokenStatsChanged((agentId, tokenStats) => {
+    broadcastSessionChanged(agentId, tokenStats.sessionId, true, { reason: 'token-stats', tokenStats })
+  })
+
   const registerStreamSubscribeHandler = (subscribeChannel: string, chunkChannel: string) => {
     ipcMain.handle(subscribeChannel, (_event, { sessionId }: { sessionId: string }) => {
       const key = buildSubscriptionKey(subscribeChannel, sessionId)
@@ -2705,6 +2712,27 @@ export function registerSessionStreamIpc(): void {
     }
   }
 
+  const handleTokenStats = async (event: any, payload: any = {}) => {
+    try {
+      const mainWindow = windowService.getMainWindow()
+      if (!event?.sender || !mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+        return { ok: false, error: 'Untrusted sender' }
+      }
+      if (event.senderFrame && event.sender.mainFrame && event.senderFrame !== event.sender.mainFrame) {
+        return { ok: false, error: 'Untrusted sender frame' }
+      }
+      const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId.trim() : ''
+      if (!sessionId) return { ok: false, error: 'sessionId is required' }
+      const session = await resolveSessionById(sessionId, payload?.agent_id)
+      if (!session || (payload?.agent_id && payload.agent_id !== session.agent_id)) {
+        return { ok: false, error: 'session not found' }
+      }
+      return await sessionService.getTokenStats(session.agent_id, sessionId)
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   const handleSessionUpdate = async (_event: unknown, payload: any = {}) => {
     try {
       const sessionId = String(payload?.sessionId || payload?.id || '').trim()
@@ -2759,6 +2787,7 @@ export function registerSessionStreamIpc(): void {
   }
 
   const handleSessionMessageCreate = async (_event: unknown, payload: any = {}) => {
+    const submitStartedAt = performance.now()
     try {
       const sessionId = String(payload?.sessionId || '').trim()
       const content = String(payload?.content || '').trim()
@@ -2794,8 +2823,12 @@ export function registerSessionStreamIpc(): void {
       if (!sessionId) return { ok: false, error: 'sessionId is required' }
       if (!content) return { ok: false, error: 'content is required' }
 
+      logger.info('[FirstTextTiming]', {
+        stage: 'main-submit', requestId, traceId: invocationIds.traceId, sessionId, atEpochMs: Date.now()
+      })
       let session = await resolveSessionById(sessionId, payload?.agent_id)
       if (!session) return { ok: false, error: 'session not found' }
+      if (content === '/clear') await sessionService.invalidateTokenContext(session.agent_id, sessionId)
       const sessionMessageService = await getSessionMessageService()
       const rawModel = String(payload?.model || '').trim()
       if (session.agent_id === DEFAULT_RUNTIME_AGENT_ID) {
@@ -2813,12 +2846,18 @@ export function registerSessionStreamIpc(): void {
         }
       }
 
+      logger.info('[FirstTextTiming]', {
+        stage: 'main-submit-prepared', requestId, traceId: invocationIds.traceId, sessionId,
+        atEpochMs: Date.now(), elapsedMs: Math.round(performance.now() - submitStartedAt)
+      })
       sessionStreamBus.publish(sessionId, {
         sessionId,
         agentId: session.agent_id,
         requestId,
         type: 'started'
       })
+      const contextGeneration = await sessionService.getTokenContextGeneration(session.agent_id, sessionId)
+      if (contextGeneration === null) return { ok: false, error: 'session not found' }
       const streamStartedAt = Date.now()
       let stream: ReadableStream<any> | undefined
       let streamFinished: Promise<void> | undefined
@@ -2872,6 +2911,11 @@ export function registerSessionStreamIpc(): void {
           streamFinished = startedStream.streamFinished
           completion = startedStream.completion
           historyPersisted = startedStream.historyPersisted
+          logger.info('[FirstTextTiming]', {
+            stage: 'main-stream-created', requestId, traceId: invocationIds.traceId, sessionId,
+            attempt: attemptNumber, atEpochMs: Date.now(),
+            sinceSubmitMs: Math.round(performance.now() - submitStartedAt)
+          })
           break
         } catch (error) {
           const errorObj = error instanceof Error ? error : new Error(String(error))
@@ -2981,6 +3025,15 @@ export function registerSessionStreamIpc(): void {
             if (!firstChunkLogged) {
               firstChunkLogged = true
               clearTimeout(firstChunkWarnTimer)
+            }
+            if (value?.type === 'raw' && value.rawValue?.type === 'token-telemetry'
+              && isTokenTelemetry(value.rawValue.data)) {
+              // Ledger updates remain observable even if context generation/revision is rejected.
+              void Promise.resolve().then(() => sessionService.ingestTokenTelemetry(
+                session.agent_id, sessionId, value.rawValue.data, contextGeneration
+              )).catch(error => logger.warn('[SessionStreamIpc] Token telemetry observer failed', {
+                sessionId, error: error instanceof Error ? error.message : String(error)
+              }))
             }
             sessionStreamBus.publish(sessionId, {
               sessionId,
@@ -5226,11 +5279,21 @@ export function registerSessionStreamIpc(): void {
     try {
       const payload = args[1] || {}
       const sessionId = String(payload.sessionId || payload.id || '').trim()
+      const measureSubmit = handler === handleSessionMessageCreate
+      const guardStartedAt = performance.now()
+      const timingContext = { requestId: payload.requestId, traceId: payload.requestId, sessionId }
+      if (measureSubmit) logger.info('[FirstTextTiming]', {
+        ...timingContext, stage: 'main-workspace-guard-start', atEpochMs: Date.now()
+      })
       if (sessionId && resolveWorkspace) {
         const session = await resolveSessionById(sessionId, payload.agent_id)
         if (session) pendingWorkspaceRequests.set(request,
           [...getWorkspaceActivityPaths(session), ...getWorkspaceActivityPaths(payload)])
       }
+      if (measureSubmit) logger.info('[FirstTextTiming]', {
+        ...timingContext, stage: 'main-workspace-guard-ready', atEpochMs: Date.now(),
+        elapsedMs: Math.round(performance.now() - guardStartedAt)
+      })
       return await handler(...args)
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -5266,6 +5329,7 @@ export function registerSessionStreamIpc(): void {
 
   ipcMain.handle(CherryChannels.SessionCreate, guardWorkspaceRequest(handleSessionCreate))
   ipcMain.handle(CherryChannels.SessionGet, guardWorkspaceRequest(handleSessionGet, false))
+  ipcMain.handle(IpcChannel.CherryChatStream_TokenStats, guardWorkspaceRequest(handleTokenStats, false))
   ipcMain.handle(CherryChannels.SessionUpdate, guardWorkspaceRequest(handleSessionUpdate))
   ipcMain.handle(CherryChannels.SessionList, guardWorkspaceRequest(handleSessionList))
   ipcMain.handle(CherryChannels.SessionMessageList, guardWorkspaceRequest(handleSessionMessageList, false))
@@ -5295,7 +5359,7 @@ export function broadcastSessionChanged(
   agentId: string,
   sessionId: string,
   headless?: boolean,
-  change?: { reason: 'metadata' | 'turn-completed'; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }
+  change?: { reason: 'metadata' | 'turn-completed' | 'token-stats'; tokenStats?: SessionTokenStatsSnapshot; outcome?: 'success' | 'error' | 'cancelled'; requestId?: string; turnId?: string }
 ): void {
   const mainWindow = windowService.getMainWindow()
   if (mainWindow && !mainWindow.isDestroyed()) {

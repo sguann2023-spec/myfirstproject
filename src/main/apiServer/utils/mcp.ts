@@ -57,20 +57,27 @@ async function createAggregateSdkBridge(entry: AggregateServerEntry): Promise<Ag
   const client = new Client({ name: 'vectcut', version: 'aggregate-bridge' }, { capabilities: {} })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const serverInstance = await entry.createInstance()
-  await serverInstance.connect(serverTransport)
-  await client.connect(clientTransport)
+  const close = async () => {
+    await Promise.allSettled([
+      client.close(),
+      clientTransport.close(),
+      serverTransport.close(),
+      typeof serverInstance.close === 'function' ? serverInstance.close() : Promise.resolve()
+    ])
+  }
+
+  try {
+    await serverInstance.connect(serverTransport)
+    await client.connect(clientTransport)
+  } catch (error) {
+    await close()
+    throw error
+  }
 
   return {
     serverId: entry.serverId,
     client,
-    async close() {
-      await Promise.allSettled([
-        client.close(),
-        clientTransport.close(),
-        serverTransport.close(),
-        typeof serverInstance.close === 'function' ? serverInstance.close() : Promise.resolve()
-      ])
-    }
+    close
   }
 }
 
@@ -202,25 +209,39 @@ export async function getExposedMcpServersForAgent(
 export async function createExposedAggregateMcpServerForAgent(_agentId: LocalMcpExternalAgentId): Promise<Server> {
   const server = new Server({ name: 'vectcut', version: '0.1.0' }, { capabilities: { tools: {} } })
   const toolMappings = new Map<string, { serverId: string; toolName: string; bridge: AggregateSdkBridge }>()
-  const existingBridgedNames = new Set<string>()
-  let bridges: AggregateSdkBridge[] = []
+  // Keep bridges alive across relists, including concurrent discovery requests.
+  const bridges = new Map<string, Promise<AggregateSdkBridge>>()
+
+  const closeBridges = async () => {
+    const pendingBridges = Array.from(bridges.values())
+    bridges.clear()
+    toolMappings.clear()
+    await Promise.allSettled(pendingBridges.map(async (bridge) => (await bridge).close()))
+  }
+  server.onclose = () => {
+    void closeBridges()
+  }
 
   const listExposedTools = async () => {
-    await Promise.allSettled(bridges.map((bridge) => bridge.close()))
-    bridges = []
-
     const entries = getAggregateServerEntries()
     if (entries.length === 0) {
       logger.warn('Aggregate MCP server entries are not initialized yet')
     }
     const tools: ListToolsResult['tools'] = []
+    const existingBridgedNames = new Set<string>()
     toolMappings.clear()
-    existingBridgedNames.clear()
 
     for (const entry of entries) {
       try {
-        const bridge = await createAggregateSdkBridge(entry)
-        bridges.push(bridge)
+        let pendingBridge = bridges.get(entry.serverId)
+        if (!pendingBridge) {
+          pendingBridge = createAggregateSdkBridge(entry).catch((error) => {
+            bridges.delete(entry.serverId)
+            throw error
+          })
+          bridges.set(entry.serverId, pendingBridge)
+        }
+        const bridge = await pendingBridge
         const result = await bridge.client.listTools()
         for (const tool of Array.isArray(result?.tools) ? result.tools : []) {
           const bridgedName = buildMcpToolName('vectcut', `${entry.serverId}__${tool.name}`, {

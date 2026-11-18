@@ -139,6 +139,7 @@ export const VECTCUT_BUILTIN_MCP_SERVERS = new Set([
   'image',
   'image-understand',
   'audio-understand',
+  'blender-local',
   'koubo-template',
   'materials',
   'media-search',

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
 import type { TextStreamPart } from 'ai'
+import type { ContextCompactionEvent } from '@shared/agents/claudecode/types'
+import { isTokenTelemetry, mergeTokenTelemetry, type TokenTelemetry } from '@shared/tokenTelemetry'
 
 export type HeadlessPersistedBlock = {
   id: string
@@ -31,8 +33,10 @@ type PersistedUsage = {
 }
 
 export class TextStreamAccumulator {
-  private readonly orderedContentSegments: Array<{ kind: 'text'; text: string } | { kind: 'tool'; toolCallId: string }> =
-    []
+  private readonly orderedContentSegments: Array<
+    { kind: 'text'; text: string } | { kind: 'tool'; toolCallId: string } | { kind: 'compact'; operationId: string }
+  > = []
+  private readonly compactions = new Map<string, ContextCompactionEvent>()
   private textBuffer = ''
   private totalText = ''
   private currentReasoningId: string | null = null
@@ -50,6 +54,7 @@ export class TextStreamAccumulator {
   >()
   private readonly toolCallOrder: string[] = []
   private initSlashCommands: string[] = []
+  private tokenTelemetry?: TokenTelemetry
   private committedUsage?: PersistedUsage
   private pendingUsage?: PersistedUsage
   private readonly committedUsageSteps: PersistedUsage[] = []
@@ -107,6 +112,31 @@ export class TextStreamAccumulator {
       }
     }
     return undefined
+  }
+
+  private addCompaction(value: unknown): void {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return
+    const event = value as ContextCompactionEvent
+    if (typeof event.operationId !== 'string' || !event.operationId.trim() ||
+      !['start', 'chunk', 'complete', 'error', 'cancelled'].includes(event.phase)) return
+
+    const existing = this.compactions.get(event.operationId)
+    // Replayed progress must not reopen an operation that already settled.
+    if (existing && ['complete', 'error', 'cancelled'].includes(existing.phase)) return
+    const next: ContextCompactionEvent = {
+      ...existing,
+      type: 'context_compaction',
+      operationId: event.operationId,
+      phase: event.phase
+    }
+    for (const key of ['chunk', 'tokensBefore', 'tokensAfter'] as const) {
+      const number = event[key]
+      if (typeof number === 'number' && Number.isFinite(number) && number >= 0) next[key] = number
+    }
+    if (typeof event.summary === 'string') next.summary = event.summary
+    if (typeof event.error === 'string') next.error = event.error
+    if (!existing) this.orderedContentSegments.push({ kind: 'compact', operationId: event.operationId })
+    this.compactions.set(event.operationId, next)
   }
 
   add(part: TextStreamPart<Record<string, any>>): void {
@@ -237,9 +267,13 @@ export class TextStreamAccumulator {
       }
       case 'raw': {
         const rawPart = chunk as {
-          rawValue?: { type?: string; slash_commands?: unknown }
+          rawValue?: { type?: string; slash_commands?: unknown; data?: unknown }
         }
         const rawValue = rawPart.rawValue
+        if (rawValue?.type === 'context_compaction') this.addCompaction(rawValue)
+        if (rawValue?.type === 'token-telemetry' && isTokenTelemetry(rawValue.data)) {
+          this.tokenTelemetry = mergeTokenTelemetry(this.tokenTelemetry, rawValue.data)
+        }
         if (rawValue?.type === 'init' && Array.isArray(rawValue.slash_commands)) {
           this.initSlashCommands = rawValue.slash_commands.filter((cmd): cmd is string => typeof cmd === 'string')
         }
@@ -395,6 +429,20 @@ export class TextStreamAccumulator {
     this.pendingUsage = undefined
   }
 
+  /** Settle display-only progress if the stream ends before its operation event. */
+  settleCompactions(status: 'completed' | 'cancelled' | 'failed'): void {
+    for (const event of this.compactions.values()) {
+      if (event.phase !== 'start' && event.phase !== 'chunk') continue
+      this.addCompaction({
+        ...event,
+        phase: status === 'cancelled' ? 'cancelled' : 'error',
+        error: event.error ?? (status === 'cancelled'
+          ? 'Context compaction was cancelled before completion.'
+          : 'Context compaction was interrupted before completion.')
+      })
+    }
+  }
+
   getText(): string {
     return (this.totalText + this.textBuffer).replace(/\n+$/, '')
   }
@@ -408,6 +456,10 @@ export class TextStreamAccumulator {
 
   getInitSlashCommands(): string[] {
     return [...this.initSlashCommands]
+  }
+
+  getTokenTelemetry(): TokenTelemetry | undefined {
+    return this.tokenTelemetry ? structuredClone(this.tokenTelemetry) : undefined
   }
 
   getUsage(): PersistedUsage | undefined {
@@ -463,6 +515,27 @@ export class TextStreamAccumulator {
           status: 'success',
           modelId,
           content: segment.text
+        })
+        continue
+      }
+
+      if (segment.kind === 'compact') {
+        const compaction = this.compactions.get(segment.operationId)
+        if (!compaction) continue
+        const { type: _type, summary, ...contextCompaction } = compaction
+        blocks.push({
+          id: `${messageId}:context-compaction:${segment.operationId}`,
+          messageId,
+          type: 'compact',
+          createdAt: now,
+          updatedAt: now,
+          status: contextCompaction.phase === 'complete' ? 'success'
+            : contextCompaction.phase === 'error' ? 'error'
+              : contextCompaction.phase === 'cancelled' ? 'paused' : 'processing',
+          modelId,
+          content: summary ?? '',
+          compactedContent: '',
+          metadata: { contextCompaction }
         })
         continue
       }

@@ -18,7 +18,7 @@ const VideoItem = ({ video, onOpen, onContextMenu }) => {
     <span className="artifact-preview__video-duration">{label}</span>
   </button>;
 };
-import { Image, Tooltip, Typography } from 'antd';
+import { Empty, Image, Tooltip, Typography } from 'antd';
 import DraftIcon from '../../../../public/draft_icon.svg';
 import { toMediaSrc } from '../../../shared/mediaSrc.js';
 import PinnedDraftTrackView from '@renderer/pages/home/Inputbar/components/PinnedDraftTrackView/PinnedDraftTrackView';
@@ -115,13 +115,14 @@ const ArtifactPreview = ({
     onPreviewItem?.(draft);
   }, [onPreviewItem, previewDraftKey]);
 
+  const isEmpty = [drafts, audios, images, videos, documents].every((items) => items.length === 0);
+
   return (
     <div className="artifact-preview">
-      <div className="artifact-preview__body">
-        {(displayDrafts.length > 0 || audios.length === 0 && images.length === 0 && videos.length === 0 && documents.length === 0) && <h3 className="artifact-preview__section-title">草稿</h3>}
-        {displayDrafts.length === 0 ? (audios.length || images.length || videos.length || documents.length ? null : (
-          <div className="artifact-preview__state">暂无草稿</div>
-        )) : (
+      <div className={`artifact-preview__body ${isEmpty ? 'artifact-preview__body--empty' : ''}`.trim()}>
+        {isEmpty && <Empty description="快来和我对话，生成第一个视频吧！" />}
+        {displayDrafts.length > 0 && <h3 className="artifact-preview__section-title">草稿</h3>}
+        {displayDrafts.length > 0 && (
           <div className="artifact-preview__list">
             {displayDrafts.map((draft) => (
               <div className="artifact-preview__card" key={draft.key}>

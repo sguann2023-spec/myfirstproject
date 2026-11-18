@@ -101,7 +101,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-async function startCanonicalStream(runtimeFinished?: Promise<void>) {
+async function startCanonicalStream(runtimeFinished?: Promise<void>, persist = false) {
   const { SessionMessageService } = await import('../SessionMessageService')
   const service = new SessionMessageService()
   const agentStream = createAgentStream()
@@ -112,7 +112,8 @@ async function startCanonicalStream(runtimeFinished?: Promise<void>) {
   const result = await service.createSessionMessage(
     { id: 'session-1', agent_id: 'agent-1', model: 'claude-3', accessible_paths: ['/work/running'] } as any,
     { content: 'hello', model: 'claude-3' } as any,
-    abortController
+    abortController,
+    { persist }
   )
   await flushMicrotasks(16)
   // Exclude the accepted user part from incremental assistant-write assertions.
@@ -932,6 +933,126 @@ describe('SessionMessageService cancelled persistence', () => {
     expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.status)).toEqual(['streaming', 'streaming', status])
     expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.id)).toEqual([assistantId, assistantId, assistantId])
     expect(upsertCanonicalMessageMock.mock.calls[2][0].completedAt).toEqual(expect.any(String))
+  })
+
+  it.each([
+    ['complete', 'success'], ['error', 'error'], ['cancelled', 'paused']
+  ] as const)('persists compact %s across queued checkpoints, headless history, and later reply cancellation', async (phase, blockStatus) => {
+    const { agentStream, send, reader, result } = await startCanonicalStream(undefined, true)
+    const gate = deferred()
+    upsertCanonicalPartsMock.mockReturnValueOnce(gate.promise)
+    const progress = (event: Record<string, unknown>) => send({ type: 'raw', rawValue: {
+      type: 'context_compaction', operationId: 'compact-a', ...event
+    } })
+    try {
+      await send({ type: 'text-delta', text: 'Before' })
+      await progress({ phase: 'start', tokensBefore: 1000 })
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      await flushMicrotasks(16)
+      expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
+      await progress({ phase: 'chunk', chunk: 2 })
+      agentStream.emit('data', { type: 'turn-checkpoint' })
+      await progress({ phase, tokensAfter: phase === 'complete' ? 250 : undefined,
+        summary: phase === 'complete' ? 'UI-only summary' : undefined, error: phase === 'error' ? 'Cannot compact' : undefined })
+      await send({ type: 'text-delta', text: 'After' })
+      agentStream.emit('data', { type: 'cancelled' })
+      await result.completion
+      expect(upsertCanonicalPartsMock).toHaveBeenCalledTimes(1)
+    } finally {
+      gate.resolve()
+      await result.historyPersisted
+      await reader.cancel()
+    }
+    const snapshots: UpsertAgentMessagePartInput[][] = upsertCanonicalPartsMock.mock.calls.map(([parts]) => parts)
+    expect(snapshots).toHaveLength(3)
+    const compactParts = snapshots.map(parts => parts.find(part => part.type === 'compact')!)
+    expect(compactParts.map(part => part.data.status)).toEqual(['processing', 'processing', blockStatus])
+    expect(compactParts.map(part => (part.data.metadata as any).contextCompaction.phase)).toEqual(['start', 'chunk', phase])
+    expect(new Set(compactParts.map(part => part.id)).size).toBe(1)
+    expect(compactParts[0].data.metadata).toEqual({ contextCompaction: { operationId: 'compact-a', phase: 'start', tokensBefore: 1000 } })
+    expect(compactParts[2].data).toMatchObject({ compactedContent: '',
+      metadata: { contextCompaction: { operationId: 'compact-a', phase, chunk: 2, tokensBefore: 1000 } } })
+    expect(snapshots[2].map(part => part.type)).toEqual(['text', 'compact', 'text'])
+    expect(snapshots[2].filter(part => part.type === 'text').map(part => part.data.text)).toEqual(['Before', 'After'])
+    expect(compactParts[2].data).not.toHaveProperty('text')
+    const payload = persistExchangeMock.mock.calls[0][0].assistant.payload
+    expect(payload.blocks.map((block: any) => block.type)).toEqual(['main_text', 'compact', 'main_text'])
+    expect(payload.blocks[1]).toMatchObject({ id: compactParts[2].id, status: blockStatus,
+      content: phase === 'complete' ? 'UI-only summary' : '', metadata: compactParts[2].data.metadata })
+  })
+
+  it.each(['complete', 'error', 'cancelled'] as const)('keeps compact terminal state independent of invocation %s', async terminal => {
+    const { agentStream, send, reader, result } = await startCanonicalStream()
+    await send({ type: 'raw', rawValue: { type: 'context_compaction', operationId: 'compact-complete',
+      phase: 'complete', tokensBefore: 1000, tokensAfter: 250, summary: 'UI-only summary' } })
+    agentStream.emit('data', terminal === 'error' ? { type: 'error', error: new Error('reply failed') } : { type: terminal })
+    await reader.read().catch(() => undefined)
+    await result.historyPersisted
+    expect(upsertCanonicalPartsMock).toHaveBeenCalledExactlyOnceWith([
+      expect.objectContaining({ type: 'compact', data: expect.objectContaining({ status: 'success',
+        content: 'UI-only summary', metadata: { contextCompaction: {
+          operationId: 'compact-complete', phase: 'complete', tokensBefore: 1000, tokensAfter: 250
+        } } }) })
+    ])
+  })
+
+  it.each(['complete', 'error', 'cancelled', 'reader cancel'] as const)('settles only active compact cards on invocation %s', async terminal => {
+    const { agentStream, send, reader, result } = await startCanonicalStream()
+    await send({ type: 'raw', rawValue: { type: 'context_compaction', operationId: 'already-complete',
+      phase: 'complete', summary: 'Saved summary' } })
+    await send({ type: 'raw', rawValue: { type: 'context_compaction', operationId: 'still-active',
+      phase: 'chunk', chunk: 2, tokensBefore: 1000 } })
+    if (terminal === 'reader cancel') await reader.cancel()
+    else {
+      agentStream.emit('data', terminal === 'error' ? { type: 'error', error: new Error('reply failed') } : { type: terminal })
+      await reader.read().catch(() => undefined)
+    }
+    await result.historyPersisted
+    const parts: UpsertAgentMessagePartInput[] = upsertCanonicalPartsMock.mock.calls[0][0]
+    expect(parts[0].data).toMatchObject({ status: 'success', content: 'Saved summary',
+      metadata: { contextCompaction: { phase: 'complete' } } })
+    const cancelled = terminal === 'cancelled' || terminal === 'reader cancel'
+    expect(parts[1].data).toMatchObject({ status: cancelled ? 'paused' : 'error', content: '', metadata: {
+      contextCompaction: { operationId: 'still-active', phase: cancelled ? 'cancelled' : 'error',
+        chunk: 2, tokensBefore: 1000, error: expect.stringContaining('before completion') }
+    } })
+    expect(parts[1].id).toBe(`${parts[1].messageId}:context-compaction:still-active`)
+  })
+
+  it('keeps telemetry and usageSteps in headless payloads, including telemetry-only cancellation', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const tokenTelemetry = { version: 1, requests: [] }
+    const usageSteps = [{ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }]
+    const payload = (service as any).buildHeadlessAssistantPayload({
+      session: { id: 'session-1', agent_id: 'agent-1' }, assistantMsgId: 'assistant', blocks: [],
+      createdAtIso: '2026-01-01', updatedAtIso: '2026-01-01', tokenTelemetry, usageSteps,
+      aborted: true, status: 'cancelled'
+    })
+    expect(payload.message).toMatchObject({ tokenTelemetry, usageSteps, aborted: true, status: 'cancelled' })
+    expect(payload.message.usage).toBeUndefined()
+  })
+
+  it.each(['complete', 'error', 'cancelled'])('retains telemetry revisions and usageSteps at checkpoints and %s', async terminal => {
+    const { agentStream, send, reader, result } = await startCanonicalStream()
+    const telemetry = (revision: number) => ({ version: 1, requests: [{
+      id: 'request-a', revision, runtimeSessionId: 'runtime-a', invocationId: 'invocation-a', sequence: 0,
+      modelId: 'model', providerId: 'provider', operation: 'reply', status: 'prepared', startedAt: 1, attempts: 1,
+      input: { categories: { user: 10 }, total: 10, status: 'estimated', method: 'test' }
+    }] })
+    await send({ type: 'raw', rawValue: { type: 'token-telemetry', data: telemetry(1) } })
+    await send({ type: 'finish-step', usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } })
+    agentStream.emit('data', { type: 'turn-checkpoint' })
+    await flushMicrotasks(32)
+    await send({ type: 'raw', rawValue: { type: 'token-telemetry', data: telemetry(2) } })
+    agentStream.emit('data', terminal === 'error' ? { type: 'error', error: new Error('failed') } : { type: terminal })
+    await reader.read().catch(() => undefined)
+    await result.historyPersisted
+    expect(upsertCanonicalMessageMock.mock.calls.map(([message]) => message.usage?.tokenTelemetry)).toEqual([telemetry(1), telemetry(2)])
+    for (const [message] of upsertCanonicalMessageMock.mock.calls) {
+      expect(message.usage).toMatchObject({ inputTokens: 10, outputTokens: 2, totalTokens: 12,
+        usageSteps: [{ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 }] })
+    }
   })
 
   it('persists a PI checkpoint before invocation termination and ignores late checkpoints', async () => {

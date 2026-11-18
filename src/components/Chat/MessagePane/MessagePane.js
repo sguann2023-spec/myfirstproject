@@ -416,7 +416,7 @@ const MessagePane = ({
           overscan={4}
           shouldAdjustScrollPositionOnItemSizeChange={shouldAdjustScrollPositionOnItemSizeChange}
           scrollerStyle={{
-            padding: '12px 14px'
+            padding: '42px 14px 12px'
           }}>
           {(group, index) => (
             <MeasuredMessageGroup

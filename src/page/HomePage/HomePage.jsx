@@ -1,4 +1,5 @@
 import { completeAfterDrain, preserveHydratedMessageBodies, normalizeLiveMessageModel, ownsChatCompletion } from './chatStreamLifecycle';
+import { mergeTokenTelemetry } from '../../packages/shared/tokenTelemetry';
 import { isAskUserQuestionTool } from '../../packages/shared/userInteraction'
 import { mergeSessionArtifact } from '../../components/Chat/sessionArtifacts';
 import { normalizePinnedVideos, resolvePinnedVideoEvent, mergePinnedVideo } from '../../components/Chat/pinnedVideos';
@@ -1748,6 +1749,7 @@ const getAssistantSnapshotFromStore = (assistantMessageId) => {
   return {
     blocks,
     content: buildAssistantDisplayContentFromBlocks(blocks),
+    tokenTelemetry: message?.tokenTelemetry ? structuredClone(message.tokenTelemetry) : undefined,
     usage: message?.usage ? { ...message.usage } : undefined,
     usageSteps: Array.isArray(message?.usageSteps) && message.usageSteps.length > 0
       ? structuredClone(message.usageSteps)
@@ -2497,6 +2499,7 @@ const toPersistedHistoryMessage = (persistedEntry, index, modelOptions = []) => 
     status: sourceMessage.status,
     model: modelMeta,
     modelId: modelId || undefined,
+    tokenTelemetry: sourceMessage?.tokenTelemetry ? structuredClone(sourceMessage.tokenTelemetry) : undefined,
     usage: sourceMessage?.usage ? { ...sourceMessage.usage } : undefined,
     usageSteps: Array.isArray(sourceMessage?.usageSteps)
       ? sourceMessage.usageSteps.map((usageStep) => ({ ...usageStep }))
@@ -3681,6 +3684,7 @@ const HomePage = () => {
     if (!canUseAgentRuntime || typeof api?.onSessionChanged !== 'function') return undefined;
 
     return api.onSessionChanged((payload) => {
+      if (payload?.reason === 'token-stats') return;
       const runtimeSessionId = String(payload?.sessionId || '').trim();
       if (!runtimeSessionId) return;
       const chatId = chatIdByAgentSessionIdRef.current.get(runtimeSessionId);
@@ -4044,6 +4048,9 @@ const HomePage = () => {
         retryStatusText: '',
         content: nextContent,
         blocks: nextBlocks,
+        tokenTelemetry: snapshot?.tokenTelemetry
+          ? mergeTokenTelemetry(message?.tokenTelemetry, snapshot.tokenTelemetry)
+          : message?.tokenTelemetry,
         usage: snapshot?.usage ? { ...snapshot.usage } : message?.usage,
         usageSteps: Array.isArray(snapshot?.usageSteps)
           ? snapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
@@ -4587,6 +4594,9 @@ const HomePage = () => {
                       ...message,
                       content: snapshot.content || '',
                       blocks: snapshot.blocks || [],
+                      tokenTelemetry: snapshot?.tokenTelemetry
+                        ? mergeTokenTelemetry(message.tokenTelemetry, snapshot.tokenTelemetry)
+                        : message.tokenTelemetry,
                       usage: snapshot?.usage ? { ...snapshot.usage } : message.usage,
                       usageSteps: Array.isArray(snapshot?.usageSteps)
                         ? snapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
@@ -4676,6 +4686,16 @@ const HomePage = () => {
           return;
         }
 
+        if (perfEntry && !perfEntry.firstNonemptyTextAt && chunkType === 'text-delta'
+          && typeof payload?.chunk?.text === 'string' && payload.chunk.text.length > 0) {
+          perfEntry.firstNonemptyTextAt = Date.now();
+          logger.info('[FirstTextTiming]', {
+            stage: 'renderer-first-text-received', requestId, traceId: requestId,
+            sessionId: payload.sessionId, atEpochMs: perfEntry.firstNonemptyTextAt,
+            sinceSubmitMs: Math.round(getPerfTimestamp() - perfEntry.createdPerfAt),
+            textLength: payload.chunk.text.length
+          });
+        }
         const chunkStart = getPerfTimestamp();
         streamController?.pushChunk(payload.chunk || {});
         const pushChunkDurationMs = Math.round((getPerfTimestamp() - chunkStart) * 100) / 100;
@@ -4862,6 +4882,9 @@ const HomePage = () => {
                           storeAssistantMessageId: null,
                           content: finalizedContent || message.content || '',
                           blocks: finalizedBlocks.length > 0 ? finalizedBlocks : normalizedMessageBlocks,
+                          tokenTelemetry: finalSnapshot?.tokenTelemetry
+                            ? mergeTokenTelemetry(message.tokenTelemetry, finalSnapshot.tokenTelemetry)
+                            : message.tokenTelemetry,
                           usage: finalSnapshot?.usage ? { ...finalSnapshot.usage } : message.usage,
                           usageSteps: Array.isArray(finalSnapshot?.usageSteps)
                             ? finalSnapshot.usageSteps.map((usageStep) => ({ ...usageStep }))
@@ -7082,6 +7105,7 @@ const HomePage = () => {
         firstChunkPerfAt: null,
         firstVisibleTextAt: null,
         firstVisibleTextPerfAt: null,
+        firstNonemptyTextAt: null,
         chunkCount: 0,
         snapshotCount: 0,
         totalPushChunkMs: 0,
@@ -7090,6 +7114,10 @@ const HomePage = () => {
         maxContentLength: 0,
         maxBlockCount: 0,
         lastChunkType: ''
+      });
+      logger.info('[FirstTextTiming]', {
+        stage: 'renderer-submit', requestId, traceId: requestId,
+        sessionId: agentSessionId, atEpochMs: Date.now()
       });
       const result = await window.electronAPI.cherryChatStream.createMessage({
         sessionId: agentSessionId,

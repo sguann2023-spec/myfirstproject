@@ -15,6 +15,8 @@ import { convertLinks, flushLinkConverterBuffer } from '@renderer/utils/linkConv
 import type { ClaudeCodeRawValue } from '@shared/agents/claudecode/types'
 import { AISDKError, type TextStreamPart, type ToolSet } from 'ai'
 
+import { isTokenTelemetry } from '@shared/tokenTelemetry'
+
 import { ToolCallChunkHandler } from './handleToolCallChunk'
 
 const logger = loggerService.withContext('AiSdkToChunkAdapter')
@@ -221,6 +223,13 @@ export class AiSdkToChunkAdapter {
     logger.silly(`AI SDK chunk type: ${chunk.type}`, chunk)
     switch (chunk.type) {
       case 'raw': {
+        const rawValue = chunk.rawValue as { type?: string; data?: unknown } | null
+        if (rawValue?.type === 'token-telemetry') {
+          if (isTokenTelemetry(rawValue.data)) {
+            this.onChunk({ type: ChunkType.LLM_RESPONSE_IN_PROGRESS, response: { tokenTelemetry: rawValue.data } })
+          }
+          break
+        }
         const agentRawMessage = chunk.rawValue as ClaudeCodeRawValue
         if (agentRawMessage.type === 'init' && agentRawMessage.session_id) {
           this.onSessionUpdate?.(agentRawMessage.session_id)

@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 
 import { withoutTransaction } from './withoutTransaction'
+import { persistedMessageUsage } from './agentHistoryMapper'
 import type * as schema from './schema'
 import {
   agentConversationSegmentsTable,
@@ -398,7 +399,7 @@ export async function backfillCanonicalTranscript(db: AgentDatabase): Promise<Ca
           status: candidate.status,
           semantics_json: { origin: 'migration', source: 'session_messages', legacyRowId: candidate.rowId, uiVisibility: 'visible', providerVisibility: 'visible' },
           provider_json: message.modelId ? { modelId: message.modelId } : undefined,
-          usage_json: message.usage && typeof message.usage === 'object' ? (message.usage as Record<string, unknown>) : undefined,
+          usage_json: persistedMessageUsage(message),
           error_json: message.error && typeof message.error === 'object' ? (message.error as Record<string, unknown>) : undefined,
           finish_json: message.finish && typeof message.finish === 'object' ? (message.finish as Record<string, unknown>) : undefined,
           created_at: candidate.createdAt,
@@ -522,7 +523,18 @@ export async function reconcileInterruptedAgentWork(
             .where(eq(agentMessagePartsTable.id, part.id))
           toolsInterrupted += 1
         } else {
-          await tx.update(agentMessagePartsTable).set({ data_json: { ...data, status: 'interrupted' }, updated_at: now }).where(eq(agentMessagePartsTable.id, part.id))
+          const metadata = data.metadata && typeof data.metadata === 'object' && !Array.isArray(data.metadata)
+            ? data.metadata as Record<string, unknown> : {}
+          const compact = metadata.contextCompaction && typeof metadata.contextCompaction === 'object'
+            ? metadata.contextCompaction as Record<string, unknown> : undefined
+          const activeCompact = part.type === 'compact' && compact && (compact.phase === 'start' || compact.phase === 'chunk')
+          await tx.update(agentMessagePartsTable).set({ data_json: {
+            ...data,
+            status: activeCompact ? 'error' : 'interrupted',
+            ...(activeCompact ? { metadata: { ...metadata, contextCompaction: {
+              ...compact, phase: 'error', error: compact.error ?? 'Context compaction was interrupted before completion.'
+            } } } : {})
+          }, updated_at: now }).where(eq(agentMessagePartsTable.id, part.id))
           partsInterrupted += 1
         }
       }

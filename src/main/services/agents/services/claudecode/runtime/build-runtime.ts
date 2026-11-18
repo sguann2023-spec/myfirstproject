@@ -96,30 +96,32 @@ export async function buildClaudeRuntimeEnvironment(input: {
     throw new Error('Provider not found for model')
   }
 
+  const isCustomProvider = provider.id?.startsWith('custom-') === true
   let modelTokenLimits: ClaudeRuntimeEnvironment['modelTokenLimits']
-  try {
-    const listedModels = await modelsService.getModels({})
-    const remoteModel = listedModels.data.find(
-      (item) =>
-        item.id === runtimeModel ||
-        (item.provider === provider.id && item.provider_model_id === modelInfo.modelId)
-    )
-    if (remoteModel) {
-      modelTokenLimits = {
-        contextWindowTokens: remoteModel.context_window_tokens,
-        maxInputTokens: remoteModel.max_input_tokens,
-        maxOutputTokens: remoteModel.max_output_tokens,
-        compactionTriggerTokens: remoteModel.compaction_trigger_tokens
+  if (!isCustomProvider) {
+    try {
+      const listedModels = await modelsService.getModels({})
+      const remoteModel = listedModels.data.find(
+        (item) =>
+          item.id === runtimeModel ||
+          (item.provider === provider.id && item.provider_model_id === modelInfo.modelId)
+      )
+      if (remoteModel) {
+        modelTokenLimits = {
+          contextWindowTokens: remoteModel.context_window_tokens,
+          maxInputTokens: remoteModel.max_input_tokens,
+          maxOutputTokens: remoteModel.max_output_tokens,
+          compactionTriggerTokens: remoteModel.compaction_trigger_tokens
+        }
       }
+    } catch (error) {
+      logger.warn('Failed to resolve model token limits; using runtime defaults', {
+        model: runtimeModel,
+        error: error instanceof Error ? error.message : String(error)
+      })
     }
-  } catch (error) {
-    logger.warn('Failed to resolve model token limits; using runtime defaults', {
-      model: runtimeModel,
-      error: error instanceof Error ? error.message : String(error)
-    })
   }
 
-  const isCustomProvider = provider.id?.startsWith('custom-') === true
   if (isCustomProvider && (!['openai', 'anthropic'].includes(provider.type) || !provider.apiKey?.trim())) {
     throw new Error('Custom providers require an explicit protocol and API key')
   }
@@ -132,6 +134,11 @@ export async function buildClaudeRuntimeEnvironment(input: {
     )
     if (!customModel) {
       throw new Error(`Custom model '${runtimeModel}' is missing, disabled, or incomplete. Enable and configure this exact model in Model Settings, then select it again.`)
+    }
+    // Custom limits belong to this exact persisted entry, not remote metadata.
+    modelTokenLimits = {
+      contextWindowTokens: customModel.context_window_tokens,
+      maxOutputTokens: customModel.max_output_tokens
     }
     const source = customModel.reasoning_level_map
     const levels = customModel.reasoning_levels ?? []

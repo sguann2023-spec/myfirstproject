@@ -173,7 +173,7 @@ const ChatPinnedDraftPanel = ({ drafts, audios, images, videos, documents, sessi
     tabId: `${ARTIFACT_PREVIEW_KEY}:${sessionId}`,
     sessionId,
     previewType: 'artifact',
-    title: '产出',
+    title: '产物',
     activate: true
   });
   useArtifactAutoPreview({ sessionId, drafts, audios, images, videos, documents, historyLoading, onOpen: openPreview });
@@ -354,7 +354,10 @@ const Chat = ({
 
     return {
       name: String(matchedOption?.label || matchedOption?.displayText || selectedModel || '').trim(),
-      icon: String(matchedOption?.icon || matchedOption?.iconUrl || matchedOption?.black_icon || '').trim()
+      icon: String(matchedOption?.icon || matchedOption?.iconUrl || matchedOption?.black_icon || '').trim(),
+      id: selectedModel,
+      providerId: String(matchedOption?.provider_id || matchedOption?.provider || (selectedModel.startsWith('custom-') ? selectedModel.split(':')[0] : '')).trim(),
+      contextWindowTokens: Number(matchedOption?.context_window_tokens) > 0 ? Number(matchedOption.context_window_tokens) : null
     };
   }, [model, modelOptions]);
 
@@ -569,6 +572,7 @@ const Chat = ({
       onSubmitFileComment={handleSubmitFileComment}
       onSubmitToolTask={handleSend}
       sessionSending={sessionSending}
+      sessionMessages={messages}
       webPreview={webPreview}
       previewWindowReady={previewWindowReady}
       onCloseWebPreview={onCloseWebPreview}

@@ -350,3 +350,29 @@ display: block;
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+/* Blender 位置与草稿位置共用行、路径和按钮样式。 */
+.gs-blender-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.gs-blender-row .gs-save-desc {
+  min-width: 0;
+}
+
+.gs-blender-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gs-blender-actions .gs-save-button {
+  white-space: nowrap;
+}
+
+.gs-blender-error {
+  color: #c9363e;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}

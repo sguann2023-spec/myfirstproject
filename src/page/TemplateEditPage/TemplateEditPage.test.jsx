@@ -76,6 +76,29 @@ async function inputValue(element, value) {
   await act(async () => element.dispatchEvent(new Event('input', { bubbles: true })));
 }
 
+it('欢迎示例不额外显示姓名标题栏，姓名仍通过右侧文字属性编辑', async () => {
+  invoke.mockImplementationOnce(async () => ({ templateJson: JSON.stringify(createEditorPreset('personalized-welcome')) }));
+  await render();
+  expect(container.querySelector('.template-edit-header').nextElementSibling.className).toBe('template-edit-body');
+  expect(container.querySelector('[aria-label="欢迎姓名"]')).toBeNull();
+  expect(container.querySelector('[aria-label="添加形状"]')).toBeNull();
+  expect(container.querySelector('[data-element-id="welcome-logo-left"]')).toBeNull();
+  expect(container.querySelector('[data-element-id="welcome-brand-logo"]')).not.toBeNull();
+  await act(async () => container.querySelector('[data-element-id="welcome-name"]').click());
+  const textarea = container.querySelector('.template-properties [aria-label="文字内容"]');
+  expect(textarea.value).toBe('嗨，小明！');
+  await act(async () => {
+    textarea.focus();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(textarea, '嗨，小雨！');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.blur();
+  });
+  await settle();
+  expect(container.querySelector('.template-properties [aria-label="文字内容"]').value).toBe('嗨，小雨！');
+  expect(invoke.mock.calls.filter(([channel]) => channel === 'template:editor-edit').at(-1)[2])
+    .toMatchObject({ type: 'property', id: 'welcome-name', property: 'text', value: '嗨，小雨！' });
+});
+
 it('Properties 转场静态保存后从素材引用回读，撤销清理配置并遵守轨道锁定', async () => {
   await render(); await enterScene('scene');
   await act(async () => container.querySelector('[data-clip-id="upper-image"]').click());

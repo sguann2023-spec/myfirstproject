@@ -406,6 +406,7 @@ describe('ImageGenerateServer', () => {
         'nano_banana_2',
         'gpt-image-2-all',
         'gpt-image-2.5-all',
+        'gpt-image-2.6',
         'seedream-5.0',
         'seedream-5.0-pro',
         'seedream-4.5',
@@ -425,7 +426,7 @@ describe('ImageGenerateServer', () => {
     })
     const byModel = new Map(result.models.map((item) => [item.model, item]))
 
-    for (const model of ['gpt-image-2-all', 'gpt-image-2.5-all']) {
+    for (const model of ['gpt-image-2-all', 'gpt-image-2.5-all', 'gpt-image-2.6']) {
       expect(byModel.get(model)).toMatchObject({
         transparent_background_supported: true,
         output_formats: expect.arrayContaining(['png'])

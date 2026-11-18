@@ -2496,7 +2496,12 @@
       "code_style": "程式碼風格",
       "compact": {
         "title": "對話已壓縮",
-        "processing": "正在壓縮上下文..."
+        "processing": "正在壓縮上下文",
+        "failed": "上下文壓縮失敗",
+        "cancelled": "上下文壓縮已中斷",
+        "chunk": "分塊：{{count}}",
+        "tokens_before": "壓縮前 Token：{{count}}",
+        "tokens_after": "壓縮後 Token：{{count}}"
       },
       "delete": {
         "content": "確定要刪除此訊息嗎？",
@@ -2865,6 +2870,10 @@
           },
           "draft_render": {
             "render_draft": "預渲染"
+          },
+          "blender_local": {
+            "blender_status": "偵測本機 Blender",
+            "blender_render": "本機 Blender 算圖"
           },
           "audio_understand": {
             "submit_audio_understanding_task": "音訊理解"
@@ -7432,6 +7441,61 @@
     "quit": "結束",
     "show_window": "顯示視窗",
     "visualization": "視覺化"
+  },
+  "previewTab": {
+    "newTab": "新分頁",
+    "mySkills": "我的技能",
+    "open": "開啟",
+    "openItem": "開啟{{name}}",
+    "workspace": {
+      "title": "工作空間",
+      "description": "從工作空間中選擇檔案",
+      "create": "新增",
+      "createLabel": "新增工作空間",
+      "refresh": "重新整理工作空間",
+      "reveal": "在檔案總管中開啟",
+      "loading": "正在載入工作空間...",
+      "error": "無法開啟工作空間，請重試"
+    },
+    "browser": { "title": "瀏覽器", "description": "瀏覽網頁和預覽應用程式。", "addressPlaceholder": "輸入網址後按 Enter" },
+    "artifacts": { "title": "產物", "description": "目前對話產生的產物" },
+    "stats": {
+      "title": "統計",
+      "tokenTitle": "Token 統計",
+      "loading": "正在取得 Token 用量…",
+      "contextLoading": "正在取得上下文…",
+      "refreshing": "正在重新整理…",
+      "loadError": "Token 用量載入失敗，請重試。",
+      "retry": "重試",
+      "contextTitle": "目前上下文",
+      "cacheHit": "快取命中",
+      "contextUsed": "上下文已用",
+      "providerReported": "供應商回報",
+      "estimateNote": "分類比例為實際請求內容估算，不等同於供應商計量；快取已包含在輸入中。",
+      "estimatedTotal": "分類估算合計 ≈{{tokens}} tokens",
+      "noBreakdown": "歷史分類未收集，暫顯示供應商輸入/輸出比例。快取已包含在輸入中。",
+      "partialBreakdown": "部分請求、分類或多模態內容未完整收集，以上為可用統計。",
+      "partialHistory": "完整歷史尚未載入，目前顯示已載入部分。",
+      "contextEstimate": "目前上下文為執行階段快照估算，不使用累計消耗代替。",
+      "contextUnknown": "目前上下文尚未收集或已失效，等待下一次請求更新。",
+      "observedAt": "快照時間 {{time}}",
+      "categories": {
+        "system": "系統提示詞", "user": "使用者訊息", "skills": "技能注入", "injections": "注入內容",
+        "toolDefinitions": "工具定義", "toolCalls": "工具呼叫", "toolResults": "工具結果",
+        "assistant": "助手訊息", "reasoning": "模型思考", "reply": "模型回覆", "unattributed": "未歸因內容",
+        "input": "輸入 tokens", "output": "輸出 tokens"
+      },
+      "description": "對話消耗的 tokens",
+      "total": "總用量",
+      "input": "輸入 tokens",
+      "output": "輸出 tokens",
+      "cacheRead": "快取讀取 tokens",
+      "cacheWrite": "快取寫入 tokens",
+      "cacheNote": "快取讀寫已包含在輸入用量中，不額外累加。",
+      "empty": "目前對話尚無 token 用量。",
+      "unknown": "目前對話尚未回報 token 用量。",
+      "incomplete": "部分用量尚未回報或不完整，以上為已知用量下限。"
+    }
   },
   "workspaceFileMenu": {
     "open": "開啟",

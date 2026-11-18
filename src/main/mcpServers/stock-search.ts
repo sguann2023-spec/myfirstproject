@@ -3,7 +3,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CallToolRequestSchema, CallToolResultSchema, ListToolsRequestSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { net } from 'electron'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 
 import { agentRuntimeAuthService } from '../services/agents/services/AgentRuntimeAuthService'
 import { ASSET_SEARCH_ROUTING, PUBLIC_FOOTAGE_RETRIEVAL_GUIDANCE, suggestYouTubeSearch, YOUTUBE_VIDEO_FALLBACK_GUIDANCE } from './asset-search-routing'
@@ -157,7 +157,9 @@ async function boundedResponse(response: Response): Promise<Response> {
 export default class StockSearchServer {
   public readonly mcpServer: McpServer
   private readonly endpoint: URL
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
 
   constructor(endpoint = process.env.STOCK_SEARCH_MCP_URL || 'https://open.vectcut.com/coverr/mcp') {
     this.endpoint = new URL(endpoint)

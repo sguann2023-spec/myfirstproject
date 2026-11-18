@@ -59,7 +59,7 @@ const AgentSessionMessages = ({ agentId, sessionId }: Props) => {
   // session list hooks are not mounted.
   useEffect(() => {
     const cleanup = window.api.agentSessionStream.onSessionChanged((data) => {
-      if (data.sessionId !== sessionId || !data.headless) {
+      if (data.reason === 'token-stats' || data.sessionId !== sessionId || !data.headless) {
         return
       }
       const msSinceLocalCompletion = Date.now() - lastLocalCompletionAtRef.current

@@ -1,3 +1,4 @@
+import { SOCIAL_MEDIA_SOURCE_ROUTING } from './social-media-source-routing'
 import { randomUUID } from 'node:crypto'
 import ipaddr from 'ipaddr.js'
 import { execFile } from 'node:child_process'
@@ -14,7 +15,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ProgressToken } from '@modelcontextprotocol/sdk/types.js'
-import Store from 'electron-store'
+import { getVectcutStore } from './vectcut-store'
 import { net } from 'electron'
 
 import { persistWorkspaceJsonArtifact } from './workspace-json-artifact'
@@ -82,7 +83,7 @@ class VideoTaskQueue {
 const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
   name: 'submit_video_detail_task',
   description:
-    'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues. Accepts video URLs, file URLs, absolute local paths and workspace-relative paths. Prefer this tool over manually extracting frames for whole-video analysis; use prompt to specify the analysis needed. Handles frame extraction and batched visual analysis internally (at most 30 frames per batch, compressed to 480p) with qwen3.8-flash, plus basic speech recognition without sentence splitting. Videos without audio or detected speech are marked explicitly. Full visual analysis, spoken subtitles and timestamps are saved into workspace files. For videos under 10 minutes, also call audio-understand (submit_audio_understanding_task) in parallel: this tool only analyzes frames plus basic speech, while background music, sound effects and music/beat rhythm must come from audio-understand.',
+    SOCIAL_MEDIA_SOURCE_ROUTING + 'Video understanding / 视频理解、参考视频复刻、模仿、拆解: analyze reference videos before recreation or cloning, including shots, editing rhythm, visual style, captions, transitions and audio cues. Accepts video URLs, file URLs, absolute local paths and workspace-relative paths. Prefer this tool over manually extracting frames for whole-video analysis; use prompt to specify the analysis needed. Handles frame extraction and batched visual analysis internally (at most 30 frames per batch, compressed to 480p) with qwen3.8-flash, plus basic speech recognition without sentence splitting. Videos without audio or detected speech are marked explicitly. Full visual analysis, spoken subtitles and timestamps are saved into workspace files. For videos under 10 minutes, also call audio-understand (submit_audio_understanding_task) in parallel: this tool only analyzes frames plus basic speech, while background music, sound effects and music/beat rhythm must come from audio-understand.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -101,7 +102,7 @@ const SUBMIT_VIDEO_DETAIL_TASK_TOOL: Tool = {
       },
       videoUrl: {
         type: 'string',
-        description: 'Single video URL, file URL, absolute local path, or workspace-relative local path.'
+        description: 'Resolved direct-media URL, file URL, absolute local path, or workspace-relative media path. Not a social share/watch page; resolve with scrapt and download first.'
       },
       video_url: {
         type: 'string',
@@ -724,7 +725,9 @@ function buildStructuredVideoAnalysis(details: string): StructuredVideoAnalysis 
 
 class VideoUnderstandServer {
   public mcpServer: McpServer
-  private readonly store = new Store({ name: 'vectcut' })
+  private get store() {
+    return getVectcutStore()
+  }
   private readonly workspacePath?: string
   private accessToken: PendingToken | null = null
   private refreshPromise: Promise<string> | null = null

@@ -1,9 +1,13 @@
 import React from 'react';
 import {
+  BarChart3,
   ChevronLeft,
+  LayoutGrid,
+  Package,
   ChevronRight,
   ExternalLink,
   FileText,
+  FolderOpen,
   Globe,
   Plus,
   RefreshCw,
@@ -15,6 +19,10 @@ import { IpcChannel } from '@shared/IpcChannel';
 import ImageContextMenu from './ImageContextMenu';
 import TextFilePreview from './TextFilePreview';
 import ArtifactPreview from './ArtifactPreview';
+import NewPreviewTab from './NewPreviewTab';
+import SessionTokenStats from './SessionTokenStats';
+import WorkspacePreview from './WorkspacePreview';
+import { useTranslation } from 'react-i18next';
 import './WebPagePreview.css';
 
 const normalizeUrl = (value = '') => String(value || '').trim();
@@ -26,10 +34,18 @@ const logger = loggerService.withContext('ChatShell/WebPagePreview');
 const FILE_PREVIEW_TYPE = 'file';
 const WEB_PREVIEW_TYPE = 'web';
 const ARTIFACT_PREVIEW_TYPE = 'artifact';
+const NEW_TAB_PREVIEW_TYPE = 'new-tab';
+const STATS_PREVIEW_TYPE = 'stats';
+const WORKSPACE_PREVIEW_TYPE = 'workspace';
+const isSessionPreviewType = (type) => [ARTIFACT_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE].includes(type);
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const readPreviewTabId = (preview, fallback = 'initial-tab') => String(preview?.tabId || fallback).trim() || fallback;
-const getPreviewType = (preview) => ([FILE_PREVIEW_TYPE, ARTIFACT_PREVIEW_TYPE].includes(String(preview?.previewType || '').trim()) ? preview.previewType.trim() : WEB_PREVIEW_TYPE);
+const getPreviewType = (preview) => {
+  const type = String(preview?.previewType || '').trim();
+  if ([FILE_PREVIEW_TYPE, ARTIFACT_PREVIEW_TYPE, NEW_TAB_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE].includes(type)) return type;
+  return type === WEB_PREVIEW_TYPE || preview?.url ? WEB_PREVIEW_TYPE : NEW_TAB_PREVIEW_TYPE;
+};
 const getFallbackFaviconUrl = (value = '') => {
   const normalized = normalizeUrl(value);
   if (!normalized || normalized === BLANK_TAB_URL) return '';
@@ -44,12 +60,12 @@ const getFallbackFaviconUrl = (value = '') => {
 
 const createPreviewTab = (preview, overrides = {}) => {
   const previewType = getPreviewType(preview);
-  if (previewType === ARTIFACT_PREVIEW_TYPE) {
+  if ([ARTIFACT_PREVIEW_TYPE, NEW_TAB_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE].includes(previewType)) {
     return {
       id: overrides.id || createTabId(),
-      type: ARTIFACT_PREVIEW_TYPE,
+      type: previewType,
       previewKey: String(preview?.key || '').trim(),
-      title: '产出',
+      title: '',
       activate: preview?.activate !== false
     };
   }
@@ -111,19 +127,31 @@ const isLocalHtmlPreviewUrl = (value = '') => {
 
 const WebPagePreview = ({
   preview,
+  visible = true,
   currentModelMeta = null,
   onClose,
   onRefreshFilePreview,
   onSaveFileEdit,
   onSubmitFileComment,
   onTabClose,
+  workspaceController = null,
+  renderWorkspaceTreeNodes,
+  renderSkillMembers,
   artifactProps = {},
   sessionId = '',
+  runtimeSessionId = '',
+  sessionMessages = [],
   submittingComment = false
 }) => {
+  const { t } = useTranslation();
+  const [openingWorkspace, setOpeningWorkspace] = React.useState(false);
+  const [workspaceError, setWorkspaceError] = React.useState('');
+  const workspaceRequestRef = React.useRef(null);
   const webviewRef = React.useRef(null);
   const tabsRef = React.useRef(null);
   const webviewReadyRef = React.useRef(false);
+  const visibleRef = React.useRef(visible);
+  visibleRef.current = visible;
   const appliedPreviewKeyRef = React.useRef('');
   const shouldScrollTabsToEndRef = React.useRef(false);
   const [tabs, setTabs] = React.useState(() => [buildInitialPreviewTab(preview)]);
@@ -142,6 +170,13 @@ const WebPagePreview = ({
   );
   const isActiveWebTab = activeTab?.type === WEB_PREVIEW_TYPE;
   const targetUrl = isActiveWebTab ? (normalizeUrl(activeTab?.url) || BLANK_TAB_URL) : BLANK_TAB_URL;
+  const getTabTitle = (tab) => {
+    if (tab.type === NEW_TAB_PREVIEW_TYPE) return t('previewTab.newTab');
+    if (tab.type === ARTIFACT_PREVIEW_TYPE) return t('previewTab.artifacts.title');
+    if (tab.type === STATS_PREVIEW_TYPE) return t('previewTab.stats.title');
+    if (tab.type === WORKSPACE_PREVIEW_TYPE) return workspaceController?.currentWorkspacePath?.replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() || t('previewTab.workspace.title');
+    return tab.title || t('previewTab.newTab');
+  };
 
   React.useEffect(() => {
     const initialTab = buildInitialPreviewTab(preview);
@@ -158,8 +193,11 @@ const WebPagePreview = ({
   React.useLayoutEffect(() => {
     if (previousSessionRef.current === sessionId) return;
     previousSessionRef.current = sessionId;
-    staleArtifactKeyRef.current = getPreviewType(preview) === ARTIFACT_PREVIEW_TYPE ? preview?.key : null;
-    const remaining = tabsStateRef.current.filter((tab) => tab.type !== ARTIFACT_PREVIEW_TYPE);
+    staleArtifactKeyRef.current = isSessionPreviewType(getPreviewType(preview)) ? preview?.key : null;
+    workspaceRequestRef.current = null;
+    setOpeningWorkspace(false);
+    setWorkspaceError('');
+    const remaining = tabsStateRef.current.filter((tab) => !isSessionPreviewType(tab.type));
     tabsStateRef.current = remaining;
     setTabs(remaining);
     if (!remaining.length) {
@@ -315,8 +353,8 @@ const WebPagePreview = ({
       }
 
       return {
-        visible: true,
-        ready: Boolean(activeBrowserTabId && activeWebContentsId),
+        visible: Boolean(visibleRef.current),
+        ready: Boolean(visibleRef.current && activeBrowserTabId && activeWebContentsId),
         activeTabId: activeBrowserTabId || null,
         activeWebContentsId,
         tabs: browserTabs.map((tab) => ({
@@ -393,7 +431,7 @@ const WebPagePreview = ({
   React.useEffect(() => {
     const previewKey = String(preview?.key || '').trim();
     const previewType = getPreviewType(preview);
-    if (previewType === ARTIFACT_PREVIEW_TYPE && staleArtifactKeyRef.current === previewKey) return;
+    if (isSessionPreviewType(previewType) && staleArtifactKeyRef.current === previewKey) return;
     const previewUrl = previewType === WEB_PREVIEW_TYPE ? normalizeUrl(preview?.url) : '';
     if (!previewKey || (previewType === WEB_PREVIEW_TYPE && !previewUrl)) return;
 
@@ -410,7 +448,10 @@ const WebPagePreview = ({
       if (!existingTab) shouldScrollTabsToEndRef.current = true;
       setTabs((prev) => {
         const matchedTab = prev.find(matchesPreview);
-        if (!matchedTab) return [...prev, nextTab];
+        if (!matchedTab) {
+          const replacingTab = prev.find((tab) => tab.id === preview?.replaceTabId && tab.type === NEW_TAB_PREVIEW_TYPE);
+          return replacingTab ? prev.map((tab) => tab.id === replacingTab.id ? nextTab : tab) : [...prev, nextTab];
+        }
         return prev.map((tab) => (
           tab.id === matchedTab.id
             ? {
@@ -507,7 +548,21 @@ const WebPagePreview = ({
 
   React.useEffect(() => {
     void syncPreviewState();
-  }, [activeTabId, syncPreviewState, tabs]);
+  }, [activeTabId, syncPreviewState, tabs, visible]);
+
+  // Only unmount clears browser state; rebinding webview listeners must preserve it.
+  React.useEffect(() => () => {
+    const ipcRenderer = getIpcRenderer();
+    if (ipcRenderer?.invoke) {
+      void ipcRenderer.invoke(IpcChannel.BrowserPreview_StateSync, {
+        visible: false,
+        ready: false,
+        activeTabId: null,
+        activeWebContentsId: null,
+        tabs: []
+      });
+    }
+  }, []);
 
   const navigateToAddress = React.useCallback((value) => {
     const nextUrl = normalizeAddressInput(value);
@@ -520,18 +575,59 @@ const WebPagePreview = ({
   }, [updateActiveTab]);
 
   const handleCreateTab = React.useCallback(() => {
-    const nextTab = {
-      id: createTabId(),
-      type: WEB_PREVIEW_TYPE,
-      previewKey: '',
-      title: '新标签页',
-      url: BLANK_TAB_URL
-    };
+    const nextTab = createPreviewTab({ previewType: NEW_TAB_PREVIEW_TYPE });
+    shouldScrollTabsToEndRef.current = true;
+    setTabs((prev) => [...prev, nextTab]);
+    setActiveTabId(nextTab.id);
+    setAddressValue('');
+    setWorkspaceError('');
+  }, []);
+
+  const handleOpenBrowser = () => {
+    workspaceRequestRef.current = null;
+    setOpeningWorkspace(false);
+    const nextTab = createPreviewTab({ previewType: WEB_PREVIEW_TYPE, url: BLANK_TAB_URL, title: t('previewTab.browser.title') });
     shouldScrollTabsToEndRef.current = true;
     setTabs((prev) => [...prev, nextTab]);
     setActiveTabId(nextTab.id);
     setAddressValue(BLANK_TAB_URL);
-  }, []);
+  };
+
+  const handleOpenSessionTab = (type) => {
+    const canonicalTabId = type === ARTIFACT_PREVIEW_TYPE ? `chat-artifact:pinned-drafts:${sessionId}` : `chat-${type}:${sessionId}`;
+    const tabId = tabsStateRef.current.some((tab) => tab.id === canonicalTabId) ? createTabId() : canonicalTabId;
+    const nextTab = createPreviewTab({ previewType: type, key: tabId }, { id: tabId });
+    shouldScrollTabsToEndRef.current = true;
+    setTabs((prev) => [...prev, nextTab]);
+    setActiveTabId(nextTab.id);
+  };
+
+  const handleOpenWorkspace = async (create = false) => {
+    if (workspaceRequestRef.current || workspaceController?.busy || !workspaceController) return;
+    if (workspaceController.hasLockedWorkspace) {
+      handleOpenSessionTab(WORKSPACE_PREVIEW_TYPE);
+      return;
+    }
+    const request = { tabId: activeTab.id };
+    workspaceRequestRef.current = request;
+    setOpeningWorkspace(true);
+    setWorkspaceError('');
+    try {
+      const success = await (create ? workspaceController.createWorkspace() : workspaceController.openWorkspace());
+      if (workspaceRequestRef.current !== request || !success) return;
+      if (!tabsStateRef.current.some((tab) => tab.id === request.tabId && tab.type === NEW_TAB_PREVIEW_TYPE)) return;
+      handleOpenSessionTab(WORKSPACE_PREVIEW_TYPE);
+    } catch (error) {
+      if (workspaceRequestRef.current === request) setWorkspaceError(error?.message || t('previewTab.workspace.error'));
+    } finally {
+      if (workspaceRequestRef.current === request) {
+        workspaceRequestRef.current = null;
+        setOpeningWorkspace(false);
+      }
+    }
+  };
+
+  React.useEffect(() => () => { workspaceRequestRef.current = null; }, []);
 
   const handleCloseTab = React.useCallback((tabId) => {
     setTabs((prev) => {
@@ -802,17 +898,6 @@ const WebPagePreview = ({
     webview.addEventListener('console-message', handleConsoleMessage);
 
     return () => {
-      const ipcRenderer = getIpcRenderer();
-      if (ipcRenderer?.invoke) {
-        void ipcRenderer.invoke(IpcChannel.BrowserPreview_StateSync, {
-          visible: false,
-          ready: false,
-          activeTabId: null,
-          activeWebContentsId: null,
-          tabs: []
-        });
-      }
-      webviewReadyRef.current = false;
       webview.removeEventListener('dom-ready', handleDomReady);
       webview.removeEventListener('did-start-loading', handleStartLoading);
       webview.removeEventListener('did-stop-loading', handleStopLoading);
@@ -912,8 +997,8 @@ const WebPagePreview = ({
           }
           result = {
             state: {
-              visible: true,
-              ready: Boolean(activeBrowserTabId && activeWebContentsId),
+              visible: Boolean(visibleRef.current),
+              ready: Boolean(visibleRef.current && activeBrowserTabId && activeWebContentsId),
               activeTabId: activeBrowserTabId || null,
               activeWebContentsId,
               tabs: browserTabs.map((tab) => ({
@@ -1026,9 +1111,17 @@ const WebPagePreview = ({
                     setActiveTabId(tab.id);
                     setAddressValue(tab.type === WEB_PREVIEW_TYPE ? (normalizeUrl(tab.url) || BLANK_TAB_URL) : '');
                   }}
-                  title={tab.type !== WEB_PREVIEW_TYPE ? (tab.filePreview?.path || tab.title) : (tab.title || tab.url)}>
+                  title={tab.filePreview?.path || getTabTitle(tab)}>
                   <span className="chat-web-preview__tab-icon" aria-hidden="true">
-                    {tab.type !== WEB_PREVIEW_TYPE ? (
+                    {tab.type === NEW_TAB_PREVIEW_TYPE ? (
+                      <LayoutGrid size={14} />
+                    ) : tab.type === ARTIFACT_PREVIEW_TYPE ? (
+                      <Package size={14} />
+                    ) : tab.type === STATS_PREVIEW_TYPE ? (
+                      <BarChart3 size={14} />
+                    ) : tab.type === WORKSPACE_PREVIEW_TYPE ? (
+                      <FolderOpen size={14} />
+                    ) : tab.type === FILE_PREVIEW_TYPE ? (
                       <FileText size={14} />
                     ) : tab.favicon ? (
                       <img
@@ -1041,7 +1134,7 @@ const WebPagePreview = ({
                       <Globe size={14} />
                     )}
                   </span>
-                  <span className="chat-web-preview__tab-title">{tab.title || '新标签页'}</span>
+                  <span className="chat-web-preview__tab-title">{getTabTitle(tab)}</span>
                   <span
                     className="chat-web-preview__tab-close"
                     onClick={(event) => {
@@ -1103,7 +1196,7 @@ const WebPagePreview = ({
             <input
               type="text"
               className="chat-web-preview__address"
-              value={addressValue}
+              value={addressValue === BLANK_TAB_URL ? '' : addressValue}
               onChange={(event) => setAddressValue(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
@@ -1111,7 +1204,7 @@ const WebPagePreview = ({
                   navigateToAddress(addressValue);
                 }
               }}
-              placeholder="输入网址"
+              placeholder={t('previewTab.browser.addressPlaceholder')}
               spellCheck={false}
             />
           </div>
@@ -1134,7 +1227,23 @@ const WebPagePreview = ({
           partition="persist:webview"
           useragent={MOBILE_CHROME_USER_AGENT}
         />
-        {activeTab?.type === ARTIFACT_PREVIEW_TYPE ? (
+        {activeTab?.type === NEW_TAB_PREVIEW_TYPE ? (
+          <NewPreviewTab
+            onOpenWorkspace={workspaceController ? () => handleOpenWorkspace() : undefined}
+            onCreateWorkspace={workspaceController ? () => handleOpenWorkspace(true) : undefined}
+            hasWorkspace={Boolean(workspaceController?.hasLockedWorkspace)}
+            onOpenBrowser={handleOpenBrowser}
+            onOpenArtifacts={sessionId ? () => handleOpenSessionTab(ARTIFACT_PREVIEW_TYPE) : undefined}
+            onOpenStats={sessionId ? () => handleOpenSessionTab(STATS_PREVIEW_TYPE) : undefined}
+            workspaceBusy={openingWorkspace || Boolean(workspaceController?.busy)}
+            error={workspaceError}
+            renderSkillMembers={renderSkillMembers}
+          />
+        ) : activeTab?.type === WORKSPACE_PREVIEW_TYPE ? (
+          <WorkspacePreview controller={workspaceController} renderTreeNodes={renderWorkspaceTreeNodes} />
+        ) : activeTab?.type === STATS_PREVIEW_TYPE ? (
+          <SessionTokenStats messages={sessionMessages} runtimeSessionId={runtimeSessionId} modelMeta={currentModelMeta} />
+        ) : activeTab?.type === ARTIFACT_PREVIEW_TYPE ? (
           <div className="chat-web-preview__file-pane">
             <ArtifactPreview {...artifactProps} onClose={() => handleCloseTab(activeTab.id)} />
           </div>

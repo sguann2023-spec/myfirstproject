@@ -2,13 +2,13 @@ import type { CompactMessageBlock } from '@renderer/types/newMessage'
 import { MessageBlockStatus } from '@renderer/types/newMessage'
 import type { CollapseProps } from 'antd'
 import { Collapse } from 'antd'
-import { ChevronDown } from 'lucide-react'
+import { Archive } from 'lucide-react'
 import React from 'react'
-import { BeatLoader } from 'react-spinners'
 import { useTranslation } from 'react-i18next'
 import styled from 'styled-components'
 
 import Markdown from '../../Markdown/Markdown'
+import { toolCompletedDimCss, toolHeaderCursorDefaultCss, toolRunningShimmerCss } from '../Tools/shared/toolShimmer'
 
 interface Props {
   block: CompactMessageBlock
@@ -16,44 +16,39 @@ interface Props {
 
 const CompactBlock: React.FC<Props> = ({ block }) => {
   const { t } = useTranslation()
-  const isProcessing = block.status === MessageBlockStatus.PROCESSING
-  const processingDeadlineRef = React.useRef(0)
-  const [showProcessing, setShowProcessing] = React.useState(isProcessing)
-
-  React.useEffect(() => {
-    if (isProcessing) {
-      processingDeadlineRef.current = Date.now() + 800
-      setShowProcessing(true)
-      return
-    }
-
-    const remainingMs = processingDeadlineRef.current - Date.now()
-    if (remainingMs > 0) {
-      const timer = window.setTimeout(() => setShowProcessing(false), remainingMs)
-      return () => window.clearTimeout(timer)
-    }
-
-    setShowProcessing(false)
-  }, [isProcessing])
+  const compaction = block.metadata?.contextCompaction
+  const isError = block.status === MessageBlockStatus.ERROR || compaction?.phase === 'error'
+  const isCancelled = block.status === MessageBlockStatus.PAUSED || compaction?.phase === 'cancelled'
+  const isProcessing = !isError && !isCancelled && compaction?.phase !== 'complete' && (
+    block.status === MessageBlockStatus.PENDING || block.status === MessageBlockStatus.PROCESSING ||
+    block.status === MessageBlockStatus.STREAMING
+  )
+  const statusKey = isError ? 'failed' : isCancelled ? 'cancelled' : isProcessing ? 'processing' : 'title'
+  const statusText = t(`message.message.compact.${statusKey}`)
 
   const items: CollapseProps['items'] = [
     {
       key: 'summary',
+      showArrow: false,
       label: (
-        <TitleWrapper>
-          <TitleIcon>📦</TitleIcon>
-          <TitleText>{t('message.message.compact.title')}</TitleText>
-          {showProcessing && (
-            <HeaderLoading>
-              <BeatLoader color="var(--color-text-3)" size={5} speedMultiplier={0.8} />
-              <LoadingText>{t('message.message.compact.processing')}</LoadingText>
-            </HeaderLoading>
-          )}
+        <TitleWrapper $running={isProcessing} $completed={!isProcessing && !isError && !isCancelled} data-running={isProcessing}>
+          <Archive size={14} aria-hidden="true" />
+          <TitleText>{statusText}</TitleText>
         </TitleWrapper>
       ),
       children: (
         <SummaryContent>
-          {block.content ? <Markdown block={block} /> : <LoadingText>{t('message.message.compact.processing')}</LoadingText>}
+          {block.content ? <Markdown block={block} /> : <LoadingText>{statusText}</LoadingText>}
+          {isError && compaction?.error && <ErrorText role="alert">{compaction.error}</ErrorText>}
+          {compaction?.chunk !== undefined && (
+            <LoadingText>{t('message.message.compact.chunk', { count: compaction.chunk })}</LoadingText>
+          )}
+          {compaction?.tokensBefore !== undefined && (
+            <LoadingText>{t('message.message.compact.tokens_before', { count: compaction.tokensBefore })}</LoadingText>
+          )}
+          {compaction?.tokensAfter !== undefined && (
+            <LoadingText>{t('message.message.compact.tokens_after', { count: compaction.tokensAfter })}</LoadingText>
+          )}
         </SummaryContent>
       )
     }
@@ -61,9 +56,9 @@ const CompactBlock: React.FC<Props> = ({ block }) => {
 
   return (
     <Container>
-      <StyledCollapse items={items} expandIcon={() => <ChevronDown size={16} />} />
+      <StyledCollapse items={items} ghost bordered={false} />
 
-      {block.compactedContent && !showProcessing && (
+      {block.compactedContent && !isProcessing && (
         <CompactedContentWrapper>
           <CompactedText>{block.compactedContent}</CompactedText>
         </CompactedContentWrapper>
@@ -80,58 +75,53 @@ const Container = styled.div`
 `
 
 const StyledCollapse = styled(Collapse)`
-  border-radius: 8px;
+  background: transparent !important;
+  border: none !important;
 
-  > .ant-collapse-item {
-    > .ant-collapse-header {
-      padding: 10px 12px !important;
-      display: flex;
-      align-items: center !important;
-      min-height: 44px;
+  &.ant-collapse,
+  > .ant-collapse-item,
+  > .ant-collapse-item.ant-collapse-item-active,
+  > .ant-collapse-item > .ant-collapse-header,
+  > .ant-collapse-item.ant-collapse-item-active > .ant-collapse-header,
+  > .ant-collapse-item > .ant-collapse-content,
+  > .ant-collapse-item.ant-collapse-item-active > .ant-collapse-content,
+  > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    background: transparent !important;
+    border: none !important;
+  }
 
-      .ant-collapse-expand-icon {
-        padding: 0 !important;
-        margin-inline-end: 10px !important;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        height: 20px;
-      }
+  > .ant-collapse-item > .ant-collapse-header {
+    padding: 4px 0 !important;
+    align-items: center !important;
+    ${toolHeaderCursorDefaultCss}
 
-      .ant-collapse-header-text {
-        display: flex;
-        align-items: center;
-        min-height: 20px;
-      }
+    .ant-collapse-expand-icon {
+      display: none !important;
     }
+  }
 
-    > .ant-collapse-content > .ant-collapse-content-box {
-      padding: 8px 12px 12px !important;
-    }
+  > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+    padding: 8px 0 !important;
   }
 `
 
-const TitleWrapper = styled.div`
+const TitleWrapper = styled.div<{ $running: boolean; $completed: boolean }>`
   display: flex;
   align-items: center;
-  gap: 8px;
-`
+  gap: 6px;
+  color: var(--color-text-1);
 
-const TitleIcon = styled.span`
-  font-size: 18px;
+  svg {
+    flex-shrink: 0;
+  }
+
+  ${(props) => props.$running && toolRunningShimmerCss}
+  ${(props) => props.$completed && toolCompletedDimCss}
 `
 
 const TitleText = styled.span`
-  font-weight: 500;
+  font-weight: 400;
   font-size: 14px;
-  color: var(--color-text-1);
-`
-
-const HeaderLoading = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
 `
 
 const SummaryContent = styled.div`
@@ -144,6 +134,11 @@ const SummaryContent = styled.div`
 const LoadingText = styled.div`
   font-size: 13px;
   color: var(--color-text-3);
+`
+
+const ErrorText = styled.div`
+  color: var(--color-error);
+  white-space: pre-wrap;
 `
 
 const CompactedContentWrapper = styled.div`

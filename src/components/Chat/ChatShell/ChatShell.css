@@ -41,60 +41,9 @@
   position: relative;
 }
 
-.chat-panel__members {
-  width: 180px;
-  flex: 0 0 180px;
-  border-left: 1px solid #ebebeb;
-  box-sizing: border-box;
-  font-size: 12px;
-  color: #666;
-  display: flex;
-  flex-direction: row;
-  min-height: 0;
-  background: #f5f5f5;
-  position: relative;
-  overflow: visible;
-  transition: width 0.24s ease, flex-basis 0.24s ease;
-}
-
-.chat-panel__members.is-collapsed {
-  border-left-color: transparent;
-  background: transparent;
-}
-
-.chat-panel__members.has-preview {
-  width: 400px;
-  flex-basis: 400px;
-}
-
-.chat-panel__members.has-sidebar-preview {
-  width: 580px;
-  flex-basis: 580px;
-}
-
-.chat-panel__members-sidebar {
-  flex: 0 0 180px;
-  width: 180px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  opacity: 1;
-  transform: translateX(0);
-  overflow: hidden;
-  transition: width 0.24s ease, flex-basis 0.24s ease, opacity 0.18s ease, transform 0.24s ease, border-color 0.24s ease;
-}
-
-.chat-panel__members-sidebar.is-hidden {
-  width: 0;
-  flex-basis: 0;
-  opacity: 0;
-  transform: translateX(-18px);
-  pointer-events: none;
-}
-
-.chat-panel__members-toggle {
+.chat-panel__preview-toggle {
   position: absolute;
-  left: -26px;
+  right: 4px;
   top: 50%;
   width: 22px;
   height: 42px;
@@ -114,29 +63,26 @@
   -webkit-app-region: no-drag;
 }
 
-.chat-panel__members-toggle:hover {
+.chat-panel__preview-toggle:hover {
   color: #4f4f4f;
   border-color: #d8d8d8;
   background: #fff;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
 }
 
-.chat-panel__members-toggle:focus-visible {
+.chat-panel__preview-toggle:focus-visible {
   outline: none;
   border-color: #5a95f0;
   box-shadow: 0 0 0 2px rgba(90, 149, 240, 0.18);
 }
 
-.chat-panel__members-toggle-icon {
+.chat-panel__preview-toggle-icon {
   transition: transform 0.24s ease;
-}
-
-.chat-panel__members-toggle.is-collapsed .chat-panel__members-toggle-icon {
   transform: rotate(180deg);
 }
 
-.chat-panel__members.has-preview .chat-panel__members-sidebar {
-  border-right: 1px solid transparent;
+.chat-panel__preview-toggle.is-open .chat-panel__preview-toggle-icon {
+  transform: rotate(0deg);
 }
 
 .chat-panel__preview-pane {
@@ -189,11 +135,6 @@
 
 .chat-panel__preview-pane--trailing.is-open {
   border-left-color: transparent;
-}
-
-.chat-panel.is-resizing-web-preview .chat-panel__members,
-.chat-panel.is-resizing-web-preview .chat-panel__members-sidebar {
-  transition: none;
 }
 
 .chat-panel__panel-resizer {
