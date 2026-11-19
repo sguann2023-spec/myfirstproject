@@ -72,7 +72,7 @@ describe('homepage operations cards', () => {
 
   it('renders the three recommended templates from the backend and installs the marketplace package on 做同款', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    const template = (id, name) => ({ id, name, folder_name: `folder_${id}`, likes_count: 1000, followers_count: 20000,
+    const template = (id, name) => ({ id, name, folder_name: `folder_${id}`, likes_count: 1000, fans_count: 20000,
       web_share: `https://example.com/${id}`,
       preview: { type: 'image', url: `https://cdn.example.com/${id}.png`, cover_url: `https://cdn.example.com/${id}.png`, width: 720, height: 1280 },
       package: { download_url: `https://cdn.example.com/${id}.zip` } });

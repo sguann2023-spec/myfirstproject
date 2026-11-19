@@ -87,7 +87,7 @@ const mapRecommendedTemplate = (template) => ({
   folderName: template.folder_name,
   name: template.name,
   title: template.name,
-  followers_count: template.followers_count,
+  followers_count: template.fans_count,
   likes_count: template.likes_count,
   web_share: template.web_share,
   coverUrl: template.icon_url || '',
