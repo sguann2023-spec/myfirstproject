@@ -105,3 +105,17 @@ export const resolveModelConfig = (modelId, apiType, baseUrl) => {
     reasoning_level_map: typeof resolved.reasoningMap === "string" ? resolved.reasoningMap : "",
   };
 };
+
+const legacyChatReasoningMap = MODEL_API_RULES.find(
+  (rule) => rule.modelMatch === ".*" && rule.apiTypeMatch === API_TYPE_BY_PROTOCOL.openai,
+)?.config.optionSpecs.reasoningLevel.map;
+const openAiReasoningModelPattern = "(?:.*/)?(?:gpt-(?:[5-9]|[1-9][0-9]+)(?:[.-].*)?|o[1-9][0-9]*(?:-.*)?)";
+
+/** 只兼容逐字匹配的旧默认；不回写存储，也不改动手写映射。 */
+export const resolveCustomReasoningMap = (modelId, protocol, source, baseUrl) => {
+  if (protocol !== "openai" || typeof source !== "string" || source !== legacyChatReasoningMap
+    || !matchesRule(openAiReasoningModelPattern, String(modelId || "").trim())) {
+    return source;
+  }
+  return resolveModelConfig(modelId, API_TYPE_BY_PROTOCOL.openai, baseUrl)?.reasoning_level_map ?? source;
+};

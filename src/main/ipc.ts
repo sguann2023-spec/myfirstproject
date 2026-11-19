@@ -579,11 +579,13 @@ const obsidianVaultService = new ObsidianVaultService()
 const vertexAIService = VertexAIService.getInstance()
 const dxtService = new DxtService()
 import { registerCustomChatModelsIpc } from './services/CustomChatModelsService'
+import { registerSwitchSettingsIpc } from './services/SwitchService'
 
 let internalWebsiteWindow: BrowserWindow | null = null
 
 export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) {
   registerCustomChatModelsIpc(mainWindow)
+  registerSwitchSettingsIpc(mainWindow)
   const appUpdater = new AppUpdater()
   const notificationService = new NotificationService()
   let networkCheckPending: ReturnType<typeof runNetworkCheck> | null = null

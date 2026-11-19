@@ -7,6 +7,7 @@ import { validateModelId } from '@main/apiServer/utils'
 import { isWin } from '@main/constant'
 import { CustomChatModelsService } from '@main/services/CustomChatModelsService'
 import { compileCustomReasoningMap } from '../reasoning-map'
+import { resolveCustomReasoningMap } from '../../../../../../components/ModelSettings/modelCatalog.js'
 import { getProxyEnvironment } from '@main/services/proxy/nodeProxy'
 import { agentRuntimeAuthService } from '@main/services/agents/services/AgentRuntimeAuthService'
 import { autoDiscoverGitBash, findBundledPython, getBinaryPath, prependPathEntry } from '@main/utils/process'
@@ -140,7 +141,7 @@ export async function buildClaudeRuntimeEnvironment(input: {
       contextWindowTokens: customModel.context_window_tokens,
       maxOutputTokens: customModel.max_output_tokens
     }
-    const source = customModel.reasoning_level_map
+    const source = resolveCustomReasoningMap(customModel.modelId, customModel.protocol, customModel.reasoning_level_map, customModel.baseUrl)
     const levels = customModel.reasoning_levels ?? []
     if (levels.length > 0 || source?.trim()) {
       const level = input.thinkingLevel === undefined ? levels[0] : input.thinkingLevel

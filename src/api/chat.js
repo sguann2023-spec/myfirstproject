@@ -1,5 +1,6 @@
 import { http } from '../http';
 import { resolveClientType } from '@shared/network/clientMeta';
+import { parseOfficialModelCatalog } from '@shared/officialModelCatalog';
 
 const debugLog = (...args) => {
   console.info('[chat.js]', ...args);
@@ -204,127 +205,6 @@ const normalizeVideoCapabilitiesResult = (payload, filters = {}) => {
   };
 };
 
-const normalizeModelItem = (item) => {
-  if (typeof item === 'string') return item.trim();
-  if (!item || typeof item !== 'object') return '';
-  return String(
-    item.model_id
-      || item.provider_model_id
-      || item.model
-      || item.name
-      || item.id
-      || item.value
-      || item.model_name
-      || ''
-  ).trim();
-};
-
-const parseBooleanFlag = (value) => {
-  if (value == null) return undefined;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value !== 0;
-  const normalized = String(value || '').trim().toLowerCase();
-  return normalized === 'true' || normalized === '1' || normalized === 'yes';
-};
-
-const parsePositiveInteger = (value) => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-};
-
-const parseModelItems = (payload) => {
-  const candidates = [
-    payload?.model_items,
-    payload?.data?.model_items,
-    payload?.data?.models,
-    payload?.data?.list,
-    payload?.data,
-    payload?.models,
-    payload?.model_list,
-    payload?.list,
-    payload
-  ];
-  const rawList = candidates.find((item) => Array.isArray(item)) || [];
-  const seen = new Set();
-  const out = [];
-  rawList.forEach((item) => {
-    const modelId = normalizeModelItem(item);
-    if (!modelId || seen.has(modelId)) return;
-    seen.add(modelId);
-    if (item && typeof item === 'object') {
-      out.push({
-        model_id: modelId,
-        name: String(item.name || item.display_name || modelId).trim(),
-        description: String(item.description || '').trim(),
-        badges: Array.isArray(item.badges)
-          ? item.badges
-            .map((badge) => String(badge || '').trim())
-            .filter(Boolean)
-          : [],
-        provider_id: String(item.provider_id || '').trim(),
-        provider_type: String(item.provider_type || '').trim(),
-        provider_name: String(item.provider_name || '').trim(),
-        provider_model_id: String(item.provider_model_id || '').trim(),
-        id: String(item.id || '').trim(),
-        thinking_levels: Array.isArray(item.thinking_levels) ? item.thinking_levels.filter((level) => typeof level === 'string').map((level) => level.trim().toLowerCase()).filter(Boolean) : [],
-        thinking_default: typeof item.thinking_default === 'string' ? item.thinking_default.trim().toLowerCase() : undefined,
-        read_image: parseBooleanFlag(item.read_image ?? item.readImage),
-        context_window_tokens: parsePositiveInteger(item.context_window_tokens),
-        max_input_tokens: parsePositiveInteger(item.max_input_tokens),
-        max_output_tokens: parsePositiveInteger(item.max_output_tokens),
-        compaction_trigger_tokens: parsePositiveInteger(item.compaction_trigger_tokens),
-        price_text: String(item.price_text || '').trim(),
-        price_multiplier_text: String(item.price_multiplier_text || '').trim(),
-        pricing: item.pricing && typeof item.pricing === 'object' && !Array.isArray(item.pricing)
-          ? { ...item.pricing }
-          : undefined
-      });
-      return;
-    }
-    out.push({ model_id: modelId, name: modelId });
-  });
-  return out;
-};
-
-const parseModelList = (payload) => {
-  const candidates = [
-    payload?.data?.models,
-    payload?.data?.list,
-    payload?.data,
-    payload?.models,
-    payload?.model_list,
-    payload?.list,
-    payload
-  ];
-  const rawList = candidates.find((item) => Array.isArray(item)) || [];
-  const modelSet = new Set();
-  rawList.forEach((item) => {
-    const modelName = normalizeModelItem(item);
-    if (modelName) modelSet.add(modelName);
-  });
-  return [...modelSet];
-};
-
-const parseBlackIconMap = (payload) => {
-  const candidate = payload?.black_icon || payload?.data?.black_icon || {};
-  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return {};
-  const map = {};
-  Object.entries(candidate).forEach(([key, value]) => {
-    const modelName = String(key || '').trim();
-    const iconUrl = String(value || '').trim();
-    if (modelName && iconUrl) {
-      map[modelName] = iconUrl;
-    }
-  });
-  return map;
-};
-
-const parsePriceMap = (payload) => {
-  const candidate = payload?.prices || payload?.data?.prices || {};
-  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return {};
-  return { ...candidate };
-};
-
 const safeString = (value) => String(value || '');
 
 const stripThinkingBlock = (value) => {
@@ -385,21 +265,7 @@ export async function getChatModelList() {
       ...buildClientMetaHeaders(clientMeta)
     }
   });
-  const models = parseModelList(payload);
-  const defaultModel = String(
-    payload?.default_model
-      || payload?.data?.default_model
-      || payload?.defaultModel
-      || payload?.data?.defaultModel
-      || ''
-  ).trim();
-  return {
-    models,
-    modelItems: parseModelItems(payload),
-    defaultModel,
-    prices: parsePriceMap(payload),
-    blackIconMap: parseBlackIconMap(payload)
-  };
+  return parseOfficialModelCatalog(payload);
 }
 
 // 模型连接测试：向指定模型发送一条最小对话并等待结果，

@@ -1,58 +1,63 @@
 import { getUserApiKey } from '../api/user';
 import { electronStore } from '../shared/electronStore';
-import { tokenStore } from './tokenStore';
-import { loggerService } from '@logger';
+import { findCachedAccountApiKey, normalizeAccountApiKey, normalizeAccountUserId } from '../packages/shared/accountApiKey';
 
-const logger = loggerService.withContext('VectcutApiKey');
 const inflightSessionRequests = new Map();
 const RENDERER_ENV = import.meta.env || {};
 const DEFAULT_CHANNEL_INVITE_CODE = String(RENDERER_ENV.RENDERER_VITE_AUTH_INVITE_CODE || '').trim();
 
-function parseJwt(token) {
-  try {
-    const base64Url = String(token || '').split('.')[1];
-    if (!base64Url) return null;
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const normalized = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-    return JSON.parse(Buffer.from(normalized, 'base64').toString('utf8'));
-  } catch {
-    return null;
+export function getCurrentVectcutUserId() {
+  // A leftover in-memory ID token must not resurrect a removed/signed-out account.
+  return normalizeAccountUserId(electronStore.get('user')?.id);
+}
+
+const hasRefreshToken = (value) => typeof value === 'string' && Boolean(value.trim());
+let observedUserId = getCurrentVectcutUserId();
+let observedHasRefreshToken = hasRefreshToken(electronStore.get('auth.refresh_token'));
+let sessionGeneration = 0;
+
+function observeSession(userId, signedIn) {
+  if (userId !== observedUserId || signedIn !== observedHasRefreshToken) {
+    sessionGeneration += 1;
+    observedUserId = userId;
+    observedHasRefreshToken = signedIn;
   }
 }
 
-export function getCurrentVectcutUserId() {
-  const storedUserId = String(electronStore.get('user')?.id || '').trim();
-  if (storedUserId) {
-    return storedUserId;
-  }
-  const claims = parseJwt(tokenStore.idToken);
-  return String(claims?.sub || '').trim();
+// Presence, rather than the refresh-token value, distinguishes sign-out from rotation.
+// Observe events as well as reads so A -> signed-out/B -> A cannot reuse old work.
+if (typeof electronStore.onDidChange === 'function') {
+  electronStore.onDidChange('user', (user) => {
+    observeSession(normalizeAccountUserId(user?.id), observedHasRefreshToken);
+  });
+  electronStore.onDidChange('auth.refresh_token', (refreshToken) => {
+    observeSession(observedUserId, hasRefreshToken(refreshToken));
+  });
+}
+
+export function getVectcutSessionSignature() {
+  observeSession(getCurrentVectcutUserId(), hasRefreshToken(electronStore.get('auth.refresh_token')));
+  return observedUserId && observedHasRefreshToken ? JSON.stringify([observedUserId, sessionGeneration]) : '';
 }
 
 export function getCachedVectcutApiKey() {
+  if (!getVectcutSessionSignature()) return '';
   const user = electronStore.get('user') || {};
-  const candidates = [
+  return findCachedAccountApiKey([
     electronStore.get('auth.vectcut_api_key'),
     user.agentApiKey,
     user.vectcutApiKey,
     user.apiKey,
-  ];
-  const hit = candidates.find((item) => typeof item === 'string' && item.trim());
-  return hit ? hit.trim() : '';
+  ], getCurrentVectcutUserId());
 }
 
-export function getVectcutSessionSignature() {
-  const refreshToken = String(electronStore.get('auth.refresh_token') || '').trim();
-  const userId = getCurrentVectcutUserId();
-  if (!refreshToken || !userId) {
+export function persistVectcutApiKey(apiKey, expectedSessionSignature) {
+  const currentSession = getVectcutSessionSignature();
+  if (expectedSessionSignature !== undefined && (!expectedSessionSignature || expectedSessionSignature !== currentSession)) {
     return '';
   }
-  return `${userId}:${refreshToken}`;
-}
 
-export function persistVectcutApiKey(apiKey) {
-  const normalizedApiKey = String(apiKey || '').trim();
-  if (!normalizedApiKey) {
+  if (!apiKey) {
     electronStore.delete('auth.vectcut_api_key');
     const currentUser = electronStore.get('user');
     if (currentUser && typeof currentUser === 'object' && 'agentApiKey' in currentUser) {
@@ -63,47 +68,42 @@ export function persistVectcutApiKey(apiKey) {
     return '';
   }
 
-  electronStore.set('auth.vectcut_api_key', normalizedApiKey);
-  const currentUser = electronStore.get('user');
-  if (currentUser && typeof currentUser === 'object') {
-    electronStore.set('user', {
-      ...currentUser,
-      agentApiKey: normalizedApiKey,
-    });
+  const normalizedApiKey = currentSession ? normalizeAccountApiKey(apiKey, getCurrentVectcutUserId()) : '';
+  if (!normalizedApiKey) return '';
+
+  if (electronStore.get('auth.vectcut_api_key') !== normalizedApiKey) {
+    electronStore.set('auth.vectcut_api_key', normalizedApiKey);
   }
-  return normalizedApiKey;
+  // Recheck after a store notification before updating the user alias.
+  if (getVectcutSessionSignature() !== currentSession) return '';
+  const currentUser = electronStore.get('user');
+  if (currentUser && currentUser.agentApiKey !== normalizedApiKey) {
+    electronStore.set('user', { ...currentUser, agentApiKey: normalizedApiKey });
+  }
+  return getVectcutSessionSignature() === currentSession ? normalizedApiKey : '';
 }
 
 export async function ensureVectcutApiKeyForCurrentSession(options = {}) {
   const { force = false, invited_by_code = '' } = options;
   const sessionSignature = getVectcutSessionSignature();
-  const cachedApiKey = force ? '' : getCachedVectcutApiKey();
-
-  if (cachedApiKey) {
-    persistVectcutApiKey(cachedApiKey);
-    return cachedApiKey;
-  }
-
+  // Never return or promote any legacy cache when there is no signed-in account.
   if (!sessionSignature) {
     persistVectcutApiKey('');
     return '';
   }
 
-  if (inflightSessionRequests.has(sessionSignature)) {
-    return inflightSessionRequests.get(sessionSignature);
-  }
+  const cachedApiKey = force ? '' : getCachedVectcutApiKey();
+  if (cachedApiKey) return persistVectcutApiKey(cachedApiKey, sessionSignature);
+  if (inflightSessionRequests.has(sessionSignature)) return inflightSessionRequests.get(sessionSignature);
 
   const userId = getCurrentVectcutUserId();
   const invitedByCode = String(invited_by_code || DEFAULT_CHANNEL_INVITE_CODE).trim();
   const task = (async () => {
     try {
-      const apiKey = await getUserApiKey(userId, 'authing', {
-        invited_by_code: invitedByCode,
-      });
-      return persistVectcutApiKey(apiKey);
-    } catch (error) {
-      logger.warn('Failed to fetch vectcut api key.', error);
-      throw error;
+      const apiKey = await getUserApiKey(userId, 'authing', { invited_by_code: invitedByCode });
+      if (getVectcutSessionSignature() !== sessionSignature) return '';
+      const validatedKey = normalizeAccountApiKey(apiKey, userId);
+      return validatedKey ? persistVectcutApiKey(validatedKey, sessionSignature) : '';
     } finally {
       inflightSessionRequests.delete(sessionSignature);
     }

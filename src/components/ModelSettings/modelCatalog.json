@@ -1794,6 +1794,17 @@
 "apiTypeMatch": "openai-chat-completions"
 },
 {
+"modelMatch": "(?:.*/)?(?:gpt-(?:[5-9]|[1-9][0-9]+)(?:[.-].*)?|o[1-9][0-9]*(?:-.*)?)",
+"config": {
+"optionSpecs": {
+"reasoningLevel": {
+"map": "{\"reasoning_effort\": reasoningLevel == \"disabled\" ? \"none\" : reasoningLevel == \"enabled\" ? \"high\" : reasoningLevel}"
+}
+}
+},
+"apiTypeMatch": "openai-chat-completions"
+},
+{
 "modelMatch": ".*",
 "config": {
 "optionSpecs": {

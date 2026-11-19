@@ -20,6 +20,9 @@ vi.mock('@shared/utils', () => ({ withoutTrailingApiVersion: (value: string) => 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }))
 
 import { buildClaudeRuntimeEnvironment } from '../runtime/build-runtime'
+import { resolveModelConfig } from '../../../../../../components/ModelSettings/modelCatalog.js'
+
+const legacyMap = resolveModelConfig('unknown-model', 'openai-chat-completions')!.reasoning_level_map
 
 const gateway = 'https://open.vectcut.com/v1'
 const custom = 'https://custom.example/v1'
@@ -206,6 +209,29 @@ describe('runtime gateway credential scoping', () => {
     expect((await buildCustom('HIGH')).customReasoning).toEqual({ level: 'HIGH', patch: { reasoning_effort: 'HIGH' } })
     await expect(buildCustom('high')).rejects.toThrow(/reasoning_levels.*Low, HIGH/)
     expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each(['gpt-5.6-sol', 'gpt-6-astra', 'o3-mini'])('repairs persisted old defaults for %s without rewriting settings', async (modelId) => {
+    const model = Object.freeze(configureReasoning({ modelId, protocol: 'openai', reasoning_levels: ['none', 'low', 'high'], reasoning_level_map: legacyMap }))
+    mocks.listCustom.mockReturnValue([model])
+    mocks.validate.mockResolvedValue({ valid: true, modelId, provider: { id: model.id, type: 'openai', apiHost: custom, apiKey: 'custom-key' } })
+    for (const level of ['none', 'low', 'high']) {
+      const runtime = await buildCustom(level, `${model.id}:${modelId}`)
+      expect(runtime.customReasoning).toEqual({ level, patch: { reasoning_effort: level } })
+    }
+    expect(model.reasoning_level_map).toBe(legacyMap)
+    expect(mocks.refresh).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['openai', 'gpt-6-astra', '{"thinking":{"type":"enabled"}}', { thinking: { type: 'enabled' } }],
+    ['openai', 'deepseek-chat', legacyMap, { thinking: { type: 'enabled' }, enable_thinking: true, reasoning_effort: 'high', reasoning: { effort: 'high' } }],
+    ['anthropic', 'gpt-6-astra', legacyMap, { thinking: { type: 'enabled' }, enable_thinking: true, reasoning_effort: 'high', reasoning: { effort: 'high' } }]
+  ])('preserves %s %s nondefault or other-protocol mappings', async (protocol, modelId, source, patch) => {
+    const model = configureReasoning({ modelId, protocol, reasoning_levels: ['high'], reasoning_level_map: source })
+    mocks.validate.mockResolvedValue({ valid: true, modelId, provider: { id: model.id, type: protocol, apiHost: custom, apiKey: 'custom-key' } })
+    expect((await buildCustom('high', `${model.id}:${modelId}`)).customReasoning).toEqual({ level: 'high', patch })
+    expect(model.reasoning_level_map).toBe(source)
   })
 
   it('snapshots evaluation per invocation without retaining mutable settings', async () => {

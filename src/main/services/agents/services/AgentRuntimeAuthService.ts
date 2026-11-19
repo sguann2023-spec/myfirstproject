@@ -122,7 +122,6 @@ export class AgentRuntimeAuthService {
     if (typeof payload.refresh_token === 'string' && payload.refresh_token.trim()) {
       this.store.set('auth.refresh_token', payload.refresh_token.trim())
     }
-    this.store.set('auth.vectcut_api_key', accessToken)
 
     return accessToken
   }

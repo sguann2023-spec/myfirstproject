@@ -24,15 +24,24 @@ function setup(dev = true) {
     loaded() { this.loading = false; this.webContents.emit('did-finish-load'); }
   }
   const authorize = vi.fn();
-  new Function('safeOn', 'getMainWindow', 'BrowserWindow', 'isWin', 'path', 'app', 'process', '__dirname', 'configManager', 'allowCustomChatModelsWindow', `let settingsWindow = null; ${block}`)(
+  const authorizeSwitch = vi.fn();
+  new Function('safeOn', 'getMainWindow', 'BrowserWindow', 'isWin', 'path', 'app', 'process', '__dirname', 'configManager', 'allowCustomChatModelsWindow', 'allowSwitchSettingsWindow', `let settingsWindow = null; ${block}`)(
     (_channel, handler) => { open = handler; }, () => ({ isDestroyed: () => false }), Window, false,
     { join: (...args) => args.join('/') }, { getVersion: () => 'test' },
-    { env: dev ? { ELECTRON_RENDERER_URL: 'http://localhost:5173/' } : {} }, '/app', { get: () => '/drafts' }, authorize,
+    { env: dev ? { ELECTRON_RENDERER_URL: 'http://localhost:5173/' } : {} }, '/app', { get: () => '/drafts' }, authorize, authorizeSwitch,
   );
-  return { open: tab => open({}, tab === undefined ? undefined : { tab }), windows, authorize };
+  return { open: tab => open({}, tab === undefined ? undefined : { tab }), windows, authorize, authorizeSwitch };
 }
 
 describe('settings window navigation', () => {
+  it('allows switch navigation and authorizes its independent settings window', () => {
+    const { open, windows, authorizeSwitch } = setup();
+    open('switch');
+    expect(authorizeSwitch).toHaveBeenCalledExactlyOnceWith(windows[0]);
+    expect(windows[0].loadURL.mock.calls[0][0]).toContain('tab=switch');
+    windows[0].loaded();
+    expect(windows[0].webContents.send).toHaveBeenCalledWith('settings:navigate', { tab: 'switch' });
+  });
   it.each([true, false])('passes a valid initial tab to the URL (dev=%s)', dev => {
     const { open, windows, authorize } = setup(dev);
     open('models');

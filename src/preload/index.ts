@@ -123,6 +123,12 @@ const cherrySubscriptions = createSubscriptionRequests((operation, sessionId) =>
 
 // Custom APIs for renderer
 const api = {
+  switchSettings: {
+    getState: (): Promise<import('@shared/switchSettings').SwitchState> => ipcRenderer.invoke(IpcChannel.SwitchSettings_GetState),
+    getCatalog: (): Promise<import('@shared/switchSettings').SwitchCatalog> => ipcRenderer.invoke(IpcChannel.SwitchSettings_GetCatalog),
+    apply: (input: import('@shared/switchSettings').SwitchApplyInput): Promise<import('@shared/switchSettings').SwitchState> => ipcRenderer.invoke(IpcChannel.SwitchSettings_Apply, input),
+    disable: (input: { tool: import('@shared/switchSettings').SwitchToolId }): Promise<import('@shared/switchSettings').SwitchState> => ipcRenderer.invoke(IpcChannel.SwitchSettings_Disable, input)
+  },
   customChatModels: {
     list: (): Promise<CustomChatModel[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_List),
     save: (models: CustomChatModel[]): Promise<CustomChatModel[]> => ipcRenderer.invoke(IpcChannel.CustomChatModels_Save, models),

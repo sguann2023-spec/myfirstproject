@@ -157,6 +157,7 @@ const AccountSecurity = () => {
 
   useEffect(() => {
     let disposed = false;
+    const isCurrentSession = (signature) => !disposed && signature === getVectcutSessionSignature();
 
     const syncProfile = async (nextSessionSignature) => {
       const storedUser = electronStore.get('user') || {};
@@ -179,7 +180,7 @@ const AccountSecurity = () => {
       setProfileLoading(true);
       try {
         const payload = await getUserProfile();
-        if (disposed || !payload?.user) {
+        if (!isCurrentSession(nextSessionSignature) || !payload?.user) {
           return;
         }
 
@@ -306,11 +307,15 @@ const AccountSecurity = () => {
       setSyncing(true);
       try {
         const nextApiKey = await ensureVectcutApiKeyForCurrentSession();
-        if (!disposed) {
+        if (isCurrentSession(nextSessionSignature)) {
           setApiKey(nextApiKey);
         }
+      } catch {
+        if (isCurrentSession(nextSessionSignature)) {
+          setApiKey(getCachedVectcutApiKey());
+        }
       } finally {
-        if (!disposed) {
+        if (isCurrentSession(nextSessionSignature)) {
           setSyncing(false);
         }
       }
@@ -341,9 +346,9 @@ const AccountSecurity = () => {
         })
       );
       disposers.push(
-        electronStore.onDidChange('auth.vectcut_api_key', (newValue) => {
+        electronStore.onDidChange('auth.vectcut_api_key', () => {
           if (!disposed) {
-            setApiKey(String(newValue || '').trim());
+            setApiKey(getCachedVectcutApiKey());
           }
         })
       );
@@ -409,14 +414,17 @@ const AccountSecurity = () => {
         : '未登录';
 
   const handleCopy = async () => {
-    if (!apiKey) {
-      message.warning('未获取到 API_KEY');
+    // State can still contain the previous account between store notification and render.
+    const currentApiKey = getCachedVectcutApiKey();
+    if (!currentApiKey || currentApiKey !== apiKey || getVectcutSessionSignature() !== sessionSignature) {
+      setApiKey(currentApiKey);
+      message.warning('未获取到当前账号的 API_KEY，请稍后重试');
       return;
     }
 
     setCopying(true);
     try {
-      await navigator.clipboard.writeText(apiKey);
+      await navigator.clipboard.writeText(currentApiKey);
       message.success('API_KEY 已复制');
     } catch {
       message.error('复制失败，请稍后重试');

@@ -115,6 +115,54 @@ describe('custom models', () => {
     expect(service.listProviders()[0].apiKey).toBe('')
     expect(service.list()).toEqual([])
   })
+  it.each(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6', 'gpt-5.3-codex', 'gpt-6-astra', 'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5', 'gpt-10', 'o1', 'o3-mini', 'o4-mini'])(
+    'tests %s chat completions with max_completion_tokens instead of max_tokens', async (modelId) => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        const main = makeWindow()
+        registerCustomChatModelsIpc(main as any)
+        const handler = mocks.handlers.get('custom-chat-models:test-model')
+        const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.example.com/v1/', protocol: 'openai', apiKey: 'test-key', modelId })
+        expect(result.ok).toBe(true)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/v1/chat/completions')
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ model: modelId, messages: [{ role: 'user', content: expect.any(String) }], max_completion_tokens: 128, stream: false })
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    }
+  )
+  it.each(['gpt-4o', 'gpt-4.1', 'gpt-3.5-turbo', 'deepseek-chat', 'kimi-k2.5', 'glm-5', 'other-model'])(
+    'preserves max_tokens for compatible chat model %s', async (modelId) => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        const main = makeWindow()
+        registerCustomChatModelsIpc(main as any)
+        const handler = mocks.handlers.get('custom-chat-models:test-model')
+        const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.example.com/v1', protocol: 'openai', apiKey: 'test-key', modelId })
+        expect(result.ok).toBe(true)
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ model: modelId, messages: [{ role: 'user', content: expect.any(String) }], max_tokens: 8, stream: false })
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    }
+  )
+  it('returns provider errors without retrying unrelated failures', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: { message: 'Invalid API key' } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const main = makeWindow()
+      registerCustomChatModelsIpc(main as any)
+      const handler = mocks.handlers.get('custom-chat-models:test-model')
+      const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.example.com/v1', protocol: 'openai', apiKey: 'test-key', modelId: 'gpt-5.6-sol' })
+      expect(result).toMatchObject({ ok: false, error: 'Invalid API key' })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
   it('tests openai-responses models against the /responses endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)
@@ -124,7 +172,7 @@ describe('custom models', () => {
     const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.example.com/v1', protocol: 'openai-responses', apiKey: 'k', modelId: 'gpt' })
     expect(result.ok).toBe(true)
     expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/v1/responses')
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: 'gpt', input: expect.any(String) })
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ model: 'gpt', input: expect.any(String), max_output_tokens: 16 })
     vi.unstubAllGlobals()
   })
   it('tests Anthropic models using the original endpoint plus /v1/messages', async () => {
@@ -137,7 +185,7 @@ describe('custom models', () => {
       const result = await handler({ sender: main.webContents, senderFrame: main.webContents.mainFrame }, { baseUrl: 'https://api.deepseek.com/anthropic', protocol: 'anthropic', apiKey: 'test-key', modelId: 'deepseek-flash' })
       expect(result.ok).toBe(true)
       expect(fetchMock.mock.calls[0][0]).toBe('https://api.deepseek.com/anthropic/v1/messages')
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ model: 'deepseek-flash' })
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ model: 'deepseek-flash', max_tokens: 8, messages: [{ role: 'user', content: expect.any(String) }] })
     } finally {
       vi.unstubAllGlobals()
     }

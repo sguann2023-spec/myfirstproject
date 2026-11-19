@@ -79,6 +79,8 @@ import { findGitBash, validateGitBashPath } from '@main/utils/process'
 import { buildPiRuntimeBridge, createClaudeCodeHarness, buildBuiltinTools, resolvePiRuntimeApiKey, normalizeOpenAiMessages, wrapPiApiModuleWithPayloadNormalization, buildMcpTools, buildCodemodeTool, buildLimitedPiToolPayload, buildPiBashTool, resolveShellExecutable, resolveReadImageAsContentInput } from '../harness/create-harness'
 
 import { estimateContextText } from '../harness/context-compaction'
+import { resolveCustomReasoningMap, resolveModelConfig } from '../../../../../../components/ModelSettings/modelCatalog.js'
+import { compileCustomReasoningMap } from '../reasoning-map'
 import { createTokenTelemetryCollector } from '../harness/token-telemetry'
 import { createRuntimeTelemetryObserver } from '../harness/create-harness'
 import { mergeTokenTelemetry, isTokenTelemetry, type TokenTelemetry } from '@shared/tokenTelemetry'
@@ -977,6 +979,47 @@ describe('OpenAI tool message normalization', () => {
     expect(onResponse).toHaveBeenLastCalledWith(failure, model)
     expect(onResponse).toHaveBeenCalledTimes(2)
     expect(logMocks.info).toHaveBeenCalledExactlyOnceWith('[AgentCore] thinking payload', expect.objectContaining({ selectedLevel: null, enableThinking: null, thinkingType: null, effort: null }))
+  })
+
+  it.each([
+    ['gpt-5.6-sol', 'none'], ['gpt-5.6-sol', 'low'], ['gpt-5.6-sol', 'high'],
+    ['gpt-6-astra', 'none'], ['gpt-6-astra', 'medium'], ['gpt-6-astra', 'high']
+  ])('sends protocol-safe %s reasoning %s through the installed Pi adapter', async (modelId, level) => {
+    const apiModule = await import('@earendil-works/pi-ai/api/openai-completions')
+    const legacy = resolveModelConfig('unknown-model', 'openai-chat-completions')!.reasoning_level_map
+    const source = resolveCustomReasoningMap(modelId, 'openai', legacy)
+    const patch = compileCustomReasoningMap(source).evaluate(level)
+    const wrapper = wrapPiApiModuleWithPayloadNormalization({
+      apiModule,
+      invokeContext: { thinkingLevel: level, runtime: { traceId: 'test', provider: { id: 'custom-openai' }, model: { id: modelId } }, projection: { topicId: 'topic' } } as any,
+      providerApiType: 'openai-completions',
+      customReasoning: { level, patch }
+    })
+    const bodies: any[] = []
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      bodies.push(body)
+      if (['thinking', 'enable_thinking', 'reasoning'].some(key => key in body)) {
+        return new Response(JSON.stringify({ error: { message: "Unknown parameter: 'thinking'.", param: 'thinking' } }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', created: 1, model: modelId, choices: [{ index: 0, delta: { role: 'assistant', content: 'OK' }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', created: 1, model: modelId, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } })
+    })
+    const stream = (wrapper.streamSimple as any)({
+      id: modelId, name: modelId, api: 'openai-completions', provider: 'openai',
+      baseUrl: 'https://example.com/v1', reasoning: false, input: ['text'], compat: { supportsDeveloperRole: false },
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10000, maxTokens: 1000
+    }, {
+      systemPrompt: 'Local test', messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
+      tools: [{ name: 'local_tool', description: 'Local tool', parameters: { type: 'object', properties: {} } }]
+    }, { apiKey: 'fake-local-key', fetch, maxRetries: 0 })
+    const events = []
+    for await (const event of stream) events.push(event)
+    expect(events.some(event => event.type === 'error')).toBe(false)
+    expect(events.some(event => event.type === 'done')).toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(bodies[0]).toMatchObject({ model: modelId, stream: true, reasoning_effort: level, max_completion_tokens: 1000, tool_choice: 'auto' })
+    expect(bodies[0].tools).toHaveLength(1)
+    for (const key of ['thinking', 'enable_thinking', 'reasoning', 'temperature', 'max_tokens']) expect(bodies[0]).not.toHaveProperty(key)
   })
 
   it('preserves installed SDK HTTP 400 error events and records first physical fetch headers', async () => {

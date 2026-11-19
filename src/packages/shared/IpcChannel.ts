@@ -1,4 +1,8 @@
 export enum IpcChannel {
+  SwitchSettings_GetState = 'switch-settings:get-state',
+  SwitchSettings_GetCatalog = 'switch-settings:get-catalog',
+  SwitchSettings_Apply = 'switch-settings:apply',
+  SwitchSettings_Disable = 'switch-settings:disable',
   CustomChatModels_List = 'custom-chat-models:list',
   CustomChatModels_Save = 'custom-chat-models:save',
   CustomChatModels_ListProviders = 'custom-chat-models:list-providers',

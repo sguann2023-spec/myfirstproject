@@ -257,11 +257,14 @@ export function registerCustomChatModelsIpc(mainWindow: BrowserWindow) {
     const headers: Record<string, string> = protocol === 'anthropic'
       ? { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
       : { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }
+    // 新版 GPT 与 o 系列推理模型不接受 max_tokens；其他兼容模型保留旧参数。
+    const gptVersion = /^gpt-(\d+)(?:[.-]|$)/i.exec(modelId.trim())
+    const useCompletionTokens = (gptVersion !== null && Number(gptVersion[1]) >= 5) || /^o[1-9]\d*(?:-|$)/i.test(modelId.trim())
     const body = protocol === 'anthropic'
       ? { model: modelId, max_tokens: 8, messages: [{ role: 'user', content: '这是一次模型连接测试，请仅回复"OK"。' }] }
       : protocol === 'openai-responses'
         ? { model: modelId, input: '这是一次模型连接测试，请仅回复"OK"。', max_output_tokens: 16 }
-        : { model: modelId, messages: [{ role: 'user', content: '这是一次模型连接测试，请仅回复"OK"。' }], max_tokens: 8, stream: false }
+        : { model: modelId, messages: [{ role: 'user', content: '这是一次模型连接测试，请仅回复"OK"。' }], ...(useCompletionTokens ? { max_completion_tokens: 128 } : { max_tokens: 8 }), stream: false }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 60_000)
     try {
