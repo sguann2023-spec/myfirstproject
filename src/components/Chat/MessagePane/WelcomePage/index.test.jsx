@@ -10,7 +10,10 @@ let container;
 afterEach(async () => {
   if (root) await act(async () => root.unmount());
   container?.remove();
+  root = null;
+  container = null;
   delete window.api;
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
@@ -65,6 +68,42 @@ describe('homepage operations cards', () => {
     await act(async () => container.querySelector('.chat-panel__welcome-more-skills').click());
     expect(onOpenSkillStore).toHaveBeenCalledOnce();
     delete window.electronAPI;
+  });
+
+  it('renders the three recommended templates from the backend and installs the marketplace package on 做同款', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const template = (id, name) => ({ id, name, folder_name: `folder_${id}`, likes_count: 1000, followers_count: 20000,
+      web_share: `https://example.com/${id}`,
+      preview: { type: 'image', url: `https://cdn.example.com/${id}.png`, cover_url: `https://cdn.example.com/${id}.png`, width: 720, height: 1280 },
+      package: { download_url: `https://cdn.example.com/${id}.zip` } });
+    const installRemote = vi.fn().mockResolvedValue({ success: true, data: { path: '/skills/folder_a', name: '推荐A' } });
+    window.api = {
+      getAppInfo: async () => ({ version: '1.7.27', resourcesPath: '/resources' }),
+      getVectcutApiKey: async () => 'test-key',
+      skill: { list: vi.fn().mockResolvedValue({ success: true, data: [] }), installFromRemotePackage: installRemote },
+      fs: { readText: vi.fn() },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: { get: () => 'application/json' },
+      text: async () => JSON.stringify({ code: 0, total: 3, data: [template('a', '推荐A'), template('b', '推荐B'), template('c', '推荐C')] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onSelectSkill = vi.fn();
+    const { default: WelcomePage } = await import('./index.js');
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => root.render(<WelcomePage emptyWelcomeText="今天想要做什么视频？"
+      onSelectSkill={onSelectSkill} onOpenWebPreview={vi.fn()} onOpenSkillStore={vi.fn()} />));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/skill_marketplace/templates/recommended');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('limit=3');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('app_version=1.7.27');
+    expect(window.api.fs.readText).not.toHaveBeenCalled();
+    const cards = container.querySelectorAll('article');
+    expect([...cards].map((card) => card.querySelector('.chat-panel__welcome-skill-name').textContent)).toEqual(['推荐A', '推荐B', '推荐C']);
+    await act(async () => cards[0].querySelectorAll('.chat-panel__welcome-skill-actions button')[1].click());
+    expect(installRemote).toHaveBeenCalledOnce();
+    expect(installRemote.mock.calls[0][0]).toMatchObject({ packageUrl: 'https://cdn.example.com/a.zip', folderName: 'folder_a' });
+    expect(onSelectSkill).toHaveBeenCalledWith(expect.objectContaining({ folderName: 'folder_a', directoryPath: '/skills/folder_a' }));
   });
 });
 

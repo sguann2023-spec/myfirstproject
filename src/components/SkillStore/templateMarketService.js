@@ -38,14 +38,9 @@ export function clearTemplateMarketCache() {
   templatePageRequests.clear();
 }
 
-async function fetchTemplatePage({ offset, limit }) {
-  const appInfo = await window.api.getAppInfo();
+async function requestMarketplaceJson(url) {
   const key = await window.api.getVectcutApiKey();
   if (!key) throw new Error('请先登录');
-  const url = new URL('https://open.vectcut.com/skill_marketplace/templates');
-  url.searchParams.set('limit', String(limit));
-  url.searchParams.set('offset', String(offset));
-  url.searchParams.set('app_version', appInfo.version);
   const response = await fetch(url, { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15000) });
   const raw = await response.text();
   const ct = response.headers.get('content-type') || '';
@@ -63,13 +58,20 @@ async function fetchTemplatePage({ offset, limit }) {
   if (!ct.includes('application/json')) {
     throw new Error(`模板接口返回非 JSON 数据（content-type: ${ct || '未知'}）：${raw.slice(0, 120)}`);
   }
-  let payload;
   try {
-    payload = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch (err) {
     throw new Error(`模板接口返回非 JSON 数据：${raw.slice(0, 120)}`);
   }
-  return validateTemplatePage(payload);
+}
+
+async function fetchTemplatePage({ offset, limit }) {
+  const appInfo = await window.api.getAppInfo();
+  const url = new URL('https://open.vectcut.com/skill_marketplace/templates');
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('offset', String(offset));
+  url.searchParams.set('app_version', appInfo.version);
+  return validateTemplatePage(await requestMarketplaceJson(url));
 }
 
 export async function listMarketTemplates({ offset = 0, limit = TEMPLATE_MARKET_PAGE_SIZE } = {}) {
@@ -86,6 +88,24 @@ export async function listMarketTemplates({ offset = 0, limit = TEMPLATE_MARKET_
     .finally(() => templatePageRequests.delete(cacheKey));
   templatePageRequests.set(cacheKey, request);
   return request;
+}
+
+// 首页推荐位只展示轻量卡片，放宽校验：只要求可展示与可安装的最小字段
+export const validateRecommendedTemplates = (payload) => {
+  if (payload?.code !== 0 || !Array.isArray(payload.data)) {
+    throw new Error(payload?.message || '推荐模板列表格式无效');
+  }
+  return payload.data.map(normalizeItem).filter((item) => item?.id && item?.folder_name && item?.name
+    && /^https:\/\//i.test(item.web_share || '')
+    && /^https:\/\//i.test(item.package?.download_url || ''));
+};
+
+export async function listRecommendedTemplates(limit = 3) {
+  const appInfo = await window.api.getAppInfo();
+  const url = new URL('https://open.vectcut.com/skill_marketplace/templates/recommended');
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('app_version', appInfo.version);
+  return validateRecommendedTemplates(await requestMarketplaceJson(url)).slice(0, limit);
 }
 
 export async function installMarketTemplate(template) {

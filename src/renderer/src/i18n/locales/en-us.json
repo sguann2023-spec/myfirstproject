@@ -2637,6 +2637,7 @@
           "ffmpeg_media": "Media Tools",
           "file_upload": "File Upload",
           "filesystem_server": "Filesystem",
+          "aigc_detect": "AIGC Detect",
           "image": "Image",
           "image_understand": "Image Understanding",
           "koubo_template": "Talking Head Template",
@@ -2799,6 +2800,10 @@
           "image": {
             "generate_or_edit_image": "Generate or Edit Image",
             "get_image_capabilities": "View Image Models"
+          },
+          "aigc_detect": {
+            "detect_aigc_image": "AI Image Detect",
+            "detect_aigc_video": "AI Video Detect"
           },
           "image_understand": {
             "inspect_image": "Inspect Image"

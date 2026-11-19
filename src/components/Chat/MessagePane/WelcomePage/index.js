@@ -5,6 +5,7 @@ import { trackEvent } from '../../../../shared/analytics';
 import './WelcomePage.css';
 import { formatTemplateCount } from './formatCount';
 import { ensureHomepageSkillInstalled } from '../../Composer/skillExample';
+import { installMarketTemplate, listRecommendedTemplates } from '../../../SkillStore/templateMarketService';
 
 const BEGINNER_GUIDE_QUICK_SKILL_ACTION = 'bootstrap-trendy-koubo';
 const QUICK_SKILLS_ROOT_RELATIVE_PATH = 'quick/skills';
@@ -80,13 +81,47 @@ const loadQuickSkills = async (quickPrompts) => {
   return normalizeQuickSkills(manifest, basePath, appVersion);
 };
 
+// 首页推荐卡片以后端 /skill_marketplace/templates/recommended 为准，字段与技能广场列表一致
+const mapRecommendedTemplate = (template) => ({
+  id: template.id,
+  folderName: template.folder_name,
+  name: template.name,
+  title: template.name,
+  followers_count: template.followers_count,
+  likes_count: template.likes_count,
+  web_share: template.web_share,
+  coverUrl: template.icon_url || '',
+  previewVideoUrl: template.preview?.type === 'video' ? template.preview.url : '',
+  version: template.version,
+  __marketTemplate: template,
+});
+
+const loadRecommendedSkills = async () => {
+  try {
+    const templates = await listRecommendedTemplates(3);
+    return templates.map(mapRecommendedTemplate);
+  } catch {
+    return [];
+  }
+};
+
 const WelcomePage = ({ emptyWelcomeText, onSelectSkill, onOpenSkillStore, onOpenWebPreview,
   childrensBookQuickPromptRef, beginnerGuideQuickSkillsViewportRef }) => {
   const [quickSkills, setQuickSkills] = React.useState([]);
   const [pendingAction, setPendingAction] = React.useState('');
   React.useEffect(() => {
     let disposed = false;
-    void loadQuickSkills().then((items) => { if (!disposed) setQuickSkills(items); });
+    void (async () => {
+      const recommended = await loadRecommendedSkills();
+      if (disposed) return;
+      if (recommended.length > 0) {
+        setQuickSkills(recommended);
+        return;
+      }
+      // 接口不可用时回退到内置运营配置，保证首页不空
+      const items = await loadQuickSkills();
+      if (!disposed) setQuickSkills(items);
+    })();
     return () => { disposed = true; };
   }, []);
   React.useEffect(() => {
@@ -97,8 +132,19 @@ const WelcomePage = ({ emptyWelcomeText, onSelectSkill, onOpenSkillStore, onOpen
     setPendingAction(item.folderName);
     try {
       trackEvent('quick_skill_do_same_click', { title: item.title || item.name });
-      await ensureHomepageSkillInstalled(item);
-      await onSelectSkill?.(item);
+      if (item.__marketTemplate) {
+        // 后端推荐模板走技能广场的下载安装流程
+        const installed = await installMarketTemplate(item.__marketTemplate);
+        await onSelectSkill?.({
+          ...installed,
+          folderName: installed?.folderName || item.folderName,
+          name: installed?.name || item.name,
+          title: installed?.title || item.title || item.name,
+        });
+      } else {
+        await ensureHomepageSkillInstalled(item);
+        await onSelectSkill?.(item);
+      }
     } catch (error) {
       window.toast?.error?.(error?.message || '加载模版失败，请重试');
     } finally { setPendingAction(''); }

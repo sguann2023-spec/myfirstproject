@@ -2637,6 +2637,7 @@
           "ffmpeg_media": "媒体处理",
           "file_upload": "文件上传",
           "filesystem_server": "文件系统",
+          "aigc_detect": "AI 鉴别",
           "image": "图像",
           "image_understand": "图片理解",
           "koubo_template": "口播模板",
@@ -2799,6 +2800,10 @@
           "image": {
             "generate_or_edit_image": "生成或编辑图片",
             "get_image_capabilities": "查看图像模型"
+          },
+          "aigc_detect": {
+            "detect_aigc_image": "AI 图片鉴别",
+            "detect_aigc_video": "AI 视频鉴别"
           },
           "image_understand": {
             "inspect_image": "识图"
