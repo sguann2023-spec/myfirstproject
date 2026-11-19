@@ -313,18 +313,18 @@ describe('SkillMembersSection preview cards', () => {
     expect(onSelectSkill).not.toHaveBeenCalled();
   });
 
-  it.each(['view', 'modify', 'delete'])('invokes only the selected %s action from the click dropdown', async (action) => {
-    const callbacks = { onRunSkillExample: vi.fn(), onModifySkill: vi.fn(), onDeleteSkill: vi.fn(), onSelectSkill: vi.fn() };
+  it.each(['view', 'source', 'modify', 'delete'])('invokes only the selected %s action from the click dropdown', async (action) => {
+    const callbacks = { onRunSkillExample: vi.fn(), onOpenSkillSource: vi.fn(), onModifySkill: vi.fn(), onDeleteSkill: vi.fn(), onSelectSkill: vi.fn() };
     await renderSection({ variant: 'preview', skillExamplePaths: { s1: '/example.html' }, ...callbacks });
     const card = container.querySelector('.skill-members-section__card');
     await act(async () => card.querySelector('[aria-label="更多 技能一"]').click());
     Object.values(callbacks).forEach((callback) => expect(callback).not.toHaveBeenCalled());
     const items = [...card.querySelectorAll('[role="menuitem"]')];
-    expect(items.map((item) => item.textContent)).toEqual(['查看', '修改', '删除']);
-    expect(items[2].dataset.danger).toBe('true');
-    const index = { view: 0, modify: 1, delete: 2 }[action];
+    expect(items.map((item) => item.textContent)).toEqual(['查看', '源码', '修改', '删除']);
+    expect(items[3].dataset.danger).toBe('true');
+    const index = { view: 0, source: 1, modify: 2, delete: 3 }[action];
     await act(async () => items[index].click());
-    const selectedCallback = { view: 'onRunSkillExample', modify: 'onModifySkill', delete: 'onDeleteSkill' }[action];
+    const selectedCallback = { view: 'onRunSkillExample', source: 'onOpenSkillSource', modify: 'onModifySkill', delete: 'onDeleteSkill' }[action];
     expect(callbacks[selectedCallback]).toHaveBeenCalledExactlyOnceWith(skills[0]);
     Object.entries(callbacks).forEach(([key, callback]) => {
       if (key !== selectedCallback) expect(callback).not.toHaveBeenCalled();
@@ -343,6 +343,32 @@ describe('SkillMembersSection preview cards', () => {
     expect(onRunSkillExample).not.toHaveBeenCalled();
     await act(async () => card.querySelector('[aria-label="更多 技能一"]').click());
     expect([...card.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['修改', '删除']);
+  });
+
+  it.each([false, true])('enables the source-only menu without a webpage (hasRoot=%s) and stops clicks from bubbling', async (hasRoot) => {
+    const onOpenSkillSource = vi.fn();
+    const onToggleSkillExpanded = vi.fn();
+    const onBubbledClick = vi.fn();
+    const skill = { ...skills[0], ...(hasRoot ? { __skillRoot: '/skills/one' } : {}) };
+    document.body.addEventListener('click', onBubbledClick);
+    try {
+      await renderSection({ variant: 'preview', skills: [skill], onOpenSkillSource, onToggleSkillExpanded });
+      const card = container.querySelector('.skill-members-section__card');
+      const more = card.querySelector('[aria-label="更多 技能一"]');
+      expect(card.hasAttribute('role')).toBe(false);
+      expect(more.disabled).toBe(false);
+      await act(async () => more.click());
+      expect(onOpenSkillSource).not.toHaveBeenCalled();
+      const items = [...card.querySelectorAll('[role="menuitem"]')];
+      expect(items.map((item) => item.textContent)).toEqual(['源码']);
+      await act(async () => items[0].click());
+      expect(onOpenSkillSource).toHaveBeenCalledExactlyOnceWith(skill);
+      expect(onToggleSkillExpanded).not.toHaveBeenCalled();
+      expect(onBubbledClick).not.toHaveBeenCalled();
+      expect(card.querySelector('[role="menu"]')).toBeNull();
+    } finally {
+      document.body.removeEventListener('click', onBubbledClick);
+    }
   });
 
   it('does not activate the row when keyboard events originate on its buttons', async () => {

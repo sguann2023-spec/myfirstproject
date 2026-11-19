@@ -442,6 +442,37 @@ describe('preview pane visibility', () => {
   });
 });
 
+describe('skill source tabs', () => {
+  it('appends each source request, preserves root metadata and excludes source tabs from browser state', async () => {
+    const invoke = vi.fn().mockResolvedValue(null);
+    window.electron = { ipcRenderer: { invoke } };
+    const renderSkillSource = vi.fn((tab) => <div data-testid="skill-source">{tab.title}:{tab.rootPath}</div>);
+    const render = async (preview) => act(async () => root.render(<WebPagePreview preview={preview} sessionId="A" renderSkillSource={renderSkillSource} />));
+    try {
+      await render(initialPreview);
+      await addTab();
+      const launcher = tabs()[1];
+      await render({ key: 'source:1', previewType: 'skill-source', skillKey: 'one', rootPath: '/skills/one', title: '技能一' });
+      expect(tabs()).toHaveLength(3);
+      expect(container.querySelector('[data-testid="skill-source"]').textContent).toBe('技能一:/skills/one');
+      expect(container.querySelector('.chat-web-preview__address')).toBeNull();
+      await render({ key: 'source:2', previewType: 'skill-source', skillKey: 'two', rootPath: '/skills/two', title: '技能二' });
+      expect(tabs()).toHaveLength(4);
+      await act(async () => tabs()[2].click());
+      expect(container.querySelector('[data-testid="skill-source"]').textContent).toBe('技能一:/skills/one');
+      await render({ key: 'source:3', previewType: 'skill-source', skillKey: 'one', rootPath: '/skills/one', title: '技能一' });
+      expect(tabs()).toHaveLength(5);
+      const state = invoke.mock.calls.map((call) => call[1]).filter((payload) => payload?.tabs).at(-1);
+      expect(state.tabs).toHaveLength(1);
+      expect(state.tabs[0].url).toBe(initialPreview.url);
+      await act(async () => tabs()[4].querySelector('.chat-web-preview__tab-close').click());
+      expect(tabs()).toHaveLength(4);
+      await act(async () => launcher.click());
+      expect(container.querySelector('.chat-preview-start')).not.toBeNull();
+    } finally { delete window.electron; }
+  });
+});
+
 describe('manual preview tab identity', () => {
   it.each([false, true])('creates only one tab on first mount (StrictMode: %s)', async (strict) => {
     await renderPreview(initialPreview, strict);

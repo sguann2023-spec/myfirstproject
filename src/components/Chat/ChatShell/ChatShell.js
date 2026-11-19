@@ -23,6 +23,7 @@ import './ChatShell.css';
 import SidebarToggleIcon from '../../Icons/SidebarToggleIcon';
 import NewChatIcon from '../../../../public/new_chat.svg';
 import SkillMembersSection from './SkillMembers/SkillMembersSection';
+import SkillSourcePreview from './SkillSourcePreview';
 import { parseSkillDisplayMetadata } from './SkillMembers/skillDisplayMetadata';
 import MCPSettings from './MCPSettings/MCPSettings';
 import WebPagePreview from './WebPagePreview';
@@ -895,7 +896,7 @@ const ChatShell = ({
     );
   };
 
-  const loadSkillTree = React.useCallback(async (skill) => {
+  const loadSkillTree = React.useCallback(async (skill, { throwOnError = false } = {}) => {
     const skillKey = getSkillKey(skill);
     if (!skillKey) return;
 
@@ -938,8 +939,10 @@ const ChatShell = ({
       }
 
       setSkillTrees((prev) => ({ ...prev, [skillKey]: Array.isArray(nodes) ? nodes : [] }));
-    } catch (_error) {
+      return Array.isArray(nodes) ? nodes : [];
+    } catch (error) {
       setSkillTrees((prev) => ({ ...prev, [skillKey]: [] }));
+      if (throwOnError) throw error;
     } finally {
       setSkillTreeLoading((prev) => ({ ...prev, [skillKey]: false }));
     }
@@ -1559,6 +1562,20 @@ const ChatShell = ({
     });
   }, [expandedNodeKeys, openFilePreview, toggleNodeExpanded]);
 
+  const openSkillSource = (skill) => {
+    const skillKey = getSkillKey(skill);
+    const rootPath = normalizePath(skill?.__skillRoot || skill?.path || '').trim();
+    openInlinePreviewPane({
+      key: `skill-source:${skillKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      previewType: 'skill-source', skillKey, rootPath,
+      title: getSkillDisplayName(skill) || getSkillFolderLabel(skill) || '源码', activate: true
+    });
+  };
+  const loadSkillSource = React.useCallback((preview) => loadSkillTree({
+    id: preview.skillKey, __skillRoot: preview.rootPath
+  }, { throwOnError: true }), [loadSkillTree]);
+  const renderSkillSource = (preview) => <SkillSourcePreview preview={preview} onLoad={loadSkillSource} renderTreeNodes={renderTreeNodes} />;
+
   const renderSkillMembers = () => (
     <SkillMembersSection
       variant="preview"
@@ -1581,6 +1598,7 @@ const ChatShell = ({
       onOpenSkillWebPreview={openSkillWebPreview}
       onRunSkillExample={runSkillExample}
       onSelectSkill={onSelectSkill}
+      onOpenSkillSource={openSkillSource}
       onOpenSkillStore={onOpenSkillStore}
       onModifySkill={onModifySkill}
       onDeleteSkill={deleteSkill}
@@ -1712,6 +1730,7 @@ const ChatShell = ({
             workspaceController={workspaceController}
             renderWorkspaceTreeNodes={renderTreeNodes}
             renderSkillMembers={renderSkillMembers}
+            renderSkillSource={renderSkillSource}
             artifactProps={{
               drafts: pinnedDrafts,
               audios: pinnedAudios,

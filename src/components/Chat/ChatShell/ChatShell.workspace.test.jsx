@@ -100,6 +100,7 @@ vi.mock('./WebPagePreview', async () => {
       <output data-testid="preview-draft">{draft}</output>
       <WorkspaceTreeView controller={props.workspaceController} renderTreeNodes={props.renderWorkspaceTreeNodes} />
       {props.renderSkillMembers?.()}
+      {props.preview?.previewType === 'skill-source' ? props.renderSkillSource?.(props.preview) : null}
       <output data-testid="preview-payload">{JSON.stringify(props.preview)}</output>
     </section>;
   } };
@@ -254,6 +255,31 @@ afterEach(() => {
 });
 
 describe('ChatShell workspace integration', () => {
+  it('opens skill source using its own root without binding or changing the workspace', async () => {
+    getSession.mockImplementation(async (id) => sessionResult(id, '/workspace'));
+    window.api.file.listDirectory = vi.fn().mockResolvedValue(['/skills/demo/SKILL.md']);
+    window.api.file.isDirectory = vi.fn().mockResolvedValue(false);
+    const onOpenWebPreview = vi.fn();
+    await render({ onOpenWebPreview });
+    const skill = { id: 'source-demo', name: '示例技能', path: '/skills/demo' };
+    await act(async () => probe.skillProps.onOpenSkillSource(skill));
+    const firstKey = probe.preview.preview.key;
+    expect(probe.preview.preview).toMatchObject({ previewType: 'skill-source', skillKey: 'source-demo', rootPath: '/skills/demo', title: '示例技能' });
+    expect(window.api.file.listDirectory).toHaveBeenCalledWith('/skills/demo', expect.objectContaining({ recursive: true }));
+    expectWorkspace('/workspace');
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(onOpenWebPreview).not.toHaveBeenCalled();
+    expect(probe.controllerMount).toHaveBeenCalledOnce();
+    const sourcePane = container.querySelector('[aria-label="技能源码"]');
+    expect(sourcePane).not.toBeNull();
+    const sourceFile = sourcePane.querySelector('.chat-panel__tree-item.is-file');
+    await click(sourceFile);
+    expect(window.api.file.readExternal).toHaveBeenCalledWith('/skills/demo/SKILL.md', true);
+    expect(probe.preview.preview.previewType).toBe('file');
+    await act(async () => probe.skillProps.onOpenSkillSource(skill));
+    expect(probe.preview.preview.key).not.toBe(firstKey);
+  });
+
   it('renders skills only in the preview slot and preserves actions and expansion while toggling the preview', async () => {
     const skill = { id: 'skill-demo', name: '示例技能' };
     window.electronAPI.agentSkills.listLocal = vi.fn().mockResolvedValue({ ok: true, skills: [skill] });

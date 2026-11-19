@@ -37,13 +37,14 @@ const ARTIFACT_PREVIEW_TYPE = 'artifact';
 const NEW_TAB_PREVIEW_TYPE = 'new-tab';
 const STATS_PREVIEW_TYPE = 'stats';
 const WORKSPACE_PREVIEW_TYPE = 'workspace';
+const SKILL_SOURCE_PREVIEW_TYPE = 'skill-source';
 const isSessionPreviewType = (type) => [ARTIFACT_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE].includes(type);
 
 const createTabId = () => `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const readPreviewTabId = (preview, fallback = 'initial-tab') => String(preview?.tabId || fallback).trim() || fallback;
 const getPreviewType = (preview) => {
   const type = String(preview?.previewType || '').trim();
-  if ([FILE_PREVIEW_TYPE, ARTIFACT_PREVIEW_TYPE, NEW_TAB_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE].includes(type)) return type;
+  if ([FILE_PREVIEW_TYPE, ARTIFACT_PREVIEW_TYPE, NEW_TAB_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE, SKILL_SOURCE_PREVIEW_TYPE].includes(type)) return type;
   return type === WEB_PREVIEW_TYPE || preview?.url ? WEB_PREVIEW_TYPE : NEW_TAB_PREVIEW_TYPE;
 };
 const getFallbackFaviconUrl = (value = '') => {
@@ -60,6 +61,14 @@ const getFallbackFaviconUrl = (value = '') => {
 
 const createPreviewTab = (preview, overrides = {}) => {
   const previewType = getPreviewType(preview);
+  if (previewType === SKILL_SOURCE_PREVIEW_TYPE) {
+    return {
+      id: overrides.id || createTabId(), type: SKILL_SOURCE_PREVIEW_TYPE,
+      previewKey: String(preview?.key || '').trim(),
+      title: String(preview?.title || '源码'), skillKey: preview?.skillKey || '', rootPath: preview?.rootPath || '',
+      activate: preview?.activate !== false
+    };
+  }
   if ([ARTIFACT_PREVIEW_TYPE, NEW_TAB_PREVIEW_TYPE, STATS_PREVIEW_TYPE, WORKSPACE_PREVIEW_TYPE].includes(previewType)) {
     return {
       id: overrides.id || createTabId(),
@@ -137,6 +146,7 @@ const WebPagePreview = ({
   workspaceController = null,
   renderWorkspaceTreeNodes,
   renderSkillMembers,
+  renderSkillSource,
   artifactProps = {},
   sessionId = '',
   runtimeSessionId = '',
@@ -1119,7 +1129,7 @@ const WebPagePreview = ({
                       <Package size={14} />
                     ) : tab.type === STATS_PREVIEW_TYPE ? (
                       <BarChart3 size={14} />
-                    ) : tab.type === WORKSPACE_PREVIEW_TYPE ? (
+                    ) : [WORKSPACE_PREVIEW_TYPE, SKILL_SOURCE_PREVIEW_TYPE].includes(tab.type) ? (
                       <FolderOpen size={14} />
                     ) : tab.type === FILE_PREVIEW_TYPE ? (
                       <FileText size={14} />
@@ -1239,6 +1249,8 @@ const WebPagePreview = ({
             error={workspaceError}
             renderSkillMembers={renderSkillMembers}
           />
+        ) : activeTab?.type === SKILL_SOURCE_PREVIEW_TYPE ? (
+          <React.Fragment key={activeTab.id}>{renderSkillSource?.(activeTab)}</React.Fragment>
         ) : activeTab?.type === WORKSPACE_PREVIEW_TYPE ? (
           <WorkspacePreview controller={workspaceController} renderTreeNodes={renderWorkspaceTreeNodes} />
         ) : activeTab?.type === STATS_PREVIEW_TYPE ? (

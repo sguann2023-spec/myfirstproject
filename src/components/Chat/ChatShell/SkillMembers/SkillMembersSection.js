@@ -53,6 +53,7 @@ const SkillMembersSection = ({
   onToggleSkillMembersCollapsed,
   onOpenSkillStore,
   onOpenSkillWebPreview,
+  onOpenSkillSource,
   onRunSkillExample,
   onSelectSkill,
   onModifySkill,
@@ -123,6 +124,7 @@ const SkillMembersSection = ({
         const primaryLabel = skillName || folderLabel;
         const hasWebExampleAction = Boolean(skillExamplePath || skillPreviewPath);
         const hasMentionAction = typeof onSelectSkill === 'function';
+        const hasSourceAction = typeof onOpenSkillSource === 'function';
         const hasModifyPromptAction = typeof onModifySkill === 'function';
         const hasDeleteAction = typeof onDeleteSkill === 'function';
         const hasActionMenu = hasWebExampleAction || hasMentionAction || hasModifyPromptAction || hasDeleteAction;
@@ -241,12 +243,14 @@ const SkillMembersSection = ({
                 menu={{
                   items: [
                     ...(hasWebExampleAction ? [{ key: 'view', label: '查看' }] : []),
+                    ...(hasSourceAction ? [{ key: 'source', label: '源码' }] : []),
                     ...(hasModifyPromptAction ? [{ key: 'modify', label: '修改' }] : []),
                     ...(hasDeleteAction ? [{ key: 'delete', label: '删除', danger: true }] : [])
                   ],
                   onClick: ({ key, domEvent }) => {
                     domEvent.stopPropagation();
                     if (key === 'view') viewSkill(domEvent);
+                    if (key === 'source') onOpenSkillSource(skill);
                     if (key === 'modify') onModifySkill(skill);
                     if (key === 'delete') void onDeleteSkill(skill);
                   }
@@ -254,7 +258,7 @@ const SkillMembersSection = ({
                 <button
                   type="button"
                   className="artifact-preview__export"
-                  disabled={!hasWebExampleAction && !hasModifyPromptAction && !hasDeleteAction}
+                  disabled={!hasWebExampleAction && !hasSourceAction && !hasModifyPromptAction && !hasDeleteAction}
                   onClick={(event) => event.stopPropagation()}
                   aria-label={`更多 ${primaryLabel}`}>
                   <Ellipsis size={16} aria-hidden="true" />
