@@ -7,7 +7,6 @@ vi.mock('../../components/ModelSettings/ModelSettings', () => ({ default: functi
   const [draft, setDraft] = React.useState('');
   return <div data-testid="models"><input aria-label="Model draft" value={draft} onChange={event => setDraft(event.target.value)} /></div>;
 } }));
-vi.mock('../../components/SwitchSettings/SwitchSettings', () => ({ default: () => <div data-testid="switch">Switch tools</div> }));
 vi.mock('../../components/GeneralSettings/GeneralSettings', () => ({ default: () => <div>General</div> }));
 vi.mock('../../components/HelpSettings/HelpSettings', () => ({ default: () => <div>Help</div> }));
 vi.mock('../../components/AccountSecurity/AccountSecurity', () => ({ default: () => <div>Account</div> }));
@@ -43,30 +42,34 @@ it('opens the lazy models tab from the URL and responds to navigation events', a
   await act(async () => root.unmount());
   expect(ipc.removeListener).toHaveBeenCalledWith('settings:navigate', navigate);
 });
-it('places lowercase switch immediately after models with ArrowLeftRight and supports sidebar and IPC navigation', async () => {
+it('removes switch from the sidebar while retaining models and ignores legacy IPC navigation', async () => {
   await act(async () => root.render(<SettingPage />));
   const menus = [...container.querySelectorAll('.setting-menu-item')];
   const modelsIndex = menus.findIndex(item => item.textContent === '模型设置');
-  const switchItem = menus[modelsIndex + 1];
-  expect(switchItem.textContent).toBe('switch');
-  expect(switchItem.querySelector('.lucide-arrow-left-right')).not.toBeNull();
-  expect(container.querySelector('[data-testid="switch"]')).toBeNull();
-  await act(async () => switchItem.click());
-  expect(header()).toBe('switch');
-  expect(container.querySelector('[data-testid="switch"]')).not.toBeNull();
+  expect(modelsIndex).toBeGreaterThanOrEqual(0);
+  expect(menus[modelsIndex + 1].textContent).toBe('使用帮助');
+  expect(menus.some(item => item.textContent === 'switch')).toBe(false);
+  expect(container.querySelector('.lucide-arrow-left-right')).toBeNull();
+  await act(async () => menus[modelsIndex].click());
+  expect(header()).toBe('模型设置');
+  const models = container.querySelector('[data-testid="models"]');
+  expect(models).not.toBeNull();
+  for (const tab of ['switch', 'Switch', '../evil', undefined]) {
+    await act(async () => navigate({}, { tab }));
+    expect(header()).toBe('模型设置');
+    expect(container.querySelector('[data-testid="models"]')).toBe(models);
+    expect(models.closest('[hidden]')).toBeNull();
+  }
   await act(async () => navigate({}, { tab: 'general' }));
-  expect(container.querySelector('[data-testid="switch"]')).toBeNull();
+  expect(header()).toBe('通用');
   await act(async () => navigate({}, { tab: 'switch' }));
-  expect(header()).toBe('switch');
-  expect(container.querySelector('[data-testid="switch"]')).not.toBeNull();
-  await act(async () => navigate({}, { tab: 'Switch' }));
-  expect(header()).toBe('switch');
+  expect(header()).toBe('通用');
 });
-it('opens switch directly from the settings URL without a Redux provider', async () => {
+it('falls back to account security for the legacy switch settings URL', async () => {
   window.history.replaceState({}, '', '/?view=settings&tab=switch');
   await act(async () => root.render(<SettingPage />));
-  expect(header()).toBe('switch');
-  expect(container.querySelector('[data-testid="switch"]')).not.toBeNull();
+  expect(header()).toBe('账号与安全');
+  expect(container.querySelector('.setting-menu-item.selected').textContent).toBe('账号与安全');
   expect(container.querySelector('[data-testid="models"]')).toBeNull();
 });
 it('rejects unknown URL tabs and defaults to account security', async () => {

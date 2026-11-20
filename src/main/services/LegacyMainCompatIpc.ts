@@ -14,7 +14,6 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 
 import { configManager } from './ConfigManager'
 import { allowCustomChatModelsWindow } from './CustomChatModelsService'
-import { allowSwitchSettingsWindow } from './SwitchService'
 import { registerSessionStreamIpc } from './agents/services/channels/sessionStreamIpc'
 import { initializeLocalAggregateMcpService } from './LocalAggregateMcpService'
 import { mainHttpClient } from './network/MainHttpClient'
@@ -1075,7 +1074,7 @@ function registerLegacyWindowChannels() {
   })
 
   let pendingSettingsTab: string | undefined
-  const settingsTabs = new Set(['account-security', 'general', 'models', 'switch', 'help', 'about', 'policy'])
+  const settingsTabs = new Set(['account-security', 'general', 'models', 'help', 'about', 'policy'])
   safeOn('open-settings-window', (_event, payload?: { tab?: string }) => {
     const tab = typeof payload?.tab === 'string' && settingsTabs.has(payload.tab) ? payload.tab : undefined
     const mainWindow = getMainWindow()
@@ -1111,7 +1110,6 @@ function registerLegacyWindowChannels() {
     })
 
     allowCustomChatModelsWindow(settingsWindow)
-    allowSwitchSettingsWindow(settingsWindow)
     const openedWindow = settingsWindow
     openedWindow.webContents.on('did-finish-load', () => {
       if (openedWindow !== settingsWindow || openedWindow.isDestroyed()) return

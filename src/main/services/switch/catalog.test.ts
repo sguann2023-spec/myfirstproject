@@ -3,6 +3,7 @@ vi.mock('electron', () => ({ BrowserWindow: class {}, ipcMain: { handle: vi.fn()
 vi.mock('../AccountApiKeyService', () => ({ accountApiKeyService: {} }))
 vi.mock('../LocalMcpAgentService', () => ({ localMcpAgentService: {} }))
 import { parseOfficialModelCatalog } from '@shared/officialModelCatalog'
+import { SWITCH_ERROR_MESSAGES } from '@shared/switchSettings'
 import { switchCatalog, switchConfigPaths } from '../SwitchService'
 
 const rich = (id: string) => ({ model_id: id, name: `Display ${id}` })
@@ -83,7 +84,7 @@ describe('official PC model catalog', () => {
     { data: { models: [] }, model_items: [rich('gpt-stale')] }
   ])('honors explicitly empty lists instead of resurrecting rich-only models', payload => {
     expect(parseOfficialModelCatalog(payload)).toMatchObject({ models: [], modelItems: [] })
-    expect(() => switchCatalog(payload)).toThrow('为空')
+    expect(() => switchCatalog(payload)).toThrow(SWITCH_ERROR_MESSAGES.noModels)
   })
 
   it('accepts nested rich-only catalogs when no models list is present', () => {
@@ -120,14 +121,14 @@ describe('official PC model catalog', () => {
   })
 
   it('rejects invalid identifiers and empty/malformed catalogs without fallback models', () => {
-    for (const payload of [undefined, null, {}, { models: [] }]) expect(() => switchCatalog(payload)).toThrow('为空')
-    expect(() => switchCatalog({ models: ['model\nsecret'] })).toThrow('格式无效')
+    for (const payload of [undefined, null, {}, { models: [] }]) expect(() => switchCatalog(payload)).toThrow(SWITCH_ERROR_MESSAGES.noModels)
+    expect(() => switchCatalog({ models: ['model\nsecret'] })).toThrow(SWITCH_ERROR_MESSAGES.invalidConfig)
   })
 
   it('honors only absolute native config environment roots', () => {
     expect(switchConfigPaths('codex', '/users/example', {})).toEqual({ config: '/users/example/.codex/config.toml', catalog: '/users/example/.codex/vectcut-switch-model-catalog.json' })
     expect(switchConfigPaths('codex', '/users/example', { CODEX_HOME: '/custom/codex' }).config).toBe('/custom/codex/config.toml')
     expect(switchConfigPaths('workbuddy', '/users/example', { WORKBUDDY_CONFIG_DIR: '/custom/workbuddy' }).config).toBe('/custom/workbuddy/models.json')
-    expect(() => switchConfigPaths('codex', '/users/example', { CODEX_HOME: '../relative' })).toThrow('绝对路径')
+    expect(() => switchConfigPaths('codex', '/users/example', { CODEX_HOME: '../relative' })).toThrow(SWITCH_ERROR_MESSAGES.fileAccess)
   })
 })

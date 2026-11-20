@@ -1,13 +1,16 @@
-import { resolve } from 'node:path'
 import { getStaticTOMLValue, parseTOML, traverseNodes, type AST } from 'toml-eslint-parser'
 import {
   SWITCH_CODEX_BASE_URL,
+  SWITCH_ERROR_MESSAGES,
   SWITCH_PROVIDER_ID,
   type SwitchModel
 } from '../../../packages/shared/switchSettings'
 
 const PROVIDER_NAME = 'VectCut Switch'
-const ROOT_FIELDS = ['model', 'model_provider', 'model_catalog_json', 'model_reasoning_effort', 'review_model', 'web_search']
+const ROOT_FIELDS = ['model', 'model_provider', 'model_reasoning_effort', 'review_model']
+const PROVIDER_MARKER = `vectcut-switch:provider:${SWITCH_PROVIDER_ID}`
+const ROOT_MARKER = 'vectcut-switch:root:'
+const PROVIDER_CONFLICT = SWITCH_ERROR_MESSAGES.ownershipConflict
 const PROVIDER_PATH = ['model_providers', SWITCH_PROVIDER_ID]
 const PROVIDER_FIELDS = [
   ['name'], ['base_url'], ['experimental_bearer_token'], ['requires_openai_auth'], ['wire_api'],
@@ -138,14 +141,14 @@ function removeEntry(doc: Document, node: AST.TOMLKeyValue): Change {
   return { start, end, text: hash < 0 ? '' : doc.text.slice(start, node.range[0]) + suffix.slice(hash) }
 }
 
-function setField(source: string, path: Path, value: unknown | Missing, rawValue?: string): string {
+function setField(source: string, path: Path, value: unknown | Missing): string {
   const doc = read(source)
   const entry = doc.entries.find(item => samePath(item.path, path))
   const old = at(doc.value, path)
   if (same(old, value)) return source
   if (entry) {
     if (value === ABSENT) return splice(doc, [removeEntry(doc, entry.node)])
-    return splice(doc, [{ start: entry.node.value.range[0], end: entry.node.value.range[1], text: rawValue ?? serialize(value) }])
+    return splice(doc, [{ start: entry.node.value.range[0], end: entry.node.value.range[1], text: serialize(value) }])
   }
   if (old !== ABSENT) {
     // An explicitly defined table/array cannot safely be replaced as a scalar field.
@@ -161,7 +164,7 @@ function setField(source: string, path: Path, value: unknown | Missing, rawValue
     const table = container.node.value
     const pos = table.range[1] - 1
     const prefix = table.body.length ? ', ' : ' '
-    return splice(doc, [{ start: pos, end: pos, text: `${prefix}${key(path.slice(container.path.length))} = ${rawValue ?? serialize(value)} ` }])
+    return splice(doc, [{ start: pos, end: pos, text: `${prefix}${key(path.slice(container.path.length))} = ${serialize(value)} ` }])
   }
 
   const tables = doc.ast.body[0].body.filter((node): node is AST.TOMLTable => node.type === 'TOMLTable' && node.kind === 'standard')
@@ -170,11 +173,11 @@ function setField(source: string, path: Path, value: unknown | Missing, rawValue
   const top = doc.ast.body[0].body
   const nextTable = parent ? top[top.indexOf(parent) + 1] : top.find(node => node.type === 'TOMLTable')
   const firstRoot = top.find(node => node.type === 'TOMLKeyValue')
-  const pos = !parent && firstRoot ? doc.text.lastIndexOf('\n', firstRoot.range[0] - 1) + 1
-    : nextTable ? doc.text.lastIndexOf('\n', nextTable.range[0] - 1) + 1 : doc.text.length
+  const pos = !parent && firstRoot ? managedLineStart(doc, firstRoot)
+    : nextTable ? managedLineStart(doc, nextTable) : doc.text.length
   const relative = path.slice(parent?.resolvedKey.length ?? 0)
   const prefix = pos > 0 && doc.text[pos - 1] !== '\n' ? doc.eol : ''
-  return splice(doc, [{ start: pos, end: pos, text: `${prefix}${key(relative)} = ${rawValue ?? serialize(value)}${doc.eol}` }])
+  return splice(doc, [{ start: pos, end: pos, text: `${prefix}${key(relative)} = ${serialize(value)}${doc.eol}` }])
 }
 
 function removeSubtree(source: string, prefix: Path): string {
@@ -201,24 +204,87 @@ function removeSubtree(source: string, prefix: Path): string {
   return splice(doc, changes)
 }
 
-function dropEmptyTables(source: string, before: Document, prefixes: Path[]): string {
-  let result = source
-  // Remove only app-created empty tables, keeping any current comments and unrelated table contents.
-  for (const prefix of [...prefixes].sort((a, b) => b.length - a.length)) {
-    const doc = read(result)
-    const existsBefore = before.ast.body[0].body.some(node => node.type === 'TOMLTable' && samePath(node.resolvedKey, prefix))
-    const table = doc.ast.body[0].body.find((node): node is AST.TOMLTable => node.type === 'TOMLTable' && samePath(node.resolvedKey, prefix))
-    if (existsBefore || !table || table.body.length || Object.keys((at(doc.value, prefix) as object) ?? {}).length) continue
-    const start = doc.text.lastIndexOf('\n', table.range[0] - 1) + 1
-    const end = lineEnd(doc, table.key.range[1])
-    const header = doc.text.slice(start, end)
-    const comment = header.indexOf('#', table.key.range[1] - start)
-    result = splice(doc, [{ start, end, text: comment < 0 ? '' : header.slice(comment) }])
-  }
-  return result
+type Anchor = AST.TOMLKeyValue | AST.TOMLTable
+
+function lineStart(doc: Document, offset: number): number {
+  return doc.text.lastIndexOf('\n', offset - 1) + 1
 }
 
-function validateProfile(doc: Document, fields = ROOT_FIELDS): void {
+/** Markers are real parser comments immediately before a specific AST assignment/header.
+ * Text resembling a marker inside a multiline string never participates in ownership. */
+function markerComment(doc: Document, node: Anchor, marker: string): AST.TOMLProgram['comments'][number] | undefined {
+  const start = lineStart(doc, node.range[0])
+  if (doc.text.slice(start, node.range[0]).trim()) return undefined
+  return doc.ast.comments.find(comment => comment.value.trim() === marker &&
+    !doc.text.slice(lineStart(doc, comment.range[0]), comment.range[0]).trim() &&
+    comment.loc.end.line + 1 === node.loc.start.line &&
+    !doc.text.slice(comment.range[1], start).trim())
+}
+
+function managedLineStart(doc: Document, node: Anchor): number {
+  const marker = doc.ast.comments.find(comment =>
+    (comment.value.trim() === PROVIDER_MARKER || ROOT_FIELDS.some(field => comment.value.trim() === ROOT_MARKER + field)) &&
+    markerComment(doc, node, comment.value.trim()) === comment)
+  return marker ? lineStart(doc, marker.range[0]) : lineStart(doc, node.range[0])
+}
+
+function mark(source: string, node: Anchor, marker: string): string {
+  const doc = read(source)
+  if (markerComment(doc, node, marker)) return source
+  const pos = lineStart(doc, node.range[0])
+  return splice(doc, [{ start: pos, end: pos, text: `# ${marker}${doc.eol}` }])
+}
+
+function providerAnchors(doc: Document): Anchor[] {
+  // An inline parent can contain other providers. The marker grants ownership only
+  // of PROVIDER_PATH, never of that entire assignment or its sibling providers.
+  const assignments = doc.entries.filter(entry => starts(entry.path, PROVIDER_PATH) || starts(PROVIDER_PATH, entry.path as Path))
+    .map(entry => {
+      let node = entry.node
+      while (node.parent.type === 'TOMLInlineTable' && node.parent.parent.type === 'TOMLKeyValue') node = node.parent.parent
+      return node
+    })
+  const tables = doc.ast.body[0].body.filter((node): node is AST.TOMLTable =>
+    node.type === 'TOMLTable' && node.kind === 'standard' && starts(node.resolvedKey, PROVIDER_PATH))
+  return [...new Set<Anchor>([...tables, ...assignments])].sort((a, b) => a.range[0] - b.range[0])
+}
+
+function legacyProvider(provider: unknown): boolean {
+  // No URL/name/model heuristic: only the complete native provider emitted by
+  // this project at its dedicated id is a safe, backup-free migration candidate.
+  return object(provider) && provider.name === PROVIDER_NAME && provider.base_url === SWITCH_CODEX_BASE_URL &&
+    typeof provider.experimental_bearer_token === 'string' && !!provider.experimental_bearer_token.trim() &&
+    provider.requires_openai_auth === false && provider.wire_api === 'responses' &&
+    at(provider, ['http_headers', 'X-Client-Type']) === 'pc' && at(provider, ['query_params', 'client_type']) === 'pc'
+}
+
+function ownsProvider(doc: Document): boolean {
+  const provider = at(doc.value, PROVIDER_PATH)
+  if (provider === ABSENT) return false
+  if (providerAnchors(doc).some(node => markerComment(doc, node, PROVIDER_MARKER))) return true
+  if (!legacyProvider(provider)) throw new Error(PROVIDER_CONFLICT)
+  validateProviderRouting(provider)
+  return true
+}
+
+function ownedRootFields(doc: Document): string[] {
+  return ROOT_FIELDS.filter(field => {
+    const entry = doc.entries.find(item => samePath(item.path, [field]))
+    return entry && markerComment(doc, entry.node, ROOT_MARKER + field)
+  })
+}
+
+function setRootField(source: string, field: string, value: unknown): string {
+  const before = read(source)
+  const claim = at(before.value, [field]) === ABSENT || ownedRootFields(before).includes(field)
+  const config = setField(source, [field], value)
+  if (!claim) return config
+  const doc = read(config)
+  const entry = doc.entries.find(item => samePath(item.path, [field]))!
+  return mark(config, entry.node, ROOT_MARKER + field)
+}
+
+function validateProfile(doc: Document, fields = [...ROOT_FIELDS, 'model_catalog_json']): void {
   const profile = at(doc.value, ['profile'])
   if (profile === ABSENT) return
   if (typeof profile !== 'string') throw new Error('Codex active profile is invalid.')
@@ -261,18 +327,24 @@ function validateProviderRouting(provider: unknown): void {
 }
 
 export function inspectCodexSwitchConfig(source: string): {
-  enabled: boolean; hasProvider: boolean; searchDisabled: boolean; hasModelCatalog: boolean; modelCatalogPath?: string
+  enabled: boolean; hasManagedConfig: boolean; modelId?: string
+  hasProvider: boolean; searchDisabled: boolean; hasModelCatalog: boolean; modelCatalogPath?: string
 } {
   const doc = read(source)
-  const hasProvider = at(doc.value, PROVIDER_PATH) !== ABSENT
-  const selected = at(doc.value, ['model_provider']) === SWITCH_PROVIDER_ID
+  const hasProvider = ownsProvider(doc)
   const profile = at(doc.value, ['profile'])
-  const profileSearch = typeof profile === 'string' ? at(doc.value, ['profiles', profile, 'web_search']) : ABSENT
-  // Report migration state without imposing new planning checks on old backups.
-  const searchDisabled = at(doc.value, ['web_search']) === 'disabled' && profileSearch === ABSENT
+  const selectedProfile = typeof profile === 'string' ? at(doc.value, ['profiles', profile]) : ABSENT
+  const provider = at(selectedProfile, ['model_provider']) === ABSENT
+    ? at(doc.value, ['model_provider']) : at(selectedProfile, ['model_provider'])
+  const model = at(selectedProfile, ['model']) === ABSENT ? at(doc.value, ['model']) : at(selectedProfile, ['model'])
+  const profileSearch = at(selectedProfile, ['web_search'])
   const modelCatalog = at(doc.value, ['model_catalog_json'])
   return {
-    enabled: selected && hasProvider, hasProvider: hasProvider || selected, searchDisabled,
+    enabled: hasProvider && provider === SWITCH_PROVIDER_ID,
+    hasManagedConfig: hasProvider || ownedRootFields(doc).length > 0,
+    ...(typeof model === 'string' ? { modelId: model } : {}),
+    hasProvider,
+    searchDisabled: at(doc.value, ['web_search']) === 'disabled' && profileSearch === ABSENT,
     hasModelCatalog: modelCatalog !== ABSENT,
     ...(typeof modelCatalog === 'string' ? { modelCatalogPath: modelCatalog } : {})
   }
@@ -280,18 +352,14 @@ export function inspectCodexSwitchConfig(source: string): {
 
 export function planCodexConfig(
   source: string,
-  options: { models: SwitchModel[]; modelId: string; key: string; catalogPath: string; overwriteProvider?: boolean; removeManagedCatalog?: boolean }
+  options: { models: SwitchModel[]; modelId: string; key: string; catalogPath?: string; overwriteProvider?: boolean; removeManagedCatalog?: boolean }
 ): { config: string; catalog: null } {
-  if (options.overwriteProvider) source = removeSubtree(source, PROVIDER_PATH)
   const doc = read(source)
+  const providerOwned = ownsProvider(doc)
   validateProfile(doc)
-  const modelCatalog = at(doc.value, ['model_catalog_json'])
-  // Ownership and file contents must be verified by the caller before opting in.
-  // Only compare paths here; never open or inspect a referenced catalog.
-  if (modelCatalog !== ABSENT && !(options.removeManagedCatalog === true && typeof modelCatalog === 'string' &&
-    modelCatalog.trim() && options.catalogPath.trim() && resolve(modelCatalog) === resolve(options.catalogPath))) {
-    throw new Error(EXTERNAL_CATALOG_ERROR)
-  }
+  // No catalog, even at an old app path, is owned by this adapter. A catalog
+  // override is unsafe on enable, but never blocks removal of our own provider.
+  if (at(doc.value, ['model_catalog_json']) !== ABSENT) throw new Error(EXTERNAL_CATALOG_ERROR)
   if (!options.key.trim()) throw new Error('Codex Switch credentials are missing.')
   const supported = options.models.filter(model => model.codexSupported === true)
   if (supported.some(model => !model.model_id.trim()) || new Set(supported.map(model => model.model_id)).size !== supported.length) {
@@ -302,106 +370,65 @@ export function planCodexConfig(
   const providers = at(doc.value, ['model_providers'])
   if (providers !== ABSENT && !object(providers)) throw new Error('Codex model providers must be a table.')
   const provider = at(doc.value, PROVIDER_PATH)
-  if (provider !== ABSENT && (!object(provider) || provider.name !== PROVIDER_NAME || provider.base_url !== SWITCH_CODEX_BASE_URL)) {
-    throw new Error('Codex Switch provider conflicts with an existing provider.')
-  }
   validateProviderRouting(provider)
 
-  let config = source
-  config = setField(config, ['model'], selected.model_id)
-  config = setField(config, ['model_provider'], SWITCH_PROVIDER_ID)
-  if (modelCatalog !== ABSENT) config = setField(config, ['model_catalog_json'], ABSENT)
-  config = setField(config, ['model_reasoning_effort'], effort(selected, doc))
-  config = setField(config, ['web_search'], 'disabled')
+  let config = setRootField(source, 'model', selected.model_id)
+  config = setRootField(config, 'model_provider', SWITCH_PROVIDER_ID)
+  config = setRootField(config, 'model_reasoning_effort', effort(selected, doc))
   const review = at(doc.value, ['review_model'])
   if (review !== ABSENT && (typeof review !== 'string' || !supported.some(model => model.model_id === review))) {
-    config = setField(config, ['review_model'], selected.model_id)
+    config = setRootField(config, 'review_model', selected.model_id)
   }
-  // A dedicated table is easier for native clients and humans to inspect than serializing the document.
-  if (provider === ABSENT && providers === ABSENT) {
-    const current = read(config)
-    const prefix = current.text && !current.text.endsWith('\n') ? current.eol : ''
-    config += `${prefix}${current.eol}[model_providers.${SWITCH_PROVIDER_ID}]${current.eol}`
-  } else if (provider === ABSENT && !doc.entries.some(entry => samePath(entry.path, ['model_providers']))) {
+  // Insert a native table unless the user already uses an inline parent.
+  if (!providerOwned && !doc.entries.some(entry => samePath(entry.path, ['model_providers']))) {
     const current = read(config)
     config += `${current.text && !current.text.endsWith('\n') ? current.eol : ''}${current.eol}[model_providers.${SWITCH_PROVIDER_ID}]${current.eol}`
   }
   const values: unknown[] = [PROVIDER_NAME, SWITCH_CODEX_BASE_URL, options.key, false, 'responses', 'pc', 'pc']
   PROVIDER_FIELDS.forEach((path, i) => { config = setField(config, [...PROVIDER_PATH, ...path], values[i]) })
+  const current = read(config)
+  if (!providerAnchors(current).some(node => markerComment(current, node, PROVIDER_MARKER))) {
+    config = mark(config, providerAnchors(current)[0], PROVIDER_MARKER)
+  }
   read(config)
   return { config, catalog: null }
 }
 
-/** Keep the first managed values while accepting manual edits on explicit update. */
-export function rebaseCodexConfig(current: string, before: string, applied: string, planned: string): string {
-  if (current === applied) return before
-  const original = read(before)
-  const expected = read(applied)
-  const actual = read(current)
-  const next = read(planned)
-  let restored = current
-  for (const field of ROOT_FIELDS) {
-    const path = [field]
-    const owned = !same(at(original.value, path), at(expected.value, path))
-    const changed = !same(at(actual.value, path), at(next.value, path))
-    if (!owned && !changed) continue
-    const source = owned ? original : actual
-    const entry = source.entries.find(item => samePath(item.path, path))
-    const raw = entry ? source.text.slice(entry.node.value.range[0], entry.node.value.range[1]) : undefined
-    restored = setField(restored, path, at(source.value, path), raw)
+/** Remove current owned content, not a historical snapshot. User edits are not conflicts. */
+export function removeCodexSwitchConfig(source: string): string {
+  const doc = read(source)
+  const providerOwned = ownsProvider(doc)
+  const rootFields = ownedRootFields(doc)
+  const rootProvider = at(doc.value, ['model_provider'])
+  // If the user selected another provider, common model/effort/review values now
+  // belong to that selection. Relinquish our comments without removing values.
+  const profile = at(doc.value, ['profile'])
+  const profileProvider = typeof profile === 'string' ? at(doc.value, ['profiles', profile, 'model_provider']) : ABSENT
+  const cleanRoot = (rootProvider === SWITCH_PROVIDER_ID || rootProvider === ABSENT) &&
+    (profileProvider === SWITCH_PROVIDER_ID || profileProvider === ABSENT)
+  const comments = [
+    ...(providerOwned ? providerAnchors(doc).map(node => markerComment(doc, node, PROVIDER_MARKER)) : []),
+    ...doc.entries.filter(entry => entry.path.length === 1 && rootFields.includes(String(entry.path[0])))
+      .map(entry => markerComment(doc, entry.node, ROOT_MARKER + entry.path[0]))
+  ].filter((comment): comment is AST.TOMLProgram['comments'][number] => !!comment)
+  let config = splice(doc, [...new Set(comments)].map(comment => ({
+    start: lineStart(doc, comment.range[0]), end: lineEnd(doc, comment.range[1]), text: ''
+  })))
+  if (cleanRoot) {
+    for (const field of rootFields) config = setField(config, [field], ABSENT)
   }
-  restored = removeSubtree(restored, PROVIDER_PATH)
-  const provider = at(original.value, PROVIDER_PATH)
-  if (provider !== ABSENT) restored = setField(restored, PROVIDER_PATH, provider)
-  restored = dropEmptyTables(restored, original, [['model_providers']])
-  const doc = read(restored)
-  const providers = at(doc.value, ['model_providers'])
-  if (at(original.value, ['model_providers']) === ABSENT && object(providers) && !Object.keys(providers).length && doc.entries.some(item => samePath(item.path, ['model_providers']))) {
-    restored = setField(restored, ['model_providers'], ABSENT)
-  }
-  read(restored)
-  return restored
-}
-
-/** Three-way semantic restore: only managed leaves are reverted; unrelated current edits survive. */
-export function restoreCodexConfig(current: string, before: string, applied: string): string {
-  const original = read(before)
-  const expected = read(applied)
-  const actual = read(current)
-  validateProviderRouting(at(actual.value, PROVIDER_PATH))
-  const fields = ROOT_FIELDS.filter(field => {
-    if (field === 'review_model') return at(original.value, [field]) !== ABSENT || at(expected.value, [field]) !== ABSENT
-    // Old snapshots never changed search. Do not retroactively own it (including
-    // absent or differently quoted equal values), or an already-disabled setting.
-    if (field === 'web_search') return !same(at(original.value, [field]), at(expected.value, [field]))
-    return true
-  })
-  const paths: Path[] = [
-    ...fields.map(field => [field]),
-    ...PROVIDER_FIELDS.map(path => [...PROVIDER_PATH, ...path])
-  ]
-  validateProfile(actual, fields)
-  if (paths.every(path => same(at(actual.value, path), at(original.value, path)))) return current
-  if (paths.some(path => !same(at(actual.value, path), at(expected.value, path)))) {
-    throw new Error('Codex managed fields were changed outside Switch; restore was cancelled.')
-  }
-  if (current === applied) return before
-  let restored = current
-  for (const path of paths) {
-    const entry = original.entries.find(item => samePath(item.path, path))
-    const raw = entry ? original.text.slice(entry.node.value.range[0], entry.node.value.range[1]) : undefined
-    restored = setField(restored, path, at(original.value, path), raw)
-  }
-  const cleanup = [PROVIDER_PATH, [...PROVIDER_PATH, 'http_headers'], [...PROVIDER_PATH, 'query_params'], ['model_providers']]
-  restored = dropEmptyTables(restored, original, cleanup)
-  // Drop app-created inline parents only if no unowned values were added to them.
-  for (const path of cleanup.sort((a, b) => b.length - a.length)) {
-    const doc = read(restored)
-    const value = at(doc.value, path)
-    if (at(original.value, path) === ABSENT && object(value) && Object.keys(value).length === 0 && doc.entries.some(item => samePath(item.path, path))) {
-      restored = setField(restored, path, ABSENT)
+  if (providerOwned) {
+    if (at(doc.value, ['model_provider']) === SWITCH_PROVIDER_ID) config = setField(config, ['model_provider'], ABSENT)
+    const profiles = at(doc.value, ['profiles'])
+    if (object(profiles)) {
+      for (const name of Object.keys(profiles)) {
+        if (at(profiles[name], ['model_provider']) === SWITCH_PROVIDER_ID) {
+          config = setField(config, ['profiles', name, 'model_provider'], ABSENT)
+        }
+      }
     }
+    config = removeSubtree(config, PROVIDER_PATH)
   }
-  read(restored)
-  return restored
+  read(config)
+  return config
 }

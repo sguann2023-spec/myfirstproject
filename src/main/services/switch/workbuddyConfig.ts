@@ -16,7 +16,7 @@ type Document = {
   root: Record<string, unknown>
   models: ModelEntry[]
 }
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+const EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const own = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key)
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -83,25 +83,32 @@ function positive(value: number | undefined): boolean {
 }
 
 function entry(model: SwitchModel, apiKey: string): ModelEntry {
-  const levels = model.thinking_levels ?? []
+  const levels = (model.thinking_levels ?? []).map(level => level.trim().toLowerCase()).filter(Boolean)
   const supportedEfforts = [...new Set(levels.filter(level => EFFORTS.includes(level)))]
   const supportsReasoning = supportedEfforts.length > 0 || levels.some(level => level === 'enabled' || level === 'on')
   const canDisableThinking = levels.some(level => level === 'off' || level === 'none' || level === 'disabled')
+  const defaultEffort = model.thinking_default?.trim().toLowerCase()
+  // WorkBuddy reads effort and disable capabilities only from the nested schema.
+  const reasoning = {
+    ...(supportedEfforts.length ? { supportedEfforts } : {}),
+    ...(defaultEffort && supportedEfforts.includes(defaultEffort) ? { defaultEffort } : {}),
+    ...(supportsReasoning || canDisableThinking ? { canDisableThinking } : {})
+  }
   return {
-    id: model.model_id,
+    id: model.name.trim() || model.model_id,
     name: model.name.trim() || model.model_id,
-    vendor: '流光剪辑',
+    vendor: 'VectCut',
     url: SWITCH_WORKBUDDY_URL,
     apiKey,
     [SWITCH_OWNER_FIELD]: SWITCH_PROVIDER_ID,
     supportsToolCall: true,
     supportsImages: model.read_image === true,
     supportsReasoning,
+    useCustomProtocol: false,
     ...(positive(model.max_input_tokens) ? { maxInputTokens: model.max_input_tokens } : {}),
     ...(positive(model.max_output_tokens) ? { maxOutputTokens: model.max_output_tokens } : {}),
-    ...(supportedEfforts.length ? { supportedEfforts } : {}),
-    ...(model.thinking_default && supportedEfforts.includes(model.thinking_default) ? { defaultEffort: model.thinking_default } : {}),
-    ...(levels.length ? { canDisableThinking } : {})
+    ...(Object.keys(reasoning).length ? { reasoning } : {}),
+    ...(supportsReasoning && !canDisableThinking ? { onlyReasoning: true } : {})
   }
 }
 
@@ -128,20 +135,26 @@ function validateModels(models: SwitchModel[]): void {
   }
 }
 
-export function inspectWorkBuddySwitchConfig(source: string): { enabled: boolean } {
-  return { enabled: read(source).models.some(owned) }
+export function inspectWorkBuddySwitchConfig(source: string): { enabled: boolean; hasManagedConfig: boolean } {
+  const hasManagedConfig = read(source).models.some(owned)
+  return { enabled: hasManagedConfig, hasManagedConfig }
 }
 
 export function planWorkBuddyConfig(source: string, models: SwitchModel[], key: string): string {
   const doc = read(source)
   validateModels(models)
   if (!key.trim()) throw new Error('WorkBuddy Switch credentials are missing.')
-  const desired = models.map(model => entry(model, key))
-  const ids = new Set(desired.map(model => model.id))
-  if (doc.models.some(model => !owned(model) && ids.has(model.id))) {
-    throw new Error('WorkBuddy Switch model conflicts with an existing model.')
-  }
+  const occupied = new Set(doc.models.filter(model => !owned(model)).map(model => model.id))
+  const ids = new Set<string>()
+  const desired = models.flatMap(model => {
+    const item = entry(model, key)
+    // Preserve existing canonical-ID entries as well as display-ID entries owned by users.
+    if (occupied.has(model.model_id) || occupied.has(item.id) || ids.has(item.id)) return []
+    ids.add(item.id)
+    return [item]
+  })
   const oldIds = new Set(doc.models.filter(owned).map(model => model.id))
+  if (!desired.length && !oldIds.size) return source
   const firstOwned = doc.models.findIndex(owned)
   const next = doc.models.filter(model => !owned(model))
   const insertion = firstOwned < 0 ? next.length : doc.models.slice(0, firstOwned).filter(model => !owned(model)).length
@@ -155,56 +168,16 @@ export function planWorkBuddyConfig(source: string, models: SwitchModel[], key: 
   return config
 }
 
-/** Owned entries are replaced atomically; other models/root settings and unrelated selections survive. */
-export function restoreWorkBuddyConfig(current: string, before: string, applied: string): string {
-  const original = read(before)
-  const expected = read(applied)
-  const actual = read(current)
-  const oldOwned = original.models.filter(owned)
-  const newOwned = expected.models.filter(owned)
-  const ids = new Set([...oldOwned, ...newOwned].map(model => model.id))
-  if (actual.models.some(model => owned(model) && !ids.has(model.id))) {
-    throw new Error('WorkBuddy managed models were changed outside Switch; restore was cancelled.')
-  }
-  const modelsMatch = (doc: Document) => [...ids].every(id => same(actual.models.find(model => model.id === id), doc.models.find(model => model.id === id)))
-  const oldAvailable = original.root.availableModels as string[] | undefined
-  const expectedAvailable = expected.root.availableModels as string[] | undefined
-  const currentAvailable = actual.root.availableModels as string[] | undefined
-  const managesAvailable = !same(oldAvailable, expectedAvailable)
-  const projection = (values: string[] | undefined) => values?.filter(id => ids.has(id)).sort()
-  const availableBefore = !managesAvailable || (Array.isArray(currentAvailable) && same(projection(currentAvailable), projection(oldAvailable)))
-  const availableExpected = !managesAvailable || (Array.isArray(currentAvailable) && same(projection(currentAvailable), projection(expectedAvailable)))
-  if (modelsMatch(original) && availableBefore) return current
-  if (!modelsMatch(expected)) throw new Error('WorkBuddy managed models were changed outside Switch; restore was cancelled.')
-  if (!availableExpected) throw new Error('WorkBuddy managed model selections were changed outside Switch; restore was cancelled.')
-  if (current === applied) return before
-
-  const restoredModels = actual.models.filter(model => !ids.has(model.id))
-  for (const model of oldOwned) {
-    const position = original.models.indexOf(model)
-    const next = original.models.slice(position + 1).find(item => restoredModels.some(current => current.id === item.id))
-    const previous = [...original.models.slice(0, position)].reverse().find(item => restoredModels.some(current => current.id === item.id))
-    const insertion = next ? restoredModels.findIndex(item => item.id === next.id)
-      : previous ? restoredModels.findIndex(item => item.id === previous.id) + 1 : Math.min(position, restoredModels.length)
-    restoredModels.splice(insertion, 0, model)
-  }
-  let config = same(actual.models, restoredModels) ? current : writeModels(current, restoredModels)
-  if (managesAvailable && currentAvailable && oldAvailable) {
-    const restored = currentAvailable.filter(id => !ids.has(id))
-    for (const id of oldAvailable.filter(id => ids.has(id))) {
-      const position = oldAvailable.indexOf(id)
-      const next = oldAvailable.slice(position + 1).find(item => restored.includes(item))
-      restored.splice(next ? restored.indexOf(next) : restored.length, 0, id)
-    }
-    if (!same(currentAvailable, restored)) config = patch(config, ['availableModels'], restored)
-  }
-  const result = read(config)
-  if (original.shape === 'object' && !own(original.root, 'models') && result.models.length === 0 && own(result.root, 'models')) {
-    config = patch(config, ['models'], undefined)
-  } else if (original.shape === 'object' && original.root.models === null && result.models.length === 0) {
-    config = patch(config, ['models'], null)
-  } else if ((original.shape === 'null' || original.shape === 'empty') && result.models.length === 0 && Object.keys(result.root).every(key => key === 'models')) {
-    return before
+/** Strict ownership only: edited owned entries are removed, unmarked models never are. */
+export function removeWorkBuddySwitchConfig(source: string): string {
+  const doc = read(source)
+  const ids = new Set(doc.models.filter(owned).map(model => model.id))
+  if (!ids.size) return source
+  let config = writeModels(source, doc.models.filter(model => !owned(model)))
+  if (Array.isArray(doc.root.availableModels)) {
+    const available = doc.root.availableModels as string[]
+    const remaining = available.filter(id => !ids.has(id))
+    if (!same(available, remaining)) config = patch(config, ['availableModels'], remaining)
   }
   return config
 }

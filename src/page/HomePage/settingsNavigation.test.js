@@ -24,23 +24,24 @@ function setup(dev = true) {
     loaded() { this.loading = false; this.webContents.emit('did-finish-load'); }
   }
   const authorize = vi.fn();
-  const authorizeSwitch = vi.fn();
-  new Function('safeOn', 'getMainWindow', 'BrowserWindow', 'isWin', 'path', 'app', 'process', '__dirname', 'configManager', 'allowCustomChatModelsWindow', 'allowSwitchSettingsWindow', `let settingsWindow = null; ${block}`)(
+  new Function('safeOn', 'getMainWindow', 'BrowserWindow', 'isWin', 'path', 'app', 'process', '__dirname', 'configManager', 'allowCustomChatModelsWindow', `let settingsWindow = null; ${block}`)(
     (_channel, handler) => { open = handler; }, () => ({ isDestroyed: () => false }), Window, false,
     { join: (...args) => args.join('/') }, { getVersion: () => 'test' },
-    { env: dev ? { ELECTRON_RENDERER_URL: 'http://localhost:5173/' } : {} }, '/app', { get: () => '/drafts' }, authorize, authorizeSwitch,
+    { env: dev ? { ELECTRON_RENDERER_URL: 'http://localhost:5173/' } : {} }, '/app', { get: () => '/drafts' }, authorize,
   );
-  return { open: tab => open({}, tab === undefined ? undefined : { tab }), windows, authorize, authorizeSwitch };
+  return { open: tab => open({}, tab === undefined ? undefined : { tab }), windows, authorize };
 }
 
 describe('settings window navigation', () => {
-  it('allows switch navigation and authorizes its independent settings window', () => {
-    const { open, windows, authorizeSwitch } = setup();
+  it.each([true, false])('treats the legacy switch tab as invalid without granting switch authorization (dev=%s)', dev => {
+    const { open, windows, authorize } = setup(dev);
     open('switch');
-    expect(authorizeSwitch).toHaveBeenCalledExactlyOnceWith(windows[0]);
-    expect(windows[0].loadURL.mock.calls[0][0]).toContain('tab=switch');
+    expect(authorize).toHaveBeenCalledExactlyOnceWith(windows[0]);
+    expect(source).not.toContain('allowSwitchSettingsWindow');
+    expect(dev ? windows[0].loadURL.mock.calls[0][0] : windows[0].loadFile.mock.calls[0][1].search)
+      .toBe(dev ? 'http://localhost:5173/?view=settings' : '?view=settings');
     windows[0].loaded();
-    expect(windows[0].webContents.send).toHaveBeenCalledWith('settings:navigate', { tab: 'switch' });
+    expect(windows[0].webContents.send).not.toHaveBeenCalled();
   });
   it.each([true, false])('passes a valid initial tab to the URL (dev=%s)', dev => {
     const { open, windows, authorize } = setup(dev);
@@ -62,11 +63,27 @@ describe('settings window navigation', () => {
     expect(windows[0].webContents.send).toHaveBeenLastCalledWith('settings:navigate', { tab: 'models' });
     expect(windows[0].focus).toHaveBeenCalledTimes(3);
   });
+  it.each(['switch', '../evil', 'evil'])('ignores invalid tab %s and plain opens while preserving pending and loaded navigation', tab => {
+    const { open, windows } = setup();
+    open('general'); open('models'); open(tab); open();
+    expect(windows).toHaveLength(1);
+    expect(windows[0].webContents.send).not.toHaveBeenCalled();
+    windows[0].loaded();
+    expect(windows[0].webContents.send).toHaveBeenCalledExactlyOnceWith('settings:navigate', { tab: 'models' });
+    open(tab); open();
+    expect(windows).toHaveLength(1);
+    expect(windows[0].webContents.send).toHaveBeenCalledTimes(1);
+    expect(windows[0].focus).toHaveBeenCalledTimes(5);
+    open('help');
+    expect(windows[0].webContents.send).toHaveBeenLastCalledWith('settings:navigate', { tab: 'help' });
+    expect(windows[0].focus).toHaveBeenCalledTimes(6);
+  });
   it('rejects unknown tabs without resetting the selected tab on a plain open', () => {
     const { open, windows } = setup();
     open('../evil'); windows[0].loaded(); open(); open('evil');
     expect(windows[0].loadURL.mock.calls[0][0]).toBe('http://localhost:5173/?view=settings');
     expect(windows[0].webContents.send).not.toHaveBeenCalled();
+    expect(windows[0].focus).toHaveBeenCalledTimes(2);
   });
   it('resets pending navigation when the window closes', () => {
     const { open, windows } = setup();

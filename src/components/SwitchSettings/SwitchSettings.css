@@ -11,59 +11,27 @@
 }
 
 .switch-settings__header,
-.switch-settings__card-header,
-.switch-settings__actions {
+.switch-settings__row-main,
+.switch-settings__name,
+.switch-settings__controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 
 .switch-settings__header {
+  justify-content: space-between;
   margin: 0 0 20px 20px;
-}
-
-.switch-settings p {
-  margin: 6px 0 0;
-  color: #818187;
-  font-size: 12px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
 }
 
 .switch-settings__header p {
   margin: 0;
   font-size: 14px;
   color: #888;
+  line-height: 1.6;
 }
 
-.switch-settings .ant-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 28px;
-  padding: 2px 10px;
-  border-color: #d9d9dc;
-  border-radius: 8px;
-  background: #fff;
-  color: #202024;
-  box-shadow: none;
-  font-size: 12px;
-}
-
-.switch-settings .ant-btn:hover:not(:disabled) {
-  border-color: #aaa !important;
-  color: #202024 !important;
-  background: #fafafa !important;
-}
-
-.switch-settings .ant-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.switch-settings__refresh {
+.switch-settings__controls {
   flex-shrink: 0;
 }
 
@@ -77,224 +45,173 @@
   margin-bottom: 14px;
 }
 
-.switch-settings__loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 20px;
-  color: #818187;
-}
-
-.switch-settings__cards {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.switch-settings__card {
-  min-width: 0;
-  padding: 20px;
-  border: 1px solid #e8e8eb;
+.switch-settings__list {
+  padding: 4px 20px;
   border-radius: 10px;
   background: #fff;
 }
 
-.switch-settings__card-header {
-  margin-bottom: 16px;
+.switch-settings__row {
+  min-width: 0;
+  padding: 20px 0;
+}
+
+.switch-settings__row + .switch-settings__row {
+  border-top: 1px solid #f0f0f0;
+}
+
+.switch-settings__row-main {
+  justify-content: space-between;
+}
+
+.switch-settings__name {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px 12px;
 }
 
 .switch-settings h2 {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
   margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.switch-settings h2 svg {
-  flex-shrink: 0;
-  color: #73737c;
-}
-
-.switch-settings__status {
-  flex-shrink: 0;
-  border-radius: 6px;
-  padding: 3px 8px;
-  background: #f1f1f3;
-  color: #73737c;
-  font-size: 12px;
-}
-
-.switch-settings__status--enabled {
-  background: #eaf7ee;
-  color: #1e8a3e;
-}
-
-.switch-settings__status--warning {
-  background: #fff5e6;
-  color: #ad6400;
-}
-
-.switch-settings__details {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-}
-
-.switch-settings__details > div {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 10px;
-  line-height: 1.6;
-}
-
-.switch-settings__details dt {
-  color: #73737c;
-}
-
-.switch-settings__details dd {
-  min-width: 0;
-  margin: 0;
-}
-
-.switch-settings__path {
-  color: #818187;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-  user-select: text;
-}
-
-.switch-settings__card > .ant-alert {
-  margin-top: 12px;
-}
-
-.switch-settings .switch-settings__update-note {
-  color: #ad6400;
-  margin-top: 12px;
-}
-
-.switch-settings__model-field,
-.switch-settings__models {
-  margin-top: 20px;
-}
-
-.switch-settings__model-field label,
-.switch-settings h3 {
-  display: block;
-  margin: 0 0 8px;
-  color: #666;
   font-size: 14px;
   font-weight: 400;
 }
 
-.switch-settings__model-field select {
-  width: 100%;
-  min-width: 0;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid #e0e0e5;
-  border-radius: 8px;
-  background: #fff;
-  color: #202024;
-  font-family: inherit;
-  font-size: 13px;
-}
-
-.switch-settings__model-field select:disabled {
-  cursor: not-allowed;
-  color: #929298;
-  background: #fafafa;
-}
-
-.switch-settings__model-list {
-  list-style: none;
-  padding: 0;
-  margin: 12px 0 0;
-  max-height: 300px;
-  overflow-y: auto;
-  border: 1px solid #e0e0e5;
-  border-radius: 8px;
-}
-
-.switch-settings__model-list:empty {
-  display: none;
-}
-
-.switch-settings__model-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  padding: 8px 12px;
-}
-
-.switch-settings__model-list li + li {
-  border-top: 1px solid #e0e0e5;
-}
-
-.switch-settings__model-copy {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.switch-settings__model-copy p {
-  margin-top: 3px;
-}
-
-.switch-settings__badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.switch-settings__badges span {
+.switch-settings__example-trigger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
   height: 20px;
-  padding: 0 6px;
-  border: 1px solid #e4e4e7;
+  margin-left: -6px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #888;
+  cursor: help;
+}
+
+.switch-settings__example-trigger:hover,
+.switch-settings__example-trigger:focus-visible {
+  color: #00782a;
+}
+
+.switch-settings__example-popover {
+  max-width: calc(100vw - 32px);
+}
+
+.switch-settings__example-image {
+  display: block;
+  width: 480px;
+  max-width: calc(100vw - 64px);
+  max-height: min(420px, calc(100vh - 80px));
+  object-fit: contain;
   border-radius: 6px;
-  color: #73737c;
-  background: #fafafa;
+}
+
+.switch-settings__tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid #c4e8cd;
+  border-radius: 4px;
+  background: #edf8f0;
+  color: #277b40;
   font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
   white-space: nowrap;
 }
 
-.switch-settings__actions {
-  justify-content: flex-end;
-  margin-top: 20px;
-  flex-wrap: wrap;
-  gap: 8px;
+.switch-settings__status {
+  color: #818187;
+  font-size: 12px;
 }
 
-.switch-settings .switch-settings__security-note {
-  margin: 16px 20px 0;
+.switch-settings .switch-settings__switch.ant-switch.ant-switch-checked {
+  background-color: #1677ff;
 }
 
-.switch-settings button:focus-visible,
-.switch-settings select:focus-visible {
-  outline: 2px solid #555;
+.switch-settings .switch-settings__switch.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+  background-color: #4096ff;
+}
+
+.switch-settings button:focus-visible {
+  outline: 2px solid #1677ff;
   outline-offset: 2px;
 }
 
-/* The confirmation is portaled outside the settings root. */
-.switch-settings__confirm-modal .ant-modal-content {
-  border-radius: 12px;
+.switch-settings--embedded {
+  width: 100%;
+  background: #fafafa;
 }
 
-.switch-settings__confirm-copy p {
-  margin: 0 0 12px;
-  color: #666;
-  line-height: 1.7;
+.switch-settings--embedded .switch-settings__header {
+  margin: 0;
+  padding: 4px 4px 4px 20px;
+  background: #e6f6ea;
 }
 
-.switch-settings__confirm-copy p:last-child {
-  margin-bottom: 0;
+.switch-settings--embedded .switch-settings__header p {
+  color: #555;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: normal;
+}
+
+.switch-settings__guide {
+  margin-left: 8px;
+  color: #00782a;
+  text-decoration: none;
+}
+
+.switch-settings__guide:hover {
+  color: #00782a;
+  text-decoration: underline;
+}
+
+.switch-settings--embedded .switch-settings__notices:not(:empty) {
+  margin: 12px 20px 0;
+}
+
+.switch-settings--embedded .switch-settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 20px 10px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.switch-settings--embedded .switch-settings__row {
+  padding: 16px 0 0;
+  border: none;
+}
+
+.switch-settings--embedded .switch-settings__row-main {
+  gap: 16px;
+}
+
+.switch-settings--embedded .switch-settings__controls {
+  transform: scale(0.7);
+  transform-origin: right center;
+}
+
+.switch-settings--embedded h2 {
+  color: #000;
+}
+
+.switch-settings--embedded .switch-settings__switch.ant-switch.ant-switch-checked,
+.switch-settings--embedded .switch-settings__switch.ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled),
+.switch-settings--embedded .switch-settings__switch.ant-switch.ant-switch-checked:focus:not(.ant-switch-disabled) {
+  background-color: #09a742;
+}
+
+.switch-settings--embedded .switch-settings__switch.ant-switch:not(.ant-switch-checked) {
+  background-color: #bfbfbf;
 }
 
 @media (max-width: 600px) {
@@ -302,11 +219,7 @@
     margin-left: 0;
   }
 
-  .switch-settings__card {
-    padding: 16px;
-  }
-
-  .switch-settings__model-list li {
-    flex-wrap: wrap;
+  .switch-settings__list {
+    padding: 4px 16px;
   }
 }

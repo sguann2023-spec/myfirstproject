@@ -1,7 +1,7 @@
 // SettingPage.jsx
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Modal, Spin } from 'antd';
-import { ArrowLeftRight, Package } from 'lucide-react';
+import { Package } from 'lucide-react';
 import './SettingPage.css';
 
 import AccountSecurityIcon from '../../../public/account_security.svg';
@@ -10,7 +10,6 @@ import PrivacyIcon from '../../../public/privacy.svg';
 import { InfoCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { getCurrentChannelBrandConfig } from '../../../channel-branding/runtime';
 const ModelSettings = lazy(() => import('../../components/ModelSettings/ModelSettings'));
-const SwitchSettings = lazy(() => import('../../components/SwitchSettings/SwitchSettings'));
 const GeneralSettings = lazy(() => import('../../components/GeneralSettings/GeneralSettings'));
 const HelpSettings = lazy(() => import('../../components/HelpSettings/HelpSettings'));
 const AccountSecurity = lazy(() => import('../../components/AccountSecurity/AccountSecurity'));
@@ -24,7 +23,6 @@ const settingMenuItems = [
   { key: 'account-security', icon: <img src={AccountSecurityIcon} alt="Account Security" className="setting-icon" />, title: '账号与安全', component: AccountSecurity },
   { key: 'general', icon: <img src={GeneralSettingIcon} alt="General Settings" className="setting-icon" />, title: '通用', component: GeneralSettings },
   { key: 'models', icon: <Package className="setting-icon" />, title: '模型设置', component: ModelSettings },
-  { key: 'switch', icon: <ArrowLeftRight className="setting-icon" />, title: 'switch', component: SwitchSettings },
   { key: 'help', icon: <QuestionCircleOutlined />, title: '使用帮助', component: HelpSettings },
   { key: 'about', icon: <InfoCircleOutlined />, title: ABOUT_TITLE, component: AboutUs },
   { key: 'policy', icon: <img src={PrivacyIcon} alt="Policy Agreement" className="setting-icon" />, title: '政策与协议', component: PolicyAgreement }

@@ -26,9 +26,15 @@
   color: #00b874;
 }
 
-.chat-panel__local-mcp-panel .ant-switch.ant-switch-checked,
-.chat-panel__local-mcp-panel .ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
+.chat-panel__local-mcp-detection-switch .ant-switch.ant-switch-checked,
+.chat-panel__local-mcp-detection-switch .ant-switch.ant-switch-checked:hover:not(.ant-switch-disabled) {
   background-color: #09a742;
+}
+
+.chat-panel__local-mcp-dialog {
+  --external-links-top: clamp(16px, 19vh, 120px);
+  top: var(--external-links-top);
+  padding-bottom: 24px;
 }
 
 .chat-panel__local-mcp-dialog .ant-modal-content {
@@ -81,10 +87,64 @@
 .chat-panel__local-mcp-panel {
   display: flex;
   flex-direction: column;
+  max-height: calc(100vh - var(--external-links-top) - 24px);
+  max-height: calc(100dvh - var(--external-links-top) - 24px);
+  min-width: 0;
+  overflow: hidden;
   background-color: #fafafa;
 }
 
+.chat-panel__local-mcp-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 24px;
+  padding: 0 20px;
+  border-bottom: 1px solid #eeeeee;
+}
+
+.chat-panel__local-mcp-tab {
+  padding: 4px 4px 4px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #777;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+
+.chat-panel__local-mcp-tab:hover {
+  color: #555;
+}
+
+.chat-panel__local-mcp-tab[aria-selected='true'] {
+  border-bottom-color: #111;
+  color: #111;
+}
+
+.chat-panel__local-mcp-tab:focus-visible {
+  outline: 2px solid #5a95f0;
+  outline-offset: -2px;
+}
+
+.chat-panel__local-mcp-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.chat-panel__local-mcp-tab-pane {
+  min-width: 0;
+}
+
+.chat-panel__local-mcp-tab-pane[hidden] {
+  display: none;
+}
+
 .chat-panel__local-mcp-panel-title-row {
+  flex-shrink: 0;
   min-height: 28px;
   padding: 12px 20px 10px;
   border-bottom: 1px solid #eeeeee;
@@ -184,7 +244,6 @@
   gap: 14px;
   padding-left: 20px;
   padding-right: 20px;
-  padding-top: 10px;
   padding-bottom: 10px;
   border-bottom: 1px solid #eeeeee;
 }
