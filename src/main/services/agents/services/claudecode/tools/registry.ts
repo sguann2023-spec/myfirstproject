@@ -1,6 +1,7 @@
 import UserInteractionServer from '@main/mcpServers/user-interaction'
 import type { McpHttpServerConfig, Options } from '@anthropic-ai/claude-agent-sdk'
 import { loggerService } from '@logger'
+import AigcDetectServer from '@main/mcpServers/aigc-detect'
 import AiLibraryServer from '@main/mcpServers/ai-library'
 import AssistantServer from '@main/mcpServers/assistant'
 import ArtifactServer from '@main/mcpServers/artifact-server'
@@ -266,6 +267,20 @@ export async function mountRuntimeMcpServers(input: {
     })
     autoAllowTools.add(vt('image-understand', 'inspect_image'))
     allowMcpPattern(vp('image-understand'))
+  }
+
+  if (hasChatTurn || shouldMountCapability('aigcDetect')) {
+    const aigcDetectServer = new AigcDetectServer(cwd)
+    mountMcpServer('aigc-detect', {
+      type: 'sdk',
+      name: 'aigc-detect',
+      instance: aigcDetectServer.mcpServer,
+      longRunning: true,
+      timeout: 35 * 60
+    })
+    autoAllowTools.add(vt('aigc-detect', 'detect_aigc_image'))
+    autoAllowTools.add(vt('aigc-detect', 'detect_aigc_video'))
+    allowMcpPattern(vp('aigc-detect'))
   }
 
   if (hasAiMediaDomain) {

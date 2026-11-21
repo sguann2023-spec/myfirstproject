@@ -22,6 +22,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
   initializePromise = (async () => {
     const workspacePath = getLocalAggregateWorkspacePath()
     const [
+      { default: AigcDetectServer },
       { default: AiLibraryServer },
       { default: FigureSearchServer },
       { default: FootageSearchServer },
@@ -64,6 +65,7 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
       { default: ZhipuSearchServer },
       { default: ColorGradeServer }
     ] = await Promise.all([
+      import('@main/mcpServers/aigc-detect'),
       import('@main/mcpServers/ai-library'),
       import('@main/mcpServers/figure-search'),
       import('@main/mcpServers/footage-search'),
@@ -173,6 +175,11 @@ export async function initializeLocalAggregateMcpService(): Promise<void> {
         serverId: 'image-understand',
         serverName: 'image-understand',
         createInstance: () => new ImageUnderstandServer(workspacePath).mcpServer
+      },
+      {
+        serverId: 'aigc-detect',
+        serverName: 'aigc-detect',
+        createInstance: () => new AigcDetectServer(workspacePath).mcpServer
       },
       {
         serverId: 'image',
