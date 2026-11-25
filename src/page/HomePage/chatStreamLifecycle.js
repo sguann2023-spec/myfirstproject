@@ -16,6 +16,13 @@ export function ownsChatCompletion(pendingById, requestId, pending) {
     && ![...pendingById.values()].some((item) => item !== pending && item.chatId === pending.chatId);
 }
 
+// Accepted requests also own the chat while workspace/attachments are being prepared.
+export function hasActiveChatRequest(chatId, pendingById, acceptedById) {
+  return [pendingById, acceptedById].some((requests) => (
+    [...requests.values()].some((request) => request.chatId === chatId)
+  ));
+}
+
 // History may contain accounting before the corresponding message body is saved.
 export function preserveHydratedMessageBodies(hydratedMessages, currentMessages) {
   const byId = new Map(currentMessages.map((message) => [message.id, message]));

@@ -478,6 +478,8 @@ const Chat = ({
   }, [input, setInput]);
 
   const [, refreshQueue] = React.useReducer(x => x + 1, 0);
+  const onSendMessageRef = React.useRef(onSendMessage);
+  onSendMessageRef.current = onSendMessage;
   React.useEffect(() => {
     sendQueue.listeners.add(refreshQueue);
     return () => sendQueue.listeners.delete(refreshQueue);
@@ -485,7 +487,7 @@ const Chat = ({
   React.useEffect(() => {
     if (!modelListLoading) {
       let dispatchSessionId = ownerId;
-      sendQueue.pump(ownerId, (text, options) => onSendMessage(text, {
+      sendQueue.pump(ownerId, (text, options) => onSendMessageRef.current(text, {
         ...options,
         queueSessionId: dispatchSessionId,
         onQueueSession: (id) => {
