@@ -6023,7 +6023,7 @@ const Composer = ({
               beginnerGuideInputAreaRef.current = node;
             }
           }}
-            className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''} ${hasToolPreviewRow ? 'chat-panel__input-wrap--with-attachments' : ''}`}
+          className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''} ${hasToolPreviewRow ? 'chat-panel__input-wrap--with-attachments' : ''} ${mentionState.open && (mentionState.symbol === '#' || mentionState.symbol === '@') ? 'chat-panel__input-wrap--mention-open' : ''}`}
           onDragEnter={handleInputDragEnter}
           onDragOver={handleInputDragOver}
           onDragLeave={handleInputDragLeave}

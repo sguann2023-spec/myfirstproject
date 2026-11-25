@@ -52,6 +52,9 @@
 }
 
 .chat-panel__tool-bar {
+  position: relative;
+  /* 附件态的 transform 会创建层叠上下文，工具浮层需高于关闭按钮（2）和输入区（3）。 */
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -961,6 +964,11 @@
   transform: translateY(-1px);
 }
 
+.chat-panel__input-wrap--mention-open {
+  /* Raise the parent stacking context above the toolbar while references are open. */
+  z-index: 5;
+}
+
 .chat-panel__input-wrap.drag-active .chat-panel__input--tiptap {
   opacity: 0.2;
   pointer-events: none;
@@ -979,7 +987,7 @@
   max-height: 380px;
   max-width: min(360px, calc(100% - 8px));
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
+  background: #ffffff;
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.14);
   overflow: hidden;
   z-index: 20;

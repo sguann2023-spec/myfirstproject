@@ -1,6 +1,8 @@
 import { isTokenTelemetry, type TokenCategory, type TokenTelemetry, type TokenRequestTelemetry, type TokenContextTelemetry } from '@shared/tokenTelemetry'
 import {
   aggregateSessionTokenUsage, mergeLiveTokenMessage, getInternalToolUsage,
+  getDisplayUsage, getMessageConversationPoints, getMessageConversationSavingPoints, isThirdPartyBillingModel,
+  resolveTokenUsageBlock, extractBillingPointsFromToolResponse,
   type TokenUsageMessage, type TokenUsageBlocksById, type SessionTokenUsageSummary
 } from '@renderer/pages/home/Messages/tokenUsage'
 
@@ -116,6 +118,58 @@ function mergeGroup(group: StatsMessage[]): StatsMessage {
 
 export function mergeStatsMessages(history: readonly StatsMessage[] = [], messages: readonly StatsMessage[] = []) {
   return messageGroups([...history, ...messages]).map(mergeGroup)
+}
+
+/** Cost uses full session messages, not the content-free authoritative token projection. */
+export function buildSessionCostModel(messages: readonly StatsMessage[], live: LiveMessages = {}, blocks: TokenUsageBlocksById = {}, runtime = '') {
+  let conversationPoints = 0
+  let toolPoints = 0
+  let savingPoints = 0
+  let incomplete = false
+  let conversationIncomplete = false
+  let toolsIncomplete = false
+  let hasKnownCost = false
+  let hasExternalBilling = false
+  const toolTotals = new Map<string, number>()
+  const groups = messageGroups(messages.filter(message => message?.role === 'assistant'), live, runtime)
+  const seenBlocks = new Set<string>()
+  for (const group of groups) {
+    const message = mergeGroup(group)
+    const external = isThirdPartyBillingModel(message.model)
+    const usage = getDisplayUsage(message)
+    hasExternalBilling ||= external
+    const pricingKnown = Boolean(message.model?.pricing && Object.values(message.model.pricing).some(value => typeof value === 'number' && Number.isFinite(value) && value >= 0))
+    if (external || (usage && pricingKnown)) {
+      conversationPoints += Math.max(0, getMessageConversationPoints(message))
+      savingPoints += Math.max(0, getMessageConversationSavingPoints(message))
+      hasKnownCost = true
+    } else { incomplete = true; conversationIncomplete = true }
+    incomplete ||= Boolean(message.error) || message.status === 'error' || Boolean(message.aborted)
+    if (!Array.isArray(message.blocks)) { incomplete = true; toolsIncomplete = true }
+    for (const ref of message.blocks || []) {
+      const block = resolveTokenUsageBlock(ref, blocks)
+      if (!block) { incomplete = true; toolsIncomplete = true; continue }
+      if (block.id && seenBlocks.has(block.id)) continue
+      if (block.id) seenBlocks.add(block.id)
+      if (block.type !== 'tool') continue
+      const response = block.metadata?.rawMcpToolResponse
+      const name = (block.toolName || response?.tool?.name || response?.toolName || '').trim()
+      // Execution containers may echo the inner tool's billing payload.
+      if (name.toLowerCase() === 'codemode') continue
+      const points = extractBillingPointsFromToolResponse(response)
+      if (Number.isFinite(points) && points > 0) {
+        toolPoints += points
+        hasKnownCost = true
+        toolTotals.set(name, (toolTotals.get(name) || 0) + points)
+      }
+    }
+    const missingToolBilling = getInternalToolUsage(message, blocks).missingBilling
+    toolsIncomplete ||= missingToolBilling
+    incomplete ||= missingToolBilling
+  }
+  const toolDetails = Array.from(toolTotals, ([label, value]) => ({ label, value }))
+  return { conversationPoints, toolPoints, totalPoints: conversationPoints + toolPoints, savingPoints, toolDetails,
+    messageCount: groups.length, hasKnownCost, incomplete, conversationIncomplete, toolsIncomplete, hasExternalBilling }
 }
 function collect(messages: readonly StatsMessage[], live: LiveMessages, runtime: string, persisted?: TokenTelemetry) {
   const groups = messageGroups(messages.filter(message => message?.role === 'assistant'), live, runtime)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TokenBreakdown, TokenContextTelemetry, TokenRequestTelemetry, TokenTelemetry } from '@shared/tokenTelemetry'
-import { aggregateSessionTokenUsage, type TokenUsageBlock } from '@renderer/pages/home/Messages/tokenUsage'
-import { buildReportedTokenSummary, buildTokenStatsModel, mergeStatsMessages, type StatsMessage } from './tokenStatsModel'
+import { aggregateSessionTokenUsage, type MessagePricingWithPreciseFields, type TokenUsageBlock } from '@renderer/pages/home/Messages/tokenUsage'
+import { buildReportedTokenSummary, buildSessionCostModel, buildTokenStatsModel, mergeStatsMessages, type StatsMessage } from './tokenStatsModel'
 
 const breakdown = (categories: TokenBreakdown['categories'] = { user: 10 }, overrides: Partial<TokenBreakdown> = {}): TokenBreakdown => ({
   categories, total: Object.values(categories).reduce((sum, value) => sum + (value || 0), 0), status: 'estimated', method: 'test', ...overrides
@@ -19,6 +19,145 @@ const telemetry = (requests: TokenRequestTelemetry[] = [], ctx?: TokenContextTel
 const usage = (prompt_tokens = 900, completion_tokens = 100) => ({ prompt_tokens, completion_tokens, total_tokens: prompt_tokens + completion_tokens })
 const assistant = (overrides: StatsMessage = {}): StatsMessage => ({ id: 'message', role: 'assistant', blocks: [], ...overrides })
 const entry = (requests = [request()], overrides: StatsMessage = {}) => assistant({ tokenTelemetry: telemetry(requests), ...overrides })
+
+describe('buildSessionCostModel', () => {
+  const pricing: MessagePricingWithPreciseFields = {
+    input_per_million_tokens: 99, output_per_million_tokens: 99,
+    precise_uncached_input_resource_points_per_unit: 2,
+    precise_cache_read_resource_points_per_unit: 0.5,
+    precise_cache_write_resource_points_per_unit: 3,
+    precise_output_resource_points_per_unit: 4
+  }
+  const model: NonNullable<StatsMessage['model']> = { id: 'platform-model', provider: 'platform', name: 'Platform', group: 'test', pricing }
+  const priced = (overrides: StatsMessage = {}) => assistant({ model, usage: usage(1_000_000, 100_000), ...overrides })
+  const tool = (id: string, points: number): TokenUsageBlock => ({
+    id, type: 'tool', toolName: 'mcp__vectcut__copylab__derive_copy_prompt',
+    metadata: { rawMcpToolResponse: { responseRaw: { content: [{ type: 'text', text: JSON.stringify({
+      usage: usage(999_999, 999_999), billing: { complete: true, total_consumed_points: points }
+    }) }] } } }
+  })
+
+  it.each([
+    { cache_read_input_tokens: 200_000, cache_creation_input_tokens: 100_000 },
+    { prompt_tokens_details: { cached_tokens: 200_000, cache_write_tokens: 100_000 } },
+    { input_tokens_details: { cached_tokens: 200_000, cache_creation_input_tokens: 100_000 } }
+  ])('charges uncached input, cache reads, cache writes and output separately: %j', cache => {
+    const result = buildSessionCostModel([priced({ usage: { ...usage(1_000_000, 100_000), ...cache } })])
+    // 700k * 2 + 200k * 0.5 + 100k * 3 + 100k * 4, per million tokens.
+    expect(result.conversationPoints).toBeCloseTo(2.2)
+    expect(result.totalPoints).toBeCloseTo(2.2)
+    expect(result).toMatchObject({ toolPoints: 0, messageCount: 1, hasKnownCost: true, incomplete: false, hasExternalBilling: false })
+  })
+
+  it('groups repeated tool calls across messages without merging different tool identities', () => {
+    const result = buildSessionCostModel([
+      priced({ id: 'one', blocks: [tool('first', 2), tool('second', 3)] }),
+      priced({ id: 'two', blocks: [tool('third', 4), {
+        ...tool('audio', 1), toolName: 'mcp__vectcut__audio__understand'
+      }, { ...tool('other-server', 5), toolName: 'mcp__other__copylab__derive_copy_prompt' }] })
+    ])
+    expect(result.toolPoints).toBe(15)
+    expect(result.toolDetails).toEqual([
+      { label: 'mcp__vectcut__copylab__derive_copy_prompt', value: 9 },
+      { label: 'mcp__vectcut__audio__understand', value: 1 },
+      { label: 'mcp__other__copylab__derive_copy_prompt', value: 5 }
+    ])
+    expect(result.toolDetails.reduce((sum, tool) => sum + tool.value, 0)).toBe(result.toolPoints)
+  })
+
+  it('uses usageSteps instead of adding final usage or metrics to the cost', () => {
+    const result = buildSessionCostModel([priced({
+      usage: usage(99_000_000, 99_000_000), metrics: { completion_tokens: 99_000_000 },
+      usageSteps: [
+        { ...usage(1_000_000, 100_000), cache_read_input_tokens: 200_000, cache_creation_input_tokens: 100_000 },
+        usage(500_000, 50_000)
+      ]
+    })])
+    expect(result.conversationPoints).toBeCloseTo(3.4)
+    expect(result.totalPoints).toBeCloseTo(3.4)
+    expect(result).toMatchObject({ messageCount: 1, hasKnownCost: true, incomplete: false })
+  })
+
+  it('deduplicates late-bridged session/store aliases and uses referenced live accounting once', () => {
+    const block = tool('tool', 3)
+    const result = buildSessionCostModel([
+      priced({ id: ' snapshot ', blocks: [block] }),
+      priced({ id: 'live', usage: usage(2_000_000, 0), blocks: ['tool'] }),
+      assistant({ id: 'snapshot', storeAssistantMessageId: ' live ' })
+    ], { live: priced({ id: 'redux', usage: usage(500_000, 0), blocks: ['tool', block] }) }, { tool: block })
+    expect(result).toEqual({ conversationPoints: 1, toolPoints: 3, totalPoints: 4, savingPoints: 0, toolDetails: [{ label: 'mcp__vectcut__copylab__derive_copy_prompt', value: 3 }],
+      messageCount: 1, hasKnownCost: true, incomplete: false, conversationIncomplete: false, toolsIncomplete: false, hasExternalBilling: false })
+  })
+
+  it('charges shared Redux tool block IDs once across distinct assistant messages', () => {
+    const block = tool('shared', 3)
+    const result = buildSessionCostModel([
+      priced({ id: 'one', usage: usage(500_000, 0), blocks: ['shared'] }),
+      priced({ id: 'two', usage: usage(500_000, 0), blocks: [block] })
+    ], {}, { shared: block })
+    expect(result).toMatchObject({ conversationPoints: 2, toolPoints: 3, totalPoints: 5, messageCount: 2, incomplete: false })
+  })
+
+  it.each([
+    { runtimeSessionId: 's2' },
+    { topicId: 'agent-session:s2' },
+    { tokenTelemetry: telemetry([request({ runtimeSessionId: 's2' })]) }
+  ])('isolates foreign Redux overlays and session entries by owner: %j', owner => {
+    const foreign = priced({ id: 'foreign', usage: usage(99_000_000, 0), blocks: [tool('foreign-tool', 99)], ...owner })
+    const result = buildSessionCostModel([
+      priced({ id: 'snapshot', storeAssistantMessageId: 'live', runtimeSessionId: 's1', usage: usage(500_000, 0) }),
+      foreign,
+      { ...priced({ id: 'user', usage: usage(99_000_000, 0) }), role: 'user' }
+    ], {
+      snapshot: foreign,
+      live: priced({ id: 'live', runtimeSessionId: 's1', usage: usage(1_000_000, 0) }),
+      unrelated: priced({ id: 'unrelated', runtimeSessionId: 's1', blocks: [tool('unrelated-tool', 99)] })
+    }, {}, 's1')
+    expect(result).toEqual({ conversationPoints: 2, toolPoints: 0, totalPoints: 2, savingPoints: 0, toolDetails: [],
+      messageCount: 1, hasKnownCost: true, incomplete: false, conversationIncomplete: false, toolsIncomplete: false, hasExternalBilling: false })
+  })
+
+  it.each(['block', 'response.tool', 'response.toolName'])('excludes codemode billing echoed through %s', source => {
+    const inner = tool('inner', 3)
+    const container = tool('container', 3)
+    if (source === 'block') container.toolName = 'CoDeMoDe'
+    else {
+      container.toolName = undefined
+      if (source === 'response.tool') container.metadata!.rawMcpToolResponse!.tool = { name: 'codemode' }
+      else container.metadata!.rawMcpToolResponse!.toolName = 'codemode'
+    }
+    const result = buildSessionCostModel([priced({ usage: usage(500_000, 0), blocks: ['container', 'inner'] })], {}, { container, inner })
+    expect(result).toMatchObject({ conversationPoints: 1, toolPoints: 3, totalPoints: 4, hasKnownCost: true, incomplete: false })
+  })
+
+  it.each([{ provider: 'custom-provider' }, { id: 'custom-model' }])('marks third-party API billing as external while retaining platform tool charges: %j', external => {
+    const message = priced({ model: { ...model, ...external, pricing: undefined }, usage: undefined })
+    expect(buildSessionCostModel([message])).toEqual({ conversationPoints: 0, toolPoints: 0, totalPoints: 0, savingPoints: 0, toolDetails: [],
+      messageCount: 1, hasKnownCost: true, incomplete: false, conversationIncomplete: false, toolsIncomplete: false, hasExternalBilling: true })
+    expect(buildSessionCostModel([{ ...message, usage: usage(), blocks: [tool('tool', 3)] }])).toMatchObject({
+      conversationPoints: 0, toolPoints: 3, totalPoints: 3, hasKnownCost: true, incomplete: false, hasExternalBilling: true
+    })
+  })
+
+  it.each([
+    undefined,
+    {} as MessagePricingWithPreciseFields,
+    { input_per_million_tokens: NaN, output_per_million_tokens: -1 }
+  ])('marks missing or invalid pricing as unknown instead of a known zero: %j', unknownPricing => {
+    const message = priced({ model: { ...model, pricing: unknownPricing } })
+    expect(buildSessionCostModel([message])).toEqual({ conversationPoints: 0, toolPoints: 0, totalPoints: 0, savingPoints: 0, toolDetails: [],
+      messageCount: 1, hasKnownCost: false, incomplete: true, conversationIncomplete: true, toolsIncomplete: false, hasExternalBilling: false })
+    expect(buildSessionCostModel([{ ...message, blocks: [tool('tool', 3)] }])).toMatchObject({
+      conversationPoints: 0, toolPoints: 3, totalPoints: 3, hasKnownCost: true, incomplete: true
+    })
+  })
+
+  it('distinguishes an explicitly free model from missing pricing', () => {
+    expect(buildSessionCostModel([priced({ model: { ...model, pricing: { input_per_million_tokens: 0, output_per_million_tokens: 0 } } })])).toEqual({
+      conversationPoints: 0, toolPoints: 0, totalPoints: 0, savingPoints: 0, toolDetails: [], messageCount: 1, hasKnownCost: true, incomplete: false, conversationIncomplete: false, toolsIncomplete: false, hasExternalBilling: false
+    })
+  })
+})
 
 describe('message and request identity', () => {
   it('unions aliases with a late bridge, trims IDs and leaves anonymous messages distinct', () => {

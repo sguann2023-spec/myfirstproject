@@ -2,10 +2,14 @@ import React from 'react';
 import { Database, Gauge, LoaderCircle } from 'lucide-react';
 import { Provider, useSelector } from 'react-redux';
 import { useTranslation } from 'react-i18next';
+import { getMcpToolDisplayName, parseMcpToolName } from '@renderer/pages/home/Messages/Tools/shared/mcpToolDisplay';
 import appStore from '@renderer/store';
-import { buildReportedTokenSummary, buildTokenStatsModel, mergeStatsMessages, TOKEN_CATEGORY_COLORS, TOKEN_CATEGORY_ORDER } from './tokenStatsModel';
+import { buildReportedTokenSummary, buildSessionCostModel, buildTokenStatsModel, mergeStatsMessages, TOKEN_CATEGORY_COLORS, TOKEN_CATEGORY_ORDER } from './tokenStatsModel';
 import { isTokenTelemetry, mergeTokenTelemetry } from '@shared/tokenTelemetry';
 import './SessionTokenStats.css';
+
+const POINT2_ICON_URL = new URL('../../../../public/point2.svg', import.meta.url).href;
+const TOOL_COST_COLORS = ['#00b7a5', '#ff9800', '#3383ff', '#ef3299', '#00a152', '#b743f5', '#d65c28', '#0086a8', '#b09800', '#db4263', '#526d82', '#7b9b32'];
 
 const EMPTY_ENTITIES = {};
 const EMPTY_STATS = { segments: [], estimateTotal: 0, requestCount: 0, missingHistory: false, partial: false };
@@ -27,10 +31,10 @@ const TokenLoading = ({ label }) => <div className="token-dashboard__loading" ro
   <div className="token-dashboard__skeleton" aria-hidden="true"><i /><i /><i /></div>
 </div>;
 
-const TokenLegend = ({ segments, total, compactLayout = false, activeCategory, onActiveCategory }) => {
+const TokenLegend = ({ segments, total, compactLayout = false, activeCategory, onActiveCategory, labelPrefix = 'previewTab.stats.categories', formatValue = compact, formatShare = percentage }) => {
   const { t } = useTranslation();
   return <dl className={`token-dashboard__legend ${compactLayout ? 'is-context' : ''}`}>
-    {segments.map(({ key, value, color }) => <div
+    {segments.map(({ key, value, color, label }) => <div
       className={`token-dashboard__legend-item ${activeCategory === key ? 'is-active' : ''}`.trim()}
       key={key}
       data-category={key}
@@ -39,13 +43,89 @@ const TokenLegend = ({ segments, total, compactLayout = false, activeCategory, o
       onMouseLeave={() => onActiveCategory(null)}
       onFocus={() => onActiveCategory(key)}
       onBlur={() => onActiveCategory(null)}>
-      <dt><span className="token-dashboard__swatch" style={{ background: color }} />{t(`previewTab.stats.categories.${key}`)}</dt>
-      <dd><strong>{percentage(value, total)}</strong><span>{compact(value)}</span></dd>
+      <dt><span className="token-dashboard__swatch" style={{ background: color }} />{label || t(`${labelPrefix}.${key}`)}</dt>
+      <dd><strong>{formatShare(value, total, key)}</strong><span>{formatValue(value, key)}</span></dd>
     </div>)}
   </dl>;
 };
 
-export const SessionTokenStatsContent = ({ summary, stats = EMPTY_STATS, modelMeta = null, historyComplete = true, loading = false, refreshing = false, error = false, onRetry }) => {
+const SessionCostStats = ({ cost, loading }) => {
+  const { t, i18n } = useTranslation();
+  const [activeCategory, setActiveCategory] = React.useState(null);
+  const toolColors = React.useRef(new Map());
+  const formatPoints = (value) => new Intl.NumberFormat(i18n.language, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  const total = cost?.totalPoints || 0;
+  const unknown = !cost || (cost.messageCount > 0 && !cost.hasKnownCost);
+
+  const baseCost = total + (cost?.savingPoints || 0);
+  const savingPercent = baseCost > total && baseCost > 0 ? Math.round(((baseCost - total) / baseCost) * 100) : 0;
+
+  const segments = [
+    { key: 'conversation', value: cost?.conversationPoints || 0, color: '#6857ff' },
+    ...(cost?.toolDetails || []).map((tool) => {
+      // Keep an assigned color when tools reorder or new results arrive.
+      if (!toolColors.current.has(tool.label)) {
+        const index = toolColors.current.size;
+        toolColors.current.set(tool.label, TOOL_COST_COLORS[index] || `hsl(${(index * 137.508) % 360}, 65%, 45%)`);
+      }
+      return {
+        key: `tool:${tool.label}`,
+        label: getMcpToolDisplayName({ ...parseMcpToolName(tool.label), t }),
+        value: tool.value,
+        color: toolColors.current.get(tool.label)
+      };
+    })
+  ];
+  if (segments.length === 1 && (cost?.toolPoints || 0) > 0) {
+    segments.push({ key: 'tools', value: cost.toolPoints, color: '#00b7a5' });
+  }
+
+  let offset = 0;
+  const arcs = segments.map((segment) => {
+    const size = total > 0 ? segment.value / total * 100 : 0;
+    const arc = { ...segment, size, offset };
+    offset += size;
+    return arc;
+  });
+  const totalLabel = unknown ? '—' : formatPoints(total);
+  const categoryIncomplete = (key) => key === 'conversation' ? cost?.conversationIncomplete : cost?.toolsIncomplete;
+  return <article className="token-dashboard__card token-dashboard__cost" aria-labelledby="session-cost-title">
+    <header className="token-dashboard__header">
+      <h2 id="session-cost-title">
+        <img src={POINT2_ICON_URL} alt="" style={{ width: 18, height: 18, display: 'inline-block', verticalAlign: 'text-bottom', marginRight: 8 }} />
+        {t('previewTab.stats.costTitle')}
+      </h2>
+      <span>
+        {savingPercent > 0 && ` ${t('previewTab.stats.costSaving', { percent: savingPercent })}`}
+      </span>
+    </header>
+    {loading ? <TokenLoading label={t('previewTab.stats.costLoading')} /> : <>
+      <div className="token-dashboard__overview">
+        <div className="token-dashboard__donut" role="img" aria-label={`${t('previewTab.stats.costTotal')} ${totalLabel} ${t('previewTab.stats.points')}`}>
+          <svg viewBox="0 0 160 160" aria-hidden="true">
+            <circle cx="80" cy="80" r="64" fill="none" stroke="var(--token-track)" strokeWidth="16" />
+            {arcs.filter((arc) => arc.size > 0).map((arc) => <circle
+              key={arc.key} data-category={arc.key} className="token-dashboard__arc"
+              cx="80" cy="80" r="64" fill="none" stroke={arc.color}
+              strokeWidth={activeCategory === arc.key ? 19 : 16}
+              opacity={activeCategory && activeCategory !== arc.key ? 0.25 : 1}
+              pathLength="100" strokeDasharray={`${arc.size} ${100 - arc.size}`} strokeDashoffset={-arc.offset}
+              transform="rotate(-90 80 80)"
+              onMouseEnter={() => setActiveCategory(arc.key)} onMouseLeave={() => setActiveCategory(null)} />)}
+          </svg>
+          <div className="token-dashboard__donut-label"><strong data-testid="cost-total">{totalLabel}</strong><span>{t('previewTab.stats.costTotal')}</span></div>
+        </div>
+        <TokenLegend segments={segments} total={total} activeCategory={activeCategory} onActiveCategory={setActiveCategory}
+          labelPrefix="previewTab.stats.costCategories"
+          formatShare={(value, chartTotal, key) => unknown || (categoryIncomplete(key) && value === 0) ? '—' : percentage(value, chartTotal)}
+          formatValue={(value, key) => unknown || (categoryIncomplete(key) && value === 0) ? '—' : formatPoints(value)} />
+      </div>
+      <p className="token-dashboard__note">{t('previewTab.stats.costNote')}</p>
+    </>}
+  </article>;
+};
+
+export const SessionTokenStatsContent = ({ summary, stats = EMPTY_STATS, cost = null, modelMeta = null, historyComplete = true, loading = false, refreshing = false, error = false, onRetry }) => {
   const { t, i18n } = useTranslation();
   const [activeCategory, setActiveCategory] = React.useState(null);
   const [activeContextCategory, setActiveContextCategory] = React.useState(null);
@@ -107,6 +187,8 @@ export const SessionTokenStatsContent = ({ summary, stats = EMPTY_STATS, modelMe
         {segments.length > 0 ? <TokenLegend segments={segments} total={chartTotal} activeCategory={activeCategory} onActiveCategory={setActiveCategory} /> : <p className="token-dashboard__note">{t(summary.messageCount === 0 ? 'previewTab.stats.empty' : 'previewTab.stats.unknown')}</p>}
       </div>}
     </article>
+
+    <SessionCostStats cost={cost} loading={loading} />
 
     <article className="token-dashboard__card" aria-labelledby="token-context-title">
       <header className="token-dashboard__header">
@@ -206,6 +288,13 @@ const LiveSessionTokenStats = ({ messages, runtimeSessionId = '', modelMeta }) =
   const committedLiveMessages = runtimeSessionId ? EMPTY_ENTITIES : liveMessages;
   const committedBlocks = runtimeSessionId ? EMPTY_ENTITIES : blocks;
   const summary = React.useMemo(() => buildReportedTokenSummary(allMessages, committedLiveMessages, committedBlocks, runtimeSessionId, activeRemote?.tokenTelemetry), [allMessages, committedLiveMessages, committedBlocks, runtimeSessionId, activeRemote]);
+  const cost = React.useMemo(() => {
+    // Billing needs model prices and tool responses from the actual session, while
+    // token charts retain their authoritative, content-free runtime data source.
+    const result = buildSessionCostModel(messages, liveMessages, blocks, runtimeSessionId);
+    return { ...result, messageCount: Math.max(result.messageCount, summary.messageCount), incomplete: result.incomplete || (Boolean(runtimeSessionId) &&
+      (activeRemote?.historyComplete !== true || summary.messageCount > result.messageCount)) };
+  }, [messages, liveMessages, blocks, runtimeSessionId, activeRemote, summary.messageCount]);
   const stats = React.useMemo(() => {
     const result = buildTokenStatsModel(allMessages, committedLiveMessages, runtimeSessionId, activeRemote?.tokenTelemetry);
     // Runtime contexts must pass the main-process generation/model barrier. Raw and
@@ -216,7 +305,7 @@ const LiveSessionTokenStats = ({ messages, runtimeSessionId = '', modelMeta }) =
   const hasData = Boolean(activeRemote);
   const loading = Boolean(runtimeSessionId && !hasData && (!activeFetch || activeFetch.pending));
   const refreshing = Boolean(runtimeSessionId && hasData && activeFetch?.pending);
-  return <SessionTokenStatsContent summary={summary} stats={stats} modelMeta={modelMeta}
+  return <SessionTokenStatsContent summary={summary} stats={stats} cost={cost} modelMeta={modelMeta}
     historyComplete={!runtimeSessionId || activeRemote?.historyComplete === true}
     loading={loading} refreshing={refreshing} error={Boolean(runtimeSessionId && activeFetch?.error)}
     onRetry={() => setRetrySequence((value) => value + 1)} />;

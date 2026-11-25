@@ -200,6 +200,66 @@ export function getCacheInputTokens(usage?: MessageUsageWithCacheDetails | null)
   return { cacheReadTokens, cacheWriteTokens }
 }
 
+export type MessagePricingWithPreciseFields = NonNullable<Message['model']>['pricing'] & {
+  input_resource_points_per_unit?: number
+  output_resource_points_per_unit?: number
+  precise_input_resource_points_per_unit?: number
+  precise_output_resource_points_per_unit?: number
+  precise_uncached_input_resource_points_per_unit?: number
+  precise_cache_read_resource_points_per_unit?: number
+  precise_cache_write_resource_points_per_unit?: number
+}
+
+export const isThirdPartyBillingModel = (model?: TokenUsageMessage['model']) =>
+  Boolean(model?.provider?.startsWith('custom-') || model?.id?.startsWith('custom-'))
+
+/** Platform points only; external-provider API charges are not part of this estimate. */
+export function getConversationUsagePoints(model: TokenUsageMessage['model'], usage?: MessageUsageWithCacheDetails) {
+  if (isThirdPartyBillingModel(model)) return 0
+  const pricing = model?.pricing as MessagePricingWithPreciseFields | undefined
+  const input = Number(usage?.prompt_tokens ?? 0) || 0
+  const output = Number(usage?.completion_tokens ?? 0) || 0
+  const { cacheReadTokens, cacheWriteTokens } = getCacheInputTokens(usage)
+  const uncachedRate = Number(pricing?.precise_uncached_input_resource_points_per_unit ?? pricing?.precise_input_resource_points_per_unit ?? 0) || 0
+  const cacheReadRate = Number(pricing?.precise_cache_read_resource_points_per_unit ?? 0) || 0
+  const cacheWriteRate = Number(pricing?.precise_cache_write_resource_points_per_unit ?? 0) || 0
+  const outputRate = Number(pricing?.precise_output_resource_points_per_unit ?? pricing?.output_per_million_tokens ?? 0) || 0
+  if (uncachedRate > 0 || cacheReadRate > 0 || cacheWriteRate > 0 || outputRate > 0) {
+    return (Math.max(0, input - cacheReadTokens - cacheWriteTokens) * uncachedRate +
+      cacheReadTokens * cacheReadRate + cacheWriteTokens * cacheWriteRate + output * outputRate) / 1_000_000
+  }
+  const inputRate = Number(pricing?.input_resource_points_per_unit ?? pricing?.input_per_million_tokens ?? 0) || 0
+  const legacyOutputRate = Number(pricing?.output_resource_points_per_unit ?? pricing?.output_per_million_tokens ?? 0) || 0
+  return (input * inputRate + output * legacyOutputRate) / 1000
+}
+
+export function getConversationUsageSavingPoints(model: TokenUsageMessage['model'], usage?: MessageUsageWithCacheDetails) {
+  if (isThirdPartyBillingModel(model)) return 0
+  const pricing = model?.pricing as MessagePricingWithPreciseFields | undefined
+  const { cacheReadTokens } = getCacheInputTokens(usage)
+  if (cacheReadTokens <= 0) return 0
+  const uncachedRate = Number(pricing?.precise_uncached_input_resource_points_per_unit ?? pricing?.precise_input_resource_points_per_unit ?? 0) || 0
+  const cacheReadRate = Number(pricing?.precise_cache_read_resource_points_per_unit ?? 0) || 0
+  if (uncachedRate > 0 && cacheReadRate < uncachedRate) {
+    return (cacheReadTokens * (uncachedRate - cacheReadRate)) / 1_000_000
+  }
+  return 0
+}
+
+export function getMessageConversationPoints(message: TokenUsageMessage) {
+  const steps = getUsageSteps(message)
+  return steps.length > 0
+    ? steps.reduce((total, usage) => total + getConversationUsagePoints(message.model, usage), 0)
+    : getConversationUsagePoints(message.model, getDisplayUsage(message))
+}
+
+export function getMessageConversationSavingPoints(message: TokenUsageMessage) {
+  const steps = getUsageSteps(message)
+  return steps.length > 0
+    ? steps.reduce((total, usage) => total + getConversationUsageSavingPoints(message.model, usage), 0)
+    : getConversationUsageSavingPoints(message.model, getDisplayUsage(message))
+}
+
 /** Message-row normalization: steps replace (never add to) the final usage. */
 export function getDisplayUsage(message: TokenUsageMessage): MessageUsageWithCacheDetails | undefined {
   const directUsage = message.usage

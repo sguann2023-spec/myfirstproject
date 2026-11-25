@@ -25,7 +25,7 @@ const logger = loggerService.withContext('ClaudeCodePiQuery')
 
 const DEFAULT_PI_TERMINAL_TIMEOUT_MS = 600_000
 const DEFAULT_PI_IDLE_TIMEOUT_MS = 120_000
-const PI_NETWORK_RETRY_LIMIT = 5
+const PI_NETWORK_RETRY_LIMIT = 10
 const PI_NETWORK_RETRY_BASE_DELAY_MS = 3000
 
 type PendingToolCall = {
@@ -371,6 +371,7 @@ export async function processPiHarnessQuery(input: {
   let toolCallCount = 0
   let toolResultCount = 0
   let currentAttempt = 0
+  let retryCount = 0
   const queryStartedAt = Date.now()
   let assistantRound = 0
   let currentAssistantStartedAt = queryStartedAt
@@ -851,7 +852,18 @@ export async function processPiHarnessQuery(input: {
       currentAssistantUsage = convertPiUsage((event.message as any).usage)
       currentAssistantStopReason = mapPiStopReason((event.message as any).stopReason)
       const attemptStopReason = String((event.message as any).stopReason || '')
-      const attemptFailed = attemptStopReason === 'aborted' || attemptStopReason === 'error'
+      const attemptFailed = attemptStopReason === 'aborted' || attemptStopReason === 'error' || Boolean((event.message as any).errorMessage)
+      // Only a completed assistant response resets consecutive failures. Partial
+      // text/thinking from a response that later fails must not renew the budget.
+      if (!attemptFailed && retryCount > 0) {
+        retryCount = 0
+        emitChunk(stream, ({
+          type: 'retry-status',
+          attempt: 0,
+          maxRetries: PI_NETWORK_RETRY_LIMIT,
+          text: ''
+        } as unknown) as TextStreamPart<any>, harness)
+      }
       // Aborted attempts never execute their tools; recovering their snapshots would
       // create pending cards that can never reach a terminal state.
       const messageEndToolCalls =
@@ -1066,10 +1078,8 @@ export async function processPiHarnessQuery(input: {
 
   try {
     let result: unknown
-    // Retry attempts are bounded for the whole prompt invocation. A failed attempt may emit
-    // progress before its terminal error, but that must not reset the budget: providers that
-    // repeatedly stream the same partial response would otherwise retry forever.
-    let retryCount = 0
+    // Bound consecutive failures, resetting only after a successful message_end.
+    // Partial output from a failed response does not reset the retry budget.
     let progressSnapshot = { textDeltaCount, reasoningDeltaCount, toolCallCount, toolResultCount }
     const hasMadeProgressSinceSnapshot = (): boolean =>
       textDeltaCount > progressSnapshot.textDeltaCount

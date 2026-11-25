@@ -77,7 +77,7 @@ describe('session token dashboard', () => {
     installRuntime(vi.fn(() => pending.promise));
     await act(async () => root.render(<SessionTokenStats messages={[]} runtimeSessionId="A" />));
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-    expect(container.querySelectorAll('.token-dashboard__loading')).toHaveLength(2);
+    expect(container.querySelectorAll('.token-dashboard__loading')).toHaveLength(3);
     expect(total()).toBeNull();
     expect(container.textContent).not.toContain('暂无 token 用量');
     await act(async () => pending.resolve(bootstrap(snapshot(1, { tokenTelemetry: { version: 1, requests: [] }, context: null }))));
@@ -116,18 +116,78 @@ describe('session token dashboard', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it('renders two cards, cache rate and a non-duplicated input/output fallback without old reported explanations', async () => {
+  it('renders consumption below tokens, cache rate and a non-duplicated input/output fallback', async () => {
     await act(async () => root.render(<SessionTokenStatsContent summary={summary} />));
-    expect(container.querySelectorAll('.token-dashboard__card')).toHaveLength(2);
+    expect(container.querySelectorAll('.token-dashboard__card')).toHaveLength(3);
+    expect([...container.querySelectorAll('.token-dashboard__header h1, .token-dashboard__header h2')].map((node) => node.textContent)).toEqual(['Token 统计', '消耗统计', '当前上下文']);
+    const tokenCard = container.querySelector('.token-dashboard__card');
     expect(total()).toBe('1.0k');
     expect(container.textContent).toContain('缓存命中 50.0%');
-    expect([...container.querySelectorAll('.token-dashboard__legend dt')].map((node) => node.textContent)).toEqual(['输入 tokens', '输出 tokens']);
-    expect([...container.querySelectorAll('.token-dashboard__legend dd > span')].map((node) => node.textContent)).toEqual(['800', '200']);
+    expect([...tokenCard.querySelectorAll('.token-dashboard__legend dt')].map((node) => node.textContent)).toEqual(['输入 tokens', '输出 tokens']);
+    expect([...tokenCard.querySelectorAll('.token-dashboard__legend dd > span')].map((node) => node.textContent)).toEqual(['800', '200']);
     expect(container.querySelector('.token-dashboard__reported')).toBeNull();
     expect(container.querySelector('footer, small')).toBeNull();
-    expect(container.querySelector('.token-dashboard__note')).toBeNull();
+    expect(tokenCard.querySelector('.token-dashboard__note')).toBeNull();
     expect(container.textContent).not.toMatch(/供应商上报|历史分类未采集|分类估算合计/);
     expect(used()).toBe('—');
+  });
+
+  it('shows point totals and conversation/tool shares with keyboard-linked arcs', async () => {
+    const cost = { conversationPoints: 25, toolPoints: 75, totalPoints: 100, messageCount: 1, hasKnownCost: true, incomplete: false };
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={cost} />));
+    const card = container.querySelector('.token-dashboard__cost');
+    expect(card.querySelector('[data-testid="cost-total"]').textContent).toBe('100.00');
+    expect([...card.querySelectorAll('dt')].map(node => node.textContent)).toEqual(['对话消耗', '工具消耗']);
+    expect([...card.querySelectorAll('dd strong')].map(node => node.textContent)).toEqual(['25.0%', '75.0%']);
+    expect([...card.querySelectorAll('dd > span')].map(node => node.textContent)).toEqual(['25.00', '75.00']);
+    const legend = card.querySelector('.token-dashboard__legend [data-category="tools"]');
+    await act(async () => legend.focus());
+    expect(card.querySelector('circle[data-category="tools"]').getAttribute('stroke-width')).toBe('19');
+    expect(card.querySelector('circle[data-category="conversation"]').getAttribute('opacity')).toBe('0.25');
+  });
+
+  it('uses distinct tool colors shared by arcs and swatches, retaining them across updates', async () => {
+    const toolDetails = Array.from({ length: 14 }, (_, index) => ({ label: `tool-${index}`, value: 5 }));
+    const cost = { conversationPoints: 30, toolPoints: 70, totalPoints: 100, messageCount: 1, hasKnownCost: true, toolDetails };
+    const colors = () => Object.fromEntries([...container.querySelectorAll('.token-dashboard__cost circle[data-category]')]
+      .map(node => [node.dataset.category, node.getAttribute('stroke')]));
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={cost} />));
+    const initialColors = colors();
+    expect(new Set(Object.values(initialColors)).size).toBe(15);
+    for (const [key, color] of Object.entries(initialColors)) {
+      const swatch = container.querySelector(`.token-dashboard__cost .token-dashboard__legend [data-category="${key}"] .token-dashboard__swatch`);
+      const expected = document.createElement('span');
+      expected.style.background = color;
+      expect(swatch.style.background).toBe(expected.style.background);
+    }
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={{ ...cost, toolDetails: [...toolDetails].reverse() }} />));
+    expect(colors()).toEqual(initialColors);
+  });
+
+  it('distinguishes unknown billing from zero and keeps only the requested estimate note', async () => {
+    const cost = { conversationPoints: 0, toolPoints: 0, totalPoints: 0, messageCount: 1, hasKnownCost: false, incomplete: true };
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={cost} />));
+    expect(container.querySelector('[data-testid="cost-total"]').textContent).toBe('—');
+    expect(container.querySelectorAll('.token-dashboard__cost .token-dashboard__note')).toHaveLength(1);
+    expect(container.querySelector('.token-dashboard__cost [role="status"]')).toBeNull();
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={{ ...cost, toolPoints: 12, totalPoints: 12, hasKnownCost: true }} />));
+    expect(container.querySelector('[data-testid="cost-total"]').textContent).toBe('12.00');
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={{ ...cost, toolPoints: 12, totalPoints: 12, hasKnownCost: true, conversationIncomplete: true }} />));
+    const conversation = container.querySelector('.token-dashboard__cost .token-dashboard__legend [data-category="conversation"]');
+    expect(conversation.querySelector('dd > span').textContent).toBe('—');
+    expect(conversation.querySelector('dd strong').textContent).toBe('—');
+  });
+
+  it('keeps runtime token authority while resolving live cost blocks for this session only', async () => {
+    installRuntime(vi.fn().mockResolvedValue(bootstrap()));
+    const message = { id: 'a', role: 'assistant', topicId: 'agent-session:A', storeAssistantMessageId: 'live-a', blocks: ['tool'],
+      model: { id: 'model', pricing: { precise_uncached_input_resource_points_per_unit: 1000000 } }, usage: { prompt_tokens: 10, completion_tokens: 0 } };
+    await act(async () => root.render(<SessionTokenStats messages={[message]} runtimeSessionId="A" />));
+    await act(async () => publishRedux({ 'live-a': { ...message, id: 'live-a', usage: { prompt_tokens: 20, completion_tokens: 0 } },
+      unrelated: { ...message, id: 'unrelated', usage: { prompt_tokens: 999, completion_tokens: 0 } } },
+    { tool: { id: 'tool', type: 'tool', toolName: 'generate', metadata: { rawMcpToolResponse: { response: { billing: { total_consumed_points: 30 } } } } } }));
+    expect(total()).toBe('100');
+    expect(container.querySelector('[data-testid="cost-total"]').textContent).toBe('50.00');
   });
 
   it('keeps category estimates separate from totals and shows plain current-context values', async () => {
