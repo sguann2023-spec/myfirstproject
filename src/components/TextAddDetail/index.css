@@ -1,30 +1,3 @@
-.chat-panel__tool-detail-area {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chat-panel__tool-tooltip-trigger {
-  display: inline-flex;
-}
-
-.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active {
-  background: #e2e6ff;
-}
-
-.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active:not(:disabled):hover {
-  background: #e2e6ff !important;
-}
-
-.chat-panel__tool-text.chat-panel__tool-text--active {
-  color: #3167ff !important;
-}
-
-.chat-panel__tool-close-icon {
-  color: #3167ff;
-}
-
 .chat-panel__tool-text-add-icon {
   width: 18px;
   height: 18px;
@@ -43,10 +16,6 @@
 .chat-panel__text-settings-trigger-text {
   flex: 0 0 auto;
   line-height: 32px;
-}
-
-.chat-panel__tool-dropdown-trigger {
-  display: inline-flex;
 }
 
 .chat-panel__text-settings-dropdown {
@@ -1272,4 +1241,140 @@
   height: 20px;
   display: block;
   stroke-width: 1.9;
+}
+
+/* External toolbar popups only. TemplateEditor reuses the unscoped settings panels. */
+.chat-panel__tool-settings-dropdown {
+  max-width: 100vw;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.chat-panel__tool-settings-popup {
+  --tool-settings-max-height: calc(100vh - 96px);
+  --tool-settings-max-height: calc(100dvh - 96px);
+  max-width: calc(100vw - 24px);
+  max-height: var(--tool-settings-max-height);
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-layout {
+  height: min(var(--tool-settings-height, 360px), var(--tool-settings-max-height));
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-preview {
+  flex: 0 1 220px;
+  width: 220px;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.chat-panel__tool-settings-popup.chat-panel__text-settings-popup--preview-only .chat-panel__text-settings-preview {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-preview-stage,
+.chat-panel__tool-settings-popup .chat-panel__text-settings-preview-canvas-shell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-preview-selector,
+.chat-panel__tool-settings-popup .chat-panel__text-settings-preview-note {
+  flex: 0 0 auto;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-main {
+  flex: 1 1 430px;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+/* The content is the only settings scroll owner, including preset replacements. */
+.chat-panel__tool-settings-popup .chat-panel__text-settings-panel {
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__text-settings-tabs {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__tool-settings-preview-viewport {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-panel__tool-settings-popup .chat-panel__tool-settings-preview-fit {
+  grid-area: 1 / 1;
+  width: max-content;
+  height: max-content;
+  transform: scale(var(--settings-preview-scale, 1));
+  transform-origin: center;
+}
+
+@media (max-width: 600px) {
+  .chat-panel__tool-settings-popup .chat-panel__text-settings-layout {
+    flex-direction: column;
+  }
+
+  .chat-panel__tool-settings-popup:not(.chat-panel__text-settings-popup--preview-only) .chat-panel__text-settings-preview {
+    flex: 0 1 38%;
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .chat-panel__tool-settings-popup .chat-panel__text-settings-main {
+    flex: 1 1 0;
+    width: 100%;
+  }
+
+  .chat-panel__tool-settings-popup .chat-panel__text-settings-preview-note {
+    display: none;
+  }
+
+  .chat-panel__tool-settings-popup .chat-panel__text-settings-select.ant-select {
+    min-width: 0;
+  }
+
+  .chat-panel__tool-settings-popup .chat-panel__text-settings-transform-row {
+    grid-template-columns: 16px minmax(0, 1fr) 16px minmax(0, 1fr);
+  }
+
+  .chat-panel__tool-settings-popup .chat-panel__text-settings-transform-input.ant-input-number {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .chat-panel__tool-settings-popup .chat-panel__text-timeline-times {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -7,6 +7,7 @@ import MaterialPlusIcon from '../../../../../public/material-plus.svg';
 import MaterialPlusErrorIcon from '../../../../../public/material-plus-error.svg';
 import TextFilePreview from '../../ChatShell/TextFilePreview';
 import { buildSkillExampleGroupSlotId, formatSkillExampleDuration } from '../skillExample';
+import { buildAttachmentPurposeGroups } from '../attachmentPurpose';
 
 const files = [
   { uid: 'image1', name: 'first.png', fileType: 'image/png', localPreviewUrl: 'blob:first' },
@@ -54,6 +55,20 @@ afterEach(async () => {
 });
 
 describe('toolbar attachment media previews', () => {
+  it('reuses skill group tabs for reference/material and routes add actions with purpose', async () => {
+    const onAddFile = vi.fn();
+    const reference = { ...files[1], purpose: 'reference' };
+    await render({ files: [], fileGroups: buildAttachmentPurposeGroups([reference]), onAddFile });
+    const tabs = container.querySelectorAll('[role="tab"]');
+    expect([...tabs].map((tab) => tab.textContent)).toEqual(['参考(1)', '素材(0)']);
+    expect(container.querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(1);
+    await click(tabs[1]);
+    expect(container.querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(0);
+    const add = container.querySelector('.chat-panel__local-file-preview-placeholder');
+    expect(add.textContent).toBe('添加素材');
+    await click(add);
+    expect(onAddFile).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'material' }), add);
+  });
   it.each(files)('opens $name in the centered skill-example style modal', async (file) => {
     await render();
     await open(file.name);
@@ -92,7 +107,7 @@ describe('toolbar attachment media previews', () => {
     expect(button().getAttribute('aria-invalid')).toBe('true');
     expect(button().querySelector('img').getAttribute('src')).toBe(MaterialPlusErrorIcon);
     await click(button());
-    expect(onAddFile).toHaveBeenCalledExactlyOnceWith(placeholder);
+    expect(onAddFile).toHaveBeenCalledExactlyOnceWith(placeholder, button());
   });
 
   it('renders skill example groups with labels, count hints and fill-in slots', async () => {
@@ -136,7 +151,10 @@ describe('toolbar attachment media previews', () => {
     await click(tabs[1]);
     expect(container.querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(0);
     await click(container.querySelector('.chat-panel__local-file-preview-placeholder'));
-    expect(onAddFile).toHaveBeenCalledExactlyOnceWith({ key: 'skill-example-group:ingredients', label: '添加原料展示' });
+    expect(onAddFile).toHaveBeenCalledExactlyOnceWith(
+      { key: 'skill-example-group:ingredients', label: '添加原料展示' },
+      container.querySelector('.chat-panel__local-file-preview-placeholder')
+    );
   });
 
   it.each(['video/mp4', 'audio/mpeg', 'image/png'])('opens centered template %s with the matching viewer', async (fileType) => {
@@ -194,7 +212,7 @@ describe('toolbar attachment media previews', () => {
     expect(onRemove).toHaveBeenCalledWith(image);
     await render({ files: [], fileGroups: [{ ...group, files: [] }], onAddFile });
     await click(container.querySelector('.chat-panel__local-file-preview-placeholder'));
-    expect(onAddFile).toHaveBeenCalledWith(placeholder);
+    expect(onAddFile).toHaveBeenCalledWith(placeholder, container.querySelector('.chat-panel__local-file-preview-placeholder'));
   });
 
   it('keeps remote video thumbs loading until the first frame loads', async () => {
@@ -282,7 +300,7 @@ describe('toolbar attachment media previews', () => {
     expect(scroll.children[1].querySelector('[aria-label="预览 first.png"]')).not.toBeNull();
     expect(container.querySelectorAll('.chat-panel__local-file-preview-open')).toHaveLength(1);
     await click(scroll.firstElementChild);
-    expect(onAddFile).toHaveBeenCalledWith(placeholder);
+    expect(onAddFile).toHaveBeenCalledWith(placeholder, container.querySelector('.chat-panel__local-file-preview-placeholder'));
     expect(openAttachmentPreview).not.toHaveBeenCalled();
     expect(container.querySelector('.chat-panel__local-file-preview-open').tagName).toBe('BUTTON');
   });
@@ -296,6 +314,101 @@ describe('toolbar attachment media previews', () => {
     expect(list).not.toContain('openAttachmentPreview');
     expect(list).not.toMatch(/\bselection\b|TextFilePreview/);
     expect(source('./index.css')).not.toContain('attachment-preview-modal');
+  });
+});
+
+describe('attachment purpose badges', () => {
+  const badgeSelector = '.chat-panel__local-file-preview-purpose';
+
+  it.each(['image/png', 'video/mp4', 'audio/mpeg', 'application/pdf'].flatMap((fileType) => (
+    [['reference', '参考'], ['material', '素材']].map(([purpose, label]) => ({ fileType, purpose, label }))
+  )))('shows $label on a classified $fileType chip without changing preview or removal', async ({ fileType, purpose, label }) => {
+    const file = Object.freeze({ uid: 'classified', name: 'classified', fileType, purpose, localPreviewUrl: 'blob:classified' });
+    const onRemove = vi.fn();
+    await render({ files: [file], onRemove });
+    const chip = container.querySelector('.chat-panel__local-file-preview-item');
+    expect(chip.querySelectorAll(badgeSelector)).toHaveLength(1);
+    expect(chip.querySelector(badgeSelector).textContent).toBe(label);
+    if (fileType === 'image/png') {
+      expect(chip.querySelector(`.chat-panel__local-file-preview-thumb ${badgeSelector}`)).not.toBeNull();
+      expect(chip.querySelector('img').getAttribute('src')).toBe(file.localPreviewUrl);
+    } else {
+      expect(chip.querySelector(`.chat-panel__local-file-preview-meta ${badgeSelector}`)).not.toBeNull();
+    }
+    await click(chip.querySelector('.chat-panel__local-file-preview-remove'));
+    expect(onRemove).toHaveBeenCalledExactlyOnceWith(file);
+    expectNoModal();
+    if (fileType === 'application/pdf') {
+      expect(chip.querySelector('.chat-panel__local-file-preview-open')).toBeNull();
+    } else {
+      await open(file.name);
+      expectModalViewer(fileType.split('/')[0], file.localPreviewUrl, file.name);
+      expect(onRemove).toHaveBeenCalledOnce();
+    }
+    expect(openAttachmentPreview).not.toHaveBeenCalled();
+    expect(file.purpose).toBe(purpose);
+  });
+
+  it('leaves legacy, unclassified, tool-slot, voice-ID and grouped files unlabelled', async () => {
+    const placeholder = { key: 'first_frame', label: '首帧', purpose: 'reference' };
+    const onAddFile = vi.fn();
+    await render({
+      files: [
+        files[0],
+        { ...files[0], uid: 'empty', purpose: '' },
+        { ...files[0], uid: 'unknown', purpose: 'other' },
+        { ...files[0], uid: 'slot', slotId: 'reference_image', purpose: 'reference' },
+        { ...files[1], uid: 'material-slot', slotId: 'source_video', purpose: 'material' },
+        { uid: 'voice', name: 'voice', kind: 'voice_id', purpose: 'reference' },
+      ],
+      placeholders: [placeholder],
+      fileGroups: [{ key: 'group', label: '分组', files: [{ ...files[0], uid: 'group-file', purpose: 'material' }] }],
+      onAddFile,
+    });
+    expect(container.querySelectorAll('.chat-panel__local-file-preview-item')).toHaveLength(7);
+    expect(container.querySelector(badgeSelector)).toBeNull();
+    const button = container.querySelector('.chat-panel__local-file-preview-placeholder');
+    await click(button);
+    expect(onAddFile).toHaveBeenCalledExactlyOnceWith(placeholder, button);
+    expectNoModal();
+  });
+
+  it('renders only fixed labels and treats attachment names and unknown purposes as text, not markup', async () => {
+    const markup = '<img src=x onerror="window.__purposeInjected=true">';
+    await render({ files: [
+      { uid: 'safe', name: markup, fileType: 'application/pdf', purpose: 'reference' },
+      { uid: 'untrusted', name: 'untrusted.pdf', fileType: 'application/pdf', purpose: markup },
+    ] });
+    expect(container.querySelectorAll(badgeSelector)).toHaveLength(1);
+    expect(container.querySelector(badgeSelector).textContent).toBe('参考');
+    expect(container.querySelector('.chat-panel__local-file-preview-name').textContent).toBe(markup);
+    expect(container.querySelector('img, [onerror], script')).toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(2);
+  });
+
+  it('keeps badges out of layout flow for images and preserves existing chip dimensions and spacing', async () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(`${process.cwd()}/src/components/Chat/Composer/LocalFilePreviewList/index.css`, 'utf8');
+    document.head.append(style);
+    try {
+      await render({ files: [{ ...files[0], purpose: 'material' }] });
+      const chip = container.querySelector('.chat-panel__local-file-preview-item');
+      const thumb = chip.querySelector('.chat-panel__local-file-preview-thumb');
+      const badge = chip.querySelector(badgeSelector);
+      expect(getComputedStyle(chip).width).toBe('52px');
+      expect(getComputedStyle(chip).height).toBe('52px');
+      expect(getComputedStyle(thumb).width).toBe('52px');
+      expect(getComputedStyle(thumb).height).toBe('52px');
+      const listStyle = getComputedStyle(container.firstElementChild);
+      expect(listStyle.marginTop).toBe('0px');
+      expect(listStyle.marginBottom).toBe('8px');
+      expect(getComputedStyle(badge).position).toBe('absolute');
+      expect(getComputedStyle(badge).bottom).toBe('3px');
+      expect(getComputedStyle(badge).pointerEvents).toBe('none');
+      expect(getComputedStyle(chip.querySelector('.chat-panel__local-file-preview-remove')).top).toBe('11px');
+    } finally {
+      style.remove();
+    }
   });
 });
 

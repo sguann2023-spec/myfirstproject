@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Heart, Play, Search } from 'lucide-react';
+import { ChevronRight, Heart, Search } from 'lucide-react';
 import { selectHomepageSkills } from '../../../../shared/quickSkillManifest';
 import { trackEvent } from '../../../../shared/analytics';
 import './WelcomePage.css';
@@ -99,13 +99,13 @@ const mapRecommendedTemplate = (template) => ({
 const loadRecommendedSkills = async () => {
   try {
     const templates = await listRecommendedTemplates(3);
-    return templates.map(mapRecommendedTemplate);
+    return templates.slice(0, 3).map(mapRecommendedTemplate);
   } catch {
     return [];
   }
 };
 
-const WelcomePage = ({ emptyWelcomeText, onSelectSkill, onOpenSkillStore, onOpenWebPreview,
+export const WelcomeSkills = ({ onSelectSkill, onOpenSkillStore, onOpenWebPreview,
   childrensBookQuickPromptRef, beginnerGuideQuickSkillsViewportRef }) => {
   const [quickSkills, setQuickSkills] = React.useState([]);
   const [pendingAction, setPendingAction] = React.useState('');
@@ -156,34 +156,35 @@ const WelcomePage = ({ emptyWelcomeText, onSelectSkill, onOpenSkillStore, onOpen
     }
   };
   return (
-    <div className="chat-panel__empty chat-panel__empty--image">
-      <div className="chat-panel__welcome-stage">
-        <div className="chat-panel__empty-welcome">{emptyWelcomeText}</div>
-        <div className="chat-panel__welcome-skills-group">
-          <div className="chat-panel__welcome-skills-track">
-            {quickSkills.map((item) => (
-              <article key={item.folderName} className="chat-panel__welcome-skill-card"
-                ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
-                tabIndex={0} role="button" onClick={() => viewOriginal(item)}
-                onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); viewOriginal(item); } }}>
-                <div className="chat-panel__welcome-skill-content">
-                  <div className="chat-panel__welcome-skill-name" title={item.title || item.headline || item.name}>{item.title || item.headline || item.name}</div>
-                  <div className="chat-panel__welcome-skill-stats"><span>粉丝：{formatTemplateCount(item.followers_count)}</span><span><Heart size={15} />{formatTemplateCount(item.likes_count)}</span></div>
-                  <div className="chat-panel__welcome-skill-actions">
-                    <button onClick={(event) => { event.stopPropagation(); viewOriginal(item); }}><Search size={14} />查看</button>
-                    <button ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? childrensBookQuickPromptRef : null}
-                      disabled={Boolean(pendingAction)} onClick={(event) => { event.stopPropagation(); void useSkill(item); }}>
-                      <Play size={14} />{pendingAction === item.folderName ? '加载中…' : '做同款'}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-          <button type="button" className="chat-panel__welcome-more-skills" onClick={onOpenSkillStore}>查看更多技能<ChevronRight size={14} /></button>
-        </div>
+    <div className="chat-panel__welcome-skills-group">
+      <div className="chat-panel__welcome-skills-track">
+        {quickSkills.map((item) => (
+          <article key={item.folderName} className="chat-panel__welcome-skill-card"
+            ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? beginnerGuideQuickSkillsViewportRef : null}
+            tabIndex={0} role="button" aria-disabled={Boolean(pendingAction)} onClick={() => void useSkill(item)}
+            onKeyDown={(event) => { if (event.target === event.currentTarget && ['Enter', ' '].includes(event.key)) { event.preventDefault(); void useSkill(item); } }}>
+            <div className="chat-panel__welcome-skill-content"
+              ref={item.action === BEGINNER_GUIDE_QUICK_SKILL_ACTION ? childrensBookQuickPromptRef : null}>
+              <div className="chat-panel__welcome-skill-name" title={item.title || item.headline || item.name}>{item.title || item.headline || item.name}</div>
+              <div className="chat-panel__welcome-skill-stats"><Heart size={15} />{formatTemplateCount(item.likes_count)}</div>
+              <div className="chat-panel__welcome-skill-actions">
+                <button onClick={(event) => { event.stopPropagation(); viewOriginal(item); }}><Search size={14} />查看</button>
+              </div>
+            </div>
+          </article>
+        ))}
+        <button type="button" className="chat-panel__welcome-skill-card chat-panel__welcome-more-skills" onClick={onOpenSkillStore}>更多技能<ChevronRight size={14} /></button>
       </div>
     </div>
   );
 };
+
+const WelcomePage = ({ emptyWelcomeText }) => (
+  <div className="chat-panel__empty chat-panel__empty--image">
+    <div className="chat-panel__welcome-stage">
+      <div className="chat-panel__empty-welcome">{emptyWelcomeText}</div>
+    </div>
+  </div>
+);
+
 export default React.memo(WelcomePage);

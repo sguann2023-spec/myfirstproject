@@ -1149,6 +1149,7 @@ const DigitalHumanToolDetail = ({
       </Tooltip>
       <div className="chat-panel__tool-detail-content">
         <Select
+          placement="topLeft"
           size="small"
           variant="borderless"
           className="chat-panel__model-picker chat-panel__digital-human-picker"
@@ -1166,6 +1167,7 @@ const DigitalHumanToolDetail = ({
           <VoiceLib
             controller={voiceLib}
             disabled={disabled}
+            placement="topLeft"
           />
         ) : null}
         {isDigitalHumanImageDriveMode(selectedMode) ? (
@@ -1213,11 +1215,11 @@ const DigitalHumanToolDetail = ({
         ) : null}
         <Popover
           trigger="click"
-          placement="topLeft"
+          placement="top"
+          autoAdjustOverflow
           open={packagingDropdownOpen}
           onOpenChange={setPackagingDropdownOpen}
           overlayClassName="chat-panel__smart-packaging-dropdown"
-          align={{ offset: [-420, -12] }}
           content={(
             <DigitalHumanTemplatePopover
               selectedTemplate={selectedPackagingTemplate}
@@ -1246,11 +1248,11 @@ const DigitalHumanToolDetail = ({
         </Popover>
         <Popover
           trigger="click"
-          placement="topLeft"
+          placement="top"
+          autoAdjustOverflow
           open={disabled ? false : digitalTemplateOpen}
           onOpenChange={setDigitalTemplateOpen}
           overlayClassName="chat-panel__smart-packaging-dropdown"
-          align={{ offset: [-420, -12] }}
           content={(
             <DigitalHumanTemplatePopover
               selectedTemplate={selectedPackagingTemplate}

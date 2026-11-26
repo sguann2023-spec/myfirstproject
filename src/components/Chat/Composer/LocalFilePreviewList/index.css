@@ -1,5 +1,6 @@
 .chat-panel__local-file-preview-list {
-  margin: 8px 24px 2px 24px;
+  margin: 0 0 8px;
+  flex-shrink: 0;
   min-width: 0;
   width: auto;
   max-width: 100%;
@@ -16,7 +17,8 @@
   flex-wrap: nowrap;
   gap: 8px;
   min-width: max-content;
-  padding: 2px 0 4px;
+  padding: 0;
+  vertical-align: top;
 }
 
 .chat-panel__local-file-preview-item {
@@ -185,6 +187,32 @@
   text-overflow: ellipsis;
 }
 
+.chat-panel__local-file-preview-purpose {
+  display: inline-block;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #f0f0f0;
+  color: #666666;
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chat-panel__local-file-preview-meta .chat-panel__local-file-preview-purpose {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+.chat-panel__local-file-preview-item--image .chat-panel__local-file-preview-purpose {
+  position: absolute;
+  left: 4px;
+  bottom: 3px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #555555;
+}
+
 .chat-panel__local-file-preview-list::-webkit-scrollbar {
   display: none;
   width: 0;
@@ -319,7 +347,7 @@
   align-items: center;
   gap: 4px;
   height: 38px;
-  padding: 6px 0;
+  padding: 0 0 12px;
   overflow-x: auto;
   scrollbar-width: none;
 }

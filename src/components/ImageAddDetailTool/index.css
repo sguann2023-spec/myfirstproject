@@ -3,36 +3,15 @@
 }
 
 .chat-panel__image-add-settings-popup {
-  width: 650px;
+  width: min(650px, calc(100vw - 24px));
 }
 
 .chat-panel__image-add-settings-popup.chat-panel__text-settings-popup--preview-only {
-  width: 220px;
-}
-
-.chat-panel__image-add-settings-popup .chat-panel__text-settings-layout {
-  height: min(360px, calc(100vh - 64px));
-  min-height: 0;
-}
-
-.chat-panel__image-add-settings-popup.chat-panel__text-settings-popup--preview-only .chat-panel__text-settings-layout {
-  height: min(360px, calc(100vh - 64px));
-}
-
-.chat-panel__image-add-settings-popup .chat-panel__text-settings-main {
-  flex: 1 1 auto;
-  width: 440px;
-  min-width: 0;
+  width: min(220px, calc(100vw - 24px));
 }
 
 .chat-panel__image-add-settings-main {
   box-sizing: border-box;
-}
-
-.chat-panel__image-add-settings-popup .chat-panel__text-settings-content {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .chat-panel__image-add-settings-popup .chat-panel__text-settings-tabs {

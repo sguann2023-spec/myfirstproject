@@ -389,7 +389,7 @@ const MessagePane = ({
           </div>
         </div>
       ) : visibleMessages.length === 0 ? (
-        <div className="chat-panel__messages">
+        <div className={`chat-panel__messages${messages.length === 0 ? ' chat-panel__messages--welcome' : ''}`}>
           {messages.length === 0 ? (
             <WelcomePage
               emptyWelcomeText={emptyWelcomeText}

@@ -1,38 +1,3 @@
-.chat-panel__tool-detail-area {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chat-panel__tool-tooltip-trigger {
-  display: inline-flex;
-}
-
-.chat-panel__tool-detail-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active {
-  background: #e2e6ff;
-}
-
-.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active:not(:disabled):hover {
-  background: #e2e6ff !important;
-}
-
-.chat-panel__tool-text.chat-panel__tool-text--active {
-  color: #3167ff !important;
-}
-
-.chat-panel__tool-close-icon {
-  color: #3167ff;
-  font-size: 12px;
-}
-
 .chat-panel__tool-detail-area .chat-panel__tool-icon--text {
   transform: scale(1.08);
   transform-origin: center;
@@ -45,12 +10,16 @@
 }
 
 .chat-panel__ai-write-picker.ant-select {
+  height: var(--composer-control-height, 32px);
+  min-height: var(--composer-control-height, 32px);
   border-radius: 8px;
 }
 
 .chat-panel__ai-write-picker.ant-select .ant-select-selector {
-  min-height: 32px !important;
-  padding: 6px 2px 6px 6px !important;
+  height: var(--composer-control-height, 32px) !important;
+  min-height: var(--composer-control-height, 32px) !important;
+  box-sizing: border-box;
+  padding: 0 2px 0 6px !important;
   border-radius: 8px !important;
   gap: 4px;
 }

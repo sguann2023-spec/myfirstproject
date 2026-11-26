@@ -1,38 +1,3 @@
-.chat-panel__tool-detail-area {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chat-panel__tool-tooltip-trigger {
-  display: inline-flex;
-}
-
-.chat-panel__tool-detail-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active {
-  background: #e2e6ff;
-}
-
-.chat-panel__tool-detail-area .chat-panel__tool-button.chat-panel__tool-button--active:not(:disabled):hover {
-  background: #e2e6ff !important;
-}
-
-.chat-panel__tool-text.chat-panel__tool-text--active {
-  color: #3167ff !important;
-}
-
-.chat-panel__tool-close-icon {
-  color: #3167ff;
-  font-size: 12px;
-}
-
 .chat-panel__digital-human-picker {
   min-width: 0;
   display: inline-flex;
@@ -40,12 +5,16 @@
 }
 
 .chat-panel__digital-human-picker.ant-select {
+  height: var(--composer-control-height, 32px);
+  min-height: var(--composer-control-height, 32px);
   border-radius: 8px;
 }
 
 .chat-panel__digital-human-picker.ant-select .ant-select-selector {
-  min-height: 32px !important;
-  padding: 6px 2px 6px 6px !important;
+  height: var(--composer-control-height, 32px) !important;
+  min-height: var(--composer-control-height, 32px) !important;
+  box-sizing: border-box;
+  padding: 0 2px 0 6px !important;
   border-radius: 8px !important;
   gap: 4px;
 }
@@ -131,7 +100,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px;
+  height: var(--composer-control-height, 32px);
+  min-height: var(--composer-control-height, 32px);
+  box-sizing: border-box;
+  padding: 0 8px;
   border: none;
   border-radius: 8px;
   background: #f5f5f5;
@@ -340,7 +312,7 @@
 }
 
 .chat-panel__digital-human-avatar-popup {
-  width: 420px;
+  width: min(420px, calc(100vw - 32px));
   border-radius: 16px;
   overflow: hidden;
   background: #ffffff;
@@ -348,14 +320,14 @@
 }
 
 .chat-panel__digital-human-avatar-content {
-  max-height: 320px;
+  max-height: min(320px, calc(100vh - 32px));
   padding: 12px;
   box-sizing: border-box;
   overflow: auto;
 }
 
 .chat-panel__digital-human-avatar-content--center {
-  min-height: 220px;
+  min-height: min(220px, calc(100vh - 32px));
   display: flex;
   align-items: center;
   justify-content: center;

@@ -5,7 +5,7 @@ import { ChatTaskContext } from './ChatTaskContext';
 import { readOptionalSkillExampleText } from '../Composer/skillExample';
 import { resolveMarkdownFilePath } from '../../../shared/markdownFileLinks';
 import PartSplitToolDetail from '../../PartSplitToolDetail';
-import { Tooltip, Tour, message } from 'antd';
+import { Tooltip, message } from 'antd';
 import {
   ChevronRight,
   FileArchive,
@@ -28,19 +28,10 @@ import { parseSkillDisplayMetadata } from './SkillMembers/skillDisplayMetadata';
 import MCPSettings from './MCPSettings/MCPSettings';
 import WebPagePreview from './WebPagePreview';
 import { useWorkspaceController, WorkspaceDialogs } from './WorkSpace/WorkSpace';
-import { claimNewguiderReward } from '../../../api/newguiderReward';
 import { DownloadController } from '../../../shared/DownloadController.js';
 import { parseDraftDownloaderUrl } from '../../../shared/draftDownloaderUrl';
 import { getArtifactFileSource, getArtifactFileName } from '../artifactFileTarget';
 import { loggerService } from '@logger';
-import {
-  BEGINNER_GUIDE_COMPLETED_KEY,
-  BEGINNER_GUIDE_REOPEN_PENDING_KEY,
-  clearBeginnerGuideReopen,
-  isBeginnerGuideCompleted,
-  isBeginnerGuideReopenPending,
-  setBeginnerGuideCompleted
-} from '../../../shared/beginnerGuide';
 
 const logger = loggerService.withContext('ChatShell');
 
@@ -82,8 +73,6 @@ const TEXT_PREVIEW_EXTENSIONS = new Set([
   'txt', 'text', 'log', 'conf', 'config', 'env', 'ini', 'toml', 'graphql', 'gql',
   'csv', 'tsv', 'gitignore', 'editorconfig'
 ]);
-const BEGINNER_GUIDE_TITLE = '新手引导，完成获赠100积分';
-const CHILDRENS_BOOK_SKILL_LABEL = '儿童绘本';
 const getFileExtension = (fileName = '') => {
   const normalized = String(fileName || '').trim().toLowerCase();
   if (!normalized) return '';
@@ -318,15 +307,6 @@ const ChatShell = ({
   onCloseWebPreview,
   onOpenWebPreview,
   onInlinePreviewVisibilityChange,
-  childrensBookQuickPromptRef = null,
-  beginnerGuideQuickSkillsViewportRef = null,
-  beginnerGuideAiToolAreaRef = null,
-  beginnerGuideModelPickerRef = null,
-  beginnerGuideInputAreaRef = null,
-  beginnerGuideDownloadPaneRef = null,
-  beginnerGuideSettingsPaneRef = null,
-  beginnerGuideEligible = false,
-  onRefreshCredits,
   pinnedDrafts = [],
   pinnedAudios = [],
   pinnedImages = [],
@@ -415,35 +395,18 @@ const ChatShell = ({
   const inlinePreviewId = React.useId();
   const [webPreviewWidth, setWebPreviewWidth] = React.useState(() => readWebPreviewWidth());
   const [isResizingWebPreview, setIsResizingWebPreview] = React.useState(false);
-  const [beginnerGuideOpen, setBeginnerGuideOpen] = React.useState(false);
-  const [beginnerGuideCurrent, setBeginnerGuideCurrent] = React.useState(0);
-  const [beginnerGuideDone, setBeginnerGuideDone] = React.useState(() => isBeginnerGuideCompleted());
-  const [beginnerGuideReopenPending, setBeginnerGuideReopenPending] = React.useState(() => isBeginnerGuideReopenPending());
   const previousChatSessionIdRef = React.useRef(String(chatSessionId || '').trim());
   const titleInputRef = React.useRef(null);
   const pendingFilePreviewKeysRef = React.useRef(new Set());
   const closedFilePreviewKeysRef = React.useRef(new Set());
   const contentRef = React.useRef(null);
   const previewResizeCleanupRef = React.useRef(null);
-  const beginnerGuideWorkspaceDialogRef = React.useRef(null);
-  const beginnerGuideWorkspaceNameInputRef = React.useRef(null);
-  const beginnerGuideWebPreviewPaneRef = React.useRef(null);
-  const beginnerGuideChildrensBookRunButtonRef = React.useRef(null);
-  const beginnerGuideChildrensBookEditButtonRef = React.useRef(null);
-  const beginnerGuideRewardClaimingRef = React.useRef(false);
   const currentWorkspacePath = React.useMemo(() => getSelectedWorkspacePath(runtimeSession), [runtimeSession]);
   React.useEffect(() => { setStoryboardTarget(null); }, [chatSessionId, currentWorkspacePath]);
   const hasLockedWorkspace = Boolean(currentWorkspacePath);
   const previewRequested = Boolean(panePreview) && !inlinePreviewCollapsed;
   const showTrailingWebPreview = previewRequested && previewWindowReady;
   const isResizingAnyPanel = isResizingWebPreview;
-  const shouldAutoStartBeginnerGuide = Boolean(
-    beginnerGuideEligible &&
-    !beginnerGuideDone &&
-    !hasLockedWorkspace
-  );
-  const shouldForceReopenBeginnerGuide = Boolean(beginnerGuideReopenPending);
-  const shouldStartBeginnerGuide = shouldAutoStartBeginnerGuide || shouldForceReopenBeginnerGuide;
   React.useLayoutEffect(() => {
     if (typeof onInlinePreviewVisibilityChange !== 'function') return undefined;
     onInlinePreviewVisibilityChange(previewRequested, webPreviewWidth);
@@ -452,165 +415,9 @@ const ChatShell = ({
     };
   }, [onInlinePreviewVisibilityChange, previewRequested, webPreviewWidth]);
 
-  const dismissBeginnerGuide = React.useCallback(() => {
-    setBeginnerGuideOpen(false);
-    setBeginnerGuideCurrent(0);
-    setBeginnerGuideDone(true);
-    setBeginnerGuideReopenPending(false);
-    setBeginnerGuideCompleted(true);
-    clearBeginnerGuideReopen();
-  }, []);
-  const completeBeginnerGuide = React.useCallback(async () => {
-    logger.info('beginner guide finish triggered', {
-      beginnerGuideDone,
-      beginnerGuideReopenPending,
-    });
-    dismissBeginnerGuide();
-
-    if (beginnerGuideRewardClaimingRef.current) {
-      logger.info('skip beginner guide reward claim', {
-        reason: 'already_claiming',
-        isClaiming: beginnerGuideRewardClaimingRef.current,
-      });
-      return;
-    }
-
-    beginnerGuideRewardClaimingRef.current = true;
-    try {
-      logger.info('start beginner guide reward claim');
-      const payload = await claimNewguiderReward();
-      logger.info('beginner guide reward claim result', payload || {});
-      const claimResult = String(payload?.claim_result || '').trim().toLowerCase();
-
-      if (claimResult === 'claimed_now' || payload?.claimed_now) {
-        await Promise.resolve(onRefreshCredits?.()).catch((error) => {
-          logger.warn('Failed to refresh credits after beginner guide reward claim.', error);
-        });
-        logger.info('beginner guide reward claimed now');
-        message.success('新手引导已完成，100 积分已到账');
-        return;
-      }
-
-      if (claimResult === 'processing' || payload?.in_progress) {
-        logger.info('beginner guide reward still in progress');
-        message.info('新手引导已完成，奖励领取中，请稍后查看积分');
-        return;
-      }
-
-      if (claimResult === 'already_rewarded') {
-        await Promise.resolve(onRefreshCredits?.()).catch((error) => {
-          logger.warn('Failed to refresh credits after beginner guide reward sync.', error);
-        });
-        logger.info('beginner guide reward already rewarded', {
-          already_rewarded: Boolean(payload?.already_rewarded),
-        });
-        message.info('该奖励已领取过');
-        return;
-      }
-
-      if (payload?.rewarded) {
-        await Promise.resolve(onRefreshCredits?.()).catch((error) => {
-          logger.warn('Failed to refresh credits after beginner guide reward sync.', error);
-        });
-        logger.info('beginner guide reward fallback rewarded branch');
-        message.info(payload?.already_rewarded ? '该奖励已领取过' : '新手引导奖励已领取');
-        return;
-      }
-
-      logger.warn('beginner guide reward claim returned unexpected payload', payload || {});
-    } catch (error) {
-      logger.warn('Failed to claim beginner guide reward.', error);
-      message.warning('新手引导已完成，奖励可能稍后到账，请稍后查看积分');
-    } finally {
-      beginnerGuideRewardClaimingRef.current = false;
-    }
-  }, [beginnerGuideDone, beginnerGuideReopenPending, dismissBeginnerGuide, onRefreshCredits]);
-  const beginnerGuideSteps = React.useMemo(() => ([
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '通过对话制作视频，试试说：创建一个新的剪辑草稿，并添加文字：你好',
-      target: () => beginnerGuideInputAreaRef?.current || null,
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '在这里切换AI模型。',
-      target: () => beginnerGuideModelPickerRef?.current || null,
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '在这里使用AI生成工具。',
-      target: () => beginnerGuideAiToolAreaRef?.current || null,
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '这里是一个剪辑技能，你可以使用他快速制作一条视频。',
-      target: () => beginnerGuideQuickSkillsViewportRef?.current || childrensBookQuickPromptRef?.current || null,
-    },
-    {
-      title: BEGINNER_GUIDE_TITLE,
-      description: '你可以随时在设置里再次查看新手引导。',
-      target: () => beginnerGuideSettingsPaneRef?.current || null,
-      nextButtonProps: {
-        onClick: () => {
-          void completeBeginnerGuide();
-        }
-      }
-    }
-  ].map((step) => ({
-    ...step,
-    prevButtonProps: { style: { display: 'none' } }
-  }))), [beginnerGuideAiToolAreaRef, beginnerGuideDownloadPaneRef, beginnerGuideInputAreaRef, beginnerGuideModelPickerRef, beginnerGuideQuickSkillsViewportRef, beginnerGuideSettingsPaneRef, childrensBookQuickPromptRef, completeBeginnerGuide]);
-
   React.useLayoutEffect(() => {
     setResolvedSessionId(runtimeSessionId || '');
   }, [runtimeSessionId, setResolvedSessionId]);
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    if (typeof globalThis?.__ELECTRON_STORE__?.onDidChange !== 'function') return undefined;
-
-    const disposeReopen = globalThis.__ELECTRON_STORE__.onDidChange(BEGINNER_GUIDE_REOPEN_PENDING_KEY, (newValue) => {
-      setBeginnerGuideReopenPending(Boolean(newValue));
-    });
-    const disposeCompleted = globalThis.__ELECTRON_STORE__.onDidChange(BEGINNER_GUIDE_COMPLETED_KEY, (newValue) => {
-      setBeginnerGuideDone(Boolean(newValue));
-    });
-
-    return () => {
-      disposeReopen?.();
-      disposeCompleted?.();
-    };
-  }, []);
-
-  React.useEffect(() => {
-    if (!shouldStartBeginnerGuide || beginnerGuideOpen) return undefined;
-    let frameId = 0;
-    const tryOpenGuide = () => {
-      if (beginnerGuideInputAreaRef?.current) {
-        setBeginnerGuideCurrent(0);
-        setBeginnerGuideOpen(true);
-        return;
-      }
-      frameId = window.requestAnimationFrame(tryOpenGuide);
-    };
-    frameId = window.requestAnimationFrame(tryOpenGuide);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [beginnerGuideInputAreaRef, beginnerGuideOpen, shouldStartBeginnerGuide]);
-
-  React.useEffect(() => {
-    const handleChildrensBookSkillCreated = () => {
-      if (beginnerGuideOpen && (beginnerGuideCurrent === 0 || beginnerGuideCurrent === 1)) {
-        setBeginnerGuideCurrent(2);
-      }
-    };
-
-    window.addEventListener('childrens-book-skill-created', handleChildrensBookSkillCreated);
-    return () => {
-      window.removeEventListener('childrens-book-skill-created', handleChildrensBookSkillCreated);
-    };
-  }, [beginnerGuideCurrent, beginnerGuideOpen]);
 
   React.useEffect(() => {
     writeWebPreviewWidth(webPreviewWidth);
@@ -1477,11 +1284,7 @@ const ChatShell = ({
       title: getSkillDisplayName(skill) || getSkillFolderLabel(skill) || getBaseName(examplePath) || '示例页面',
       sourcePath: examplePath
     });
-
-    if (beginnerGuideOpen && beginnerGuideCurrent === 3) {
-      setBeginnerGuideCurrent(4);
-    }
-  }, [beginnerGuideCurrent, beginnerGuideOpen, onOpenWebPreview, skillExamplePaths]);
+  }, [onOpenWebPreview, skillExamplePaths]);
 
   const renderTreeNodes = React.useCallback((scopeKey, rootPath, nodes, depth = 1, options = {}) => {
     if (!Array.isArray(nodes) || nodes.length === 0) return null;
@@ -1588,10 +1391,6 @@ const ChatShell = ({
       expandedSkillKeys={expandedSkillKeys}
       skillTrees={skillTrees}
       skillTreeLoading={skillTreeLoading}
-      beginnerGuideOpen={beginnerGuideOpen}
-      beginnerGuideCurrent={beginnerGuideCurrent}
-      beginnerGuideChildrensBookRunButtonRef={beginnerGuideChildrensBookRunButtonRef}
-      beginnerGuideChildrensBookEditButtonRef={beginnerGuideChildrensBookEditButtonRef}
       onToggleSkillExpanded={toggleSkillExpanded}
       skillMembersCollapsed={skillMembersCollapsed}
       onToggleSkillMembersCollapsed={toggleSkillMembersCollapsed}
@@ -1607,7 +1406,6 @@ const ChatShell = ({
       getSkillKey={getSkillKey}
       getSkillFolderLabel={getSkillFolderLabel}
       getSkillDisplayName={getSkillDisplayName}
-      childrensBookSkillLabel={CHILDRENS_BOOK_SKILL_LABEL}
     />
   );
 
@@ -1717,7 +1515,7 @@ const ChatShell = ({
         </button>
       </div>
       <InlinePreviewPane id={inlinePreviewId} open={showTrailingWebPreview} width={webPreviewWidth}
-        paneRef={beginnerGuideWebPreviewPaneRef} resizing={isResizingWebPreview}
+        resizing={isResizingWebPreview}
         onResizeStart={handleWebPreviewResizeStart} onResetWidth={resetWebPreviewWidth}
         onResizeKeyDown={handleWebPreviewResizeKeyDown}>
         {panePreview ? (
@@ -1759,22 +1557,7 @@ const ChatShell = ({
           />
         ) : null}
       </InlinePreviewPane>
-      <WorkspaceDialogs
-        controller={workspaceController}
-        beginnerGuideWorkspaceDialogRef={beginnerGuideWorkspaceDialogRef}
-        beginnerGuideWorkspaceNameInputRef={beginnerGuideWorkspaceNameInputRef}
-      />
-      <Tour
-        open={beginnerGuideOpen}
-        current={beginnerGuideCurrent}
-        onChange={setBeginnerGuideCurrent}
-        onClose={dismissBeginnerGuide}
-        steps={beginnerGuideSteps}
-        placement="bottom"
-        locale={{ Finish: '结束引导', finish: '结束引导' }}
-        zIndex={1600}
-        mask={{ color: 'rgba(0, 0, 0, 0.52)' }}
-      />
+      <WorkspaceDialogs controller={workspaceController} />
     </div>
   );
 };

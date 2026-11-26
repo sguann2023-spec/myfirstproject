@@ -146,6 +146,27 @@ describe('session token dashboard', () => {
     expect(card.querySelector('circle[data-category="conversation"]').getAttribute('opacity')).toBe('0.25');
   });
 
+  it('merges different internal tools with the same display name in both legend and donut', async () => {
+    const toolDetails = [
+      { label: 'mcp__vectcut__scrapt__search', value: 14 },
+      { label: 'mcp__vectcut__scrapt__fetch', value: 4 },
+      { label: 'mcp__douyin_shop_search__search', value: 2 },
+      { label: 'other_tool', value: 5 }
+    ];
+    const cost = { conversationPoints: 25, toolPoints: 25, totalPoints: 50, messageCount: 1, hasKnownCost: true, toolDetails };
+    await act(async () => root.render(<SessionTokenStatsContent summary={summary} cost={cost} />));
+    const card = container.querySelector('.token-dashboard__cost');
+    const rows = [...card.querySelectorAll('.token-dashboard__legend > div')];
+    expect(rows).toHaveLength(3);
+    expect(rows[1].querySelector('dt').textContent).toContain('联网搜索');
+    expect(rows[1].querySelector('dd > span').textContent).toBe('20.00');
+    expect(rows[1].querySelector('dd strong').textContent).toBe('40.0%');
+    const arcs = [...card.querySelectorAll('circle[data-category]')];
+    expect(arcs).toHaveLength(3);
+    expect(arcs[1].getAttribute('stroke-dasharray')).toBe('40 60');
+    expect(card.querySelector('[data-testid="cost-total"]').textContent).toBe('50.00');
+  });
+
   it('uses distinct tool colors shared by arcs and swatches, retaining them across updates', async () => {
     const toolDetails = Array.from({ length: 14 }, (_, index) => ({ label: `tool-${index}`, value: 5 }));
     const cost = { conversationPoints: 30, toolPoints: 70, totalPoints: 100, messageCount: 1, hasKnownCost: true, toolDetails };

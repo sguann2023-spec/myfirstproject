@@ -1,13 +1,14 @@
 .chat-panel__video-template-popover-panel {
-  width: min(700px, calc(100vw - 160px));
-  height: 320px;
-  max-height: 320px;
+  width: min(700px, calc(100vw - 32px));
+  height: min(320px, calc(100vh - 32px));
+  max-height: min(320px, calc(100vh - 32px));
   padding: 12px;
   border: 1px solid #ececec;
   border-radius: 16px;
   background: #ffffff;
   box-sizing: border-box;
   overflow: auto;
+  overscroll-behavior: contain;
   scrollbar-width: none;
 }
 
@@ -19,8 +20,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: min(700px, calc(100vw - 160px));
-  height: 320px;
+  width: min(700px, calc(100vw - 32px));
+  height: min(320px, calc(100vh - 32px));
   color: #8c8c8c;
   font-size: 14px;
 }

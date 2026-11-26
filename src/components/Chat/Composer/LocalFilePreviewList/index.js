@@ -5,6 +5,7 @@ import { AudioLines, File, FileAudio, FileVideo, LoaderCircle, X } from 'lucide-
 import FirstFrameIcon from '../../../../../public/first_frame.svg';
 import MaterialPlusIcon from '../../../../../public/material-plus.svg';
 import MaterialPlusErrorIcon from '../../../../../public/material-plus-error.svg';
+import { getAttachmentPurposeLabel } from '../attachmentPurpose';
 import './index.css';
 
 const getFileDisplayName = (file = {}) => file.name || '文件';
@@ -232,7 +233,7 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
       type="button"
       className={`chat-panel__local-file-preview-placeholder${templateGroup ? ' is-template' : ''}`}
       aria-invalid={templateGroup ? Boolean(templateGroup.invalid) : undefined}
-      onClick={() => onAddFile && onAddFile(placeholder)}
+      onClick={(event) => onAddFile && onAddFile(placeholder, event.currentTarget)}
     >
       <span className="chat-panel__local-file-preview-placeholder-thumb">
         {templateGroup ? (
@@ -247,9 +248,14 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
     </button>
   );
 
-  const renderFileChip = (file) => {
+  const renderFileChip = (file, isToolSlot = false) => {
     const isImage = !isVoiceIdFile(file) && getFileKindFromType(file.fileType) === 'image';
     const canPreview = ['image', 'video', 'audio'].includes(getPreviewKind(file)) && Boolean(getMediaPreviewUrl(file));
+    const purposeLabel = !isToolSlot && !String(file.slotId || '').trim() && !isVoiceIdFile(file)
+      ? getAttachmentPurposeLabel(file.purpose) : '';
+    const purposeBadge = purposeLabel ? (
+      <span className="chat-panel__local-file-preview-purpose">{purposeLabel}</span>
+    ) : null;
 
     const chip = (
       <div
@@ -278,6 +284,7 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
         </button>
         <div className="chat-panel__local-file-preview-thumb">
           {renderFileThumb(file)}
+          {isImage ? purposeBadge : null}
         </div>
         {isImage ? null : (
           <div className="chat-panel__local-file-preview-main">
@@ -286,7 +293,8 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
             </div>
             {isVoiceIdFile(file) ? null : (
               <div className="chat-panel__local-file-preview-meta">
-                {getFileMetaLabel(file)}
+                <span>{getFileMetaLabel(file)}</span>
+                {purposeBadge}
               </div>
             )}
           </div>
@@ -313,7 +321,7 @@ const LocalFilePreviewList = ({ files = [], placeholders = [], slotOrder = [], f
         ) : null}
       </div>
       <div className="chat-panel__local-file-preview-group-files">
-        {group.files.map((file) => renderFileChip(file))}
+        {group.files.map((file) => renderFileChip(file, true))}
         {group.placeholder ? renderPlaceholderChip(group.placeholder, group) : null}
       </div>
     </div>

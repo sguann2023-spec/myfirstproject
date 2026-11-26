@@ -379,6 +379,7 @@ const VideoToolDetail = ({
       </Tooltip>
       <div className="chat-panel__tool-detail-content">
         <Select
+          placement="topLeft"
           size="small"
           variant="borderless"
           className="chat-panel__model-picker chat-panel__video-picker"
@@ -401,6 +402,7 @@ const VideoToolDetail = ({
           optionRender={(option) => option.data.label}
         />
         <Select
+          placement="topLeft"
           size="small"
           variant="borderless"
           className="chat-panel__model-picker chat-panel__video-picker chat-panel__video-mode-picker"

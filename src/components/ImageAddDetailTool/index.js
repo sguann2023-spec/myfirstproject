@@ -12,6 +12,24 @@ import '../TextAddDetail/index.css';
 import '../PresetAddDetail/index.css';
 import './index.css';
 
+// Fit the existing Konva stage uniformly; its transform/position calculations stay unchanged.
+const fitSettingsPreview = (viewport) => {
+  if (!viewport) return undefined;
+  const content = viewport.firstElementChild;
+  const fit = () => {
+    if (!viewport.clientWidth || !viewport.clientHeight || !content?.offsetWidth || !content.offsetHeight) return;
+    viewport.style.setProperty('--settings-preview-scale', String(Math.min(
+      1, viewport.clientWidth / content.offsetWidth, viewport.clientHeight / content.offsetHeight,
+    )));
+  };
+  fit();
+  if (typeof ResizeObserver === 'undefined') return undefined;
+  const observer = new ResizeObserver(fit);
+  observer.observe(viewport);
+  observer.observe(content);
+  return () => observer.disconnect();
+};
+
 const IMAGE_EXTENSIONS = ['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp'];
 const IMAGE_SETTINGS_TABS = [
   { key: 'settings', label: '位置大小', icon: SlidersHorizontal },
@@ -242,7 +260,7 @@ const ImageAddDetailTool = ({ disabled = false, onBack, selectedDraftIds = [], o
       popoverClassName="chat-panel__text-settings-draft-select-popover" />
   );
   const settingsPopupContent = (
-    <div className={`chat-panel__text-settings-popup chat-panel__image-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
+    <div className={`chat-panel__text-settings-popup chat-panel__tool-settings-popup chat-panel__image-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
       <div className="chat-panel__text-settings-layout">
         <div className="chat-panel__text-settings-preview chat-panel__image-add-settings-preview">
           <div className="chat-panel__text-settings-preview-stage">
@@ -258,7 +276,10 @@ const ImageAddDetailTool = ({ disabled = false, onBack, selectedDraftIds = [], o
                 <div className="chat-panel__text-settings-preview-selector chat-panel__text-settings-preview-selector--empty">
                   {draftSelector}
                 </div>
-              ) : settings.previewSource ? (
+              ) : (
+                <div className="chat-panel__tool-settings-preview-viewport" ref={fitSettingsPreview}>
+                  <div className="chat-panel__tool-settings-preview-fit">
+                {settings.previewSource ? (
                 <div
                   className="chat-panel__preset-add-preview-stage has-preset"
                   title="点击替换图片"
@@ -277,6 +298,9 @@ const ImageAddDetailTool = ({ disabled = false, onBack, selectedDraftIds = [], o
                     onClick={chooseImageFile}>
                     <span className="chat-panel__preset-add-preview-empty">点击导入图片</span>
                   </button>
+                </div>
+                )}
+                  </div>
                 </div>
               )}
             </div>
@@ -309,7 +333,7 @@ const ImageAddDetailTool = ({ disabled = false, onBack, selectedDraftIds = [], o
         <span className="chat-panel__tool-text chat-panel__tool-text--active">添加图片</span>
         <CloseOutlined className="chat-panel__tool-close-icon" />
       </button>
-      <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={false} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown" menu={{ items: [] }}>
+      <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={{ adjustX: true, adjustY: true, shiftX: true, shiftY: true }} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown chat-panel__tool-settings-dropdown" menu={{ items: [] }}>
         <span className="chat-panel__tool-dropdown-trigger">
           <button
             type="button"

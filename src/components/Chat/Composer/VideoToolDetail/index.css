@@ -11,11 +11,16 @@
 
 .chat-panel__video-picker.ant-select {
   min-width: 0;
+  height: var(--composer-control-height, 32px);
+  min-height: var(--composer-control-height, 32px);
   border-radius: 8px;
 }
 
 .chat-panel__video-picker.ant-select .ant-select-selector {
-  padding: 16px 6px !important;
+  height: var(--composer-control-height, 32px) !important;
+  min-height: var(--composer-control-height, 32px) !important;
+  box-sizing: border-box;
+  padding: 0 6px !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;

@@ -596,7 +596,8 @@ const VideoResolutionSelect = ({
     <div className="chat-panel__video-resolution-actions">
       <Popover
         trigger="click"
-        placement="topLeft"
+        placement="top"
+        autoAdjustOverflow
         open={disabled ? false : open}
         onOpenChange={setOpen}
         content={panel}
@@ -619,11 +620,11 @@ const VideoResolutionSelect = ({
       </Popover>
       <Popover
         trigger="click"
-        placement="topLeft"
+        placement="top"
+        autoAdjustOverflow
         open={disabled ? false : templateOpen}
         onOpenChange={setTemplateOpen}
         content={<VideoTemplatePopover onApplyTemplate={handleApplyTemplate} />}
-        align={{ offset: [-420, -12] }}
         overlayClassName="chat-panel__video-template-popover"
       >
         <button

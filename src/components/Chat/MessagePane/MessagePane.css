@@ -20,6 +20,11 @@
   direction: ltr;
 }
 
+.chat-panel__messages--welcome {
+  display: flex;
+  padding: 12px 12px 12px;
+}
+
 .chat-panel__messages:has(.chat-panel__welcome-stage--preview) {
   padding: 0;
 }

@@ -103,6 +103,24 @@ const NUMBER_INPUT_SHARED_PROPS = {
 const PREVIEW_CANVAS_MAX_WIDTH = 168;
 const PREVIEW_CANVAS_MAX_HEIGHT = 280;
 
+// Scale the complete preview, including its editing overlay, without changing draft geometry.
+const fitSettingsPreview = (viewport) => {
+  if (!viewport) return undefined;
+  const content = viewport.firstElementChild;
+  const fit = () => {
+    if (!viewport.clientWidth || !viewport.clientHeight || !content?.offsetWidth || !content.offsetHeight) return;
+    viewport.style.setProperty('--settings-preview-scale', String(Math.min(
+      1, viewport.clientWidth / content.offsetWidth, viewport.clientHeight / content.offsetHeight,
+    )));
+  };
+  fit();
+  if (typeof ResizeObserver === 'undefined') return undefined;
+  const observer = new ResizeObserver(fit);
+  observer.observe(viewport);
+  observer.observe(content);
+  return () => observer.disconnect();
+};
+
 const resolvePreviewCanvasSize = (script = null) => {
   const candidates = [
     script?.canvas_config,
@@ -1016,7 +1034,7 @@ const TextAddDetail = ({
   );
 
   const settingsPopupContent = (
-    <div className={`chat-panel__text-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
+    <div className={`chat-panel__text-settings-popup chat-panel__tool-settings-popup chat-panel__text-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
       <div className="chat-panel__text-settings-layout">
         <div className="chat-panel__text-settings-preview">
           <div className="chat-panel__text-settings-preview-stage">
@@ -1055,6 +1073,8 @@ const TextAddDetail = ({
                 </div>
               ) : null}
               {hasSelectedDraft && !previewEmptyText ? (
+                <div className="chat-panel__tool-settings-preview-viewport" ref={fitSettingsPreview}>
+                  <div className="chat-panel__tool-settings-preview-fit">
                 <div
                   className="chat-panel__text-settings-preview-canvas"
                   role="group"
@@ -1259,6 +1279,8 @@ const TextAddDetail = ({
                     </>
                   ) : null}
                 </div>
+                  </div>
+                </div>
               ) : null}
             </div>
             {hasSelectedDraft ? (
@@ -1329,7 +1351,7 @@ const TextAddDetail = ({
         disabled={disabled}
         trigger={['click']}
         open={settingsOpen}
-        autoAdjustOverflow={false}
+        autoAdjustOverflow={{ adjustX: true, adjustY: true, shiftX: true, shiftY: true }}
         onOpenChange={(open) => {
           setSettingsOpen(open);
           if (open) setEffectsPanelSession((previous) => previous + 1);
@@ -1338,7 +1360,7 @@ const TextAddDetail = ({
           }
         }}
         placement="topLeft"
-        overlayClassName="chat-panel__text-settings-dropdown"
+        overlayClassName="chat-panel__text-settings-dropdown chat-panel__tool-settings-dropdown"
         menu={{ items: [] }}
         popupRender={() => settingsPopupContent}
       >

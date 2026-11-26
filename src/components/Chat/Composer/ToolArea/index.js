@@ -150,7 +150,7 @@ const VIDEO_MENU_ITEMS = [
   },
 ];
 
-const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
+const ToolArea = ({ disabled = false, onSelect, onMenuOpenChange, toolAreaRef = null }) => {
   const [draftMenuOpen, setDraftMenuOpen] = React.useState(false);
   const [textMenuOpen, setTextMenuOpen] = React.useState(false);
   const [audioMenuOpen, setAudioMenuOpen] = React.useState(false);
@@ -171,6 +171,12 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
       });
     });
   }, [audioMenuOpen]);
+
+  React.useEffect(() => {
+    onMenuOpenChange?.(draftMenuOpen || textMenuOpen || audioMenuOpen || imageMenuOpen || videoMenuOpen);
+  }, [draftMenuOpen, textMenuOpen, audioMenuOpen, imageMenuOpen, videoMenuOpen, onMenuOpenChange]);
+
+  React.useEffect(() => () => onMenuOpenChange?.(false), [onMenuOpenChange]);
 
   const closeOtherMenus = (activeMenu) => {
     if (activeMenu !== 'draft') setDraftMenuOpen(false);
@@ -225,7 +231,9 @@ const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (nextOpen) closeOtherMenus(menuName);
+        if (nextOpen) {
+          closeOtherMenus(menuName);
+        }
       }}
       mouseEnterDelay={0}
       mouseLeaveDelay={0}

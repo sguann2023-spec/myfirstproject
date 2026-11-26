@@ -691,7 +691,7 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
   const activePanelContent = activeSettingsTab === 'timeline' ? timelinePanelContent : settingsPanelContent;
 
   const settingsPopupContent = (
-    <div className={`chat-panel__text-settings-popup chat-panel__audio-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
+    <div className={`chat-panel__text-settings-popup chat-panel__tool-settings-popup chat-panel__audio-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
       <div className="chat-panel__text-settings-layout">
         <div className="chat-panel__text-settings-preview chat-panel__audio-add-settings-preview">
           <div className="chat-panel__text-settings-preview-stage">
@@ -745,7 +745,7 @@ const AudioAddToolDetail = ({ disabled = false, onBack, selectedDraftIds = [], o
       <span className="chat-panel__tool-text chat-panel__tool-text--active">添加音频</span>
       <CloseOutlined className="chat-panel__tool-close-icon chat-panel__audio-add-close-icon" />
     </button>
-    <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={false} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown" menu={{ items: [] }}>
+    <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={{ adjustX: true, adjustY: true, shiftX: true, shiftY: true }} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown chat-panel__tool-settings-dropdown" menu={{ items: [] }}>
       <span className="chat-panel__tool-dropdown-trigger">
         <button type="button" className={`chat-panel__draft-select-trigger chat-panel__text-settings-trigger ${settingsOpen ? 'is-open' : ''}`} disabled={disabled} aria-label="设置" title="设置">
           <SlidersHorizontal className="chat-panel__text-settings-trigger-icon" aria-hidden="true" />

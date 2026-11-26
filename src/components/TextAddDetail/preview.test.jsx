@@ -73,8 +73,10 @@ vi.mock('../../renderer/src/components/PreviewTimeline/ReactTimelineEditor', () 
 vi.mock('antd', () => ({
   Input: (props) => <input {...props} />,
   Tooltip: ({ children }) => children,
-  Dropdown: ({ children, open, onOpenChange, popupRender }) => (
-    <div><div onClick={() => onOpenChange(!open)}>{children}</div>{open && popupRender()}</div>
+  Dropdown: ({ children, open, onOpenChange, popupRender, disabled, placement, autoAdjustOverflow }) => (
+    <div data-popup-placement={placement} data-popup-overflow={JSON.stringify(autoAdjustOverflow)}>
+      <div onClick={() => !disabled && onOpenChange(!open)}>{children}</div>{open && popupRender()}
+    </div>
   ),
   ColorPicker: ({ children, value, onChange, panelRender, disabled }) => (
     <div>
@@ -181,6 +183,66 @@ const expandEffect = async (label) => {
   const header = host.querySelector(`[aria-label="${label}设置"] .chat-panel__text-settings-section-header`);
   if (header.getAttribute('aria-expanded') === 'false') await act(async () => header.click());
 };
+
+describe('toolbar popup viewport fitting', () => {
+  it('resizes the mounted canvas and editor together without changing geometry, values, tabs, or dropdown interactions', async () => {
+    const observers = [];
+    class PreviewResizeObserver {
+      constructor(callback) {
+        this.callback = callback;
+        this.observe = vi.fn();
+        this.disconnect = vi.fn();
+        observers.push(this);
+      }
+    }
+    vi.stubGlobal('ResizeObserver', PreviewResizeObserver);
+    try {
+      const { stage, onSettingsChange } = await mount('Viewport preview');
+      const viewport = host.querySelector('.chat-panel__tool-settings-preview-viewport');
+      const content = viewport.firstElementChild;
+      const observer = observers.find((candidate) => candidate.observe.mock.calls.some(([target]) => target === viewport));
+      Object.defineProperties(viewport, {
+        clientWidth: { configurable: true, value: 84 },
+        clientHeight: { configurable: true, value: 80 },
+      });
+      Object.defineProperties(content, {
+        offsetWidth: { configurable: true, value: stage.width() },
+        offsetHeight: { configurable: true, value: stage.height() },
+      });
+      const dimensions = { width: stage.width(), height: stage.height() };
+      const settingsBeforeResize = onSettingsChange.mock.calls.length;
+      await act(async () => observer.callback());
+      expect(viewport.style.getPropertyValue('--settings-preview-scale')).toBe('0.5');
+      expect({ width: stage.width(), height: stage.height() }).toEqual(dimensions);
+      expect(onSettingsChange).toHaveBeenCalledTimes(settingsBeforeResize);
+      expect(host.querySelector('[data-popup-placement]').dataset.popupPlacement).toBe('topLeft');
+      expect(JSON.parse(host.querySelector('[data-popup-overflow]').dataset.popupOverflow)).toEqual({
+        adjustX: true, adjustY: true, shiftX: true, shiftY: true,
+      });
+      await act(async () => host.querySelector('[role="group"][aria-label="文本预览，点击编辑或拖动移动"]').dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+      ));
+      expect(content.querySelector('[aria-label="预览文本内容"]')).not.toBeNull();
+      expect(content.querySelector('.chat-panel__text-settings-preview-editor-frame')).not.toBeNull();
+      const tabs = host.querySelector('[role="tablist"]');
+      expect(tabs.parentElement.querySelector('.chat-panel__text-settings-content').contains(tabs)).toBe(false);
+      await act(async () => host.querySelector('[role="tab"][aria-label="时间线"]').click());
+      expect(host.querySelector('[role="tab"][aria-label="时间线"]').getAttribute('aria-selected')).toBe('true');
+      await act(async () => host.querySelector('[aria-label="设置"]').click());
+      expect(host.querySelector('.chat-panel__tool-settings-popup')).toBeNull();
+      expect(observer.disconnect).toHaveBeenCalledOnce();
+      await act(async () => host.querySelector('[aria-label="设置"]').click());
+      expect(host.querySelector('[role="tab"][aria-label="时间线"]').getAttribute('aria-selected')).toBe('true');
+      expect(host.querySelector('[aria-label="预览文本内容"]')).toBeNull();
+      await act(async () => root.render(<TextAddDetail disabled inputText="Viewport preview" selectedDraftIds={['preview-test']} />));
+      expect(host.querySelector('[aria-label="设置"]').disabled).toBe(true);
+      await act(async () => host.querySelector('[aria-label="设置"]').click());
+      expect(host.querySelector('.chat-panel__tool-settings-popup')).not.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe('preview layout', () => {
   const base = {

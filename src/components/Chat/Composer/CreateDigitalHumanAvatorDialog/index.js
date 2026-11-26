@@ -33,6 +33,7 @@ const CreateDigitalHumanAvatorDialog = ({
   const [processingImage, setProcessingImage] = React.useState(false);
   const imageProcessingIdRef = React.useRef(0);
   const voiceLib = useVoiceLib({ lockedProvider: lockedVoiceProvider });
+  const { setVoiceLibraryOpen } = voiceLib;
   const normalizedLockedVoiceProvider = normalizeMemberProvider(lockedVoiceProvider);
   const selectedVoiceProvider = normalizeMemberProvider(
     voiceLib?.selectedVoiceLibraryItem?.price_provider
@@ -58,8 +59,9 @@ const CreateDigitalHumanAvatorDialog = ({
       setProcessingImage(false);
       setPreviewOpen(false);
       setPreviewImage('');
+      setVoiceLibraryOpen(false);
     }
-  }, [open]);
+  }, [open, setVoiceLibraryOpen]);
 
   const handleClose = React.useCallback(() => {
     if (saving || processingImage) return;
@@ -278,7 +280,7 @@ const CreateDigitalHumanAvatorDialog = ({
               <VoiceLib
                 controller={voiceLib}
                 disabled={saving}
-                getPopupContainer={(trigger) => trigger.parentElement}
+                getPopupContainer={(trigger) => trigger.closest('.chat-panel__digital-human-create-dialog') || document.body}
                 label="请选择音色"
                 selectedTextPrefix=""
               />

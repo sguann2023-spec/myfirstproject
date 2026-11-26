@@ -268,7 +268,8 @@ const DraftSelect = ({
   return (
     <Popover
       trigger="click"
-      placement="topLeft"
+      placement="top"
+      autoAdjustOverflow
       open={open}
       onOpenChange={setOpen}
       content={popoverContent}

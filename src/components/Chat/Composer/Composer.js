@@ -1,3 +1,8 @@
+import AttachmentUploadCards from './AttachmentUploadCards';
+import useAttachmentPrompt from './useAttachmentPrompt';
+import useUploadCardVisibility from './useUploadCardVisibility';
+import { getConversationPlaceholder } from './conversationPlaceholder';
+import { buildAttachmentPurposeGroups, buildPurposeAttachmentReferences, normalizeAttachmentPurpose } from './attachmentPurpose';
 import ThinkingLevelSlider from './ThinkingLevelSlider';
 import { thinkingSendOptions } from './thinkingLevels';
 import { useAgent } from '@renderer/hooks/agents/useAgent';
@@ -22,7 +27,6 @@ import { ProviderLogo } from '../../ProviderLogo.jsx';
 import { getVideoGenerationCapabilities } from '../../../api/chat';
 import { getProjectPricing } from '../../../api/pricing';
 import { trackEvent } from '../../../shared/analytics';
-import ChatToolFileIcon from '../../../../public/chat_tool_file.svg';
 import SkillTemplateIcon from '../../../../public/skill-template.svg';
 import Point2Icon from '../../../../public/point2.svg';
 import ChatModelsTipIcon from '../../../../public/chat_models_tip.svg';
@@ -706,6 +710,7 @@ const createFileReferenceAttrs = (file = {}, overrides = {}) => ({
   sourcePath: overrides.sourcePath ?? file.sourcePath ?? '',
   sourceType: overrides.sourceType ?? file.sourceType ?? '',
   sourceLabel: overrides.sourceLabel ?? file.sourceLabel ?? '',
+  purpose: normalizeAttachmentPurpose(overrides.purpose ?? file.purpose),
 });
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
   if (!isBlobLike(file)) {
@@ -1121,7 +1126,7 @@ const tryGetNativeFilePath = (value) => {
     return '';
   }
 };
-const createLocalAttachmentEntry = async (rawFile = {}, { validateMusicAudio = false } = {}) => {
+const createLocalAttachmentEntry = async (rawFile = {}, { validateMusicAudio = false, purpose = '' } = {}) => {
   const targetFile = isFileLike(rawFile) ? rawFile : rawFile?.originFileObj;
   const uid = rawFile?.uid || targetFile?.uid || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
   if (!targetFile) return null;
@@ -1188,6 +1193,7 @@ const createLocalAttachmentEntry = async (rawFile = {}, { validateMusicAudio = f
       size: targetFile?.size || rawFile?.size || 0,
       sourcePath,
       sourceType: 'local',
+      purpose: normalizeAttachmentPurpose(purpose),
     },
   };
 };
@@ -1682,7 +1688,7 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
                 className="chat-panel__skill-mention-empty-action"
                 icon={<Plus className="chat-panel__skill-mention-empty-action-icon" />}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => requestUploadPickerRef.current && requestUploadPickerRef.current(file.slotId)}
+                onClick={(event) => requestUploadPickerRef.current && requestUploadPickerRef.current(file.slotId, event.currentTarget)}
               >
                 选择文件
               </Button>
@@ -1751,6 +1757,7 @@ const createFileReferenceExtension = ({ uploadedFilesRef, requestUploadPickerRef
         sourcePath: { default: '' },
         sourceType: { default: '' },
         sourceLabel: { default: '' },
+        purpose: { default: '' },
       };
     },
 
@@ -2218,6 +2225,9 @@ const Composer = ({
   agentId,
   runtimeSessionId,
   session: sessionProp = null,
+  sessionHasUserMessages = false,
+  sessionFulfilled = false,
+  historyLoading = false,
   beginnerGuideAiToolAreaRef = null,
   beginnerGuideModelPickerRef = null,
   beginnerGuideInputAreaRef = null,
@@ -2242,6 +2252,15 @@ const Composer = ({
   const { agent } = useAgent(agentId || null);
   const [runtimeSession, setRuntimeSession] = React.useState(null);
   const session = runtimeSession || sessionProp;
+  const [toolMenuOpen, setToolMenuOpen] = React.useState(false);
+  const [hasSkillMention, setHasSkillMention] = React.useState(false);
+  const { visible: uploadCardsEligible, dismiss: dismissUploadCards } = useUploadCardVisibility({
+    sessionId: sessionProp?.id || runtimeSessionId,
+    resetVersion: sessionProp?.uploadCardIntroVersion || 0,
+    hasUserMessages: sessionHasUserMessages,
+    historyLoading,
+    toolActive: toolMenuOpen || hasSkillMention,
+  });
   const restoredQueueOptionsRef = React.useRef(null);
   const [hasRestoredQueueDraft, setHasRestoredQueueDraft] = React.useState(false);
   const restoredQueueOwnerRef = React.useRef(null);
@@ -2303,6 +2322,7 @@ const Composer = ({
     getInitialSelectedVoiceLibraryItem()
   );
   const [voiceConversionPricing, setVoiceConversionPricing] = React.useState(null);
+  const [voiceLibraryAnchorElement, setVoiceLibraryAnchorElement] = React.useState(null);
   const musicVoicePickHandlerRef = React.useRef(null);
   const musicVoiceLib = useVoiceLib({
     lockedProvider: 'volc2.0',
@@ -2375,6 +2395,8 @@ const Composer = ({
   const mentionPanelPointerDownRef = React.useRef(false);
   const requestUploadPickerRef = React.useRef(() => {});
   const toolbarUploadTriggerRef = React.useRef(null);
+  const referenceUploadTriggerRef = React.useRef(null);
+  const materialUploadTriggerRef = React.useRef(null);
   const musicPlaceholderUploadInputRef = React.useRef(null);
   const pendingTemplateSlotAutoReferenceRef = React.useRef('');
   const inputWrapRef = React.useRef(null);
@@ -2385,7 +2407,7 @@ const Composer = ({
   React.useEffect(() => () => clearTimeout(modelHoverCloseTimer.current), []);
   const toolContentScrollRef = React.useRef(null);
   const toolBarRef = React.useRef(null);
-  const toolLeftPrefixRef = React.useRef(null);
+  const toolLeftRef = React.useRef(null);
   const toolRightRef = React.useRef(null);
   const [isDragActive, setIsDragActive] = React.useState(false);
   const [toolContentScrollState, setToolContentScrollState] = React.useState({
@@ -2455,10 +2477,23 @@ const Composer = ({
           ? '选择音频/视频和音色ID后发送'
           : activeTool === 'ai-video'
             ? '描述你想要的视频'
-            : '@查看技能，#引用文件，Enter发送。\r\n想找今天的爆款视频？试试：我想看看河北邯郸驴肉火烧店的热门引流视频，不超过30秒';
+            : getConversationPlaceholder({
+              messages: sessionProp?.messages || [],
+              sending: sessionSending || sending,
+              historyLoading,
+              fulfilled: sessionFulfilled,
+            });
+  const isDefaultAttachmentMode = !activeTool && !skillExample && skillExampleGroups.length === 0;
+  const attachmentPurposeGroups = React.useMemo(() => (
+    isDefaultAttachmentMode ? buildAttachmentPurposeGroups(uploadedFileMeta) : null
+  ), [isDefaultAttachmentMode, uploadedFileMeta]);
+  const [activeAttachmentPurposeGroup, setActiveAttachmentPurposeGroup] = React.useState('');
+  const showAttachmentUploadCards = uploadCardsEligible && isDefaultAttachmentMode && !attachmentPurposeGroups
+    && !templatePickerOpen && !partSplitDialogOpen;
+  const inputEditorHidden = ['text-add', 'recognize-subtitle', 'audio-add', 'image-add', 'voice-conversion'].includes(activeTool);
   const showVoiceSquareTextTemplates = activeTool === 'voice-square' && !String(input || '').trim();
 
-  requestUploadPickerRef.current = (slotId = '') => {
+  requestUploadPickerRef.current = (slotId = '', anchorElement = null) => {
     pendingTemplateSlotAutoReferenceRef.current = slotId || '';
     const exampleGroup = !activeTool && skillExampleGroups.find((group) => group.slotId === (slotId || activeSkillExampleSlot));
     if (exampleGroup) pendingTemplateSlotAutoReferenceRef.current = exampleGroup.slotId;
@@ -2478,6 +2513,7 @@ const Composer = ({
       const placeholder = placeholderConfig.find((item) => String(item.key) === String(slotId));
       const slotKind = placeholder?.kind;
       if (slotKind === 'voice') {
+        setVoiceLibraryAnchorElement(anchorElement || inputWrapRef.current);
         const targetVoiceLib = activeTool === 'voice-conversion' ? voiceConversionVoiceLib : musicVoiceLib;
         targetVoiceLib.setVoiceLibraryOpen?.(true);
         return;
@@ -2885,22 +2921,16 @@ const Composer = ({
 
   const updateToolContentMaxWidth = React.useCallback(() => {
     const toolBarElement = toolBarRef.current;
-    const toolPrefixElement = toolLeftPrefixRef.current;
     const toolRightElement = toolRightRef.current;
-    if (!toolBarElement || !toolPrefixElement || !toolRightElement) return;
+    if (!toolBarElement || !toolRightElement) return;
 
     const toolBarStyle = window.getComputedStyle(toolBarElement);
-    const toolLeftElement = toolPrefixElement.parentElement;
-    const toolLeftStyle = toolLeftElement ? window.getComputedStyle(toolLeftElement) : null;
     const toolBarGap = Number.parseFloat(toolBarStyle.columnGap || toolBarStyle.gap || '0') || 0;
-    const toolLeftGap = Number.parseFloat(toolLeftStyle?.columnGap || toolLeftStyle?.gap || '0') || 0;
     const nextWidth = Math.max(
       0,
       toolBarElement.clientWidth
       - toolRightElement.offsetWidth
-      - toolPrefixElement.offsetWidth
       - toolBarGap
-      - toolLeftGap
       - TOOL_BAR_MIN_RIGHT_GAP
     );
 
@@ -2938,9 +2968,9 @@ const Composer = ({
 
   React.useEffect(() => {
     const toolBarElement = toolBarRef.current;
-    const toolPrefixElement = toolLeftPrefixRef.current;
+    const toolLeftElement = toolLeftRef.current;
     const toolRightElement = toolRightRef.current;
-    if (!toolBarElement || !toolPrefixElement || !toolRightElement) return undefined;
+    if (!toolBarElement || !toolLeftElement || !toolRightElement) return undefined;
 
     updateToolContentMaxWidth();
     let observer = null;
@@ -2949,7 +2979,7 @@ const Composer = ({
         updateToolContentMaxWidth();
       });
       observer.observe(toolBarElement);
-      observer.observe(toolPrefixElement);
+      observer.observe(toolLeftElement);
       observer.observe(toolRightElement);
     }
 
@@ -3204,6 +3234,20 @@ const Composer = ({
     },
   });
 
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return undefined;
+    const syncSkillUsage = () => {
+      let found = false;
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === 'mention') found = true;
+      });
+      setHasSkillMention(found);
+    };
+    syncSkillUsage();
+    editor.on('transaction', syncSkillUsage);
+    return () => editor.off('transaction', syncSkillUsage);
+  }, [editor]);
+
   const captureComposerDraft = React.useCallback(() => {
     const state = draftStateRef.current;
     return {
@@ -3336,6 +3380,20 @@ const Composer = ({
     editor.commands.setTextSelection({ from, to });
   }, [editor, input, mentionHighlightRegex]);
 
+  const attachmentPromptSessionReady = draftSessionIdRef.current === chatSessionId;
+  useAttachmentPrompt({
+    editor,
+    files: uploadedFileMeta,
+    enabled: isDefaultAttachmentMode && attachmentPromptSessionReady && pendingSkillExamplePromptRef.current === null,
+    sessionId: chatSessionId,
+    getText: getEditorPlainText,
+    setText: (text) => {
+      latestInputRef.current = text;
+      setInput(text);
+    },
+    buildDocument: (text) => buildEditorDocument(text, mentionHighlightRegex),
+  });
+
   React.useEffect(() => {
     if (!inputRef) return undefined;
 
@@ -3428,7 +3486,7 @@ const Composer = ({
       )
       .run();
     closeMentionPanel();
-  }, [closeMentionPanel, editor, mentionState.end, mentionState.start]);
+  }, [closeMentionPanel, dismissUploadCards, editor, mentionState.end, mentionState.start]);
 
   const insertFileReference = React.useCallback((file) => {
     if (!editor || editor.isDestroyed || !file?.uid || mentionState.start < 0 || mentionState.end < mentionState.start) return;
@@ -3451,7 +3509,7 @@ const Composer = ({
       )
       .run();
     closeMentionPanel();
-  }, [closeMentionPanel, editor, mentionState.end, mentionState.start]);
+  }, [closeMentionPanel, dismissUploadCards, editor, mentionState.end, mentionState.start]);
 
   const toggleReferenceNodeExpanded = React.useCallback((nodeKey) => {
     if (!nodeKey || referenceQuery) return;
@@ -4038,7 +4096,6 @@ const Composer = ({
     if (activeTool === 'digital-human') return DIGITAL_HUMAN_PLACEHOLDER_CONFIG.map((item) => item.key);
     return [];
   }, [activeTool, videoPreviewSlotOrder]);
-  const hasToolPreviewRow = uploadedFileMeta.length > 0 || activeUploadPlaceholders.length > 0;
 
   // Skill-example attachments render as labeled fill-in groups: the group
   // label plus its count constraint doubles as the hint for what to upload.
@@ -4069,6 +4126,10 @@ const Composer = ({
       ? uploadedFileMeta.filter((item) => String(item?.sourceType || '').trim() !== 'skill_example')
       : uploadedFileMeta
   ), [skillExampleFileGroups, uploadedFileMeta]);
+
+  const visiblePreviewFiles = attachmentPurposeGroups
+    ? nonSkillExampleFileMeta.filter((file) => !normalizeAttachmentPurpose(file.purpose))
+    : nonSkillExampleFileMeta;
 
   // 「供应商→模型」两级选择（对齐 ZCode）：活跃供应商直接由当前会话模型推导，
   // 切换供应商即选中该供应商首个模型，模型列表随之切换，无需额外的状态同步。
@@ -4328,11 +4389,14 @@ const Composer = ({
     });
   }, []);
 
-  const queueFilesForUpload = React.useCallback(async (files = []) => {
+  const queueFilesForUpload = React.useCallback(async (files = [], { purpose = '' } = {}) => {
     if (skillExampleLoading) return;
+    const attachmentPurpose = !activeTool && !skillExample && skillExampleGroups.length === 0
+      ? normalizeAttachmentPurpose(purpose)
+      : '';
     const normalizedFiles = files.filter((item) => isFileLike(item));
     if (normalizedFiles.length === 0) return;
-    const pendingSlotId = String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
+    const pendingSlotId = attachmentPurpose ? '' : String(pendingTemplateSlotAutoReferenceRef.current || '').trim();
     const exampleSlotId = pendingSlotId || activeSkillExampleSlot;
     // Skill-example group slots: append matching local media into the
     // labeled group (fill-in), enforcing the group's max_count.
@@ -4505,7 +4569,7 @@ const Composer = ({
     }
     const createdEntries = (await Promise.all(
       (activeTool === 'music-generate' ? musicValidatedFiles : uploadableFiles).map((file) => createLocalAttachmentEntry(
-        file, { validateMusicAudio: activeTool === 'music-generate' }
+        file, { validateMusicAudio: activeTool === 'music-generate', purpose: attachmentPurpose }
       ))
     )).filter(Boolean);
     const nextEntries = isDigitalHumanPendingSlot
@@ -4532,6 +4596,7 @@ const Composer = ({
       message.error(`人物视频时长需在 ${DIGITAL_HUMAN_VIDEO_MIN_DURATION_SECONDS} 秒到 ${DIGITAL_HUMAN_VIDEO_MAX_DURATION_SECONDS} 秒之间`);
     }
     if (nextEntries.length === 0) return;
+    if (attachmentPurpose) setActiveAttachmentPurposeGroup(`attachment-purpose:${attachmentPurpose}`);
 
     const isMusicPendingSlot = Boolean(musicPendingPlaceholder) && (activeSlotKind === 'audio' || activeSlotKind === 'image');
     const isVoiceConversionPendingSlot = Boolean(voiceConversionPendingPlaceholder) && activeSlotKind === 'media';
@@ -4572,16 +4637,16 @@ const Composer = ({
       syncTemplateFileReferenceNode(editor, activePendingSlotId, nextFileMeta[0]);
       pendingTemplateSlotAutoReferenceRef.current = '';
     }
-  }, [activeTool, activeUploadLimit, editor, selectedDigitalHumanMode, sessionSending, skillExampleGroups, uploadedFileMeta, activeSkillExampleSlot, skillExampleLoading]);
+  }, [activeTool, activeUploadLimit, editor, selectedDigitalHumanMode, sessionSending, skillExample, skillExampleGroups, uploadedFileMeta, activeSkillExampleSlot, skillExampleLoading]);
 
-  const handleBeforeUpload = React.useCallback((file, batchFileList = []) => {
+  const handleBeforeUpload = React.useCallback((file, batchFileList = [], purpose = '') => {
     const normalizedBatch = Array.isArray(batchFileList) && batchFileList.length > 0
       ? batchFileList
       : [file];
     if (normalizedBatch[0]?.uid !== file?.uid) {
       return AntUpload.LIST_IGNORE;
     }
-    queueFilesForUpload(normalizedBatch);
+    queueFilesForUpload(normalizedBatch, { purpose });
     return AntUpload.LIST_IGNORE;
   }, [queueFilesForUpload]);
 
@@ -4724,6 +4789,7 @@ const Composer = ({
           pendingLocalAttachments: [],
         });
         if (!accepted) return;
+        dismissUploadCards();
         setActiveTool(null);
         setSubtitleSettings(DEFAULT_SUBTITLE_SETTINGS);
       } catch {
@@ -4770,13 +4836,14 @@ const Composer = ({
         uid: String(item?.uid || '').trim(),
         name: String(item?.name || '').trim(),
         fileType: String(item?.fileType || '').trim(),
+        purpose: normalizeAttachmentPurpose(item?.purpose),
         file: uploadFileByUid.get(String(item?.uid || '').trim()),
       }))
       .filter((item) => item.uid && item.name && isFileLike(item.file));
-    const remainingLocalReferences = uploadedFileMeta
-      .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
-      .filter((item) => String(item?.kind || '') !== 'voice_id')
-      .map((item) => buildAttachmentReferenceText(item));
+    const remainingLocalReferences = buildPurposeAttachmentReferences(uploadedFileMeta, {
+      referencedFileUids: serializedMessage.referencedFileUids,
+      buildReference: buildAttachmentReferenceText,
+    });
     const draftCoverReferences = activeTool === 'draft' || activeTool === 'draft-modify'
       ? uploadedFileMeta
         .filter((item) => !serializedMessage.referencedFileUids.has(item.uid))
@@ -5121,6 +5188,7 @@ const Composer = ({
       pendingLocalAttachments
     });
     if (!accepted) return;
+    dismissUploadCards();
     composerDraftCache.clear(chatSessionId);
     restoredQueueOptionsRef.current = null;
     setHasRestoredQueueDraft(false);
@@ -5538,7 +5606,7 @@ const Composer = ({
     } finally {
       if (generation === skillExampleGenerationRef.current) setSkillExampleLoading(false);
     }
-  }, [activeTool, applySkillExampleModel, editor, input, mentionHighlightRegex, model, setInput, uploadFileList, uploadedFileMeta]);
+  }, [activeTool, applySkillExampleModel, dismissUploadCards, editor, input, mentionHighlightRegex, model, setInput, uploadFileList, uploadedFileMeta]);
   applySkillExampleRef.current = applySkillExampleDetail;
   React.useEffect(() => {
     const apply = (event) => {
@@ -5609,7 +5677,7 @@ const Composer = ({
       setInput('');
       editor.commands.clearContent();
     }
-  }, [activeTool, editor, enterTextAddMode, exitTextAddMode, handleAiWritePresetSelect, selectedAiWritePresetId, setInput]);
+  }, [activeTool, dismissUploadCards, editor, enterTextAddMode, exitTextAddMode, handleAiWritePresetSelect, selectedAiWritePresetId, setInput]);
 
   const handleToolDetailBack = React.useCallback(() => {
     if (activeTool === 'text-add') {
@@ -5626,7 +5694,7 @@ const Composer = ({
   }, [activeTool, exitTextAddMode]);
 
   return (
-    <div className="chat-panel__composer">
+    <div className="chat-panel__composer" data-active-tool={skillExample ? 'skill-example' : activeTool || 'chat'}>
       <TemplatePickerDialog open={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)}
         onSelect={(selection) => {
           window.ipc.send('open-template-edit-window', selection);
@@ -5639,6 +5707,30 @@ const Composer = ({
         onClose={() => setPartSplitDialogOpen(false)}
       /> : null}
       <div className="chat-panel__editor">
+        <AntUpload
+          multiple
+          accept={uploadAccept}
+          beforeUpload={handleBeforeUpload}
+          showUploadList={false}
+          style={{ display: 'none' }}
+        >
+          <span ref={toolbarUploadTriggerRef} />
+        </AntUpload>
+        {[
+          ['reference', referenceUploadTriggerRef],
+          ['material', materialUploadTriggerRef],
+        ].map(([purpose, triggerRef]) => (
+          <AntUpload
+            key={purpose}
+            multiple
+            accept={uploadAccept}
+            beforeUpload={(file, batch) => handleBeforeUpload(file, batch, purpose)}
+            showUploadList={false}
+            style={{ display: 'none' }}
+          >
+            <span ref={triggerRef} />
+          </AntUpload>
+        ))}
         <input
           ref={musicPlaceholderUploadInputRef}
           type="file"
@@ -5646,46 +5738,39 @@ const Composer = ({
           style={{ display: 'none' }}
           onChange={handleMusicPlaceholderInputChange}
         />
-        <VoiceLib controller={musicVoiceLib} hideTrigger />
-        <VoiceLib controller={voiceConversionVoiceLib} hideTrigger />
+        <VoiceLib controller={musicVoiceLib} hideTrigger anchorElement={voiceLibraryAnchorElement} placement="topLeft" />
+        <VoiceLib controller={voiceConversionVoiceLib} hideTrigger anchorElement={voiceLibraryAnchorElement} placement="topLeft" />
         {skillExampleError ? <div role="alert">{skillExampleError}<button onClick={() => void applySkillExampleDetail(skillExample)}>重试</button></div> : null}
         <LocalFilePreviewList
-          files={nonSkillExampleFileMeta}
+          files={visiblePreviewFiles}
           placeholders={activeUploadPlaceholders}
           slotOrder={activePreviewSlotOrder}
-          fileGroups={skillExampleFileGroups}
-          activeGroupKey={activeSkillExampleSlot}
+          fileGroups={attachmentPurposeGroups || skillExampleFileGroups}
+          activeGroupKey={attachmentPurposeGroups ? activeAttachmentPurposeGroup || attachmentPurposeGroups.find((group) => group.count > 0)?.key : activeSkillExampleSlot}
           onActiveGroupChange={(slotId) => {
+            if (attachmentPurposeGroups) {
+              setActiveAttachmentPurposeGroup(slotId);
+              return;
+            }
             pendingTemplateSlotAutoReferenceRef.current = '';
             setActiveSkillExampleSlot(slotId);
           }}
           onRemove={(file) => removeLocalFile(file?.uid)}
-          onAddFile={(placeholder) => requestUploadPickerRef.current(placeholder?.key || '')}
+          onAddFile={(placeholder, anchorElement) => {
+            const purpose = normalizeAttachmentPurpose(placeholder?.purpose);
+            if (purpose) {
+              const trigger = purpose === 'reference' ? referenceUploadTriggerRef : materialUploadTriggerRef;
+              trigger.current?.click();
+              return;
+            }
+            requestUploadPickerRef.current(placeholder?.key || '', anchorElement);
+          }}
         />
         <div
           ref={toolBarRef}
-          className={`chat-panel__tool-bar ${hasToolPreviewRow ? 'chat-panel__tool-bar--with-attachments' : ''}`}
+          className="chat-panel__tool-bar"
         >
-          <div className="chat-panel__tool-left">
-            <div ref={toolLeftPrefixRef} className="chat-panel__tool-left-prefix">
-              <AntUpload
-                multiple
-                accept={uploadAccept}
-                beforeUpload={handleBeforeUpload}
-                showUploadList={false}
-              >
-                <span
-                  ref={toolbarUploadTriggerRef}
-                  className="chat-panel__tool-button chat-panel__tool-button--icon-only"
-                  aria-label="选择文件"
-                  title="选择文件"
-                  role="button"
-                >
-                  <img className="chat-panel__tool-icon" src={ChatToolFileIcon} alt="" aria-hidden="true" />
-                </span>
-              </AntUpload>
-              <span className="chat-panel__tool-divider" aria-hidden="true" />
-            </div>
+          <div ref={toolLeftRef} className="chat-panel__tool-left">
             <div
               className="chat-panel__tool-content-shell"
               style={toolContentMaxWidth !== null ? { maxWidth: `${toolContentMaxWidth}px` } : undefined}
@@ -5890,6 +5975,7 @@ const Composer = ({
                       toolAreaRef={beginnerGuideAiToolAreaRef}
                       disabled={false}
                       onSelect={handleToolSelect}
+                      onMenuOpenChange={setToolMenuOpen}
                     />
                   )}
                   </> : null}
@@ -5928,7 +6014,8 @@ const Composer = ({
                 key={modelPickerEpoch}
                 size="small"
                 variant="borderless"
-                className="chat-panel__model-picker"
+                placement="topRight"
+                className="chat-panel__model-picker chat-panel__model-picker--chat"
                 listHeight={256}
                 virtual={false}
                 value={model}
@@ -6023,7 +6110,7 @@ const Composer = ({
               beginnerGuideInputAreaRef.current = node;
             }
           }}
-          className={`chat-panel__input-wrap ${isDragActive ? 'drag-active' : ''} ${hasToolPreviewRow ? 'chat-panel__input-wrap--with-attachments' : ''} ${mentionState.open && (mentionState.symbol === '#' || mentionState.symbol === '@') ? 'chat-panel__input-wrap--mention-open' : ''}`}
+          className={`chat-panel__input-wrap ${showAttachmentUploadCards ? 'chat-panel__input-wrap--with-upload-cards' : ''} ${inputEditorHidden ? 'chat-panel__input-wrap--hidden' : ''} ${isDragActive ? 'drag-active' : ''} ${mentionState.open && (mentionState.symbol === '#' || mentionState.symbol === '@') ? 'chat-panel__input-wrap--mention-open' : ''}`}
           onDragEnter={handleInputDragEnter}
           onDragOver={handleInputDragOver}
           onDragLeave={handleInputDragLeave}
@@ -6198,7 +6285,15 @@ const Composer = ({
               </div>
             </div>
           ) : null}
-          <div className={`chat-panel__input-editor${activeTool === 'text-add' || activeTool === 'recognize-subtitle' || activeTool === 'audio-add' || activeTool === 'image-add' || activeTool === 'voice-conversion' ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
+          {showAttachmentUploadCards ? (
+            <AttachmentUploadCards
+              onSelect={(purpose) => {
+                const trigger = purpose === 'reference' ? referenceUploadTriggerRef : materialUploadTriggerRef;
+                trigger.current?.click();
+              }}
+            />
+          ) : null}
+          <div className={`chat-panel__input-editor${inputEditorHidden ? ' chat-panel__input-editor--hidden' : ''}${showVoiceSquareTextTemplates ? ' chat-panel__input-editor--with-voice-templates' : ''}`}>
             {isDragActive ? (
               <div className="chat-panel__drag-upload-overlay" aria-hidden="true">
                 <div className="chat-panel__drag-upload-card">
@@ -6207,14 +6302,10 @@ const Composer = ({
                 </div>
               </div>
             ) : null}
-            {!String(input || '').length ? (
-              <div aria-hidden="true" className="chat-panel__input-placeholder">
-                {inputPlaceholder}
-              </div>
-            ) : null}
             <EditorContent
               editor={editor}
               className="chat-panel__input chat-panel__input--tiptap"
+              style={{ '--input-placeholder': JSON.stringify(String(input || '').length ? '' : inputPlaceholder).replace(/\\r\\n|\\r|\\n/g, '\\a ') }}
             />
             {showVoiceSquareTextTemplates ? (
               <div className="chat-panel__voice-template-list" aria-label="AI朗读模板文案">

@@ -26,6 +26,10 @@ const VOICE_FAVORITES_INITIAL_OFFSET = 0;
 const VOICE_MY_LIBRARY_INITIAL_OFFSET = 0;
 const VOICE_LIBRARY_LIST_HEIGHT = 290;
 const VOICE_LIBRARY_FILTER_BAR_HEIGHT = 48;
+const VOICE_LIBRARY_TABS_HEIGHT = 45;
+const VOICE_LIBRARY_CONTENT_PADDING = 8;
+const VOICE_LIBRARY_STATUS_HEIGHT = 26;
+const VOICE_LIBRARY_VIEWPORT_MARGIN = 16;
 const VOICE_LIBRARY_ITEM_HEIGHT = 42;
 const VOICE_SELECTED_STORAGE_KEY = 'chat-panel:selected-voice-library-item';
 export const VOICE_TAB_ALL = 'all';
@@ -240,8 +244,29 @@ const getVoiceInitialOffsetByTab = (tab) => {
   return VOICE_LIBRARY_INITIAL_OFFSET;
 };
 
-const getVoiceLibraryListHeight = (tab) =>
-  (tab === VOICE_TAB_ALL ? VOICE_LIBRARY_LIST_HEIGHT - VOICE_LIBRARY_FILTER_BAR_HEIGHT : VOICE_LIBRARY_LIST_HEIGHT);
+const getVoiceLibraryContentHeight = () => {
+  if (typeof window === 'undefined') return VOICE_LIBRARY_LIST_HEIGHT;
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  return Math.max(0, Math.min(
+    VOICE_LIBRARY_LIST_HEIGHT,
+    viewportHeight - VOICE_LIBRARY_TABS_HEIGHT - VOICE_LIBRARY_VIEWPORT_MARGIN * 2
+  ));
+};
+
+// The Dropdown wrapper is outside the rounded, clipped popup but remains in the
+// same modal/portal context. Portaling filters to their immediate parent clips
+// options, while portaling to document.body can put them behind a modal mask.
+const getVoiceFilterPopupContainer = (triggerNode) =>
+  triggerNode.closest('.chat-panel__voice-library-dropdown')
+  || triggerNode.closest('[role="dialog"]')
+  || document.body;
+
+const VoiceLibraryHiddenTrigger = React.forwardRef(({ anchorElement, ...props }, ref) => {
+  const fallbackRef = React.useRef(null);
+  // rc-trigger measures and observes this DOM node, not the zero-size fallback.
+  React.useImperativeHandle(ref, () => anchorElement || fallbackRef.current, [anchorElement]);
+  return <span {...props} ref={fallbackRef} aria-hidden="true" />;
+});
 
 const normalizeVoiceLibraryFilterValue = (value, lowercase = false) => {
   const text = String(value || '').trim();
@@ -1020,6 +1045,8 @@ const VoiceLib = ({
   onOpenChange = null,
   selectedTextPrefix = '音色',
   hideTrigger = false,
+  anchorElement = null,
+  placement = 'bottomLeft',
 }) => {
   if (!controller) return null;
 
@@ -1049,7 +1076,28 @@ const VoiceLib = ({
     lockedProvider,
   } = controller;
   const hasLockedProvider = Boolean(String(lockedProvider || '').trim());
-  const voiceLibraryListHeight = getVoiceLibraryListHeight(activeVoiceTab);
+  const [voiceLibraryContentHeight, setVoiceLibraryContentHeight] = React.useState(getVoiceLibraryContentHeight);
+  React.useEffect(() => {
+    if (!voiceLibraryOpen) return undefined;
+    const updateHeight = () => setVoiceLibraryContentHeight(getVoiceLibraryContentHeight());
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    window.visualViewport?.addEventListener('resize', updateHeight);
+    return () => {
+      window.removeEventListener('resize', updateHeight);
+      window.visualViewport?.removeEventListener('resize', updateHeight);
+    };
+  }, [voiceLibraryOpen]);
+  const voiceLibraryListHeight = Math.max(
+    0,
+    voiceLibraryContentHeight - (activeVoiceTab === VOICE_TAB_ALL ? VOICE_LIBRARY_FILTER_BAR_HEIGHT : 0)
+  );
+  const showVoiceLibraryStatus = currentVoiceState.items.length > 0
+    && (currentVoiceState.loadingMore || !hasMoreVoiceLibraryItems);
+  const voiceLibraryVirtualListHeight = Math.max(
+    0,
+    voiceLibraryListHeight - VOICE_LIBRARY_CONTENT_PADDING - (showVoiceLibraryStatus ? VOICE_LIBRARY_STATUS_HEIGHT : 0)
+  );
 
   const emptyText =
     activeVoiceTab === VOICE_TAB_FAVORITES
@@ -1097,11 +1145,11 @@ const VoiceLib = ({
       );
     } else {
       content = (
-        <div className="chat-panel__voice-library-content">
+        <div className="chat-panel__voice-library-content" style={{ height: `${voiceLibraryListHeight}px` }}>
           <VirtualList
             className="chat-panel__voice-library-list"
             data={currentVoiceState.items}
-            height={voiceLibraryListHeight}
+            height={voiceLibraryVirtualListHeight}
             itemHeight={VOICE_LIBRARY_ITEM_HEIGHT}
             itemKey={(item, index) => getVoiceRenderKey(item, index)}
             onScroll={handleVoiceLibraryScroll}
@@ -1186,7 +1234,7 @@ const VoiceLib = ({
               loading={voiceLibraryFilterOptionsLoading}
               options={voiceLibraryFilterOptions.providerOptions}
               onChange={(value) => handleVoiceLibraryFilterChange('provider', value)}
-              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+              getPopupContainer={getVoiceFilterPopupContainer}
             />
             <Select
               size="small"
@@ -1197,7 +1245,7 @@ const VoiceLib = ({
               loading={voiceLibraryFilterOptionsLoading}
               options={voiceLibraryFilterOptions.genderOptions}
               onChange={(value) => handleVoiceLibraryFilterChange('gender', value)}
-              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+              getPopupContainer={getVoiceFilterPopupContainer}
             />
             <Select
               size="small"
@@ -1208,7 +1256,7 @@ const VoiceLib = ({
               loading={voiceLibraryFilterOptionsLoading}
               options={voiceLibraryFilterOptions.languageOptions}
               onChange={(value) => handleVoiceLibraryFilterChange('language', value)}
-              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
+              getPopupContainer={getVoiceFilterPopupContainer}
             />
           </div>
         ) : null}
@@ -1280,7 +1328,9 @@ const VoiceLib = ({
     activeVoiceTab,
     currentVoiceState,
     emptyText,
+    deletePendingIdSet,
     favoritePendingIdSet,
+    handleDeleteMyVoice,
     handlePreviewEnd,
     handlePreviewToggle,
     handleToggleFavorite,
@@ -1296,6 +1346,7 @@ const VoiceLib = ({
     voiceLibraryFilterOptionsLoading,
     voiceLibraryFilters,
     voiceLibraryListHeight,
+    voiceLibraryVirtualListHeight,
   ]);
 
   const triggerTitle = selectedVoiceLibraryItem?.title || label;
@@ -1363,15 +1414,14 @@ const VoiceLib = ({
       onOpenChange={handleOpenChange}
       getPopupContainer={getPopupContainer}
       overlayClassName="chat-panel__voice-library-dropdown"
-      placement="bottomLeft"
+      placement={placement}
       menu={{ items: [] }}
       popupRender={() => voiceLibraryPopupContent}
     >
       {hideTrigger ? (
-        <span
+        <VoiceLibraryHiddenTrigger
+          anchorElement={anchorElement}
           className="chat-panel__voice-library-hidden-trigger"
-          style={{ display: 'inline-block', width: 0, height: 0, overflow: 'hidden', position: 'absolute' }}
-          aria-hidden="true"
         />
       ) : (
         <span className="chat-panel__tool-dropdown-trigger">

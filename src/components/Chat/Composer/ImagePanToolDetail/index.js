@@ -268,6 +268,7 @@ const ImagePanToolDetail = ({
       </Tooltip>
       <div className="chat-panel__tool-detail-content">
         <Select
+          placement="topLeft"
           size="small"
           variant="borderless"
           className="chat-panel__model-picker chat-panel__image-pan-picker"

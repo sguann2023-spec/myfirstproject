@@ -35,6 +35,7 @@ import ChatHistoryList from '../../components/ChatHistoryList/ChatHistoryList';
 import Chat from '../../components/Chat/Chat';
 import { sendQueue } from '../../components/Chat/sendQueue';
 import composerDraftCache from '../../components/Chat/Composer/composerDraftCache';
+import { normalizeAttachmentPurpose } from '../../components/Chat/Composer/attachmentPurpose';
 import {
   buildSkillExampleApplyDetail,
   dispatchSkillExampleApply,
@@ -404,6 +405,7 @@ const persistPendingChatLocalAttachments = async ({
         name,
         sourcePath: targetPath,
         fileUrl: createLocalFilePreviewUrl(targetPath),
+        purpose: normalizeAttachmentPurpose(item?.purpose),
       };
     })
   );
@@ -424,6 +426,7 @@ const persistPendingChatLocalAttachments = async ({
         name: persisted.name,
         sourcePath: persisted.sourcePath,
         sourceType: 'local',
+        purpose: normalizeAttachmentPurpose(item.purpose || persisted.purpose),
       };
     }),
     replaceContentPlaceholders(content = '') {
@@ -5012,6 +5015,12 @@ const HomePage = () => {
     const reusableSession = sessions.find((session) => session.id === activeChatId && canReuseSession(session))
       || sessions.find(canReuseSession);
     if (reusableSession) {
+      const nextIntroVersion = (Number(reusableSession.uploadCardIntroVersion) || 0) + 1;
+      const resetIntro = (item) => item.id === reusableSession.id
+        ? { ...item, uploadCardIntroVersion: nextIntroVersion }
+        : item;
+      chatSessionsRef.current = sessions.map(resetIntro);
+      setChatSessions((prev) => prev.map(resetIntro));
       setActiveChatId(reusableSession.id);
       return;
     }

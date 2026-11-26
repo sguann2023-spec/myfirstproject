@@ -22,32 +22,42 @@
 }
 
 .chat-panel__audio-add-settings-popup {
-  width: 690px;
+  --tool-settings-height: 390px;
+  width: min(690px, calc(100vw - 24px));
 }
 
 .chat-panel__audio-add-settings-popup.chat-panel__text-settings-popup--preview-only {
-  width: 220px;
-}
-
-.chat-panel__audio-add-settings-popup .chat-panel__text-settings-layout {
-  height: min(390px, calc(100vh - 64px));
-  min-height: 0;
-}
-
-.chat-panel__audio-add-settings-popup .chat-panel__text-settings-main {
-  flex: 1 1 auto;
-  width: 470px;
-  min-width: 0;
-}
-
-.chat-panel__audio-add-settings-popup .chat-panel__text-settings-content {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+  width: min(220px, calc(100vw - 24px));
 }
 
 .chat-panel__audio-add-settings-preview {
   align-items: stretch;
+}
+
+@media (max-width: 600px) {
+  .chat-panel__audio-add-settings-popup .chat-panel__audio-add-preview-shell {
+    padding: 0;
+  }
+
+  .chat-panel__audio-add-settings-popup .chat-panel__audio-add-source-panel {
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  .chat-panel__audio-add-settings-popup .chat-panel__audio-add-upload {
+    width: auto;
+    padding: 4px;
+    gap: 4px;
+  }
+
+  .chat-panel__audio-add-settings-popup .chat-panel__audio-add-upload small {
+    display: none;
+  }
+
+  .chat-panel__audio-add-settings-popup .chat-panel__audio-add-library-list {
+    flex: 1 1 0;
+    justify-content: center;
+  }
 }
 
 .chat-panel__audio-add-preview-shell {
@@ -69,8 +79,10 @@
 }
 
 .chat-panel__audio-add-preview-shell .chat-panel__subtitle-preview {
+  flex: 1 1 auto;
   width: 100%;
-  height: 300px;
+  height: auto;
+  min-height: 0;
 }
 
 .chat-panel__audio-add-preview-shell .subtitle-audio-card {
@@ -79,6 +91,7 @@
 
 .chat-panel__audio-add-source-panel {
   display: flex;
+  align-self: stretch;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 12px;
@@ -89,6 +102,8 @@
 
 .chat-panel__audio-add-library-list {
   display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
   flex-direction: column;
   gap: 8px;
   width: 100%;
@@ -112,8 +127,11 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  flex: 1 1 auto;
   width: 100%;
-  min-height: 190px;
+  min-height: 0;
+  padding: 12px 4px;
+  box-sizing: border-box;
   border: 1px dashed #d5dae3;
   border-radius: 8px;
   background: #fff;

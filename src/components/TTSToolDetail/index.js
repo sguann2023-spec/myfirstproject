@@ -176,6 +176,7 @@ const TTSToolDetail = ({
           disabled={disabled}
           active={voicePickerOpen}
           onOpenChange={setVoicePickerOpen}
+          placement="topLeft"
         />
         {canSwitchModel ? (
           <Dropdown
@@ -184,7 +185,7 @@ const TTSToolDetail = ({
             open={modelPickerOpen}
             onOpenChange={setModelPickerOpen}
             overlayClassName="chat-panel__tts-model-dropdown"
-            placement="bottomLeft"
+            placement="topLeft"
             menu={{ items: modelMenuItems, selectedKeys: [selectedModelOption?.value || DEFAULT_MODEL_KEY] }}
           >
             <span className="chat-panel__tool-dropdown-trigger">

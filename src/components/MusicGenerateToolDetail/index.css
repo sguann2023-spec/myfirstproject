@@ -9,6 +9,9 @@
 
 .chat-panel__music-generate-trigger {
   flex: 0 0 auto;
+  height: var(--composer-control-height, 32px);
+  min-height: var(--composer-control-height, 32px);
+  box-sizing: border-box;
 }
 
 .chat-panel__music-generate-price {
@@ -35,14 +38,15 @@
 }
 
 .chat-panel__music-generate-popup {
-  width: min(330px, calc(100vw - 160px));
-  max-height: 360px;
+  width: min(330px, calc(100vw - 32px));
+  max-height: min(360px, calc(100vh - 32px));
   padding: 8px;
   border: 1px solid #ececec;
   border-radius: 12px;
   background: #ffffff;
   box-sizing: border-box;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 

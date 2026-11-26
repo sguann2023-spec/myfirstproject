@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe('homepage operations cards', () => {
-  it('shows only the first three compatible operations, opens the original and installs the selected template before applying it', async () => {
+  it('shows three compatible operations followed by the skill store entry and preserves template interactions', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const skill = (folderName, order, extra = {}) => ({ folderName, order, version: '1.0.0',
       name: folderName, title: `${folderName}模版`, followers_count: '15万+', likes_count: '1千+',
@@ -37,9 +37,9 @@ describe('homepage operations cards', () => {
     const onSelectSkill = vi.fn();
     const onOpenWebPreview = vi.fn();
     const onOpenSkillStore = vi.fn();
-    const { default: WelcomePage } = await import('./index.js');
+    const { WelcomeSkills } = await import('./index.js');
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => root.render(<WelcomePage emptyWelcomeText="今天想要做什么视频？"
+    await act(async () => root.render(<WelcomeSkills
       onSelectSkill={onSelectSkill} onOpenWebPreview={onOpenWebPreview} onOpenSkillStore={onOpenSkillStore} />));
     const cards = container.querySelectorAll('article');
     expect(cards).toHaveLength(3);
@@ -49,28 +49,44 @@ describe('homepage operations cards', () => {
       ['quick_skill_explore', { title: 'third模版' }],
     ]);
     expect([...cards].map((card) => card.querySelector('.chat-panel__welcome-skill-name').textContent)).toEqual(['first模版', 'second模版', 'third模版']);
+    expect(cards[0].querySelector('.chat-panel__welcome-skill-stats').textContent).toBe('1000+');
+    expect(cards[0].textContent).not.toContain('粉丝');
+    expect(cards[0].textContent).not.toContain('做同款');
+    expect(cards[0].querySelectorAll('button')).toHaveLength(1);
     await act(async () => cards[0].click());
-    expect(onOpenWebPreview).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ url: 'https://example.com/original' }));
+    expect(onOpenWebPreview).not.toHaveBeenCalled();
+    expect(onSelectSkill).toHaveBeenCalledOnce();
+    expect(install).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ directoryPath: '/resources/quick/skills/first', folderName: 'first', source: 'builtin' }));
     expect(document.querySelector('.ant-modal')).toBeNull();
-    expect(trackEvent).toHaveBeenCalledWith('quick_skill_preview_url_click', { title: 'first模版' });
+    expect(trackEvent).toHaveBeenCalledWith('quick_skill_do_same_click', { title: 'first模版' });
     for (const key of ['Enter', ' ']) {
       await act(async () => cards[0].dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
     }
-    expect(onOpenWebPreview).toHaveBeenCalledTimes(3);
+    expect(onSelectSkill).toHaveBeenCalledTimes(3);
+    expect(onOpenWebPreview).not.toHaveBeenCalled();
     await act(async () => cards[0].querySelector('.chat-panel__welcome-skill-actions button').click());
-    expect(onOpenWebPreview).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://example.com/original' }));
-    await act(async () => cards[0].querySelectorAll('.chat-panel__welcome-skill-actions button')[1].click());
+    expect(onOpenWebPreview).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ url: 'https://example.com/original' }));
+    expect(onSelectSkill).toHaveBeenCalledTimes(3);
+    await act(async () => cards[0].querySelector('.chat-panel__welcome-skill-content').click());
     expect(trackEvent).toHaveBeenCalledWith('quick_skill_do_same_click', { title: 'first模版' });
     expect(onSelectSkill).toHaveBeenCalledWith(expect.objectContaining({ folderName: 'first', directoryPath: '/resources/quick/skills/first' }));
     expect(window.api.fs.readText).toHaveBeenCalledExactlyOnceWith('/resources/quick/skills/manifest.json');
-    expect(install).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ directoryPath: '/resources/quick/skills/first', folderName: 'first', source: 'builtin' }));
+    expect(install).toHaveBeenCalledTimes(4);
+    expect(onSelectSkill).toHaveBeenCalledTimes(4);
     expect(install.mock.invocationCallOrder[0]).toBeLessThan(onSelectSkill.mock.invocationCallOrder[0]);
-    await act(async () => container.querySelector('.chat-panel__welcome-more-skills').click());
+    const moreSkills = container.querySelector('.chat-panel__welcome-more-skills');
+    expect(moreSkills.textContent).toBe('更多技能');
+    expect(container.querySelector('.chat-panel__welcome-skills-track').children).toHaveLength(4);
+    expect(moreSkills).toBe(cards[2].nextElementSibling);
+    expect(moreSkills.querySelector('.chat-panel__welcome-skill-actions')).toBeNull();
+    await act(async () => moreSkills.click());
     expect(onOpenSkillStore).toHaveBeenCalledOnce();
+    expect(install).toHaveBeenCalledTimes(4);
+    expect(onSelectSkill).toHaveBeenCalledTimes(4);
     delete window.electronAPI;
   });
 
-  it('renders the three recommended templates from the backend and installs the marketplace package on 做同款', async () => {
+  it('requests three backend recommendations and installs the marketplace package on card click', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const template = (id, name) => ({ id, name, folder_name: `folder_${id}`, likes_count: 1000, fans_count: 20000,
       web_share: `https://example.com/${id}`,
@@ -85,13 +101,13 @@ describe('homepage operations cards', () => {
     };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true, status: 200, headers: { get: () => 'application/json' },
-      text: async () => JSON.stringify({ code: 0, total: 3, data: [template('a', '推荐A'), template('b', '推荐B'), template('c', '推荐C')] }),
+      text: async () => JSON.stringify({ code: 0, total: 4, data: [template('a', '推荐A'), template('b', '推荐B'), template('c', '推荐C'), template('d', '推荐D')] }),
     });
     vi.stubGlobal('fetch', fetchMock);
     const onSelectSkill = vi.fn();
-    const { default: WelcomePage } = await import('./index.js');
+    const { WelcomeSkills } = await import('./index.js');
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
-    await act(async () => root.render(<WelcomePage emptyWelcomeText="今天想要做什么视频？"
+    await act(async () => root.render(<WelcomeSkills
       onSelectSkill={onSelectSkill} onOpenWebPreview={vi.fn()} onOpenSkillStore={vi.fn()} />));
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(String(fetchMock.mock.calls[0][0])).toContain('/skill_marketplace/templates/recommended');
@@ -99,11 +115,23 @@ describe('homepage operations cards', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('app_version=1.7.27');
     expect(window.api.fs.readText).not.toHaveBeenCalled();
     const cards = container.querySelectorAll('article');
+    expect(cards).toHaveLength(3);
     expect([...cards].map((card) => card.querySelector('.chat-panel__welcome-skill-name').textContent)).toEqual(['推荐A', '推荐B', '推荐C']);
-    await act(async () => cards[0].querySelectorAll('.chat-panel__welcome-skill-actions button')[1].click());
+    expect(container.querySelector('.chat-panel__welcome-skills-track').children).toHaveLength(4);
+    await act(async () => cards[0].click());
+    expect(onSelectSkill).toHaveBeenCalledOnce();
     expect(installRemote).toHaveBeenCalledOnce();
     expect(installRemote.mock.calls[0][0]).toMatchObject({ packageUrl: 'https://cdn.example.com/a.zip', folderName: 'folder_a' });
     expect(onSelectSkill).toHaveBeenCalledWith(expect.objectContaining({ folderName: 'folder_a', directoryPath: '/skills/folder_a' }));
+  });
+
+  it('keeps the welcome title separate from the footer recommendations', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const { default: WelcomePage } = await import('./index.js');
+    container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => root.render(<WelcomePage emptyWelcomeText="今天想要做什么视频？" />));
+    expect(container.textContent).toBe('今天想要做什么视频？');
+    expect(container.querySelector('.chat-panel__welcome-skills-group')).toBeNull();
   });
 });
 

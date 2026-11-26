@@ -269,7 +269,7 @@ const RecognizationSubtitleToolDetail = ({
   }));
 
   const settingsContent = (
-    <div className={`chat-panel__text-settings-popup chat-panel__subtitle-popover${previewSource ? ' has-media' : ''}`}
+    <div className={`chat-panel__text-settings-popup chat-panel__tool-settings-popup chat-panel__subtitle-popover${previewSource ? ' has-media' : ''}`}
       role="region" aria-label="字幕识别设置">
       <div className={`chat-panel__subtitle-dialog-layout${previewSource ? ' is-split' : ''}`}>
         <div className="chat-panel__subtitle-dialog-media-column">
@@ -387,8 +387,9 @@ const RecognizationSubtitleToolDetail = ({
       </span>
     </Tooltip>
     <Dropdown disabled={disabled} trigger={['click']} open={settingsOpen}
-      onOpenChange={setSettingsOpen} placement="topLeft" autoAdjustOverflow
-      overlayClassName="chat-panel__text-settings-dropdown chat-panel__subtitle-settings-dropdown" menu={{ items: [] }}
+      onOpenChange={setSettingsOpen} placement="topLeft"
+      autoAdjustOverflow={{ adjustX: true, adjustY: true, shiftX: true, shiftY: true }}
+      overlayClassName="chat-panel__text-settings-dropdown chat-panel__tool-settings-dropdown chat-panel__subtitle-settings-dropdown" menu={{ items: [] }}
       popupRender={() => settingsContent}>
       <span className="chat-panel__tool-dropdown-trigger">
         <button type="button"

@@ -30,6 +30,18 @@ describe('queue draft restoration', () => {
     expect(draft.uploads[0].originFileObj).toBe(file);
     URL.revokeObjectURL(draft.files[0].localThumbUrl);
   });
+  it.each(['reference', 'material'])('preserves %s purpose in rich drafts and legacy pending files', (purpose) => {
+    const attachment = { uid: 'purpose-file', name: 'image.png', fileType: 'image/png', purpose };
+    const document = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'fileReference', attrs: attachment }] }] };
+    const rich = restoreQueueComposerDraft({ text: '编辑', options: { composerDraft: { document, files: [attachment], uploads: [] } } }, buildDocument, x => x);
+    expect(rich.files[0].purpose).toBe(purpose);
+    expect(rich.document.content[0].content[0].attrs.purpose).toBe(purpose);
+    const legacy = restoreQueueComposerDraft({ text: '编辑', options: { pendingLocalAttachments: [attachment] } }, buildDocument, x => x);
+    expect(legacy.files[0].purpose).toBe(purpose);
+    const merged = mergeRestoredQueueOptions({ pendingLocalAttachments: [attachment] }, { pendingLocalAttachments: [{ ...attachment }] });
+    expect(merged.pendingLocalAttachments).toHaveLength(1);
+    expect(merged.pendingLocalAttachments[0].purpose).toBe(purpose);
+  });
   it('does not multiply restored attachments on repeated sends and keeps latest rich draft', () => {
     const image = { data: 'base64', media_type: 'image/png' };
     const preview = { uid: 'p', url: 'file:///image.png' };

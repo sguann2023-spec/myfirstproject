@@ -237,7 +237,7 @@ const MusicGenerateToolDetail = ({ disabled = false, onBack, onPromptChange = nu
         </span>
       </Tooltip>
       <div className="chat-panel__tool-detail-content">
-        <Dropdown disabled={disabled} open={open} onOpenChange={(nextOpen) => !disabled && setOpen(nextOpen)} popupRender={() => popupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__music-generate-dropdown" menu={{ items: [] }}>
+        <Dropdown disabled={disabled} open={open} onOpenChange={(nextOpen) => !disabled && setOpen(nextOpen)} popupRender={() => popupContent} trigger={['click']} placement="top" align={{ offset: [0, -8] }} autoAdjustOverflow overlayClassName="chat-panel__music-generate-dropdown" menu={{ items: [] }}>
           <span className="chat-panel__tool-dropdown-trigger">
             <button type="button" className={`chat-panel__draft-resolution-trigger chat-panel__music-generate-trigger ${open ? 'is-open' : ''}`} disabled={disabled} aria-label="模版" title="模版">
               <AudioLines size={16} className="chat-panel__draft-resolution-trigger-icon" aria-hidden="true" />

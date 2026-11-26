@@ -205,7 +205,8 @@ const DraftResolutionSelect = ({
   return (
     <Popover
       trigger="click"
-      placement="topLeft"
+      placement="top"
+      autoAdjustOverflow
       open={disabled ? false : open}
       onOpenChange={setOpen}
       content={panel}

@@ -60,19 +60,25 @@ const SessionCostStats = ({ cost, loading }) => {
   const baseCost = total + (cost?.savingPoints || 0);
   const savingPercent = baseCost > total && baseCost > 0 ? Math.round(((baseCost - total) / baseCost) * 100) : 0;
 
+  // Different internal tool identifiers can resolve to the same visible name.
+  const displayTotals = new Map();
+  for (const tool of cost?.toolDetails || []) {
+    const label = getMcpToolDisplayName({ ...parseMcpToolName(tool.label), t });
+    displayTotals.set(label, (displayTotals.get(label) || 0) + tool.value);
+  }
   const segments = [
     { key: 'conversation', value: cost?.conversationPoints || 0, color: '#6857ff' },
-    ...(cost?.toolDetails || []).map((tool) => {
+    ...Array.from(displayTotals, ([label, value]) => {
       // Keep an assigned color when tools reorder or new results arrive.
-      if (!toolColors.current.has(tool.label)) {
+      if (!toolColors.current.has(label)) {
         const index = toolColors.current.size;
-        toolColors.current.set(tool.label, TOOL_COST_COLORS[index] || `hsl(${(index * 137.508) % 360}, 65%, 45%)`);
+        toolColors.current.set(label, TOOL_COST_COLORS[index] || `hsl(${(index * 137.508) % 360}, 65%, 45%)`);
       }
       return {
-        key: `tool:${tool.label}`,
-        label: getMcpToolDisplayName({ ...parseMcpToolName(tool.label), t }),
-        value: tool.value,
-        color: toolColors.current.get(tool.label)
+        key: `tool:${label}`,
+        label,
+        value,
+        color: toolColors.current.get(label)
       };
     })
   ];

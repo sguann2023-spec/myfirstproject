@@ -10,6 +10,7 @@ import { DownloadController } from '../../shared/DownloadController.js';
 import ChatShell from './ChatShell/ChatShell';
 import { ChatTaskContext } from './ChatShell/ChatTaskContext';
 import MessagePane from './MessagePane/MessagePane';
+import { WelcomeSkills } from './MessagePane/WelcomePage';
 import Composer from './Composer/Composer';
 import { sendQueue } from './sendQueue';
 import { createArtifactChatReference } from './artifactFileTarget';
@@ -643,6 +644,9 @@ const Chat = ({
         agentId={agentId}
         runtimeSessionId={runtimeSessionId}
         session={session}
+        sessionHasUserMessages={messages.some((message) => message?.role === 'user')}
+        sessionFulfilled={sessionFulfilled}
+        historyLoading={historyLoading}
         inputRef={inputRef}
         restoreQueuedDraftRef={restoreQueuedDraftRef}
         input={input}
@@ -664,6 +668,17 @@ const Chat = ({
         onOpenModelSettings={onOpenModelSettings}
         formatModelDisplayName={formatModelDisplayName}
       />
+      {messages.length === 0 && !sending && !historyLoading && (
+        <div className="chat-panel__welcome-skills-footer">
+          <WelcomeSkills
+            onSelectSkill={insertQuickSkillMention}
+            onOpenWebPreview={onOpenWebPreview}
+            onOpenSkillStore={onOpenSkillStore}
+            childrensBookQuickPromptRef={childrensBookQuickPromptRef}
+            beginnerGuideQuickSkillsViewportRef={beginnerGuideQuickSkillsViewportRef}
+          />
+        </div>
+      )}
       </div>
     </ChatShell>
   );

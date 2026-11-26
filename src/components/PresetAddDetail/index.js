@@ -16,6 +16,24 @@ import { loadPresetMetadata, presetMetadata, resolvePresetTimes, resolvePresetTr
 import '../TextAddDetail/index.css';
 import './index.css';
 
+// Fit the existing Konva stage uniformly; its transform/position calculations stay unchanged.
+const fitSettingsPreview = (viewport) => {
+  if (!viewport) return undefined;
+  const content = viewport.firstElementChild;
+  const fit = () => {
+    if (!viewport.clientWidth || !viewport.clientHeight || !content?.offsetWidth || !content.offsetHeight) return;
+    viewport.style.setProperty('--settings-preview-scale', String(Math.min(
+      1, viewport.clientWidth / content.offsetWidth, viewport.clientHeight / content.offsetHeight,
+    )));
+  };
+  fit();
+  if (typeof ResizeObserver === 'undefined') return undefined;
+  const observer = new ResizeObserver(fit);
+  observer.observe(viewport);
+  observer.observe(content);
+  return () => observer.disconnect();
+};
+
 const NUMBER_INPUT_SHARED_PROPS = {
   controls: true,
   changeOnWheel: true,
@@ -249,7 +267,7 @@ const PresetPickerDropdown = ({ open, disabled, onOpenChange, onSelect, children
     onOpenChange={(next) => { if (!disabled) onOpenChange(next); }}
     trigger="click"
     placement="bottomLeft"
-    autoAdjustOverflow={false}
+    autoAdjustOverflow={{ adjustX: true, adjustY: true, shiftX: true, shiftY: true }}
     getPopupContainer={(trigger) => trigger.closest('.chat-panel__text-settings-dropdown') || document.body}
     arrow={false}
     destroyOnHidden
@@ -630,7 +648,7 @@ const PresetAddDetail = ({
   const settingsPanelContent = activeSettingsTab === 'timeline' ? timelinePanelContent : transformPanelContent;
 
   const settingsPopupContent = (
-    <div className={`chat-panel__text-settings-popup chat-panel__preset-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
+    <div className={`chat-panel__text-settings-popup chat-panel__tool-settings-popup chat-panel__preset-add-settings-popup${hasSelectedDraft ? '' : ' chat-panel__text-settings-popup--preview-only'}`}>
       <div className="chat-panel__text-settings-layout">
         <div className="chat-panel__text-settings-preview chat-panel__preset-add-settings-preview">
           <div className="chat-panel__text-settings-preview-stage">
@@ -645,6 +663,8 @@ const PresetAddDetail = ({
                   <DraftSelect mode="single" disabled={disabled} selectedDraftIds={selectedDraftIds} onSelectedDraftIdsChange={onSelectedDraftIdsChange} placeholder="选择草稿" searchPlaceholder="搜索草稿id" triggerClassName="chat-panel__text-settings-draft-select" popoverClassName="chat-panel__text-settings-draft-select-popover" />
                 </div>
               ) : (
+                <div className="chat-panel__tool-settings-preview-viewport" ref={fitSettingsPreview}>
+                  <div className="chat-panel__tool-settings-preview-fit">
                 <PresetPreview
                   preset={selectedPreset}
                   settings={settings}
@@ -659,6 +679,8 @@ const PresetAddDetail = ({
                     setPresetPickerOpen(false);
                   }}
                 />
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -678,7 +700,7 @@ const PresetAddDetail = ({
             </div>
             <div className="chat-panel__text-settings-tabs" role="tablist" aria-label="预设设置">
               {PRESET_SETTINGS_TABS.map((tab) => (
-                <button key={tab.key} type="button" className={`chat-panel__text-settings-tab ${activeSettingsTab === tab.key ? 'active' : ''}`} title={tab.label} aria-label={tab.label} onClick={() => setActiveSettingsTab(tab.key)}>
+                <button key={tab.key} type="button" role="tab" aria-selected={activeSettingsTab === tab.key} className={`chat-panel__text-settings-tab ${activeSettingsTab === tab.key ? 'active' : ''}`} title={tab.label} aria-label={tab.label} onClick={() => setActiveSettingsTab(tab.key)}>
                   <tab.icon className="chat-panel__text-settings-tab-icon" aria-hidden="true" />
                 </button>
               ))}
@@ -696,7 +718,7 @@ const PresetAddDetail = ({
         <span className="chat-panel__tool-text chat-panel__tool-text--active">添加预设</span>
         <CloseOutlined className="chat-panel__tool-close-icon" />
       </button>
-      <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={false} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown" menu={{ items: [] }}>
+      <Dropdown disabled={disabled} open={settingsOpen} autoAdjustOverflow={{ adjustX: true, adjustY: true, shiftX: true, shiftY: true }} onOpenChange={(open) => !disabled && setSettingsOpen(open)} popupRender={() => settingsPopupContent} trigger={['click']} placement="topLeft" overlayClassName="chat-panel__text-settings-dropdown chat-panel__tool-settings-dropdown" menu={{ items: [] }}>
         <span className="chat-panel__tool-dropdown-trigger">
           <button
             type="button"

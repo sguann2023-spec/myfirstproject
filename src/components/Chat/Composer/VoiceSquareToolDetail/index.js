@@ -238,7 +238,9 @@ const VoiceSquareToolDetail = ({
   }, []);
 
   const getCloneDialogPopupContainer = React.useCallback(
-    (trigger) => cloneDialogRef.current || trigger?.parentElement || document.body,
+    (trigger) => cloneDialogRef.current?.closest('.chat-panel__clone-dialog-mask')
+      || trigger?.closest('.chat-panel__clone-dialog-mask')
+      || document.body,
     []
   );
 
@@ -1097,6 +1099,7 @@ const VoiceSquareToolDetail = ({
           disabled={disabled}
           active={activeDetailTool === 'voice-lib'}
           onOpenChange={handleVoiceLibraryOpenChange}
+          placement="topLeft"
         />
         <button
           type="button"
