@@ -2252,14 +2252,13 @@ const Composer = ({
   const { agent } = useAgent(agentId || null);
   const [runtimeSession, setRuntimeSession] = React.useState(null);
   const session = runtimeSession || sessionProp;
-  const [toolMenuOpen, setToolMenuOpen] = React.useState(false);
   const [hasSkillMention, setHasSkillMention] = React.useState(false);
   const { visible: uploadCardsEligible, dismiss: dismissUploadCards } = useUploadCardVisibility({
     sessionId: sessionProp?.id || runtimeSessionId,
     resetVersion: sessionProp?.uploadCardIntroVersion || 0,
     hasUserMessages: sessionHasUserMessages,
     historyLoading,
-    toolActive: toolMenuOpen || hasSkillMention,
+    toolActive: hasSkillMention,
   });
   const restoredQueueOptionsRef = React.useRef(null);
   const [hasRestoredQueueDraft, setHasRestoredQueueDraft] = React.useState(false);
@@ -5975,7 +5974,6 @@ const Composer = ({
                       toolAreaRef={beginnerGuideAiToolAreaRef}
                       disabled={false}
                       onSelect={handleToolSelect}
-                      onMenuOpenChange={setToolMenuOpen}
                     />
                   )}
                   </> : null}

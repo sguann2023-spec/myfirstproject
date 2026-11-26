@@ -19,6 +19,7 @@ describe('composer secondary layout contract', () => {
     expect(host['--composer-input-max-height']).toBe('177px');
     expect(host['max-height']).toBeUndefined();
     expect(host.padding).toBe('16px');
+    expect(host['padding-bottom']).toBe('10px');
     expect(declarations('.chat-panel__composer:has(.chat-panel__local-file-preview-list)')['padding-top']).toBe('8px');
     expect(declarations('.chat-panel__editor')['max-height']).toBeUndefined();
     expect(declarations('.chat-panel__input-wrap')['max-height']).toBe('var(--composer-input-max-height)');

@@ -150,7 +150,7 @@ const VIDEO_MENU_ITEMS = [
   },
 ];
 
-const ToolArea = ({ disabled = false, onSelect, onMenuOpenChange, toolAreaRef = null }) => {
+const ToolArea = ({ disabled = false, onSelect, toolAreaRef = null }) => {
   const [draftMenuOpen, setDraftMenuOpen] = React.useState(false);
   const [textMenuOpen, setTextMenuOpen] = React.useState(false);
   const [audioMenuOpen, setAudioMenuOpen] = React.useState(false);
@@ -171,12 +171,6 @@ const ToolArea = ({ disabled = false, onSelect, onMenuOpenChange, toolAreaRef = 
       });
     });
   }, [audioMenuOpen]);
-
-  React.useEffect(() => {
-    onMenuOpenChange?.(draftMenuOpen || textMenuOpen || audioMenuOpen || imageMenuOpen || videoMenuOpen);
-  }, [draftMenuOpen, textMenuOpen, audioMenuOpen, imageMenuOpen, videoMenuOpen, onMenuOpenChange]);
-
-  React.useEffect(() => () => onMenuOpenChange?.(false), [onMenuOpenChange]);
 
   const closeOtherMenus = (activeMenu) => {
     if (activeMenu !== 'draft') setDraftMenuOpen(false);

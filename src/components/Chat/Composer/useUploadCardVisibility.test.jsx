@@ -38,7 +38,7 @@ describe('new conversation upload cards', () => {
     await render({ sessionId });
     expect(state.visible).toBe(false);
   });
-  it('restores cards after leaving a tool, menu or skill before sending', async () => {
+  it('restores cards after leaving a tool or skill before sending', async () => {
     const sessionId = `visibility-${++serial}`;
     await render({ sessionId });
     expect(state.visible).toBe(true);
@@ -89,16 +89,18 @@ describe('new conversation upload cards', () => {
     await render({ sessionId });
     expect(state.visible).toBe(false);
   });
-  it('connects existing history, menu opening, skills and accepted sends', () => {
+  it('keeps hover menus independent of card visibility and connects skills and accepted sends', () => {
     const read = (path) => readFileSync(resolve(process.cwd(), path), 'utf8');
     const composer = read('src/components/Chat/Composer/Composer.js');
     const chat = read('src/components/Chat/Chat.js');
     const tools = read('src/components/Chat/Composer/ToolArea/index.js');
     expect(chat).toContain("sessionHasUserMessages={messages.some((message) => message?.role === 'user')}");
     expect(chat).toContain('historyLoading={historyLoading}');
-    expect(tools).toContain('onMenuOpenChange?.(draftMenuOpen || textMenuOpen || audioMenuOpen || imageMenuOpen || videoMenuOpen)');
-    expect(composer).toContain('onMenuOpenChange={setToolMenuOpen}');
-    expect(composer).toContain('toolActive: toolMenuOpen || hasSkillMention');
+    expect(tools).toContain('trigger="hover"');
+    expect(tools).not.toContain('onMenuOpenChange');
+    expect(composer).not.toContain('toolMenuOpen');
+    expect(composer).toContain('toolActive: hasSkillMention');
+    expect(composer).toContain('const isDefaultAttachmentMode = !activeTool && !skillExample');
     expect(composer).not.toContain('onPointerDownCapture={dismissUploadCards}');
     expect(composer).toContain('if (!accepted) return;\n    dismissUploadCards();');
     expect(composer).not.toContain('const applySkillExampleDetail = React.useCallback(async (detail) => {\n    dismissUploadCards();');
