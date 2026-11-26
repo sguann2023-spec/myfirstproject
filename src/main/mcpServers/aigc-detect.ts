@@ -765,10 +765,16 @@ export default class AigcDetectServer {
         try {
           const result = await this.detectImageWithAuth({ image: `data:image/jpeg;base64,${dataUrl}` }, VIDEO_DETECT_BASE64_TIMEOUT_MS)
           if (result.code !== 0) {
+            const reason = this.tfsErrorCodeHint(result.code) || result.message
+            logger.warn('detect_aigc_video: frame detect rejected', {
+              timestamp: frame.timestamp,
+              code: result.code,
+              reason
+            })
             records[idx] = {
               timestamp: frame.timestamp,
               is_ai: false,
-              error: this.tfsErrorCodeHint(result.code) || result.message,
+              error: reason,
               consume: 0
             }
           } else {
@@ -785,6 +791,10 @@ export default class AigcDetectServer {
             }
           }
         } catch (err) {
+          logger.warn('detect_aigc_video: frame detect failed', {
+            timestamp: frame.timestamp,
+            error: toErrorMessage(err)
+          })
           records[idx] = {
             timestamp: frame.timestamp,
             is_ai: false,
