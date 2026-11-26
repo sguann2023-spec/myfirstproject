@@ -24,7 +24,7 @@ vi.mock('../ErrorBlock', () => ({ default: () => <div>Error</div> }))
 vi.mock('../FileBlock', () => ({ default: () => null }))
 vi.mock('../ImageBlock', () => ({ default: () => null }))
 vi.mock('../MainTextBlock', () => ({ default: ({ block }: any) => <div>{block.content}</div> }))
-vi.mock('../PlaceholderBlock', () => ({ default: () => null }))
+vi.mock('react-spinners', () => ({ BeatLoader: () => <div data-loading-dots /> }))
 vi.mock('../../../Markdown/Markdown', () => ({ default: ({ block }: any) => <div data-reasoning={block.id}>{block.content}</div> }))
 vi.mock('../TranslationBlock', () => ({ default: () => null }))
 vi.mock('../VideoBlock', () => ({ default: () => null }))
@@ -38,6 +38,59 @@ import { MessageBlockStatus } from '@renderer/types/newMessage'
 const thought = (id: string, extra = {}) => ({ id, messageId: 'message', type: MessageBlockType.THINKING, status: MessageBlockStatus.SUCCESS, content: id, thinking_millsec: 1000, ...extra } as MessageBlock)
 
 describe('thinking grouping and active renderer', () => {
+  it('keeps status above reasoning and rotates waiting tips every 12 seconds without repeating consecutively', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-25T00:00:08Z'))
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const host = document.createElement('div')
+    const root = createRoot(host)
+    const blocks = [thought('reasoning'), { id: 'answer', type: MessageBlockType.MAIN_TEXT, content: 'Streaming answer' } as MessageBlock]
+    let message = {
+      id: 'message', role: 'assistant', status: AssistantMessageStatus.PROCESSING,
+      createdAt: '2026-11-25T00:00:00Z', retryStatusText: '第 2/10 次重试'
+    } as Message
+    const render = () => act(async () => {
+      root.render(<MessageBlockRenderer message={message} blocks={blocks.map(b => b.id)}
+        fallbackBlockEntities={Object.fromEntries(blocks.map(b => [b.id, b]))} showProcessingElapsed />)
+    })
+    try {
+      await render()
+      const status = host.querySelector('.message-processing-status')!
+      expect(host.querySelectorAll('.message-processing-status')).toHaveLength(1)
+      expect(status.textContent).toBe('已处理 8秒第 2/10 次重试')
+      expect(status.compareDocumentPosition(host.querySelector('.message-thought-container')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      const loadingRow = host.querySelector('[data-loading-dots]')!.parentElement!
+      const tip = host.querySelector('.message-loading-tip')!
+      const firstTip = '音频画面对不齐？试试把模型的思考强度开到最高'
+      expect(tip.parentElement).toBe(loadingRow)
+      expect(loadingRow.textContent).toBe(`|${firstTip}`)
+      expect(loadingRow.querySelector('.message-processing-status')).toBeNull()
+      expect(host.querySelector('[data-loading-dots]')!.closest('.block-wrapper')).toBe(host.lastElementChild)
+      await act(async () => { vi.advanceTimersByTime(1000) })
+      expect(status.textContent).toContain('已处理 9秒')
+      message = { ...message, retryStatusText: '' } as Message
+      await render()
+      expect(status.textContent).toBe('已处理 9秒')
+      await act(async () => { vi.advanceTimersByTime(10999) })
+      expect(tip.textContent).toBe(firstTip)
+      await act(async () => { vi.advanceTimersByTime(1) })
+      expect(tip.textContent).toBe('模型回答被中断，还可以发送继续让他继续回答')
+      await act(async () => { vi.advanceTimersByTime(12000) })
+      expect(tip.textContent).toBe(firstTip)
+      message = { ...message, status: AssistantMessageStatus.SUCCESS }
+      await render()
+      expect(host.querySelector('.message-processing-status')).toBeNull()
+      expect(host.querySelector('[data-loading-dots]')).toBeNull()
+      expect(host.querySelector('.message-loading-tip')).toBeNull()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      await act(async () => root.unmount())
+      random.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it('groups adjacent visible thoughts without mutation or crossing content/message boundaries', () => {
     const a = Object.freeze(thought('a')), b = Object.freeze(thought('b'))
     expect(groupSimilarBlocks([a, b])).toEqual([[a, b]])

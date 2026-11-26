@@ -65,7 +65,7 @@ let agentServicePromise: Promise<import('../AgentService').AgentService | null> 
 const providerModelIdCache = new Map<string, string>()
 const logger = loggerService.withContext('SessionStreamIpc')
 const DEFAULT_RUNTIME_AGENT_ID = CHERRY_CLAW_AGENT_ID
-const SESSION_MESSAGE_START_RETRY_LIMIT = 5
+const SESSION_MESSAGE_START_RETRY_LIMIT = 10
 const SESSION_MESSAGE_START_RETRY_BASE_DELAY_MS = 800
 const SESSION_MESSAGE_START_TIMEOUT_MS = 15_000
 const DIRECT_DRAFT_SYSTEM_PROMPT_VERSION = 'draft-request-v1'

@@ -21,6 +21,7 @@ import { hasAbnormalTermination } from './foldState'
 import ImageBlock from './ImageBlock'
 import MainTextBlock from './MainTextBlock'
 import PlaceholderBlock from './PlaceholderBlock'
+import ProcessingStatusBlock from './ProcessingStatusBlock'
 import ThinkingBlock from './ThinkingBlock'
 import ToolBlock from './ToolBlock'
 import ToolBlockGroup from './ToolBlockGroup'
@@ -69,7 +70,7 @@ interface Props {
   fallbackBlockEntities?: Record<string, MessageBlock>
   messageStatus?: Message['status']
   message: Message
-  /** ChatShell 专用：处理中占位块旁显示「已处理 xx」计时文案 */
+  /** ChatShell 专用：在消息内容上方独立显示处理时间与重试状态 */
   showProcessingElapsed?: boolean
 }
 
@@ -376,6 +377,11 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
 
   return (
     <AnimatePresence mode="sync">
+      {isProcessing && showProcessingElapsed && (processingStartedAt || processingLoadingLabel) && (
+        <ProcessingStatusWrapper key="message-processing-status">
+          <ProcessingStatusBlock processingStartedAt={processingStartedAt} loadingLabel={processingLoadingLabel} />
+        </ProcessingStatusWrapper>
+      )}
       {!isProcessing && hiddenGroupedBlocks.length > 0 && (
         <HistoryToggleButton type="button" onClick={() => setIsHistoryExpanded((prev) => !prev)}>
           <HistoryToggleLabel>已完成</HistoryToggleLabel>
@@ -387,6 +393,7 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
       {shouldShowProcessingPlaceholder && (
         <AnimatedBlockWrapper key="message-loading-placeholder" enableAnimation={true}>
           <PlaceholderBlock
+            showTips={showProcessingElapsed}
             block={{
               id: `loading-${message.id}`,
               messageId: message.id,
@@ -394,10 +401,9 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
               status: MessageBlockStatus.PROCESSING,
               createdAt: new Date().toISOString(),
               metadata:
-                processingLoadingLabel || processingStartedAt
+                !showProcessingElapsed && processingLoadingLabel
                   ? {
-                      ...(processingLoadingLabel ? { loadingLabel: processingLoadingLabel } : {}),
-                      ...(processingStartedAt ? { processingStartedAt } : {})
+                      loadingLabel: processingLoadingLabel
                     }
                   : undefined
             }}
@@ -409,6 +415,10 @@ const MessageBlockRenderer: React.FC<Props> = ({ blocks, message, fallbackBlockE
 }
 
 export default React.memo(MessageBlockRenderer)
+
+const ProcessingStatusWrapper = styled.div`
+  margin: 4px 0 8px;
+`
 
 const ImageBlockGroup = styled.div<{ count: number }>`
   display: flex;

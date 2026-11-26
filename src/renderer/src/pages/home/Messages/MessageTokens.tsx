@@ -13,26 +13,17 @@ import {
   getCacheInputTokens,
   getInternalToolUsage,
   getMessageTokenUsage,
-  getUsageSteps,
+  getMessageConversationPoints,
+  isThirdPartyBillingModel,
   mergeLiveTokenMessage,
   resolveTokenUsageBlock,
-  type MessageUsageWithCacheDetails,
+  type MessagePricingWithPreciseFields,
   type TokenUsageMessage
 } from './tokenUsage'
 
 interface MessageTokensProps {
   message: Message
   isLastMessage?: boolean
-}
-
-type MessagePricingWithPreciseFields = NonNullable<Message['model']>['pricing'] & {
-  input_resource_points_per_unit?: number
-  output_resource_points_per_unit?: number
-  precise_input_resource_points_per_unit?: number
-  precise_output_resource_points_per_unit?: number
-  precise_uncached_input_resource_points_per_unit?: number
-  precise_cache_read_resource_points_per_unit?: number
-  precise_cache_write_resource_points_per_unit?: number
 }
 
 type ToolBillingDetail = {
@@ -72,8 +63,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
 
   // Persisted custom models may contain platform pricing from an older model lookup.
   // The provider or fully qualified model ID, not that pricing, determines who bills the conversation.
-  const isThirdPartyModel =
-    currentMessage.model?.provider?.startsWith('custom-') || currentMessage.model?.id?.startsWith('custom-')
+  const isThirdPartyModel = isThirdPartyBillingModel(currentMessage.model)
 
   // const { generating } = useRuntime()
   const locateMessage = () => {
@@ -115,60 +105,7 @@ const MessageTokens: React.FC<MessageTokensProps> = ({ message }) => {
   const tokenUsage = getMessageTokenUsage(currentMessage, internalToolUsage)
   const { displayUsage } = tokenUsage
 
-  const getUsagePrice = (usage?: MessageUsageWithCacheDetails) => {
-    if (isThirdPartyModel) return 0
-
-    const inputTokens = Number(usage?.prompt_tokens ?? 0) || 0
-    const outputTokens = Number(usage?.completion_tokens ?? 0) || 0
-    const { cacheReadTokens, cacheWriteTokens } = getCacheInputTokens(usage)
-    const uncachedInputTokens = Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens)
-    const model = currentMessage.model
-    const pricing = model?.pricing as MessagePricingWithPreciseFields | undefined
-
-    const preciseUncachedInputPointPerMillion =
-      Number(
-        pricing?.precise_uncached_input_resource_points_per_unit ?? pricing?.precise_input_resource_points_per_unit ?? 0
-      ) || 0
-    const preciseCacheReadPointPerMillion = Number(pricing?.precise_cache_read_resource_points_per_unit ?? 0) || 0
-    const preciseCacheWritePointPerMillion = Number(pricing?.precise_cache_write_resource_points_per_unit ?? 0) || 0
-    const preciseOutputPointPerMillion =
-      Number(pricing?.precise_output_resource_points_per_unit ?? pricing?.output_per_million_tokens ?? 0) || 0
-
-    if (
-      preciseUncachedInputPointPerMillion > 0 ||
-      preciseCacheReadPointPerMillion > 0 ||
-      preciseCacheWritePointPerMillion > 0 ||
-      preciseOutputPointPerMillion > 0
-    ) {
-      return (
-        (uncachedInputTokens * preciseUncachedInputPointPerMillion +
-          cacheReadTokens * preciseCacheReadPointPerMillion +
-          cacheWriteTokens * preciseCacheWritePointPerMillion +
-          outputTokens * preciseOutputPointPerMillion) /
-        1_000_000
-      )
-    }
-
-    const inputPointPerThousand =
-      Number(pricing?.input_resource_points_per_unit ?? pricing?.input_per_million_tokens ?? 0) || 0
-    const outputPointPerThousand =
-      Number(pricing?.output_resource_points_per_unit ?? pricing?.output_per_million_tokens ?? 0) || 0
-
-    return (inputTokens * inputPointPerThousand + outputTokens * outputPointPerThousand) / 1000
-  }
-
-  const getPrice = () => {
-    const usagePrice = (() => {
-      const usageSteps = getUsageSteps(currentMessage)
-      if (usageSteps.length > 0) {
-        return usageSteps.reduce((total: number, usageStep: MessageUsageWithCacheDetails) => total + getUsagePrice(usageStep), 0)
-      }
-
-      return getUsagePrice(displayUsage)
-    })()
-
-    return usagePrice + toolBillingPoints
-  }
+  const getPrice = () => getMessageConversationPoints(currentMessage) + toolBillingPoints
 
   const hasReportedUsage = Boolean(displayUsage) || Number(currentMessage?.metrics?.completion_tokens ?? 0) > 0
   const incompleteUsage = !displayUsage || internalToolUsage.missing || Boolean(currentMessage.error) || currentMessage.status === 'error' || currentMessage.aborted

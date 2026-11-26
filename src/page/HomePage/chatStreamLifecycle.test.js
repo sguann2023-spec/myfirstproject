@@ -1,6 +1,38 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createChannelEventStream } from '../../renderer/src/services/messageStreaming/channelStream';
-import { completeAfterDrain, preserveHydratedMessageBodies, normalizeLiveMessageModel, ownsChatCompletion } from './chatStreamLifecycle';
+import { completeAfterDrain, preserveHydratedMessageBodies, normalizeLiveMessageModel, ownsChatCompletion, hasActiveChatRequest } from './chatStreamLifecycle';
+import { SendQueue } from '../../components/Chat/sendQueue';
+
+it('defers previous-turn history while the next queued turn is preparing its stream', async () => {
+  const queue = new SendQueue();
+  const accepted = new Map();
+  const pending = new Map();
+  const messages = [];
+  let request = 0;
+  const send = (text, options) => {
+    const id = ++request;
+    accepted.set(id, { chatId: 'chat', done: options.onQueueComplete });
+    messages.push({ role: 'user', content: text }, { role: 'assistant', content: '' });
+  };
+  queue.submit('chat', 'first', {});
+  queue.pump('chat', send);
+  queue.submit('chat', 'queued question', {});
+  const first = accepted.get(1);
+  accepted.delete(1);
+  first.done('complete');
+  await Promise.resolve();
+  // Workspace lookup awaits before the renderer stream is registered.
+  expect(pending.size).toBe(0);
+  expect(queue.state('chat').items).toEqual([]);
+  expect(hasActiveChatRequest('chat', pending, accepted)).toBe(true);
+  expect(hasActiveChatRequest('other-chat', pending, accepted)).toBe(false);
+  expect(messages.at(-2).content).toBe('queued question');
+  pending.set(2, { chatId: 'chat' });
+  accepted.delete(2);
+  expect(hasActiveChatRequest('chat', pending, accepted)).toBe(true);
+  pending.delete(2);
+  expect(hasActiveChatRequest('chat', pending, accepted)).toBe(false);
+});
 
 describe('chat stream completion', () => {
   it('drains a real channel consumer before detaching the live message', async () => {

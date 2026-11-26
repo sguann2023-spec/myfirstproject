@@ -33,6 +33,8 @@ vi.mock('../session-architecture/ConversationSegmentService', () => ({
   }
 }))
 
+vi.mock('../bridges/slash-commands', () => ({ syncSlashCommandsFromSdk: vi.fn() }))
+
 vi.mock('../harness/query-side-effects', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../harness/query-side-effects')>()
   return { ...actual, handleToolResultSideEffects: vi.fn() }
@@ -804,13 +806,13 @@ describe('processPiHarnessQuery', () => {
     await vi.runAllTimersAsync()
     await runPromise
 
-    expect(harnessStub.abort).toHaveBeenCalledTimes(6)
+    expect(harnessStub.abort).toHaveBeenCalledTimes(11)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
-      .filter((event) => String(event.chunk.type || '') === 'retry-status')
-    expect(retryStatusChunks).toHaveLength(5)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
-    expect(String(retryStatusChunks[4]?.chunk?.text || '')).toBe('第5/5次重试')
+      .filter((event) => String(event.chunk.type || '') === 'retry-status' && Number(event.chunk.attempt) > 0)
+    expect(retryStatusChunks).toHaveLength(10)
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/10次重试')
+    expect(String(retryStatusChunks[9]?.chunk?.text || '')).toBe('第10/10次重试')
     expect(agentTurnRepository.update).toHaveBeenCalledWith(
       'turn-1',
       expect.objectContaining({
@@ -1368,9 +1370,9 @@ describe('processPiHarnessQuery', () => {
     expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
-      .filter((event) => String(event.chunk.type || '') === 'retry-status')
+      .filter((event) => String(event.chunk.type || '') === 'retry-status' && Number(event.chunk.attempt) > 0)
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/10次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
     expect(stream.events.filter((event: any) => event.chunk?.type === 'tool-error').map((event: any) => event.chunk)).toContainEqual(
       expect.objectContaining({ toolName: 'Read', error: expect.stringContaining('Tool input abandoned') })
@@ -1379,6 +1381,40 @@ describe('processPiHarnessQuery', () => {
       expect.objectContaining({ toolName: 'Bash', error: expect.stringContaining('attempt ended') })
     )
 
+  })
+
+  it.each(['stop', 'toolUse', 'length'])('resets consecutive retries and clears the status after a successful %s response', async stopReason => {
+    vi.useFakeTimers()
+    let attempt = 0
+    const stream = createStreamRecorder()
+    const harnessStub = createHarnessStub({
+      prompt: async () => {
+        attempt += 1
+        if (attempt === 1) throw new Error('fetch failed')
+        const message = { role: 'assistant', content: [], stopReason, usage: {} }
+        await harnessStub.emitAgentEvent({ type: 'message_start', message })
+        await harnessStub.emitAgentEvent({ type: 'message_end', message })
+        // A later provider round can fail after an earlier round succeeded.
+        if (attempt === 2) throw new Error('fetch failed again')
+        return message
+      }
+    })
+    const runPromise = processPiHarnessQuery({
+      stream, sessionId: 'session-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: harnessStub.harness, prompt: 'hello'
+    })
+    await vi.runAllTimersAsync()
+    await runPromise
+
+    const statuses = stream.events
+      .filter((event: any) => event.chunk?.type === 'retry-status')
+      .map((event: any) => event.chunk)
+    expect(statuses.map(chunk => chunk.attempt)).toEqual([1, 0, 1, 0])
+    expect(statuses.map(chunk => chunk.text)).toEqual(['第1/10次重试', '', '第1/10次重试', ''])
+    expect(statuses.every(chunk => chunk.maxRetries === 10)).toBe(true)
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(3)
+    expect(stream.events.map(event => event.type)).toContain('complete')
   })
 
   it.each(['502 "上游请求失败"', '400 status code (no body)'])('bounds retries after visible text has streamed: %s', async (errorMessage) => {
@@ -1454,13 +1490,13 @@ describe('processPiHarnessQuery', () => {
     await vi.runAllTimersAsync()
     await runPromise
 
-    expect(harnessStub.prompt).toHaveBeenCalledTimes(6)
+    expect(harnessStub.prompt).toHaveBeenCalledTimes(11)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
-      .filter((event) => String(event.chunk.type || '') === 'retry-status')
-    expect(retryStatusChunks).toHaveLength(5)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
-    expect(String(retryStatusChunks[4]?.chunk?.text || '')).toBe('第5/5次重试')
+      .filter((event) => String(event.chunk.type || '') === 'retry-status' && Number(event.chunk.attempt) > 0)
+    expect(retryStatusChunks).toHaveLength(10)
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/10次重试')
+    expect(String(retryStatusChunks[9]?.chunk?.text || '')).toBe('第10/10次重试')
     expect(stream.events.map((event) => event.type)).toContain('error')
   })
 
@@ -1577,9 +1613,9 @@ describe('processPiHarnessQuery', () => {
     expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
-      .filter((event) => String(event.chunk.type || '') === 'retry-status')
+      .filter((event) => String(event.chunk.type || '') === 'retry-status' && Number(event.chunk.attempt) > 0)
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/10次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
   })
 
@@ -1698,9 +1734,9 @@ describe('processPiHarnessQuery', () => {
     expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
     const retryStatusChunks = stream.events
       .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
-      .filter((event) => String(event.chunk.type || '') === 'retry-status')
+      .filter((event) => String(event.chunk.type || '') === 'retry-status' && Number(event.chunk.attempt) > 0)
     expect(retryStatusChunks).toHaveLength(1)
-    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+    expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/10次重试')
     expect(stream.events.map((event) => event.type)).toContain('complete')
   })
 
@@ -1853,9 +1889,9 @@ describe('processPiHarnessQuery', () => {
       expect(harnessStub.prompt).toHaveBeenCalledTimes(2)
       const retryStatusChunks = stream.events
         .filter((event): event is AgentStreamEvent & { chunk: Record<string, unknown> } => event.type === 'chunk' && Boolean(event.chunk))
-        .filter((event) => String(event.chunk.type || '') === 'retry-status')
+        .filter((event) => String(event.chunk.type || '') === 'retry-status' && Number(event.chunk.attempt) > 0)
       expect(retryStatusChunks).toHaveLength(1)
-      expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/5次重试')
+      expect(String(retryStatusChunks[0]?.chunk?.text || '')).toBe('第1/10次重试')
       expect(stream.events.map((event) => event.type)).toContain('complete')
     }
   })

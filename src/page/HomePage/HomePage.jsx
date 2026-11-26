@@ -1,4 +1,4 @@
-import { completeAfterDrain, preserveHydratedMessageBodies, normalizeLiveMessageModel, ownsChatCompletion } from './chatStreamLifecycle';
+import { completeAfterDrain, preserveHydratedMessageBodies, normalizeLiveMessageModel, ownsChatCompletion, hasActiveChatRequest } from './chatStreamLifecycle';
 import { mergeTokenTelemetry } from '../../packages/shared/tokenTelemetry';
 import { isAskUserQuestionTool } from '../../packages/shared/userInteraction'
 import { mergeSessionArtifact } from '../../components/Chat/sessionArtifacts';
@@ -2736,6 +2736,13 @@ const HomePage = () => {
     const done = completion?.done;
     queueCompletionRef.current.delete(requestId);
     done?.(outcome);
+    queueMicrotask(() => {
+      if (!chatId || hasActiveChatRequest(chatId, chatPendingByRequestIdRef.current, queueCompletionRef.current)) return;
+      const deferred = chatDeferredSessionChangeHydrateRef.current.get(chatId);
+      if (!deferred) return;
+      chatDeferredSessionChangeHydrateRef.current.delete(chatId);
+      void hydratePersistedChatSessionFromHistory(deferred);
+    });
   };
 
   const chatPerfByRequestIdRef = useRef(new Map());
@@ -2837,6 +2844,12 @@ const HomePage = () => {
       const historicalMessages = await invoke(IpcChannel.AgentMessage_GetHistory, {
         sessionId: normalizedSessionId
       });
+      if (hasActiveChatRequest(normalizedChatId, chatPendingByRequestIdRef.current, queueCompletionRef.current)) {
+        chatDeferredSessionChangeHydrateRef.current.set(normalizedChatId, {
+          chatId: normalizedChatId, sessionId: normalizedSessionId, reason
+        });
+        return;
+      }
       if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
         setChatSessions((prev) => prev.map((item) => (
           item.id === normalizedChatId ? { ...item, historyLoaded: true } : item
@@ -2881,6 +2894,7 @@ const HomePage = () => {
       setChatSessions((prev) => {
         const updated = prev.map((item) => {
           if (item.id !== normalizedChatId) return item;
+          if (hasActiveChatRequest(normalizedChatId, chatPendingByRequestIdRef.current, queueCompletionRef.current)) return item;
           const currentMessages = Array.isArray(item.messages) ? item.messages : [];
           const hydratedMessageIds = new Set(
             hydratedMessages.map((message) => String(message?.id || '').trim()).filter(Boolean)
@@ -3696,9 +3710,7 @@ const HomePage = () => {
         recordTaskFinished(chatId, payload.outcome, payload.requestId || payload.turnId);
       }
 
-      const hasPendingForSession = Array.from(chatPendingByRequestIdRef.current.values()).some(
-        (entry) => String(entry?.agentSessionId || '').trim() === runtimeSessionId
-      );
+      const hasPendingForSession = hasActiveChatRequest(chatId, chatPendingByRequestIdRef.current, queueCompletionRef.current);
       if (hasPendingForSession) {
         chatDeferredSessionChangeHydrateRef.current.set(chatId, {
           chatId,
@@ -3756,6 +3768,12 @@ const HomePage = () => {
           sessionId: runtimeSessionId
         });
         if (cancelled) return;
+        if (hasActiveChatRequest(activeChatSession.id, chatPendingByRequestIdRef.current, queueCompletionRef.current)) {
+          chatDeferredSessionChangeHydrateRef.current.set(activeChatSession.id, {
+            chatId: activeChatSession.id, sessionId: runtimeSessionId, reason: 'active-history.deferred'
+          });
+          return;
+        }
         if (!Array.isArray(historicalMessages) || historicalMessages.length === 0) {
           setChatSessions((prev) => prev.map((item) => (
             item.id === activeChatSession.id ? { ...item, historyLoaded: true } : item
@@ -3801,6 +3819,7 @@ const HomePage = () => {
         setChatSessions((prev) => {
           const updated = prev.map((item) => {
             if (item.id !== activeChatSession.id) return item;
+            if (hasActiveChatRequest(item.id, chatPendingByRequestIdRef.current, queueCompletionRef.current)) return item;
             if (!shouldHydrateChatSessionFromHistory(item)) return item;
             const currentMessages = Array.isArray(item.messages) ? item.messages : [];
             const hydratedMessageIds = new Set(
@@ -4330,7 +4349,7 @@ const HomePage = () => {
         return agentSessionId;
       };
 
-      const targetChatSession = chatSessions.find((item) => item.id === chatId) || null;
+      const targetChatSession = chatSessionsRef.current.find((item) => item.id === chatId) || null;
       const preferredWorkspacePath = getSessionWorkspacePath(targetChatSession);
       const persistedRuntimeSessionId = String(
         targetChatSession?.runtimeSessionId || ''
@@ -6039,7 +6058,7 @@ const HomePage = () => {
     )).length;
     const shouldRequestTitleFromFirstUserMessage = existingUserMessageCount === 0;
     const requestId = createRequestId();
-    if (options.onQueueComplete) queueCompletionRef.current.set(requestId, { done: options.onQueueComplete, chatId: targetSessionId });
+    queueCompletionRef.current.set(requestId, { done: options.onQueueComplete, chatId: targetSessionId });
 
     applyImmediateChatTitleFromFirstUserMessage(targetSessionId, text);
 

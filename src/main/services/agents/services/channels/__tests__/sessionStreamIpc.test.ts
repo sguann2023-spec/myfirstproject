@@ -446,7 +446,7 @@ describe('sessionStreamIpc abort handling', () => {
     })
     await vi.runAllTimersAsync()
     expect((await pending).ok).toBe(false)
-    expect(createSessionMessageMock).toHaveBeenCalledTimes(6)
+    expect(createSessionMessageMock).toHaveBeenCalledTimes(11)
     expect(createSessionMessageMock.mock.calls.every(call => call[2].signal.aborted)).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
   })
