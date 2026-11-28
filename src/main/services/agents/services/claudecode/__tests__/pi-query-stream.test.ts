@@ -239,9 +239,9 @@ describe('processPiHarnessQuery', () => {
     expect(stream.events.some((event: any) => event.chunk?.type === 'finish')).toBe(true)
   })
 
-  it('does not retry a compaction failure flattened by the Pi harness', async () => {
+  it.each(['summarization deadline exceeded', 'chunk 1 summary did not complete (error): terminated', 'chunk 1 summary did not complete (error): timeout'])('does not retry a flattened compaction failure: %s', async message => {
     const stream = createStreamRecorder()
-    const failure = new Error('PI context compaction: summarization deadline exceeded')
+    const failure = new Error(`PI context compaction: ${message}`)
     const stub = createHarnessStub({ prompt: async () => ({ role: 'assistant', content: [], stopReason: 'error', errorMessage: failure.message, usage: {} }) })
     const unsubscribe = vi.fn()
     stub.harness.runtimeBridge.contextCompaction = { getFailure: () => failure, isCompacting: () => false, subscribe: () => unsubscribe }
@@ -251,6 +251,22 @@ describe('processPiHarnessQuery', () => {
       harness: stub.harness, prompt: 'continue'
     })
     expect(stub.prompt).toHaveBeenCalledTimes(1)
+    expect(stream.events.find(event => event.type === 'error')).toMatchObject({ error: failure })
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does not replay the prompt when an exhausted compaction throws a transport error', async () => {
+    const stream = createStreamRecorder()
+    const failure = new Error('PI context compaction: chunk 1 summary did not complete (error): terminated')
+    const stub = createHarnessStub({ prompt: async () => { throw failure } })
+    const unsubscribe = vi.fn()
+    stub.harness.runtimeBridge.contextCompaction = { getFailure: () => failure, isCompacting: () => false, subscribe: () => unsubscribe }
+    await processPiHarnessQuery({
+      stream, sessionId: 'topic-1', agentId: 'agent-1',
+      architectureContext: { traceId: 'trace-1', topicId: 'topic-1', activeSegment, currentTurn, pendingFileChanges: new Map() } as any,
+      harness: stub.harness, prompt: 'continue'
+    })
+    expect(stub.prompt).toHaveBeenCalledOnce()
     expect(stream.events.find(event => event.type === 'error')).toMatchObject({ error: failure })
     expect(unsubscribe).toHaveBeenCalledOnce()
   })

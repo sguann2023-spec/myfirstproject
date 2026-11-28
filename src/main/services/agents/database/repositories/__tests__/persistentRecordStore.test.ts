@@ -17,6 +17,32 @@ function file(): string { const dir = mkdtempSync(path.join(tmpdir(), 'record-up
 async function open(filename: string) { const store = await PersistentRecordStore.open(filename, 'bigint'); stores.push(store); return store }
 afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true }) })
 
+it('stamps stable append positions as strings and refuses unavailable schemas or closed stores', async () => {
+  const store = await open('memory:history-revision')
+  expect(store.historyRevision()).toBeUndefined() // Not yet a finalized record store.
+  expect(store.topicHistoryRevision('s')).toBeUndefined()
+  store.applyMigration(0, 'initial', 'CREATE TABLE migrations(version INTEGER PRIMARY KEY,tag TEXT,executed_at INTEGER); CREATE TABLE items(id INTEGER PRIMARY KEY)')
+  store.finalizeSchema()
+  const initial = store.historyRevision()!
+  expect(typeof initial).toBe('string')
+  expect(JSON.parse(initial)[1]).toBe('0')
+  expect(store.historyRevision()).toBe(initial)
+  store.execute(`INSERT INTO entity_records(position,entity_type,entity_key,operation,payload)
+    VALUES (9223372036854775806,'items','[1]','put','{"id":1}')`)
+  const appended = store.historyRevision()!
+  expect(appended).not.toBe(initial)
+  expect(JSON.parse(appended)[1]).toBe('9223372036854775806')
+  expect(store.historyRevision()).toBe(appended)
+  store.execute('DROP TABLE entity_records')
+  expect(store.historyRevision()).toBeUndefined()
+  expect(store.topicHistoryRevision('s')).toBeUndefined()
+  expect(store.isStopped).toBe(false)
+  expect(store.execute('SELECT 1').rows).toEqual([[1n]])
+  store.close()
+  expect(() => store.historyRevision()).toThrow('closed')
+  expect(() => store.topicHistoryRevision('s')).toThrow('closed')
+})
+
 it('reports copy totals and finalization stages without losing the progress callback', async () => {
   const filename = file()
   const source = new Database(filename)
@@ -59,6 +85,205 @@ function oldComplete(filename: string): void {
     db.exec("UPDATE storage_upgrade SET phase='complete' WHERE version=2; PRAGMA user_version=0")
   } finally { db.close() }
 }
+
+describe('topic history revisions', () => {
+  async function topicStore() {
+    const filename = file()
+    oldComplete(filename)
+    return open(filename)
+  }
+
+  it('ignores other topics and same-topic model/telemetry puts, but tracks all history entities and cascades', async () => {
+    const store = await topicStore()
+    let revision = store.topicHistoryRevision('s')
+    expect(typeof revision).toBe('string')
+    const other = store.topicHistoryRevision('other')
+    store.execute("UPDATE agent_messages SET status='streaming' WHERE id='foreign'")
+    expect(store.topicHistoryRevision('s')).toBe(revision)
+    expect(store.topicHistoryRevision('other')).not.toBe(other)
+    store.execute("UPDATE sessions SET model='new-model',configuration='{\"tokens\":123}',updated_at='later' WHERE id='s'")
+    expect(store.topicHistoryRevision('s')).toBe(revision)
+    store.execute("UPDATE items SET alias='no-op' WHERE id=1")
+    expect(store.topicHistoryRevision('s')).toBe(revision)
+    const unaffected = store.topicHistoryRevision('other')
+    for (const sql of [
+      "INSERT INTO agent_messages(id,session_id,sequence,role,status,created_at,updated_at) VALUES('new','s',3,'assistant','completed','now','now')",
+      "UPDATE agent_messages SET semantics_json='{\"edited\":true}' WHERE id='new'",
+      "INSERT INTO agent_message_parts(id,session_id,message_id,sequence,type,data_json,created_at,updated_at) VALUES('new-part','s','new',1,'text','{}','now','now')",
+      "UPDATE agent_message_parts SET data_json='{\"text\":\"edited\"}' WHERE id='new-part'",
+      "UPDATE session_messages SET content='{\"edited\":true}' WHERE session_id='s'",
+      "INSERT INTO pi_sessions(topic_id,pi_session_id,created_at,updated_at) VALUES('s','pi-s','now','now')",
+      "UPDATE pi_sessions SET active_leaf_id='entry' WHERE topic_id='s'",
+      "INSERT INTO pi_session_entries(topic_id,sequence,entry_id,entry_type,entry_json,created_at) VALUES('s',1,'entry','message','{}','now')",
+      "UPDATE pi_session_entries SET entry_json='{\"edited\":true}' WHERE topic_id='s'",
+      "INSERT INTO pi_invocation_entries(topic_id,invocation_id,entry_kind,entry_id,created_at) VALUES('s','invocation','user_message','entry','now')",
+      "UPDATE pi_invocation_entries SET entry_id='replacement' WHERE topic_id='s'",
+      "DELETE FROM pi_invocation_entries WHERE topic_id='s'",
+      "DELETE FROM pi_session_entries WHERE topic_id='s'",
+      "DELETE FROM pi_sessions WHERE topic_id='s'",
+      "DELETE FROM agent_message_parts WHERE id='new-part'",
+      "DELETE FROM agent_messages WHERE id='new'",
+      "DELETE FROM session_messages WHERE session_id='s'",
+      "DELETE FROM sessions WHERE id='s'"
+    ]) {
+      store.execute(sql)
+      const next = store.topicHistoryRevision('s')
+      expect(next, sql).not.toBe(revision)
+      expect(typeof next, sql).toBe('string')
+      expect(store.topicHistoryRevision('other'), sql).toBe(unaffected)
+      revision = next
+    }
+  })
+
+  it('invalidates both owners when a session_messages row moves, including multiple moves in one statement', async () => {
+    const store = await topicStore()
+    const initial = store.topicHistoryRevision('s')
+    const other = store.topicHistoryRevision('other')
+    store.execute("UPDATE session_messages SET session_id='other' WHERE session_id='s'")
+    expect(store.topicHistoryRevision('s')).not.toBe(initial)
+    expect(store.topicHistoryRevision('other')).not.toBe(other)
+    const moved = store.topicHistoryRevision('s')
+    const previous = store.topicHistoryRevision('other')
+    store.execute("UPDATE session_messages SET session_id='s' WHERE session_id='other'")
+    expect(store.topicHistoryRevision('s')).not.toBe(moved)
+    expect(store.topicHistoryRevision('other')).not.toBe(previous)
+    const plan = store.execute(`EXPLAIN QUERY PLAN SELECT json_extract(payload,'$.session_id') FROM main.entity_records INDEXED BY entity_records_latest
+      WHERE entity_type='session_messages' AND entity_key='[1]' AND position<999 ORDER BY position DESC LIMIT 1`).rows.flat().join(' ')
+    expect(plan).toMatch(/SEARCH .*entity_records_latest.*entity_type=.*entity_key=.*position</)
+  })
+
+  it('fails safe for direct appends and missing callbacks, including a mixed statement with an accounted append', async () => {
+    const store = await topicStore()
+    let revision = store.topicHistoryRevision('s')
+    store.execute(`INSERT INTO entity_records(entity_type,entity_key,operation,payload) VALUES('items','[10]','put','{"id":10}')`)
+    expect(store.topicHistoryRevision('s')).not.toBe(revision)
+    store.execute('CREATE TABLE raw_appends(id INTEGER PRIMARY KEY)')
+    store.execute(`CREATE TRIGGER mixed_append AFTER INSERT ON raw_appends BEGIN
+      INSERT INTO items(id,alias) VALUES(NEW.id,'accounted');
+      INSERT INTO entity_records(entity_type,entity_key,operation,payload) VALUES('items','[99]','put','{"id":99}'); END`)
+    revision = store.topicHistoryRevision('s')
+    const other = store.topicHistoryRevision('other')
+    store.execute('INSERT INTO raw_appends VALUES(11)')
+    expect(store.topicHistoryRevision('s')).not.toBe(revision)
+    expect(store.topicHistoryRevision('other')).not.toBe(other)
+    store.execute('DROP TRIGGER v2_update_agent_messages')
+    store.execute(`CREATE TRIGGER v2_update_agent_messages INSTEAD OF UPDATE ON agent_messages BEGIN
+      INSERT INTO entity_records(entity_type,entity_key,operation,payload)
+      SELECT entity_type,entity_key,operation,json_set(payload,'$.status',NEW.status) FROM entity_records
+      WHERE entity_type='agent_messages' AND entity_key=json_array(NEW.id) ORDER BY position DESC LIMIT 1; END`)
+    revision = store.topicHistoryRevision('s')
+    store.execute("UPDATE agent_messages SET status='streaming' WHERE id='foreign'")
+    expect(store.topicHistoryRevision('s')).not.toBe(revision)
+  })
+
+  it('invalidates direct inserts below the high-water mark, including RETURNING, but excludes changed TEMP rows', async () => {
+    const store = await topicStore()
+    store.execute(`INSERT INTO entity_records(position,entity_type,entity_key,operation,payload) VALUES(1000,'items','[1000]','put','{"id":1000}')`)
+    let revision = store.topicHistoryRevision('s')
+    store.execute(`INSERT INTO main.entity_records(position,entity_type,entity_key,operation,payload) VALUES(500,'items','[500]','put','{"id":500}')`)
+    expect(store.topicHistoryRevision('s')).not.toBe(revision)
+    revision = store.topicHistoryRevision('s')
+    store.execute({ sql: `INSERT INTO "main"."entity_records"(position,entity_type,entity_key,operation,payload) VALUES(?,'items',?,'put',?) RETURNING position`, args: [501, '[501]', '{"id":501}'] })
+    expect(store.topicHistoryRevision('s')).not.toBe(revision)
+    store.execute('CREATE TEMP TABLE temp_work(id INTEGER PRIMARY KEY,value TEXT)')
+    revision = store.topicHistoryRevision('s')
+    store.execute("INSERT INTO temp.temp_work VALUES(1,'work')")
+    store.execute("UPDATE temp_work SET value='updated' WHERE id=1 RETURNING id")
+    store.execute('DELETE FROM temp_work')
+    expect(store.topicHistoryRevision('s')).toBe(revision)
+  })
+
+  it('invalidates mixed accounted appends above high-water and unaccounted relevant inserts into lower gaps', async () => {
+    const store = await topicStore()
+    store.execute(`INSERT INTO entity_records(position,entity_type,entity_key,operation,payload) VALUES(1000,'items','[1000]','put','{"id":1000}')`)
+    store.execute('CREATE TABLE mixed_gap_write(id INTEGER PRIMARY KEY)')
+    store.execute(`CREATE TRIGGER mixed_gap_append AFTER INSERT ON mixed_gap_write BEGIN
+      INSERT INTO items(id,alias) VALUES(NEW.id,'accounted-high');
+      INSERT INTO entity_records(position,entity_type,entity_key,operation,payload)
+        VALUES(500,'agent_messages','["child"]','delete','{"id":"child","session_id":"s"}'); END`)
+    const before = store.topicHistoryRevision('s')
+    const other = store.topicHistoryRevision('other')
+    const dataVersion = store.execute('PRAGMA main.data_version').rows
+    store.execute('INSERT INTO mixed_gap_write VALUES(11)')
+    expect(store.execute('PRAGMA main.data_version').rows).toEqual(dataVersion)
+    expect(store.execute("SELECT id FROM agent_messages WHERE id='child'").rows).toEqual([])
+    expect(store.topicHistoryRevision('s')).not.toBe(before)
+    expect(store.topicHistoryRevision('other')).not.toBe(other)
+  })
+
+  it('disables optional stamps if private TEMP observation is removed without stopping storage', async () => {
+    const store = await topicStore()
+    expect(typeof store.topicHistoryRevision('s')).toBe('string')
+    const observer = (store as any).topicObserverName as string
+    store.execute(`DROP TRIGGER temp.${quote(observer)}`)
+    expect(store.topicHistoryRevision('s')).toBeUndefined()
+    store.execute("UPDATE agent_messages SET status='streaming' WHERE id='child'")
+    expect(store.topicHistoryRevision('s')).toBeUndefined()
+    expect(store.isStopped).toBe(false)
+  })
+
+  it('fails safe after callback-bearing statements partially commit with RAISE(FAIL)', async () => {
+    const store = await topicStore()
+    store.execute('CREATE TABLE partial_write(id INTEGER PRIMARY KEY)')
+    store.execute(`CREATE TRIGGER partial_history AFTER INSERT ON partial_write BEGIN
+      INSERT INTO items(id,alias) VALUES(NEW.id,'partial');
+      SELECT RAISE(FAIL,'partial statement'); END`)
+    const before = store.topicHistoryRevision('s')
+    expect(() => store.execute('INSERT INTO partial_write VALUES(100)')).toThrow('partial statement')
+    expect(store.isStopped).toBe(false)
+    expect(store.execute('SELECT id FROM items WHERE id=100').rows).toEqual([[100n]])
+    expect(store.topicHistoryRevision('s')).not.toBe(before)
+  })
+
+  it('invalidates on failed or unclassifiable callbacks without stopping otherwise usable storage', async () => {
+    const store = await topicStore()
+    const initial = store.topicHistoryRevision('s')
+    store.execute('CREATE TABLE callback_probe(id INTEGER PRIMARY KEY)')
+    store.execute(`CREATE TRIGGER failed_callback AFTER INSERT ON callback_probe BEGIN
+      SELECT record_written('agent_messages','not-an-integer'); END`)
+    const beforeFailure = store.topicHistoryRevision('s')
+    expect(() => store.execute('INSERT INTO callback_probe VALUES(1)')).toThrow()
+    expect(store.isStopped).toBe(true) // Callback exceptions retain the writer's fail-closed policy.
+    store.close()
+    const usable = await topicStore()
+    const before = usable.topicHistoryRevision('s')
+    usable.execute('CREATE TABLE callback_probe(id INTEGER PRIMARY KEY)')
+    usable.execute(`CREATE TRIGGER fake_callback AFTER INSERT ON callback_probe BEGIN
+      INSERT INTO entity_records(entity_type,entity_key,operation,payload) VALUES('agent_messages','["bad"]','put','{"id":"bad"}');
+      SELECT record_written('agent_messages',last_insert_rowid()); END`)
+    const registered = usable.topicHistoryRevision('s')
+    usable.execute('INSERT INTO callback_probe VALUES(1)')
+    expect(usable.topicHistoryRevision('s')).not.toBe(registered)
+    expect(usable.isStopped).toBe(false)
+    expect(usable.execute('SELECT 1').rows).toEqual([[1n]])
+    expect(before).not.toBe(initial)
+    expect(beforeFailure).not.toBe(initial)
+  })
+
+  it('tracks no history until requested, classifies only new scalar fields, and bounds registrations with LRU generations', async () => {
+    const store = await topicStore()
+    const prepare = vi.spyOn(Database.prototype, 'prepare')
+    try {
+      store.execute("UPDATE sessions SET model='before-tracking' WHERE id='s'")
+      expect(prepare.mock.calls.some(([sql]) => /coalesce\(max\(position\)|AS topic/.test(sql))).toBe(false)
+      prepare.mockClear()
+      const first = store.topicHistoryRevision('s')
+      const second = store.topicHistoryRevision('other')
+      for (let index = 0; index < 62; index++) store.topicHistoryRevision(`unused-${index}`)
+      expect(store.topicHistoryRevision('s')).toBe(first) // Refresh the oldest registration.
+      store.topicHistoryRevision('overflow')
+      expect(store.topicHistoryRevision('s')).toBe(first)
+      expect(store.topicHistoryRevision('other')).not.toBe(second)
+      expect((store as any).topicRevisions.size).toBe(64)
+      prepare.mockClear()
+      store.execute("UPDATE agent_message_parts SET data_json='{}' WHERE id='part'")
+      const classifier = prepare.mock.calls.map(([sql]) => sql).find(sql => /AS topic\s+FROM main.entity_records WHERE position=\?/.test(sql))
+      expect(classifier).toBeDefined()
+      expect(classifier).not.toMatch(/SELECT \*|SELECT payload|json_extract\(payload,'\$\.(?:content|data_json|entry_json)'\)/)
+      expect(prepare.mock.calls.map(([sql]) => sql).filter(sql => /count\(\*\).*main.entity_records|^EXPLAIN /.test(sql))).toEqual([])
+    } finally { prepare.mockRestore() }
+  })
+})
 
 describe('complete v2 constraint revision', () => {
   it('upgrades stored definitions and all commands once without changing history or unrelated metadata', async () => {

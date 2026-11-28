@@ -1681,6 +1681,7 @@ export async function buildPiRuntimeBridge(input: {
     const compactionListeners = new Set<(event: ContextCompactionProgress) => void>()
     const compactor = createContextCompactor({
       core: packageBridge.agentCore, models, model, session, systemPrompt,
+      isRetryableAssistantError: packageBridge.piAi.isRetryableAssistantError,
       tools: tools.filter(tool => activeToolNames.includes(tool.name)),
       limits: runtimeEnvironment.modelTokenLimits,
       signal: input.signal,

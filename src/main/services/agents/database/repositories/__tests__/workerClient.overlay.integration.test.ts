@@ -15,9 +15,11 @@ import { finalizeRecords } from '../../legacyRecordMigration'
 import { readMessageProjection } from '../../messageEventStore'
 
 vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }) } }))
-vi.mock('@main/utils', () => ({ getResourcePath: () => '/resources' }))
+vi.mock('@main/utils', () => ({ getResourcePath: () => '/resources', getDataPath: () => tmpdir() }))
 vi.mock('electron', () => ({ app: { getPath: () => '/unused' } }))
 vi.mock('@shared/parseToolArguments', () => import('../../../../../../packages/shared/parseToolArguments'))
+vi.mock('@shared/tokenTelemetry', () => import('../../../../../../packages/shared/tokenTelemetry'))
+vi.mock('@shared/userInteraction', () => import('../../../../../../packages/shared/userInteraction'))
 vi.mock('../../../BaseService', () => ({ BaseService: class { async getDatabase(): Promise<never> { throw new Error('Test database not injected') } } }))
 import { resolveStorageConfiguration } from '../../DatabaseManager'
 import { AgentTranscriptRepository } from '../agentTranscriptRepository'
@@ -112,6 +114,184 @@ it('reads ordered legacy sources and persists only new writes/tombstones at the 
   await again.closeAsync()
   expect(f.options.legacyPaths.map(filename => readFileSync(filename))).toEqual(before)
 }, 15000)
+
+it('revises the trusted stamp for main appends and external writes to every attached source, ignoring TEMP work', async () => {
+  const f = fixture()
+  const owner = open(f.filename, f.options)
+  const initial = await owner.historyRevision()
+  const topicInitial = await owner.topicHistoryRevision('topic-a')
+  expect(typeof topicInitial).toBe('string')
+  expect(topicInitial).not.toContain(f.directory)
+  expect(await owner.topicHistoryRevision('topic-a')).toBe(topicInitial)
+  expect(typeof initial).toBe('string')
+  expect(await owner.historyRevision()).toBe(initial)
+  expect(initial).not.toContain(f.directory)
+  const other = open(f.filename, f.options, undefined, 'number')
+  expect(await other.historyRevision()).toBe(initial)
+  expect(await other.topicHistoryRevision('topic-a')).toBe(topicInitial)
+  const historyTable = 'pi_history_images_0123456789abcdef0123456789abcdef'
+  await owner.execute(`CREATE TEMP TABLE "${historyTable}"(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, canonical INTEGER, payload BLOB)`)
+  await owner.execute(`INSERT INTO temp."${historyTable}"(doc,body) VALUES(1,'temporary')`)
+  await owner.execute(`DROP TABLE temp."${historyTable}"`)
+  expect(await owner.historyRevision()).toBe(initial)
+  expect(await owner.topicHistoryRevision('topic-a')).toBe(topicInitial)
+  await other.execute("INSERT INTO entries(name) VALUES('appended')")
+  expect(await owner.topicHistoryRevision('topic-a')).toBe(topicInitial)
+  const appended = await owner.historyRevision()
+  expect(appended).not.toBe(initial)
+  expect(JSON.parse(appended!)[1]).toBe('1')
+  let previous = appended
+  let topicPrevious = topicInitial
+  for (const filename of [f.filename, ...f.options.legacyPaths]) {
+    const source = new Database(filename)
+    try { source.exec('CREATE TABLE revision_probe(id INTEGER PRIMARY KEY,value INTEGER); INSERT INTO revision_probe VALUES(1,1)') }
+    finally { source.close() }
+    const revision = await owner.historyRevision()
+    expect(typeof revision).toBe('string')
+    expect(revision).not.toBe(previous)
+    expect(await owner.historyRevision()).toBe(revision)
+    const topicRevision = await owner.topicHistoryRevision('topic-a')
+    expect(typeof topicRevision).toBe('string')
+    expect(topicRevision).not.toBe(topicPrevious)
+    expect(await owner.topicHistoryRevision('topic-a')).toBe(topicRevision)
+    const writer = new Database(filename)
+    try { writer.exec('UPDATE revision_probe SET value=2') }
+    finally { writer.close() }
+    previous = await owner.historyRevision()
+    expect(previous).not.toBe(revision)
+    topicPrevious = await owner.topicHistoryRevision('topic-a')
+    expect(topicPrevious).not.toBe(topicRevision)
+  }
+  expect((await owner.execute('SELECT count(*) AS count FROM entity_records')).rows[0].count).toBe(1n)
+  expect(JSON.parse(previous!)[2].map(([name]: [string]) => name)).toEqual(['main', 'overlay_source_0', 'overlay_source_1'])
+  await other.closeAsync()
+  await owner.closeAsync()
+  const again = open(f.filename, f.options)
+  expect(await again.historyRevision()).not.toBe(previous)
+  expect(await again.topicHistoryRevision('topic-a')).not.toBe(topicPrevious)
+})
+
+it('shares topic epochs across real clients while ignoring model/stat writes and unrelated history', async () => {
+  const f = fixture()
+  const options = { legacyPaths: [], migrationDir: path.resolve('resources/database/drizzle') }
+  const owner = open(f.filename, options)
+  await owner.execute("INSERT INTO agents(id,type,name,model,created_at,updated_at) VALUES('a','x','Agent','model','now','now')")
+  for (const topic of ['s', 'other', 'empty']) await owner.execute({
+    sql: "INSERT INTO sessions(id,agent_type,agent_id,name,model,created_at,updated_at) VALUES(?,'x','a',?,'model','now','now')", args: [topic, topic]
+  })
+  const peer = open(f.filename, options, undefined, 'number')
+  let revision = await owner.topicHistoryRevision('s')
+  expect(typeof revision).toBe('string')
+  expect(await peer.topicHistoryRevision('s')).toBe(revision)
+  const other = await peer.topicHistoryRevision('other')
+  await peer.execute("UPDATE sessions SET model='other-model',configuration='{\"stats\":{\"tokens\":123}}',updated_at='later' WHERE id='s'")
+  expect(await owner.topicHistoryRevision('s')).toBe(revision)
+  await peer.execute("INSERT INTO agent_messages(id,session_id,sequence,role,status,created_at,updated_at) VALUES('other-message','other',1,'assistant','completed','now','now')")
+  expect(await owner.topicHistoryRevision('s')).toBe(revision)
+  expect(await peer.topicHistoryRevision('other')).not.toBe(other)
+  const unaffected = await peer.topicHistoryRevision('other')
+  for (const sql of [
+    "INSERT INTO agent_messages(id,session_id,sequence,role,status,created_at,updated_at) VALUES('message','s',1,'assistant','completed','now','now')",
+    "UPDATE agent_messages SET semantics_json='{\"edited\":true}' WHERE id='message'",
+    "INSERT INTO agent_message_parts(id,session_id,message_id,sequence,type,data_json,created_at,updated_at) VALUES('part','s','message',1,'text','{}','now','now')",
+    "UPDATE agent_message_parts SET data_json='{\"text\":\"changed\"}' WHERE id='part'",
+    "INSERT INTO session_messages(session_id,role,content,created_at,updated_at) VALUES('s','agent','{}','now','now')",
+    "UPDATE session_messages SET content='{\"edited\":true}' WHERE session_id='s'",
+    "INSERT INTO pi_sessions(topic_id,pi_session_id,created_at,updated_at) VALUES('s','pi-s','now','now')",
+    "UPDATE pi_sessions SET active_leaf_id='entry' WHERE topic_id='s'",
+    "INSERT INTO pi_session_entries(topic_id,sequence,entry_id,entry_type,entry_json,created_at) VALUES('s',1,'entry','message','{}','now')",
+    "UPDATE pi_session_entries SET entry_json='{\"edited\":true}' WHERE topic_id='s'",
+    "INSERT INTO pi_invocation_entries(topic_id,invocation_id,entry_kind,entry_id,created_at) VALUES('s','invocation','user_message','entry','now')",
+    "UPDATE pi_invocation_entries SET entry_id='replacement' WHERE topic_id='s'",
+    "DELETE FROM pi_invocation_entries WHERE topic_id='s'",
+    "DELETE FROM agent_message_parts WHERE id='part'",
+    "DELETE FROM agent_messages WHERE id='message'",
+    "DELETE FROM session_messages WHERE session_id='s'",
+    "DELETE FROM sessions WHERE id='s'"
+  ]) {
+    await peer.execute(sql)
+    const next = await owner.topicHistoryRevision('s')
+    expect(next, sql).not.toBe(revision)
+    expect(typeof next, sql).toBe('string')
+    expect(await peer.topicHistoryRevision('s')).toBe(next)
+    expect(await owner.topicHistoryRevision('other'), sql).toBe(unaffected)
+    revision = next
+  }
+  const empty = await owner.topicHistoryRevision('empty')
+  await peer.execute("DELETE FROM sessions WHERE id='empty'")
+  expect(await owner.topicHistoryRevision('empty')).not.toBe(empty) // No child callbacks to mask the session tombstone.
+  await peer.closeAsync()
+  await owner.closeAsync()
+  const again = open(f.filename, options)
+  expect(await again.topicHistoryRevision('s')).not.toBe(revision)
+}, 15000)
+
+it('atomically stamps a requested PI session owner without invalidating unrelated topic-only epochs', async () => {
+  const f = fixture()
+  const options = { legacyPaths: [], migrationDir: path.resolve('resources/database/drizzle') }
+  const owner = open(f.filename, options)
+  await owner.execute("INSERT INTO agents(id,type,name,model,created_at,updated_at) VALUES('a','x','Agent','model','now','now')")
+  for (const topic of ['s', 'other']) await owner.execute({
+    sql: "INSERT INTO sessions(id,agent_type,agent_id,name,model,created_at,updated_at) VALUES(?,'x','a',?,'model','now','now')", args: [topic, topic]
+  })
+  const peer = open(f.filename, options)
+  const topicOnly = await owner.topicHistoryRevision('s')
+  const requested = await owner.topicHistoryRevision('s', 'requested-id')
+  expect(typeof requested).toBe('string')
+  expect(await peer.topicHistoryRevision('s', 'requested-id')).toBe(requested)
+  await peer.execute("INSERT INTO pi_sessions(topic_id,pi_session_id,created_at,updated_at) VALUES('other','requested-id','now','now')")
+  const claimed = await owner.topicHistoryRevision('s', 'requested-id')
+  expect(claimed).not.toBe(requested)
+  expect(JSON.parse(claimed!).at(-1)).toEqual(['requested-id', ['other', 'requested-id']])
+  expect(await owner.topicHistoryRevision('s')).toBe(topicOnly)
+  await peer.execute("UPDATE pi_sessions SET metadata_json='{\"recovery\":true}',active_leaf_id='leaf' WHERE topic_id='other'")
+  expect(await owner.topicHistoryRevision('s', 'requested-id')).toBe(claimed)
+  await peer.execute("UPDATE pi_sessions SET pi_session_id='different-id' WHERE topic_id='other'")
+  expect(await owner.topicHistoryRevision('s', 'requested-id')).toBe(requested)
+  expect(await owner.topicHistoryRevision('s', 'different-id')).not.toBe(requested)
+  expect(await owner.topicHistoryRevision('s')).toBe(topicOnly)
+  await peer.execute("DELETE FROM pi_sessions WHERE topic_id='other'")
+  expect(await owner.topicHistoryRevision('s', 'requested-id')).toBe(requested)
+  expect(await owner.topicHistoryRevision('s')).toBe(topicOnly)
+})
+
+it.each(['relational', 'records'] as const)('invalidates both topics when a %s legacy session_messages row is moved', async format => {
+  const f = fixture()
+  const migrationDir = path.resolve('resources/database/drizzle')
+  const filename = path.join(f.directory, 'legacy-messages.db')
+  const source = new Database(filename)
+  const journal = JSON.parse(readFileSync(path.join(migrationDir, 'meta/_journal.json'), 'utf8'))
+  for (const entry of journal.entries) source.exec(readFileSync(path.join(migrationDir, `${entry.tag}.sql`), 'utf8'))
+  source.exec("INSERT INTO agents(id,type,name,model,created_at,updated_at) VALUES('a','x','Agent','model','now','now')")
+  for (const topic of ['old', 'new']) source.prepare("INSERT INTO sessions(id,agent_type,agent_id,name,model,created_at,updated_at) VALUES(?,'x','a',?,'model','now','now')").run(topic, topic)
+  const content = JSON.stringify({ text: 'large legacy body '.repeat(100000) })
+  source.prepare("INSERT INTO session_messages(id,session_id,role,content,created_at,updated_at) VALUES(1,'old','agent',?,'now','now')").run(content)
+  if (format === 'records') { initializeRecords(source); finalizeRecords(source, () => undefined) }
+  source.close()
+  const owner = open(f.filename, { legacyPaths: [filename], migrationDir })
+  const old = await owner.topicHistoryRevision('old')
+  const next = await owner.topicHistoryRevision('new')
+  const untouched = await owner.topicHistoryRevision('untouched')
+  await owner.execute("UPDATE session_messages SET session_id='new' WHERE id=1")
+  expect(await owner.topicHistoryRevision('old')).not.toBe(old)
+  expect(await owner.topicHistoryRevision('new')).not.toBe(next)
+  expect(await owner.topicHistoryRevision('untouched')).toBe(untouched)
+  const oldAfter = await owner.topicHistoryRevision('old')
+  const nextAfter = await owner.topicHistoryRevision('new')
+  await owner.execute("UPDATE session_messages SET session_id='old' WHERE id=1")
+  expect(await owner.topicHistoryRevision('old')).not.toBe(oldAfter)
+  expect(await owner.topicHistoryRevision('new')).not.toBe(nextAfter)
+  expect(await owner.topicHistoryRevision('untouched')).toBe(untouched)
+  expect((await owner.execute("SELECT length(content) AS chars FROM session_messages WHERE session_id='old'")).rows[0].chars).toBe(BigInt(content.length))
+}, 15000)
+
+it('does not offer topic stamps when a configured legacy source is unavailable', async () => {
+  const f = fixture()
+  const owner = open(f.filename, { ...f.options, legacyPaths: [path.join(f.directory, 'missing.db')] })
+  expect(await owner.topicHistoryRevision('s')).toBeUndefined()
+  expect(owner.closed).toBe(false)
+  expect((await owner.execute('SELECT 1')).rows[0][0]).toBe(1n)
+})
 
 it('shares equivalent canonical configuration across clients with independent integer modes', async () => {
   const f = fixture()

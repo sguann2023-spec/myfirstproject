@@ -4,6 +4,7 @@ import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import type { AgentPersistedMessage } from '@types'
 
 import { readMessageProjection } from '../messageEventStore'
+import { withHistoryActivity } from '../historyActivity'
 import { canonicalEntryToPersisted, persistedToCanonicalInputs } from '../agentHistoryMapper'
 import { mergeLegacyHistory } from '../legacyHistoryOrder'
 import { DatabaseManager } from '../DatabaseManager'
@@ -243,6 +244,10 @@ export class AgentTranscriptRepository implements IAgentTranscriptRepository {
   }
 
   async migrateLegacyHistory(sessionId: string, suppliedLegacy?: AgentPersistedMessage[]): Promise<boolean> {
+    return withHistoryActivity(sessionId, () => this.migrateLegacyHistoryWithActivity(sessionId, suppliedLegacy))
+  }
+
+  private async migrateLegacyHistoryWithActivity(sessionId: string, suppliedLegacy?: AgentPersistedMessage[]): Promise<boolean> {
     return this.withOrderedWrite(async database => {
       // Overlay already reads the immutable legacy prefix. Opening history
       // must not copy its bodies or rewrite its ordering as new business facts.

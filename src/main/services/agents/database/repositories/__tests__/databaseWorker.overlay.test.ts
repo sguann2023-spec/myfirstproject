@@ -11,13 +11,13 @@ vi.mock('node:net', () => ({ createServer: transport.createServer }))
 let accept: (socket: any) => void
 let listen: () => Promise<void>
 let server: EventEmitter
-let store: { execute: ReturnType<typeof vi.fn>; backupStorage: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; startup: {} }
+let store: { execute: ReturnType<typeof vi.fn>; historyRevision: ReturnType<typeof vi.fn>; topicHistoryRevision: ReturnType<typeof vi.fn>; backupStorage: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; startup: {} }
 
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
   Object.assign(transport.data, { database: '/data/records.db', ownerToken: 'owner', overlayStorage: { legacyPaths: ['/data/agents.db.v2.db', '/data/agents.db'], migrationDir: '/resources/database/drizzle' } })
-  store = { execute: vi.fn(() => 'result'), backupStorage: vi.fn(async () => undefined), close: vi.fn(), startup: {} }
+  store = { execute: vi.fn(() => 'result'), historyRevision: vi.fn(() => 'revision'), topicHistoryRevision: vi.fn(() => 'topic-revision'), backupStorage: vi.fn(async () => undefined), close: vi.fn(), startup: {} }
   core.open.mockResolvedValue(store)
   core.openOverlay.mockResolvedValue(store)
   server = Object.assign(new EventEmitter(), { listen: vi.fn((_endpoint, callback) => { listen = callback }), close: vi.fn() })
@@ -54,6 +54,53 @@ it('keeps the old core open path when no fourth client argument is supplied', as
   await listen()
   expect(core.open).toHaveBeenCalledWith('/data/records.db', 'bigint', expect.any(Function))
   expect(core.openOverlay).not.toHaveBeenCalled()
+})
+
+it('advertises history revisions and dispatches only the explicit trusted accessor', async () => {
+  await import('../../databaseWorker')
+  await listen()
+  const peer = connection(false)
+  peer.request('hello', ['other', storageConfiguration(transport.data.overlayStorage)])
+  expect(peer.replies[0].value).toEqual({ owner: false, historyRevision: true, topicHistoryRevision: true })
+  peer.request('historyRevision', [], 2)
+  expect(peer.replies[1].value).toBe('revision')
+  expect(store.historyRevision).toHaveBeenCalledOnce()
+  expect(store.execute).not.toHaveBeenCalled()
+})
+
+it('keeps valid history revision failures request-only and configuration failures fatal', async () => {
+  store.historyRevision.mockImplementation(() => { throw new Error('revision unavailable') })
+  await import('../../databaseWorker')
+  await listen()
+  const peer = connection()
+  peer.request('historyRevision')
+  expect(peer.replies[0]).toMatchObject({ error: { message: 'revision unavailable' }, fatal: false })
+  peer.request('execute', ['SELECT 1'], 2)
+  expect(peer.replies[1].value).toBe('result')
+  const unconfigured = connection(false)
+  unconfigured.request('historyRevision')
+  expect(unconfigured.replies[0]).toMatchObject({ error: { message: expect.stringContaining('configuration hello') }, fatal: true })
+  expect(store.historyRevision).toHaveBeenCalledOnce()
+})
+
+it('dispatches topic revision accessors without SQL and keeps their failures request-only', async () => {
+  await import('../../databaseWorker')
+  await listen()
+  const peer = connection()
+  peer.request('topicHistoryRevision', ['topic-a'])
+  expect(peer.replies[0].value).toBe('topic-revision')
+  expect(store.topicHistoryRevision).toHaveBeenCalledWith('topic-a', undefined)
+  expect(store.execute).not.toHaveBeenCalled()
+  store.topicHistoryRevision.mockImplementation(() => { throw new Error('topic revision unavailable') })
+  peer.request('topicHistoryRevision', ['topic-a', 'requested-id'], 2)
+  expect(store.topicHistoryRevision).toHaveBeenLastCalledWith('topic-a', 'requested-id')
+  expect(peer.replies[1]).toMatchObject({ error: { message: 'topic revision unavailable' }, fatal: false })
+  peer.request('execute', ['SELECT 1'], 3)
+  expect(peer.replies[2].value).toBe('result')
+  const unconfigured = connection(false)
+  unconfigured.request('topicHistoryRevision', ['topic-a'])
+  expect(unconfigured.replies[0]).toMatchObject({ error: { message: expect.stringContaining('configuration hello') }, fatal: true })
+  expect(store.topicHistoryRevision).toHaveBeenCalledTimes(2)
 })
 
 it('rejects non-owner storage backup before calling the core', async () => {

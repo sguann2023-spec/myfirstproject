@@ -3768,7 +3768,8 @@ const HomePage = () => {
           ? (channel, payload) => window.ipc.invoke(channel, payload)
           : (channel, payload) => window.electron.ipcRenderer.invoke(channel, payload);
         const historicalMessages = await invoke(IpcChannel.AgentMessage_GetHistory, {
-          sessionId: runtimeSessionId
+          sessionId: runtimeSessionId,
+          warmContext: true
         });
         if (cancelled) return;
         if (hasActiveChatRequest(activeChatSession.id, chatPendingByRequestIdRef.current, queueCompletionRef.current)) {

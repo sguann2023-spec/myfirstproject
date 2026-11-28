@@ -100,7 +100,11 @@ export async function buildInvocationPromptState(input: {
       ...context, elapsedMs: Date.now() - startedAt
     }), 3000)
     try {
-      return await operation()
+      const result = await operation()
+      logger.info('Pre-harness prompt stage completed', {
+        ...context, elapsedMs: Date.now() - startedAt
+      })
+      return result
     } catch (error) {
       logger.error('Pre-harness prompt stage failed', {
         ...context, elapsedMs: Date.now() - startedAt,
@@ -157,22 +161,22 @@ export async function buildInvocationPromptState(input: {
   const recentTurns = durablePiHistoryAvailable
     ? []
     : activeSegment
-      ? await agentTurnRepository.listBySegmentId(activeSegment.id, recentTurnLimit)
+      ? await step('recent_turns', () => agentTurnRepository.listBySegmentId(activeSegment.id, recentTurnLimit))
       : []
   const referencedArtifacts = durablePiHistoryAvailable
     ? []
-    : (
+    : await step('artifact_reads', async () => (
         await Promise.all(recentTurns.map(async (turn) => agentArtifactRepository.listByTurnId(turn.id)))
       )
         .flat()
-        .filter((artifact) => artifact.sourceType === 'tool_result')
-  const promptView = await promptViewBuilder.build({
+        .filter((artifact) => artifact.sourceType === 'tool_result'))
+  const promptView = await step('prompt_view', () => promptViewBuilder.build({
     continuationSummary: durablePiHistoryAvailable ? undefined : activeSegment?.continuationSummary,
     recentTurns,
     currentPrompt: sdkPrompt,
     referencedArtifacts
-  })
-  const promptEnvelope = await segmentPromptService.build({
+  }))
+  const promptEnvelope = await step('prompt_envelope', () => segmentPromptService.build({
     stableBasePrompt: assistantSystemPrompt ? String(assistantSystemPrompt) : String(clawSystemPrompt || ''),
     dynamicContextPrompt: assistantSystemPrompt
       ? ''
@@ -180,7 +184,7 @@ export async function buildInvocationPromptState(input: {
     promptView,
     modelId,
     builtinTools: toolSurface.builtinTools
-  })
+  }))
   const composedPrompt = composePromptViewText(promptEnvelope.promptView)
   registerPromptTokenSources(promptEnvelope.systemPrompt, [
     ...getPromptTokenSources(String(clawSystemPrompt || '').replace(`\n\n${USER_INTERACTION_GUIDANCE}`, '')),

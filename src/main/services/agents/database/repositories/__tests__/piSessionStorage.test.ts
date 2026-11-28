@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -10,7 +10,7 @@ let buildDirectory: string
 const createClient = (config: ConstructorParameters<typeof WorkerDatabaseClient>[0]) => new WorkerDatabaseClient(config, workerPath)
 import { Session } from '@earendil-works/pi-agent-core'
 import * as agentCore from '@earendil-works/pi-agent-core'
-import type { Models } from '@earendil-works/pi-ai'
+import { isRetryableAssistantError, type Models } from '@earendil-works/pi-ai'
 import { drizzle } from 'drizzle-orm/libsql'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,7 +30,8 @@ vi.mock('../../../BaseService', async () => {
   const { DatabaseManager } = await import('../../DatabaseManager')
   return { BaseService: class { async getDatabase() { return (await DatabaseManager.getInstance()).getDatabase() } } }
 })
-vi.mock('@logger', () => ({ loggerService: { withContext: () => ({ warn: vi.fn(), error: vi.fn(), debug: vi.fn(), info: vi.fn() }) } }))
+const storageLogger = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn(), debug: vi.fn(), info: vi.fn() }))
+vi.mock('@logger', () => ({ loggerService: { withContext: () => storageLogger } }))
 
 import { agentArtifactRepository } from '../agentArtifactRepository'
 import { agentTurnRepository } from '../agentTurnRepository'
@@ -166,6 +167,7 @@ describe('SqlitePiSessionStorage', () => {
   }
 
   beforeEach(async () => {
+    storageLogger.info.mockClear()
     storages = []
     const originalOpen = SqlitePiSessionStorage.openOrCreate.bind(SqlitePiSessionStorage)
     vi.spyOn(SqlitePiSessionStorage, 'openOrCreate').mockImplementation(async input => {
@@ -412,6 +414,41 @@ describe('SqlitePiSessionStorage', () => {
     expect((await client.execute("SELECT name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%'")).rows).toEqual([])
   })
 
+  it('restores workspace history with many plain entries and one image using bounded projection queries', async () => {
+    await open()
+    await settlePersistence()
+    const count = 260
+    await insertHistory(count, 'mixed plain history')
+    const data = Buffer.from('mixed history image').toString('base64')
+    const entry = { type: 'message', id: 'mixed-image', parentId: `bounded-${count - 1}`, timestamp: '2026-01-01',
+      message: { role: 'user', timestamp: 0, content: [{ type: 'image', data, mimeType: 'image/png' }] } }
+    await client.execute({
+      sql: 'INSERT INTO pi_session_entries (topic_id,sequence,entry_id,parent_entry_id,entry_type,entry_json,created_at) VALUES (?,?,?,?,?,?,?)',
+      args: ['topic-a', count, entry.id, entry.parentId, entry.type, JSON.stringify(entry), entry.timestamp]
+    })
+    await client.execute("UPDATE pi_sessions SET active_leaf_id='mixed-image'")
+    database = drizzle(client, { schema })
+    const reads = vi.spyOn(database, 'all')
+    const writes = vi.spyOn(database, 'run')
+    const storage = await SqlitePiSessionStorage.openOrCreate({ topicId: 'topic-a', database,
+      metadata: { workspacePath: tempDirectory } })
+    const entries = await storage.getEntries()
+    expect(entries).toHaveLength(count + 1)
+    expect((entries[0] as any).message.content).toBe('mixed plain history')
+    const image = entries.at(-1) as any
+    const reference = image.message.content[0].text as string
+    expect(reference).toContain('Previously loaded image:')
+    const file = JSON.parse(/^Previously loaded image: (".*?")\./.exec(reference)![1])
+    expect(await readFile(file, 'utf8')).toBe('mixed history image')
+    expect(JSON.stringify(entries)).not.toContain(data)
+    // Projection work scales with metadata pages and actual images, not 260 plain documents.
+    expect(reads.mock.calls.length + writes.mock.calls.length).toBeLessThan(60)
+    const queryCount = reads.mock.calls.length + writes.mock.calls.length
+    expect(await storage.getPathToRootOrCompaction(entry.id)).toHaveLength(count + 1)
+    expect(reads.mock.calls.length + writes.mock.calls.length).toBe(queryCount)
+    expect((await client.execute("SELECT name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%'")).rows).toEqual([])
+  })
+
   it('projects images inside duplicated legacy tool result JSON before restoring the overlay prefix', async () => {
     const data = Buffer.alloc(PI_HISTORY_LIMITS.entryBytes / 4, 0x71).toString('base64')
     const response = { content: [{ type: 'text', text: 'Loaded grid' }, { type: 'image', data, mimeType: 'image/png' }] }
@@ -594,6 +631,12 @@ describe('SqlitePiSessionStorage', () => {
     const reads = vi.spyOn(database, 'all')
     await expect(open()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
     expect(reads).toHaveBeenCalledTimes(1)
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] stored entries timing', expect.objectContaining({
+      stage: 'entry_reads', status: 'error', elapsedMs: expect.any(Number)
+    }))
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] restore timing', expect.objectContaining({
+      stage: 'stored_entries', status: 'error', elapsedMs: expect.any(Number)
+    }))
   })
 
   it('rejects aggregate history overflow during initialization before reading bodies', async () => {
@@ -617,6 +660,13 @@ describe('SqlitePiSessionStorage', () => {
     const reads = vi.spyOn(database, 'all')
     const storage = await open()
     expect(reads).toHaveBeenCalledTimes(5)
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] stored entries timing', expect.objectContaining({
+      stage: 'projection', status: 'success', elapsedMs: expect.any(Number)
+    }))
+    const entryReads = storageLogger.info.mock.calls.filter(([event, fields]) =>
+      event === '[PiSessionStorage] stored entries timing' && fields.stage === 'entry_reads').at(-1)?.[1]
+    expect(entryReads).toMatchObject({ status: 'success', entryCount: 3, elapsedMs: expect.any(Number) })
+    expect(entryReads.projectedBytes).toBeGreaterThan(16 * 1024 * 1024)
     reads.mockClear()
     expect((await storage.getPathToRootOrCompaction('bounded-2')).map(entry => entry.id)).toEqual(['bounded-0', 'bounded-1', 'bounded-2'])
     expect(reads).not.toHaveBeenCalled()
@@ -653,6 +703,15 @@ describe('SqlitePiSessionStorage', () => {
     await client.execute("UPDATE pi_sessions SET active_leaf_id='bounded-1'")
     database = drizzle(client, { schema })
     await expect(open()).rejects.toThrow(/Cycle/)
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] restore timing', expect.objectContaining({
+      stage: 'tree_validation', status: 'error', elapsedMs: expect.any(Number)
+    }))
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] initialization timing', expect.objectContaining({
+      status: 'error', queueWaitMs: expect.any(Number), elapsedMs: expect.any(Number)
+    }))
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] open timing', expect.objectContaining({
+      cache: 'cold', status: 'error', elapsedMs: expect.any(Number)
+    }))
     await client.execute("UPDATE pi_session_entries SET parent_entry_id=NULL, entry_json=json_set(entry_json,'$.parentId',NULL) WHERE entry_id='bounded-0'")
     expect((await (await open()).getEntries()).length).toBe(2)
   })
@@ -782,6 +841,481 @@ describe('SqlitePiSessionStorage', () => {
     const storages = await Promise.all([open(), open()])
     expect(await storages[0].getEntries()).toHaveLength(1)
     expect(await storages[1].getEntries()).toHaveLength(1)
+    await open()
+    const timings = storageLogger.info.mock.calls.filter(([event]) => event === '[PiSessionStorage] open timing')
+    expect(timings.map(([, fields]) => fields.cache)).toEqual(['cold', 'reused', 'reused'])
+    for (const [, fields] of timings) {
+      expect(fields).toMatchObject({ topicId: 'topic-a', status: 'success', elapsedMs: expect.any(Number) })
+    }
+    expect(storageLogger.info).toHaveBeenCalledWith('[PiSessionStorage] initialization timing', {
+      topicId: 'topic-a', status: 'success', queueWaitMs: expect.any(Number), elapsedMs: expect.any(Number)
+    })
+    const stages = storageLogger.info.mock.calls.filter(([event]) => event === '[PiSessionStorage] restore timing')
+    expect(stages.map(([, fields]) => fields.stage)).toEqual([
+      'metadata', 'stored_entries', 'relocation', 'claims_hidden', 'overlay_prefix', 'stored_tree',
+      'canonical_hydration', 'tree_validation', 'interrupted_tools'
+    ])
+    for (const [, fields] of stages) expect(fields.status).toBe('success')
+    expect(stages.find(([, fields]) => fields.stage === 'canonical_hydration')?.[1]).toMatchObject({
+      canonicalMessageCount: 1, hydratedEntryCount: 1
+    })
+    expect(stages.find(([, fields]) => fields.stage === 'tree_validation')?.[1]).toMatchObject({
+      entryCount: 1, bytes: expect.any(Number)
+    })
+    expect(JSON.stringify(storageLogger.info.mock.calls)).not.toContain('hydrate once')
+  })
+
+  describe('detached context preparation', () => {
+    beforeEach(async () => { await (client as WorkerDatabaseClient).finalizeSchema() })
+
+    function revisionClient() {
+      return client as unknown as { topicHistoryRevision?: (topicId?: string, requestedSessionId?: string) => Promise<string | undefined> }
+    }
+
+    function enableRevision() {
+      const source = revisionClient()
+      expect(source.topicHistoryRevision).toBeTypeOf('function')
+      return source
+    }
+
+    function contextInput(topicId = 'topic-a', requestedSessionId = 'pi-prepared') {
+      return { topicId, requestedSessionId, database }
+    }
+
+    function deferred<T>() {
+      let resolve!: (value: T | PromiseLike<T>) => void
+      const promise = new Promise<T>(complete => { resolve = complete })
+      return { promise, resolve }
+    }
+
+    it('holds all business recovery writes until adoption and reuses restored memory without another restore', async () => {
+      await addCanonical('warm-user', 'detached history')
+      await (client as WorkerDatabaseClient).finalizeSchema()
+      const source = enableRevision()
+      const revision = await source.topicHistoryRevision!('topic-a')
+      const input = contextInput()
+      const before = (await client.execute('SELECT * FROM entity_records')).rows
+      const insert = vi.spyOn(database, 'insert')
+      const update = vi.spyOn(database, 'update')
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      const read = vi.spyOn(AgentTranscriptRepository.prototype, 'listTranscript')
+      await Promise.all([SqlitePiSessionStorage.prepareContext(input), SqlitePiSessionStorage.prepareContext(input)])
+      expect(restore).toHaveBeenCalledTimes(1)
+      expect(read).toHaveBeenCalledTimes(1)
+      expect(insert).not.toHaveBeenCalled()
+      expect(update).not.toHaveBeenCalled()
+      expect((await client.execute('SELECT * FROM entity_records')).rows).toEqual(before)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      expect((await client.execute('SELECT * FROM pi_session_entries')).rows).toEqual([])
+      expect(await source.topicHistoryRevision!('topic-a')).toBe(revision)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      const storage = await open('ignored-after-adoption')
+      expect(await storage.getMetadata()).toMatchObject({ id: 'pi-prepared' })
+      expect((await new Session(storage).buildContext()).messages.map(message => message.content)).toEqual(['detached history'])
+      expect(restore).toHaveBeenCalledTimes(1)
+      expect(read).toHaveBeenCalledTimes(1)
+      expect((storage as any).recoveryWrites).toBeUndefined()
+      await settlePersistence()
+      expect((await client.execute('SELECT pi_session_id FROM pi_sessions')).rows).toEqual([{ pi_session_id: 'pi-prepared' }])
+      expect((await client.execute('SELECT entry_id FROM pi_session_entries')).rows).toHaveLength(1)
+      expect((storage as any).state.pendingWrites).toBe(0)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+    })
+
+    it('can externalize bounded image history without publishing or changing business records', async () => {
+      await addCanonical('warm-image', 'image history')
+      await new AgentTranscriptRepository(database).upsertPart({ id: 'warm-image-data', sessionId: 'topic-a',
+        messageId: 'warm-image', type: 'image', data: { data: Buffer.from('prepared image').toString('base64'), mimeType: 'image/png' } })
+      await (client as WorkerDatabaseClient).finalizeSchema()
+      const source = enableRevision()
+      const revision = await source.topicHistoryRevision!('topic-a')
+      const input = { ...contextInput(), metadata: { workspacePath: tempDirectory } }
+      const before = (await client.execute('SELECT * FROM entity_records')).rows
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect((await client.execute('SELECT * FROM entity_records')).rows).toEqual(before)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      expect((await client.execute("SELECT name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%'")).rows).toEqual([])
+      expect(await source.topicHistoryRevision!('topic-a')).toBe(revision)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      const storage = await open()
+      const entries = await storage.getEntries()
+      const reference = (entries[0] as any).message.content.find((part: any) => part.text?.includes('Previously loaded image:')).text
+      const file = JSON.parse(/^Previously loaded image: (".*?")\./.exec(reference)![1])
+      expect(await readFile(file, 'utf8')).toBe('prepared image')
+      expect(restore).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['absent', 'undefined'] as const)('skips detached work when the revision accessor is %s', async mode => {
+      const source = revisionClient()
+      const original = source.topicHistoryRevision
+      Object.defineProperty(source, 'topicHistoryRevision', { configurable: true, writable: true,
+        value: mode === 'absent' ? undefined : vi.fn(async () => undefined) })
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      try {
+        await SqlitePiSessionStorage.prepareContext(contextInput())
+        expect(await SqlitePiSessionStorage.adoptPreparedContext(contextInput())).toBe(false)
+        expect(restore).not.toHaveBeenCalled()
+        expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      } finally {
+        if (original) source.topicHistoryRevision = original
+        else delete source.topicHistoryRevision
+      }
+    })
+
+    it.each(['during', 'after'] as const)('rejects a source revision change %s preparation and permits retry', async when => {
+      const source = enableRevision()
+      const readRevision = source.topicHistoryRevision!.bind(source)
+      let changed = false
+      const revision = vi.spyOn(source, 'topicHistoryRevision').mockImplementation(async (...args) => `${await readRevision(...args)}:${changed}`)
+      const original = (SqlitePiSessionStorage.prototype as any).restore
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      if (when === 'during') {
+        restore.mockImplementationOnce(async function (this: any, ...args: any[]) {
+          await original.apply(this, args)
+          changed = true
+        })
+      }
+      const input = contextInput()
+      await SqlitePiSessionStorage.prepareContext(input)
+      changed = true
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(restore).toHaveBeenCalledTimes(2)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      await open()
+      expect(revision.mock.calls.length).toBeGreaterThanOrEqual(5)
+    })
+
+    it('rejects canonical writes made in the real disposable broker after preparation', async () => {
+      const source = revisionClient()
+      if (!source.topicHistoryRevision) return
+      const input = contextInput()
+      await SqlitePiSessionStorage.prepareContext(input)
+      await addCanonical('new-after-warm', 'new source')
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      expect((await new Session(await open()).buildContext()).messages.map(message => message.content)).toEqual(['new source'])
+    })
+
+    it('matches only the requested session and canonical workspace, not arbitrary metadata', async () => {
+      enableRevision()
+      const workspace = path.join(tempDirectory, 'workspace')
+      await mkdir(workspace)
+      const alias = path.join(tempDirectory, 'workspace-alias')
+      await symlink(workspace, alias)
+      const input = { ...contextInput(), metadata: { workspacePath: workspace, other: 'prepared' } }
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext({ ...input, requestedSessionId: 'replacement' })).toBe(false)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext({ ...input, metadata: { workspacePath: tempDirectory } })).toBe(false)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext({ ...input,
+        metadata: { workspacePath: alias, other: 'not-an-identity-field' } })).toBe(true)
+      expect((await (await open()).getMetadata()).metadata).toMatchObject({ other: 'prepared' })
+    })
+
+    it('evicts a failed preparation and restores again on retry', async () => {
+      enableRevision()
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      restore.mockRejectedValueOnce(new Error('injected detached restore failure'))
+      const input = contextInput()
+      await expect(SqlitePiSessionStorage.prepareContext(input)).resolves.toBeUndefined()
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(restore).toHaveBeenCalledTimes(2)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      await open()
+    })
+
+    it('expires preparations by pruning without timers and admits a fresh preparation', async () => {
+      enableRevision()
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      const now = Date.now()
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+      const timers = vi.spyOn(globalThis, 'setTimeout')
+      const input = contextInput()
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(timers).not.toHaveBeenCalled()
+      clock.mockReturnValue(now + 60_001)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(restore).toHaveBeenCalledTimes(2)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      await open()
+    })
+
+    it('bounds pending preparations and serializes restore even while invalid generations are discarded', async () => {
+      enableRevision()
+      await client.execute("INSERT INTO sessions (id) VALUES ('topic-b'),('topic-c'),('topic-d')")
+      const running = deferred<void>()
+      const release = deferred<void>()
+      let current = true
+      const original = (SqlitePiSessionStorage.prototype as any).restore
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      restore.mockImplementationOnce(async function (this: any, ...args: any[]) {
+        running.resolve()
+        await release.promise
+        return original.apply(this, args)
+      })
+      const a = { ...contextInput('topic-a', 'pi-a'), isCurrent: () => current }
+      const first = SqlitePiSessionStorage.prepareContext(a)
+      await running.promise
+      const second = SqlitePiSessionStorage.prepareContext(contextInput('topic-b', 'pi-b'))
+      await SqlitePiSessionStorage.prepareContext(contextInput('topic-c', 'pi-c'))
+      current = false
+      const fourth = SqlitePiSessionStorage.prepareContext(contextInput('topic-d', 'pi-d'))
+      try {
+        await fourth
+        expect(restore).toHaveBeenCalledTimes(1)
+      } finally {
+        release.resolve()
+        await Promise.all([first, second])
+      }
+      expect(restore).toHaveBeenCalledTimes(2)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(a)).toBe(false)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(contextInput('topic-c', 'pi-c'))).toBe(false)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(contextInput('topic-b', 'pi-b'))).toBe(true)
+      await SqlitePiSessionStorage.openOrCreate(contextInput('topic-b', 'pi-b'))
+      await SqlitePiSessionStorage.prepareContext(contextInput('topic-c', 'pi-c'))
+      expect(restore).toHaveBeenCalledTimes(3)
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(contextInput('topic-c', 'pi-c'))).toBe(true)
+      await SqlitePiSessionStorage.openOrCreate(contextInput('topic-c', 'pi-c'))
+    })
+
+    it('aborts pending adoption promptly without cancelling preparation or another adopter', async () => {
+      enableRevision()
+      const running = deferred<void>()
+      const release = deferred<void>()
+      const original = (SqlitePiSessionStorage.prototype as any).restore
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      restore.mockImplementationOnce(async function (this: any, ...args: any[]) {
+        running.resolve()
+        await release.promise
+        return original.apply(this, args)
+      })
+      const input = contextInput()
+      const preparation = SqlitePiSessionStorage.prepareContext(input)
+      await running.promise
+      const controller = new AbortController()
+      const adoption = SqlitePiSessionStorage.adoptPreparedContext({ ...input, signal: controller.signal })
+      const reason = new Error('sender cancelled')
+      const aborted = expect(adoption).rejects.toBe(reason)
+      controller.abort(reason)
+      try {
+        await aborted
+        expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      } finally {
+        release.resolve()
+        await preparation
+      }
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      await open()
+      expect(restore).toHaveBeenCalledTimes(1)
+    })
+
+    it('never publishes a late aborted adopter after its source revision check finishes', async () => {
+      const source = enableRevision()
+      const input = contextInput()
+      await SqlitePiSessionStorage.prepareContext(input)
+      const checking = deferred<void>()
+      const release = deferred<void>()
+      const originalRevision = source.topicHistoryRevision!.bind(source)
+      const revision = vi.spyOn(source, 'topicHistoryRevision').mockImplementationOnce(async (...args) => {
+        checking.resolve()
+        await release.promise
+        return originalRevision(...args)
+      })
+      const controller = new AbortController()
+      const adoption = SqlitePiSessionStorage.adoptPreparedContext({ ...input, signal: controller.signal })
+      await checking.promise
+      const aborted = expect(adoption).rejects.toMatchObject({ name: 'AbortError' })
+      controller.abort()
+      try {
+        await aborted
+      } finally {
+        release.resolve()
+      }
+      // This retry queues behind the abandoned adopter and proves its late
+      // completion did not claim the topic or cancel the shared warm state.
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      await open()
+      expect(revision).toHaveBeenCalledTimes(2)
+    })
+
+    it.each(['during preparation', 'during adoption'] as const)('rejects an invalidated generation %s', async when => {
+      const source = enableRevision()
+      let current = true
+      const input = { ...contextInput(), isCurrent: () => current }
+      if (when === 'during preparation') {
+        const original = (SqlitePiSessionStorage.prototype as any).restore
+        const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+        restore.mockImplementationOnce(async function (this: any, ...args: any[]) {
+          await original.apply(this, args)
+          current = false
+        })
+      }
+      await SqlitePiSessionStorage.prepareContext(input)
+      if (when === 'during adoption') {
+        const originalRevision = source.topicHistoryRevision!.bind(source)
+        vi.spyOn(source, 'topicHistoryRevision').mockImplementationOnce(async (...args) => {
+          current = false
+          return originalRevision(...args)
+        })
+      }
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect((await client.execute('SELECT * FROM pi_sessions')).rows).toEqual([])
+    })
+
+    it('keeps prepared history across unrelated topic writes and session metadata puts', async () => {
+      enableRevision()
+      await client.execute("INSERT INTO sessions (id) VALUES ('topic-b')")
+      await addCanonical('prepared-user', 'history to reuse')
+      const input = contextInput()
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      await SqlitePiSessionStorage.prepareContext(input)
+      await new AgentTranscriptRepository(database).upsertMessage({ id: 'other-user', sessionId: 'topic-b', role: 'user', status: 'completed' })
+      // This fixture's sessions schema contains only its id. An ordinary put is
+      // the same command category used by model/telemetry metadata updates.
+      await client.execute("UPDATE sessions SET id=id WHERE id='topic-a'")
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(true)
+      expect((await new Session(await open()).buildContext()).messages.map(message => message.content)).toEqual(['history to reuse'])
+      expect(restore).toHaveBeenCalledTimes(1)
+      expect(storageLogger.info).toHaveBeenCalledWith('[PiPrewarm] outcome', expect.objectContaining({ topicId: 'topic-a', phase: 'adopted' }))
+    })
+
+    it('runs a pending foreground cold open ahead of unrelated background preparations', async () => {
+      enableRevision()
+      await client.execute("INSERT INTO sessions (id) VALUES ('topic-b'),('topic-c'),('topic-d')")
+      const started = deferred<void>()
+      const release = deferred<void>()
+      const aQueued = deferred<void>()
+      const bQueued = deferred<void>()
+      const order: string[] = []
+      let active = 0
+      const original = (SqlitePiSessionStorage.prototype as any).restore
+      vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore').mockImplementation(async function (this: any, ...args: any[]) {
+        expect(active++).toBe(0)
+        order.push(this.topicId)
+        try {
+          if (this.topicId === 'topic-d') { started.resolve(); await release.promise }
+          return await original.apply(this, args)
+        } finally { active-- }
+      })
+      const running = SqlitePiSessionStorage.openOrCreate(contextInput('topic-d', 'pi-d'))
+      await started.promise
+      const a = SqlitePiSessionStorage.prepareContext({ ...contextInput(), onQueued: () => aQueued.resolve() })
+      const b = SqlitePiSessionStorage.prepareContext({ ...contextInput('topic-b', 'pi-b'), onQueued: () => bQueued.resolve() })
+      await Promise.all([aQueued.promise, bQueued.promise])
+      const foreground = SqlitePiSessionStorage.openOrCreate(contextInput('topic-c', 'pi-c'))
+      // The injected database open yields once before registering its queue task.
+      await Promise.resolve(); await Promise.resolve()
+      release.resolve()
+      await Promise.all([running, a, b, foreground])
+      expect(order).toEqual(['topic-d', 'topic-c', 'topic-a', 'topic-b'])
+      expect(active).toBe(0)
+    })
+
+    it('promotes the selected pending preparation without restoring it twice', async () => {
+      enableRevision()
+      await client.execute("INSERT INTO sessions (id) VALUES ('topic-b'),('topic-d')")
+      const started = deferred<void>()
+      const release = deferred<void>()
+      const aQueued = deferred<void>()
+      const bQueued = deferred<() => () => void>()
+      const order: string[] = []
+      const original = (SqlitePiSessionStorage.prototype as any).restore
+      vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore').mockImplementation(async function (this: any, ...args: any[]) {
+        order.push(this.topicId)
+        if (this.topicId === 'topic-d') { started.resolve(); await release.promise }
+        return original.apply(this, args)
+      })
+      const running = SqlitePiSessionStorage.openOrCreate(contextInput('topic-d', 'pi-d'))
+      await started.promise
+      const a = SqlitePiSessionStorage.prepareContext({ ...contextInput(), onQueued: () => aQueued.resolve() })
+      const selectedInput = contextInput('topic-b', 'pi-b')
+      const b = SqlitePiSessionStorage.prepareContext({ ...selectedInput, onQueued: promote => bQueued.resolve(promote) })
+      const [, promote] = await Promise.all([aQueued.promise, bQueued.promise])
+      const releaseForeground = promote()
+      release.resolve()
+      await Promise.all([running, b])
+      expect(order).toEqual(['topic-d', 'topic-b'])
+      try {
+        expect(await SqlitePiSessionStorage.adoptPreparedContext(selectedInput)).toBe(true)
+        await SqlitePiSessionStorage.openOrCreate(selectedInput)
+        expect(order).toEqual(['topic-d', 'topic-b'])
+      } finally { releaseForeground() }
+      await a
+      expect(order).toEqual(['topic-d', 'topic-b', 'topic-a'])
+      expect(order.filter(topic => topic === 'topic-b')).toHaveLength(1)
+    })
+
+    it('rejects a durable session ID claimed by another topic without an in-process owner', async () => {
+      enableRevision()
+      await client.execute("INSERT INTO sessions (id) VALUES ('topic-b')")
+      const input = contextInput('topic-a', 'durable-claimed-id')
+      await SqlitePiSessionStorage.prepareContext(input)
+      await client.execute("INSERT INTO pi_sessions(topic_id,pi_session_id,created_at,metadata_json,updated_at) VALUES ('topic-b','durable-claimed-id','now','{}','now')")
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect(storageLogger.info).toHaveBeenCalledWith('[PiPrewarm] outcome', expect.objectContaining({ topicId: 'topic-a', phase: 'discarded', reason: 'owner_conflict' }))
+      expect((await client.execute("SELECT * FROM pi_sessions WHERE topic_id='topic-a'")).rows).toEqual([])
+    })
+
+    it('does not reserve the detached session ID and rechecks its owner at adoption', async () => {
+      const source = enableRevision()
+      // Hold the revision constant to exercise the owner guard independently.
+      vi.spyOn(source, 'topicHistoryRevision').mockResolvedValue('owner-test-revision')
+      await client.execute("INSERT INTO sessions (id) VALUES ('topic-b')")
+      const input = contextInput('topic-a', 'shared-session')
+      await SqlitePiSessionStorage.prepareContext(input)
+      const other = await SqlitePiSessionStorage.openOrCreate(contextInput('topic-b', 'shared-session'))
+      expect((await other.getMetadata()).id).toBe('shared-session')
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      expect((await client.execute("SELECT * FROM pi_sessions WHERE topic_id='topic-a'")).rows).toEqual([])
+    })
+
+    it('does not overwrite an ordinary open queued while adoption is awaiting its revision', async () => {
+      const source = enableRevision()
+      const input = contextInput()
+      await SqlitePiSessionStorage.prepareContext(input)
+      const checking = deferred<void>()
+      const release = deferred<void>()
+      const originalRevision = source.topicHistoryRevision!.bind(source)
+      vi.spyOn(source, 'topicHistoryRevision').mockImplementationOnce(async (...args) => {
+        checking.resolve()
+        await release.promise
+        return originalRevision(...args)
+      })
+      const adoption = SqlitePiSessionStorage.adoptPreparedContext(input)
+      await checking.promise
+      const ordinary = open('ordinary-race-winner')
+      // open publishes its topic Promise before its queued restore can start.
+      await Promise.resolve()
+      release.resolve()
+      expect(await adoption).toBe(false)
+      expect((await (await ordinary).getMetadata()).id).toBe('ordinary-race-winner')
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      await settlePersistence()
+      expect((await client.execute('SELECT pi_session_id FROM pi_sessions')).rows).toEqual([{ pi_session_id: 'ordinary-race-winner' }])
+    })
+
+    it('leaves ordinary open independent and skips preparation/adoption for an existing topic', async () => {
+      enableRevision()
+      const input = contextInput()
+      const restore = vi.spyOn(SqlitePiSessionStorage.prototype as any, 'restore')
+      await SqlitePiSessionStorage.prepareContext(input)
+      const storage = await open('ordinary-session')
+      expect(restore).toHaveBeenCalledTimes(2)
+      expect((await storage.getMetadata()).id).toBe('ordinary-session')
+      expect(await SqlitePiSessionStorage.adoptPreparedContext(input)).toBe(false)
+      await SqlitePiSessionStorage.prepareContext(input)
+      expect(restore).toHaveBeenCalledTimes(2)
+      expect((await (await open('ignored')).getMetadata()).id).toBe('ordinary-session')
+    })
   })
 
   it('keeps PI usable after background SQL failure and restores only durable entries after restart', async () => {
@@ -1231,7 +1765,7 @@ describe('SqlitePiSessionStorage', () => {
     const completeSimple = vi.fn<Models['completeSimple']>().mockImplementation(async () => assistantMessage(checkpointText))
     const log = vi.fn()
     const makeCompactor = (session: Session) => createContextCompactor({
-      core: agentCore, models: { completeSimple } as unknown as Models, model, session,
+      core: agentCore, models: { completeSimple } as unknown as Models, isRetryableAssistantError, model, session,
       systemPrompt: '', tools: [], log
     })
     await (client as WorkerDatabaseClient).finalizeSchema()

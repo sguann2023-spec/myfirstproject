@@ -7,7 +7,7 @@ import path from 'node:path'
 import { sql, type SQL } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { prepareHistoryImageProjection, relocateHistoryImageReferences, PI_HISTORY_IMAGE_LIMITS, type HistoryImageDatabase } from '../piHistoryImages'
+import { prepareHistoryImageProjection, relocateHistoryImageReferences, PI_HISTORY_IMAGE_LIMITS, type HistoryImageDatabase, type HistoryImageProjectionStats } from '../piHistoryImages'
 
 describe('relocateHistoryImageReferences', () => {
   let root: string
@@ -123,8 +123,8 @@ describe('prepareHistoryImageProjection', () => {
   const insert = (id: string, body: unknown, type = 'tool', scope = 'selected') => {
     sqlite.prepare('INSERT INTO history VALUES (?,?,?,?)').run(id, JSON.stringify(body), type, scope)
   }
-  const prepare = (workspacePath: string | null = workspace) =>
-    prepareHistoryImageProjection(db, 'history', 'data_json', sql`scope=${'selected'}`, 'id', workspacePath)
+  const prepare = (workspacePath: string | null = workspace, onStats?: (stats: HistoryImageProjectionStats) => void) =>
+    prepareHistoryImageProjection(db, 'history', 'data_json', sql`scope=${'selected'}`, 'id', workspacePath, undefined, onStats)
   const read = async (expression: SQL, id = 'one') => {
     const [row] = await db.all<{ body: string }>(sql`SELECT ${expression} AS body FROM history WHERE id=${id}`)
     return JSON.parse(row.body)
@@ -473,7 +473,149 @@ describe('prepareHistoryImageProjection', () => {
     await projection.dispose()
   })
 
-  it('materializes many non-image leaves once and reads bounded indexed pages without quadratic scans', async () => {
+  it('classifies escaped media keys, data prefixes and nested result wrappers after JSON decoding', async () => {
+    const rows = [
+      ['escaped-key', '{"type":"image","\\u0064ata":"YWJj","mimeType":"image/png"}'],
+      ['escaped-prefix', '{"url":"\\u0064ata:image/png;base64,YWJj"}'],
+      ['escaped-nested', '{"\\u006futput":' + JSON.stringify(JSON.stringify(JSON.stringify({ image_base64: 'YWJj' }))) + '}']
+    ]
+    for (const [id, value] of rows) sqlite.prepare('INSERT INTO history VALUES (?,?,?,?)').run(id, value, 'tool', 'selected')
+    const originals = sqlite.prepare('SELECT data_json FROM history ORDER BY id').all()
+    const projection = await prepare()
+    expect((await read(projection.expression, 'escaped-key')).type).toBe('text')
+    expect(await readFile((await read(projection.expression, 'escaped-prefix')).url)).toEqual(Buffer.from('abc'))
+    expect(await readFile(JSON.parse(JSON.parse((await read(projection.expression, 'escaped-nested')).output)).image_base64)).toEqual(Buffer.from('abc'))
+    expect(sqlite.prepare('SELECT data_json FROM history ORDER BY id').all()).toEqual(originals)
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+  })
+
+  it.each([false, true])('charges skipped roots and nested children exactly once across manifest pages (overflow=%s)', async overflow => {
+    for (let index = 0; index < 128; index++) insert(`plain-${index}`, { content: 'ordinary prose' })
+    insert('nested', { output: JSON.stringify({ ok: true, next: true }) })
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    db.all = async <T>(query: SQL) => {
+      const rows = await all<T>(query)
+      // Model a near-limit first page without allocating a million-node fixture.
+      // The real nested document still spends its own three-node budget.
+      if (compile(query).sql.includes('AS textCount')) {
+        for (const row of rows as Array<{ doc: number; count: number }>) {
+          if (row.doc === 1) row.count = PI_HISTORY_IMAGE_LIMITS.nodes - (overflow ? 258 : 259)
+        }
+      }
+      return rows
+    }
+    if (overflow) {
+      await expect(prepare()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    } else {
+      const projection = await prepare()
+      expect(await read(projection.expression, 'nested')).toEqual({ output: JSON.stringify({ ok: true, next: true }) })
+      await projection.dispose()
+    }
+    expect(tempTables()).toEqual([])
+    expect(await files()).toEqual([])
+  })
+
+  it('keeps duplicate sibling discriminator documents on the checked projector path', async () => {
+    sqlite.prepare('INSERT INTO history VALUES (?,?,?,?)').run('one', '{"type":"text","type":"text","text":"plain"}', 'tool', 'selected')
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    let scalarPages = 0
+    db.all = async <T>(query: SQL) => {
+      if (compile(query).sql.includes('SELECT j.node')) scalarPages++
+      return await all<T>(query)
+    }
+    const projection = await prepare()
+    expect(await read(projection.expression)).toEqual({ type: 'text', text: 'plain' })
+    expect(scalarPages).toBeGreaterThan(0)
+    await projection.dispose()
+  })
+
+  it.each([false, true])('profiles 1000 history documents with simulated worker latency (media=%s)', async media => {
+    const count = 1000
+    const body = (index: number) => ({ role: index % 2 ? 'assistant' : 'user', content: `history text ${index}`, timestamp: index })
+    sqlite.exec('BEGIN')
+    for (let index = 0; index < count; index++) insert(`entry-${index}`, body(index))
+    if (media) insert('image', { content: [{ type: 'image', data: 'YWJj', mimeType: 'image/png' }],
+      output: JSON.stringify({ url: 'data:image/png;base64,YWJj' }) })
+    sqlite.exec('COMMIT')
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    const run = db.run.bind(db)
+    let calls = 0
+    db.all = async <T>(query: SQL) => {
+      calls++
+      await new Promise(resolve => setTimeout(resolve, 1))
+      return await all<T>(query)
+    }
+    db.run = async (query: SQL) => {
+      calls++
+      await new Promise(resolve => setTimeout(resolve, 1))
+      return await run(query)
+    }
+    const started = performance.now()
+    const projection = await prepare()
+    const elapsed = performance.now() - started
+    console.info(`PI history startup profile: ${count} documents, media=${media}, ${calls} SQL calls, ${elapsed.toFixed(1)} ms (1ms simulated RPC latency)`)
+    // Before batching the same fixture made 6007/6033 calls. Guard the actual
+    // round trips rather than a machine-dependent timing improvement.
+    expect(calls).toBeLessThan(media ? 80 : 30)
+    expect(transfers.every(rows => rows.length <= 128)).toBe(true)
+    expect(await read(projection.expression, 'entry-0')).toEqual(body(0))
+    expect(await read(projection.expression, 'entry-999')).toEqual(body(999))
+    if (media) {
+      expect((await read(projection.expression, 'image')).content[0].type).toBe('text')
+      expect(await files()).toHaveLength(1)
+    } else expect(await files()).toEqual([])
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+  }, 30000)
+
+  it.each([false, true])('profiles 500 serialized tool results with simulated worker latency (media=%s)', async media => {
+    const count = 500
+    const body = (index: number) => ({ role: 'toolResult', toolCallId: `call-${index}`, toolName: 'ReadFile',
+      content: [{ type: 'text', text: ' { "ok": true, "files": ' + JSON.stringify([
+        { name: `file-${index}.ts`, lines: 42, status: 'read' }
+      ]) + (media && index % 100 === 0 ? ', "url": "data:image/png;base64,YWJj"' : '') + ' } ' }], timestamp: index })
+    sqlite.exec('BEGIN')
+    for (let index = 0; index < count; index++) insert(`tool-${index}`, body(index))
+    sqlite.exec('COMMIT')
+    const originals = sqlite.prepare('SELECT data_json FROM history ORDER BY id').all()
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    const run = db.run.bind(db)
+    let calls = 0
+    db.all = async <T>(query: SQL) => {
+      calls++
+      await new Promise(resolve => setTimeout(resolve, 1))
+      return await all<T>(query)
+    }
+    db.run = async (query: SQL) => {
+      calls++
+      await new Promise(resolve => setTimeout(resolve, 1))
+      return await run(query)
+    }
+    const started = performance.now()
+    const projection = await prepare()
+    const elapsed = performance.now() - started
+    console.info(`PI serialized tool-result profile: ${count} documents, media=${media}, ${calls} SQL calls, ${elapsed.toFixed(1)} ms (1ms simulated RPC latency)`)
+    // Measured before these optimizations: 7015 / 7040 preparation calls.
+    // Ordinary nested JSON must be proved unchanged in bounded root batches.
+    expect(calls).toBe(media ? 119 : 19)
+    expect(transfers.every(rows => rows.length <= 128)).toBe(true)
+    expect(await read(projection.expression, 'tool-499')).toEqual(body(499))
+    if (media) {
+      const projected = JSON.parse((await read(projection.expression, 'tool-0')).content[0].text)
+      expect(await readFile(projected.url)).toEqual(Buffer.from('abc'))
+      expect(await files()).toHaveLength(1)
+    } else {
+      const rows = await db.all<{ body: string }>(sql`SELECT ${projection.expression} AS body FROM history ORDER BY id`)
+      expect(rows.map(row => row.body)).toEqual(originals.map(row => row.data_json))
+      expect(await files()).toEqual([])
+    }
+    expect(sqlite.prepare('SELECT data_json FROM history ORDER BY id').all()).toEqual(originals)
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+  }, 30000)
+
+  it('classifies many non-image leaves entirely in SQLite without transferring scalar pages', async () => {
     const count = 20000
     const body = Object.fromEntries(Array.from({ length: count }, (_, index) => [`field${index}`, `plain text ${index}`]))
     insert('one', body)
@@ -493,16 +635,220 @@ describe('prepareHistoryImageProjection', () => {
     const elapsed = performance.now() - started
     const treeQueries = queries.filter(query => query.includes('json_tree('))
     expect(treeQueries).toHaveLength(2)
-    expect(treeQueries.every(query => !query.includes('ORDER BY'))).toBe(true)
     const pages = transfers.filter(rows => rows.length && Object.prototype.hasOwnProperty.call(rows[0], 'node'))
-    expect(pages.reduce((total, page) => total + page.length, 0)).toBe(count)
-    expect(Math.max(...pages.map(page => page.length))).toBeLessThanOrEqual(128)
-    expect(queries.length).toBeLessThan(Math.ceil(count / 128) + 20)
+    expect(pages).toHaveLength(0)
+    expect(queries.some(query => query.includes('INSERT INTO') && query.includes('chars,prefix,nested'))).toBe(false)
+    expect(queries.length).toBeLessThan(15)
     // Generous wall-clock backstop; scan/query counts are the deterministic guard.
     expect(elapsed).toBeLessThan(5000)
     console.info(`PI image-free projection: ${count} leaves, ${treeQueries.length} tree scans, ${pages.length} pages, ${elapsed.toFixed(1)} ms`)
     expect(await read(projection.expression)).toEqual(body)
     expect(await files()).toEqual([])
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+  })
+
+  it('proves one-level result JSON in batches without transferring scalars or changing a byte', async () => {
+    const nested = ' \n { "ok": true, "items": [ { "name": "a.ts" }, 42, null ] } \t '
+    const body = { output: nested, rawOutput: nested, result: nested, responseRaw: nested, structuredContent: nested,
+      content: [{ type: 'text', text: nested }], metadata: nested, arguments: nested }
+    // JSON decoding, not raw spelling, determines key/path eligibility.
+    const original = ' \n ' + JSON.stringify(body, null, 2).replace('"output"', '"\\u006futput"') + ' \t '
+    sqlite.prepare('INSERT INTO history VALUES (?,?,?,?)').run('one', original, 'tool', 'selected')
+    const reports: HistoryImageProjectionStats[] = []
+    const projection = await prepare(workspace, stats => reports.push(stats))
+    const report = reports[0]
+    expect(report).toMatchObject({ queryCount: 10, candidateCount: 1, nestedDocuments: 6, leafPages: 0, rows: 1,
+      sourceBytes: Buffer.byteLength(original) })
+    const rootCount = sqlite.prepare('SELECT count(*) AS count FROM json_tree(?)').get(original)!.count as number
+    const childCount = sqlite.prepare('SELECT count(*) AS count FROM json_tree(?)').get(nested)!.count as number
+    const rootText = sqlite.prepare("SELECT count(*) AS count FROM json_tree(?) WHERE type='text'").get(original)!.count as number
+    const childText = sqlite.prepare("SELECT count(*) AS count FROM json_tree(?) WHERE type='text'").get(nested)!.count as number
+    expect(report.nodes).toBe(rootCount + 6 * childCount)
+    expect(report.visits).toBe(rootText + 6 * childText)
+    expect(transfers.flat().some(row => Object.prototype.hasOwnProperty.call(row, 'node'))).toBe(false)
+    const [row] = await db.all<{ body: string }>(sql`SELECT ${projection.expression} AS body FROM history`)
+    expect(row.body).toBe(original)
+    await projection.dispose()
+    expect(reports).toHaveLength(1)
+    expect(reports[0]).toEqual(report)
+    expect(tempTables()).toEqual([])
+  })
+
+  it('only counts actual text blocks and known result fields when proving nested JSON', async () => {
+    const deep = JSON.stringify({ ['x'.repeat(PI_HISTORY_IMAGE_LIMITS.pathBytes + 1)]: { image_base64: 'YWJj' } })
+    const body = { text: deep, metadata: deep, arguments: deep, content: [
+      { type: 'note', text: deep }, { type: 'text', text: ' { "ok": true } ' }
+    ] }
+    insert('one', body)
+    let report!: HistoryImageProjectionStats
+    const projection = await prepare(workspace, stats => { report = stats })
+    expect(await read(projection.expression)).toEqual(body)
+    expect(report).toMatchObject({ nestedDocuments: 1, leafPages: 0 })
+    expect(await files()).toEqual([])
+    await projection.dispose()
+  })
+
+  it('uses shared child preflight for deeper plain results while preserving serialized bytes', async () => {
+    const body = { output: JSON.stringify({ output: ' { "ok": true, "message": "done" } ' }) }
+    insert('one', body)
+    let report!: HistoryImageProjectionStats
+    const projection = await prepare(workspace, stats => { report = stats })
+    expect(await read(projection.expression)).toEqual(body)
+    expect(report).toMatchObject({ nestedDocuments: 2, candidateCount: 2, leafPages: 2 })
+    const pages = transfers.filter(rows => rows.length && Object.prototype.hasOwnProperty.call(rows[0], 'node'))
+    expect(pages).toHaveLength(2)
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+  })
+
+  it.each([0, 1, 7, 8, 9])('preserves quoted root wrappers and nested depth limits (wrappers=%s)', async wrappers => {
+    const image = { image_base64: 'YWJj' }
+    let encoded = JSON.stringify(image)
+    for (let index = 0; index < wrappers; index++) encoded = JSON.stringify(encoded)
+    const body = { output: encoded }
+    insert('one', body)
+    const projection = await prepare()
+    const result = await read(projection.expression)
+    if (wrappers < PI_HISTORY_IMAGE_LIMITS.nestedJsonDepth) {
+      let value = result.output
+      for (let index = 0; index <= wrappers; index++) value = JSON.parse(value)
+      expect(await readFile(value.image_base64)).toEqual(Buffer.from('abc'))
+    } else {
+      expect(result).toEqual(body)
+      expect(await files()).toEqual([])
+    }
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+  })
+
+  it.each([false, true])('checks paths of eligible plain child JSON (oversized=%s)', async oversized => {
+    const key = 'x'.repeat(PI_HISTORY_IMAGE_LIMITS.pathBytes - 2 + (oversized ? 1 : 0))
+    const nested = JSON.stringify({ [key]: 'ordinary' })
+    insert('one', { content: [{ type: 'text', text: nested }] })
+    if (oversized) await expect(prepare()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    else {
+      const projection = await prepare()
+      expect((await read(projection.expression)).content[0].text).toBe(nested)
+      await projection.dispose()
+    }
+    expect(tempTables()).toEqual([])
+  })
+
+  it.each(['type', 'mimeType', 'mediaType', 'media_type'])('keeps nested duplicate %s discriminators on checked scalar pages', async discriminator => {
+    const inner = `{ "${discriminator}": "text", "${discriminator}": "text", "message": "plain" }`
+    insert('one', { output: inner })
+    let report!: HistoryImageProjectionStats
+    const projection = await prepare(workspace, stats => { report = stats })
+    expect((await read(projection.expression)).output).toBe(inner)
+    expect(report).toMatchObject({ nestedDocuments: 1, candidateCount: 2, leafPages: 2 })
+    await projection.dispose()
+  })
+
+  it.each(['wrapper', '\\u0077rapper'])('does not prove duplicate ancestor/result paths using a different extracted occurrence (%s)', async key => {
+    const body = '{"wrapper":{"output":"{\\"ok\\":true}"},"' + key + '":{"output":"{\\"items\\":[1,2,3]}"}}'
+    sqlite.prepare('INSERT INTO history VALUES (?,?,?,?)').run('one', body, 'tool', 'selected')
+    let report!: HistoryImageProjectionStats
+    const projection = await prepare(workspace, stats => { report = stats })
+    expect(report.leafPages).toBeGreaterThan(0)
+    const expectedChildNodes = sqlite.prepare('SELECT count(*) AS count FROM json_tree(?)').get('{"ok":true}')!.count as number
+    const rootNodes = sqlite.prepare('SELECT count(*) AS count FROM json_tree(?)').get(body)!.count as number
+    expect(report.nodes).toBe(rootNodes + 2 * expectedChildNodes)
+    await projection.dispose()
+  })
+
+  it.each(['nodes', 'visits', 'documents'] as const)('charges batched plain children against the %s budget', async budget => {
+    insert('one', { output: '{"ok":true}' })
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    db.all = async <T>(query: SQL) => {
+      const rows = await all<T>(query)
+      if (compile(query).sql.includes('WITH roots AS MATERIALIZED')) {
+        const row = rows[0] as { documents: number; count: number; textCount: number }
+        if (budget === 'nodes') row.count = PI_HISTORY_IMAGE_LIMITS.nodes - 1
+        if (budget === 'visits') row.textCount = PI_HISTORY_IMAGE_LIMITS.nodes
+        if (budget === 'documents') row.documents = PI_HISTORY_IMAGE_LIMITS.nodes
+      }
+      return rows
+    }
+    await expect(prepare()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    expect(tempTables()).toEqual([])
+  })
+
+  it.each([false, true])('accounts plain proof visits exactly at the boundary (overflow=%s)', async overflow => {
+    for (let index = 0; index < 128; index++) insert(`plain-${index}`, { content: 'ordinary' })
+    insert('nested', { output: '{"message":"ordinary"}' })
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    let report!: HistoryImageProjectionStats
+    db.all = async <T>(query: SQL) => {
+      const rows = await all<T>(query)
+      if (compile(query).sql.includes('AS textCount') && !compile(query).sql.includes('WITH roots')) {
+        for (const row of rows as Array<{ doc: number; textCount: number }>) {
+          if (row.doc === 1) row.textCount = PI_HISTORY_IMAGE_LIMITS.nodes - (overflow ? 128 : 129)
+        }
+      }
+      return rows
+    }
+    if (overflow) await expect(prepare(workspace, stats => { report = stats })).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    else {
+      const projection = await prepare(workspace, stats => { report = stats })
+      expect(report.visits).toBe(PI_HISTORY_IMAGE_LIMITS.nodes)
+      await projection.dispose()
+    }
+    expect(tempTables()).toEqual([])
+  })
+
+  it('defers metadata/index creation for empty snapshots without skipping the snapshot recheck', async () => {
+    const queries: string[] = []
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    const run = db.run.bind(db)
+    db.all = <T>(query: SQL) => { queries.push(compile(query).sql); return all<T>(query) }
+    db.run = (query: SQL) => { queries.push(compile(query).sql); return run(query) }
+    let report!: HistoryImageProjectionStats
+    const projection = await prepare(workspace, stats => { report = stats })
+    expect(report).toEqual({ queryCount: 4, candidateCount: 0, nestedDocuments: 0, leafPages: 0,
+      sourceBytes: 0, rows: 0, nodes: 0, visits: 0 })
+    expect(queries.some(query => query.includes('FROM temp.') && query.includes('AS idBytes'))).toBe(true)
+    expect(queries.some(query => query.includes('_leaves') || query.includes('CREATE INDEX'))).toBe(false)
+    expect(tempTables()).toHaveLength(1)
+    await projection.dispose()
+    expect(tempTables()).toEqual([])
+    const noWorkspace: HistoryImageProjectionStats[] = []
+    await prepare(null, stats => noWorkspace.push(stats))
+    expect(noWorkspace[0]).toEqual({ ...report, queryCount: 0 })
+  })
+
+  it('rejects insertion between an initial empty count and the checked snapshot', async () => {
+    const run = db.run.bind(db)
+    db.run = (query: SQL) => {
+      if (compile(query).sql.includes('(source_id,body,canonical)')) insert('raced', { image_base64: 'YWJj' })
+      return run(query)
+    }
+    await expect(prepare()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    expect(await files()).toEqual([])
+    expect(tempTables()).toEqual([])
+  })
+
+  it.each(['source', 'id'] as const)('rechecks %s byte limits against the materialized snapshot', async changed => {
+    insert('', { content: 'ordinary' })
+    const all: HistoryImageDatabase['all'] = db.all.bind(db)
+    db.all = async <T>(query: SQL) => {
+      const rows = await all<T>(query)
+      const text = compile(query).sql
+      if (text.includes('coalesce(max(doc),0) AS maximum')) {
+        const snapshot = rows[0] as { bytes: number; idBytes: number }
+        if (changed === 'source') snapshot.bytes = PI_HISTORY_IMAGE_LIMITS.sourceBytes + 1
+        else snapshot.idBytes = PI_HISTORY_IMAGE_LIMITS.pathBytes + 1
+      }
+      return rows
+    }
+    await expect(prepare()).rejects.toMatchObject({ name: 'PiHistoryLimitError' })
+    expect(tempTables()).toEqual([])
+  })
+
+  it('accepts empty but non-null ids and tolerates throwing diagnostic observers', async () => {
+    insert('', { output: '{"ok":true}' })
+    const projection = await prepare(workspace, () => { throw new Error('observer failed') })
+    expect(await read(projection.expression, '')).toEqual({ output: '{"ok":true}' })
     await projection.dispose()
     expect(tempTables()).toEqual([])
   })

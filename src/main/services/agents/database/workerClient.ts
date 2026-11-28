@@ -75,6 +75,8 @@ export class WorkerDatabaseClient implements Client {
   private terminating?: Promise<void>
   private socket?: Socket
   private owner = false
+  private historyRevisionSupported = false
+  private topicHistoryRevisionSupported = false
   private sequence = 0
   private pending = new Map<number, { method: string; resolve: (value: any) => void; reject: (error: Error) => void }>()
   private stopped: Promise<void> = Promise.resolve()
@@ -212,6 +214,8 @@ export class WorkerDatabaseClient implements Client {
     this.attach(socket)
     const hello = await this.send('hello', [this.ownerToken, this.configuration])
     this.owner = hello?.owner === true
+    this.historyRevisionSupported = hello?.historyRevision === true
+    this.topicHistoryRevisionSupported = hello?.topicHistoryRevision === true
   }
   private reportDiagnostic(event: DatabaseClientDiagnostic['event'], error?: Error): void {
     // Observability must never interrupt failure cleanup or submit another command.
@@ -260,6 +264,20 @@ export class WorkerDatabaseClient implements Client {
   }
   async finalizeSchema(): Promise<void> {
     await this.rpc('finalizeSchema')
+  }
+  async historyRevision(): Promise<string | undefined> {
+    await this.waitUntilReady()
+    // Older brokers make unsupported methods fatal; never probe them by RPC.
+    if (!this.historyRevisionSupported) return undefined
+    const revision = await this.rpc('historyRevision')
+    return typeof revision === 'string' ? revision : undefined
+  }
+  async topicHistoryRevision(topicId: string, requestedSessionId?: string): Promise<string | undefined> {
+    await this.waitUntilReady()
+    // This capability is independent of the legacy global revision RPC.
+    if (!this.topicHistoryRevisionSupported) return undefined
+    const revision = await this.rpc('topicHistoryRevision', requestedSessionId === undefined ? [topicId] : [topicId, requestedSessionId])
+    return typeof revision === 'string' ? revision : undefined
   }
   async backupDatabase(destination: string): Promise<void> {
     await this.ready

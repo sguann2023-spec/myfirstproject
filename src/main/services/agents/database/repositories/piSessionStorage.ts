@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
+import { resolve } from 'node:path'
 
 import type {
   SessionEntryCursorOptions,
@@ -9,18 +10,20 @@ import type {
   SessionStorage,
   SessionTreeEntry
 } from '@earendil-works/pi-agent-core'
+import { loggerService } from '@logger'
 import { and, eq, sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 
 import { piInvocationEntriesTable, piSessionEntriesTable, piSessionsTable } from '../schema'
 import type * as schema from '../schema'
 import { OrderedTaskQueue } from '../orderedTaskQueue'
+import { ContextRecoveryQueue } from '../contextRecoveryQueue'
 import { resolveMessageProjectionTables } from '../messageEventStore'
 import { AgentTranscriptRepository } from './agentTranscriptRepository'
 import type { AgentMessagePart, AgentMessageWithParts } from './agentTranscript.types'
 import { captureOverlayBoundary, isPiOverlay, readOverlayPrefix, type OverlayContextBoundary } from './piOverlayContext'
 import { resolvePersistedMedia } from './persistedMedia'
-import { prepareHistoryImageProjection, relocateHistoryImageReferences } from './piHistoryImages'
+import { prepareHistoryImageProjection, relocateHistoryImageReferences, type HistoryImageProjectionStats } from './piHistoryImages'
 
 export interface DurablePiSessionMetadata extends SessionMetadata {
   topicId: string
@@ -29,6 +32,8 @@ export interface DurablePiSessionMetadata extends SessionMetadata {
 
 type AgentDatabase = LibSQLDatabase<typeof schema>
 type DatabaseExecutor = AgentDatabase
+
+const logger = loggerService.withContext('PiSessionStorage')
 
 export const PI_HISTORY_LIMITS = {
   entryBytes: 8 * 1024 * 1024,
@@ -284,10 +289,90 @@ interface PiMemoryState {
   pendingWriteBytes: number
 }
 
+interface PiContextInput {
+  topicId: string
+  requestedSessionId?: string
+  metadata?: Record<string, unknown>
+  database?: AgentDatabase
+  isCurrent?: () => boolean
+  onQueued?: (promote: () => () => void) => void
+}
+
+interface PendingWarmContext {
+  identity: string
+  isCurrent?: () => boolean
+  expiresAt: number
+  invalid: boolean
+  settled: boolean
+  promise: Promise<void>
+  queued?: Promise<void>
+  generation: string
+  sourceRevision?: string
+  storage?: SqlitePiSessionStorage
+}
+
+const PI_PREWARM_TTL_MS = 60_000
+const PI_PREWARM_LIMIT = 2
+
 interface DatabaseSessions {
   topics: Map<string, Promise<PiMemoryState>>
   owners: Map<string, string>
-  initialization: OrderedTaskQueue
+  initialization: ContextRecoveryQueue
+  pendingWarm: Map<string, PendingWarmContext>
+}
+
+function contextIsCurrent(isCurrent?: () => boolean): boolean {
+  try { return isCurrent?.() ?? true } catch { return false }
+}
+
+function pendingWarmRejection(sessions: DatabaseSessions, topicId: string, pending: PendingWarmContext): string | undefined {
+  if (sessions.pendingWarm.get(topicId) !== pending) return 'superseded'
+  if (pending.invalid) return 'invalidated'
+  if (pending.expiresAt <= Date.now()) return 'expired'
+  if (sessions.topics.has(topicId)) return 'topic_already_open'
+  if (!contextIsCurrent(pending.isCurrent)) return 'selection_or_history_activity'
+}
+
+function pendingWarmIsCurrent(sessions: DatabaseSessions, topicId: string, pending: PendingWarmContext): boolean {
+  return pendingWarmRejection(sessions, topicId, pending) === undefined
+}
+
+function logWarmOutcome(topicId: string, pending: PendingWarmContext, phase: string, reason?: string): void {
+  logger.info('[PiPrewarm] outcome', { topicId, generation: pending.generation, phase, ...(reason ? { reason } : {}) })
+}
+
+function prunePendingWarm(sessions: DatabaseSessions): void {
+  for (const [topicId, pending] of sessions.pendingWarm) {
+    const reason = pendingWarmRejection(sessions, topicId, pending)
+    if (!reason) continue
+    if (!pending.invalid) logWarmOutcome(topicId, pending, 'discarded', reason)
+    pending.invalid = true
+    pending.storage = undefined
+    // Keep an invalid running task's slot until it settles. Repeated invalidation
+    // must not grow the initialization queue beyond the preparation limit.
+    if (pending.settled) sessions.pendingWarm.delete(topicId)
+  }
+}
+
+function waitForContext<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort)
+      reject(signal.reason ?? new DOMException('The operation was aborted.', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    // Both handlers remain attached after cancellation: the shared work is not
+    // cancelled, and a late failure cannot become an unhandled rejection.
+    void operation.then(value => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(value)
+    }, error => {
+      signal.removeEventListener('abort', onAbort)
+      reject(error)
+    })
+    if (signal.aborted) onAbort()
+  })
 }
 
 const databaseSessions = new WeakMap<AgentDatabase, DatabaseSessions>()
@@ -295,7 +380,7 @@ const databaseSessions = new WeakMap<AgentDatabase, DatabaseSessions>()
 function sessionsFor(db: AgentDatabase): DatabaseSessions {
   let sessions = databaseSessions.get(db)
   if (!sessions) {
-    sessions = { topics: new Map(), owners: new Map(), initialization: new OrderedTaskQueue() }
+    sessions = { topics: new Map(), owners: new Map(), initialization: new ContextRecoveryQueue(), pendingWarm: new Map() }
     databaseSessions.set(db, sessions)
   }
   return sessions
@@ -316,6 +401,190 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     return (await DatabaseManager.getInstance()).getDatabase()
   }
 
+  private static async contextIdentity(input: PiContextInput): Promise<string> {
+    let workspace = typeof input.metadata?.workspacePath === 'string' ? input.metadata.workspacePath : undefined
+    if (workspace) {
+      workspace = resolve(workspace)
+      try { workspace = await realpath(workspace) } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
+      }
+    }
+    return JSON.stringify([input.requestedSessionId ?? input.topicId, workspace ?? null])
+  }
+
+  private static async historyRevision(db: AgentDatabase, topicId: string, requestedSessionId: string): Promise<string | undefined> {
+    const client = (db as AgentDatabase & { $client?: { topicHistoryRevision?: (topicId: string, requestedSessionId?: string) => Promise<string | undefined> } }).$client
+    return client?.topicHistoryRevision?.(topicId, requestedSessionId)
+  }
+
+  /** Best-effort detached recovery. Only bounded media/TEMP work may write before adoption. */
+  static async prepareContext(input: PiContextInput): Promise<void> {
+    if (!contextIsCurrent(input.isCurrent)) return
+    try {
+      const db = await this.database(input.database)
+      const sessions = sessionsFor(db)
+      prunePendingWarm(sessions)
+      if (sessions.topics.has(input.topicId) || !contextIsCurrent(input.isCurrent)) return
+      const metadata = input.metadata === undefined ? undefined : structuredClone(input.metadata)
+      const snapshot = { ...input, metadata }
+      const identity = await this.contextIdentity(snapshot)
+      prunePendingWarm(sessions)
+      if (sessions.topics.has(input.topicId) || !contextIsCurrent(input.isCurrent)) return
+      const previous = sessions.pendingWarm.get(input.topicId)
+      if (previous && previous.identity === identity && !previous.invalid) {
+        if (previous.queued) input.onQueued?.(() => {
+          const release = sessions.initialization.holdForeground()
+          sessions.initialization.promote(previous.queued!)
+          return release
+        })
+        await previous.promise
+        return
+      }
+      if (previous) {
+        previous.invalid = true
+        prunePendingWarm(sessions)
+        if (!previous.settled) return
+      }
+      if (sessions.pendingWarm.size >= PI_PREWARM_LIMIT) return
+      const pending: PendingWarmContext = {
+        identity, isCurrent: input.isCurrent, expiresAt: Date.now() + PI_PREWARM_TTL_MS,
+        invalid: false, settled: false, promise: Promise.resolve(), generation: randomUUID()
+      }
+      sessions.pendingWarm.set(input.topicId, pending)
+      const queuedAt = Date.now()
+      const queued = sessions.initialization.run(async () => {
+        logger.info('[PiPrewarm] started', { topicId: input.topicId, generation: pending.generation, queueWaitMs: Date.now() - queuedAt })
+        if (!pendingWarmIsCurrent(sessions, input.topicId, pending)) return
+        const revision = await this.historyRevision(db, input.topicId, snapshot.requestedSessionId ?? input.topicId)
+        if (revision === undefined) {
+          logWarmOutcome(input.topicId, pending, 'discarded', 'revision_unavailable')
+          return
+        }
+        if (!pendingWarmIsCurrent(sessions, input.topicId, pending)) return
+        const storage = new SqlitePiSessionStorage(input.topicId, db)
+        await storage.restore(snapshot.requestedSessionId ?? input.topicId, metadata)
+        const after = await this.historyRevision(db, input.topicId, snapshot.requestedSessionId ?? input.topicId)
+        if (after !== revision) {
+          logWarmOutcome(input.topicId, pending, 'discarded', 'history_changed_during_restore')
+          return
+        }
+        if (!pendingWarmIsCurrent(sessions, input.topicId, pending)) return
+        if (await this.contextIdentity(snapshot) !== identity) {
+          logWarmOutcome(input.topicId, pending, 'discarded', 'identity_changed')
+          return
+        }
+        if (!pendingWarmIsCurrent(sessions, input.topicId, pending)) return
+        pending.sourceRevision = revision
+        pending.storage = storage
+        logWarmOutcome(input.topicId, pending, 'ready')
+      }, 'background')
+      pending.queued = queued
+      input.onQueued?.(() => {
+        const release = sessions.initialization.holdForeground()
+        sessions.initialization.promote(queued)
+        return release
+      })
+      pending.promise = queued.catch(() => {
+        logWarmOutcome(input.topicId, pending, 'discarded', 'restore_error')
+        // Speculative failure is a cache miss, never an unhandled rejection or
+        // a permanent topic failure. The next prepare/open may retry normally.
+        pending.invalid = true
+      }).finally(() => {
+        pending.settled = true
+        if (!pending.storage) pending.invalid = true
+        prunePendingWarm(sessions)
+      })
+      await pending.promise
+    } catch {
+      // Unsupported/unavailable revision access and identity errors disable only
+      // this speculative attempt; ordinary open/cache semantics stay unchanged.
+    }
+  }
+
+  /** Returns true only when this call publishes a prepared state; a miss returns false. */
+  static async adoptPreparedContext(input: PiContextInput & { signal?: AbortSignal }): Promise<boolean> {
+    input.signal?.throwIfAborted()
+    if (!contextIsCurrent(input.isCurrent)) return false
+    const db = await waitForContext(this.database(input.database), input.signal)
+    const sessions = sessionsFor(db)
+    prunePendingWarm(sessions)
+    if (sessions.topics.has(input.topicId) || !contextIsCurrent(input.isCurrent)) return false
+    const snapshot = { ...input, metadata: input.metadata === undefined ? undefined : structuredClone(input.metadata) }
+    const identity = await waitForContext(this.contextIdentity(snapshot), input.signal)
+    prunePendingWarm(sessions)
+    const pending = sessions.pendingWarm.get(input.topicId)
+    if (!pending) {
+      logger.info('[PiPrewarm] miss', { topicId: input.topicId, reason: 'not_ready_or_discarded' })
+      return false
+    }
+    if (pending.identity !== identity) {
+      logWarmOutcome(input.topicId, pending, 'miss', 'identity_mismatch')
+      return false
+    }
+    if (!pendingWarmIsCurrent(sessions, input.topicId, pending)) return false
+    // Keep the foreground handoff reserved while promise continuations validate
+    // and enqueue adoption; otherwise drain could start another background job.
+    const releaseForeground = sessions.initialization.holdForeground()
+    try {
+      // Foreground sends reuse and promote their queued preparation instead of
+      // waiting behind unrelated speculative recoveries or creating another one.
+      if (pending.queued) sessions.initialization.promote(pending.queued)
+      // Await preparation BEFORE enqueueing adoption to avoid a queue deadlock.
+      await waitForContext(pending.promise, input.signal)
+      input.signal?.throwIfAborted()
+      if (!pendingWarmIsCurrent(sessions, input.topicId, pending) || !contextIsCurrent(input.isCurrent)) {
+        prunePendingWarm(sessions)
+        return false
+      }
+      const adoption = sessions.initialization.run(async () => {
+        input.signal?.throwIfAborted()
+        if (!pendingWarmIsCurrent(sessions, input.topicId, pending) || !contextIsCurrent(input.isCurrent)) {
+          prunePendingWarm(sessions)
+          return false
+        }
+        const storage = pending.storage
+        const owner = storage && sessions.owners.get(storage.state.metadata.id)
+        if (!storage || (owner && owner !== input.topicId)) {
+          pending.invalid = true
+          prunePendingWarm(sessions)
+          return false
+        }
+        const currentIdentity = await this.contextIdentity(snapshot)
+        // Another topic may claim the requested PI identity without changing this
+        // topic's history revision. Recheck the durable unique owner as well.
+        const [durableOwner] = await db.select({ topicId: piSessionsTable.topic_id }).from(piSessionsTable)
+          .where(eq(piSessionsTable.pi_session_id, storage.state.metadata.id)).limit(1)
+        let revision: string | undefined
+        try { revision = await this.historyRevision(db, input.topicId, snapshot.requestedSessionId ?? input.topicId) } catch { /* Treat an unavailable source as stale. */ }
+        input.signal?.throwIfAborted()
+        const currentOwner = sessions.owners.get(storage.state.metadata.id)
+        const reason = currentIdentity !== identity ? 'identity_changed'
+          : (currentOwner && currentOwner !== input.topicId) || (durableOwner && durableOwner.topicId !== input.topicId) ? 'owner_conflict'
+          : revision === undefined ? 'revision_unavailable'
+          : revision !== pending.sourceRevision ? 'history_changed_before_adopt'
+          : pendingWarmRejection(sessions, input.topicId, pending) ?? (!contextIsCurrent(input.isCurrent) ? 'request_no_longer_current' : undefined)
+        if (reason) {
+          logWarmOutcome(input.topicId, pending, 'discarded', reason)
+          pending.invalid = true
+          prunePendingWarm(sessions)
+          return false
+        }
+        // No await between the final guards and publication/scheduling. Recovery
+        // recordings enter the same per-topic write queue as an ordinary open.
+        sessions.pendingWarm.delete(input.topicId)
+        pending.storage = undefined
+        sessions.owners.set(storage.state.metadata.id, input.topicId)
+        sessions.topics.set(input.topicId, Promise.resolve(storage.state))
+        const writes = storage.recoveryWrites!
+        storage.recoveryWrites = undefined
+        for (const write of writes) storage.scheduleWrite(write.operation, write.bytes)
+        logWarmOutcome(input.topicId, pending, 'adopted')
+        return true
+      })
+      return await waitForContext(adoption, input.signal)
+    } finally { releaseForeground() }
+  }
+
   static async openOrCreate(input: {
     topicId: string
     requestedSessionId?: string
@@ -323,29 +592,51 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     metadata?: Record<string, unknown>
     database?: AgentDatabase
   }): Promise<SqlitePiSessionStorage> {
+    const startedAt = Date.now()
     const db = await this.database(input.database)
     const sessions = sessionsFor(db)
     const storage = new SqlitePiSessionStorage(input.topicId, db)
     storage.setInvocationId(input.invocationId)
     let opening = sessions.topics.get(input.topicId)
+    const cache = opening ? 'reused' : 'cold'
+    logger.info('[PiSessionStorage] open start', { topicId: input.topicId, cache })
     if (!opening) {
+      const queuedAt = Date.now()
       opening = sessions.initialization.run(async () => {
-        await storage.restore(input.requestedSessionId ?? input.topicId, input.metadata)
-        sessions.owners.set(storage.state.metadata.id, input.topicId)
-        const writes = storage.recoveryWrites!
-        storage.recoveryWrites = undefined
-        for (const write of writes) storage.scheduleWrite(write.operation, write.bytes)
-        return storage.state
+        const initializationStartedAt = Date.now()
+        const queueWaitMs = initializationStartedAt - queuedAt
+        let status = 'error'
+        logger.info('[PiSessionStorage] initialization start', { topicId: input.topicId, queueWaitMs })
+        try {
+          await storage.restore(input.requestedSessionId ?? input.topicId, input.metadata)
+          sessions.owners.set(storage.state.metadata.id, input.topicId)
+          const writes = storage.recoveryWrites!
+          storage.recoveryWrites = undefined
+          for (const write of writes) storage.scheduleWrite(write.operation, write.bytes)
+          status = 'success'
+          return storage.state
+        } finally {
+          logger.info('[PiSessionStorage] initialization timing', {
+            topicId: input.topicId, status, queueWaitMs, elapsedMs: Date.now() - initializationStartedAt
+          })
+        }
       })
       sessions.topics.set(input.topicId, opening)
       void opening.catch(() => {
         if (sessions.topics.get(input.topicId) === opening) sessions.topics.delete(input.topicId)
       })
     }
-    storage.state = await opening
-    storage.recoveryWrites = undefined
-    // Once a topic exists, its identity wins over any requested replacement ID.
-    return storage
+    prunePendingWarm(sessions)
+    let status = 'error'
+    try {
+      storage.state = await opening
+      storage.recoveryWrites = undefined
+      status = 'success'
+      // Once a topic exists, its identity wins over any requested replacement ID.
+      return storage
+    } finally {
+      logger.info('[PiSessionStorage] open timing', { topicId: input.topicId, cache, status, elapsedMs: Date.now() - startedAt })
+    }
   }
 
   static async appendCanonicalExchange(input: {
@@ -511,6 +802,31 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
   }
 
   private async restore(requestedSessionId: string, metadata?: Record<string, unknown>): Promise<void> {
+    let stage = 'metadata'
+    let startedAt = Date.now()
+    const finishStage = (status: string, counts?: Record<string, number | boolean>) => {
+      logger.info('[PiSessionStorage] restore timing', {
+        topicId: this.topicId, stage, status, elapsedMs: Date.now() - startedAt, ...counts
+      })
+    }
+    const nextStage = (next: string, counts?: Record<string, number | boolean>) => {
+      finishStage('success', counts)
+      stage = next
+      startedAt = Date.now()
+      logger.info('[PiSessionStorage] restore start', { topicId: this.topicId, stage })
+    }
+    logger.info('[PiSessionStorage] restore start', { topicId: this.topicId, stage })
+    try {
+      await this.restoreState(requestedSessionId, metadata, nextStage)
+      finishStage('success', { entryCount: this.state.entries.length })
+    } catch (error) {
+      finishStage('error')
+      throw error
+    }
+  }
+
+  private async restoreState(requestedSessionId: string, metadata: Record<string, unknown> | undefined,
+    nextStage: (stage: string, counts?: Record<string, number | boolean>) => void): Promise<void> {
     const db = this.db
     const [row] = await db.select().from(piSessionsTable).where(eq(piSessionsTable.topic_id, this.topicId)).limit(1)
     const sessionId = row?.pi_session_id ?? requestedSessionId
@@ -536,12 +852,17 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     const workspaceChanged = Boolean(this.workspacePath && persistedMetadata.workspacePath !== this.workspacePath)
     if (this.workspacePath) persistedMetadata.workspacePath = this.workspacePath
     if (workspaceChanged) persistedMetadata.__historyImageWorkspaces = [...previousWorkspaces]
+    nextStage('stored_entries', { existingSession: Boolean(row), workspaceChanged })
     let stored = await this.getStoredEntries()
+    nextStage('relocation', { entryCount: stored.length })
+    let relocatedWorkspaces = 0
     if (this.workspacePath) {
       for (const previous of previousWorkspaces) {
         stored = await relocateHistoryImageReferences(stored, previous, this.workspacePath)
+        relocatedWorkspaces++
       }
     }
+    nextStage('claims_hidden', { entryCount: stored.length, workspaceCount: relocatedWorkspaces })
     const claims = await db.select().from(piInvocationEntriesTable).where(eq(piInvocationEntriesTable.topic_id, this.topicId))
     const overlay = await isPiOverlay(db)
     this.state = {
@@ -560,6 +881,8 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     } else if (workspaceChanged) {
       this.saveRecoveryMetadata(persistedMetadata)
     }
+    nextStage('overlay_prefix', { claimCount: this.state.claims.size, hiddenCount: this.state.hiddenIds.size, overlay })
+    let prefixCount = 0
     if (overlay) {
       let boundary = persistedMetadata.__overlayContext as OverlayContextBoundary | undefined
       if (boundary || !stored.length) {
@@ -571,6 +894,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
           throw await sessionError('invalid_session', 'PI overlay source context changed or is unavailable; cannot restore its parent tree without migration')
         }
         for (const entry of prefix) this.restoreEntry(entry)
+        prefixCount = prefix.length
         if (!persistedMetadata.__overlayContext) {
           persistedMetadata.__overlayContext = { ...boundary, treeDigest }
           this.state.leafId = prefix[prefix.length - 1]?.id ?? null
@@ -578,6 +902,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
         }
       }
     }
+    nextStage('stored_tree', { entryCount: prefixCount, overlay })
     for (const entry of stored) this.restoreEntry(entry)
     for (const [invocationId, entryId] of this.state.claims) {
       if (!this.state.byId.has(entryId)) this.state.claims.delete(invocationId)
@@ -585,6 +910,9 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     const [sequence] = await db.select({ next: sql<number>`coalesce(max(${piSessionEntriesTable.sequence}), -1) + 1` })
       .from(piSessionEntriesTable).where(eq(piSessionEntriesTable.topic_id, this.topicId))
     this.state.nextSequence = Number(sequence?.next ?? 0)
+    nextStage('canonical_hydration', { entryCount: this.state.entries.length, claimCount: this.state.claims.size })
+    let canonicalMessageCount = 0
+    let hydratedEntryCount = 0
     if (!overlay) {
       const marker = persistedMetadata.__canonicalHydration as { complete?: boolean; excludeMessageId?: string } | undefined
       if (!marker?.complete && (!stored.length || marker)) {
@@ -599,7 +927,10 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
           if (prefix.length) {
             persistedMetadata.__canonicalHydration = { complete: false, excludeMessageId: excluded }
             this.saveRecoveryMetadata(persistedMetadata)
-            for (const entry of prefix) if (!this.state.byId.has(entry.id)) this.commitEntry(entry)
+            for (const entry of prefix) if (!this.state.byId.has(entry.id)) {
+              this.commitEntry(entry)
+              hydratedEntryCount++
+            }
             this.state.leafId = prefix[prefix.length - 1].id
             persistedMetadata.__canonicalHydration = { complete: true, excludeMessageId: excluded }
             this.saveRecoveryMetadata(persistedMetadata)
@@ -607,6 +938,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
         } else {
           const transcript = (await new AgentTranscriptRepository(db).listTranscript(this.topicId)).filter(item =>
             !excluded || (item.message.id !== excluded && item.message.parentMessageId !== excluded))
+          canonicalMessageCount = transcript.length
           if (transcript.length) {
             persistedMetadata.__canonicalHydration = { complete: false, excludeMessageId: excluded }
             this.saveRecoveryMetadata(persistedMetadata)
@@ -623,7 +955,10 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
               for (const [index, message] of messages.entries()) {
                 const entry: SessionTreeEntry = { type: 'message', id: stableEntryId('canonical', this.topicId, item.message.id, index),
                   parentId, timestamp: item.message.createdAt, message }
-                if (!this.state.byId.has(entry.id)) this.commitEntry(entry)
+                if (!this.state.byId.has(entry.id)) {
+                  this.commitEntry(entry)
+                  hydratedEntryCount++
+                }
                 parentId = entry.id
               }
               messageLeaves.set(item.message.id, parentId)
@@ -635,6 +970,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
         }
       }
     }
+    nextStage('tree_validation', { canonicalMessageCount, hydratedEntryCount })
     const sizes: EntryMetadata[] = []
     let bytes = 0
     for (const entry of this.state.entries) {
@@ -644,6 +980,7 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
     }
     // Validate the active tree during recovery, not on every database read.
     if (this.state.leafId !== null) await this.getPathToRootOrCompaction(this.state.leafId)
+    nextStage('interrupted_tools', { entryCount: sizes.length, bytes })
     if (!overlay) await this.closeInterruptedToolCalls()
   }
 
@@ -949,15 +1286,29 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
 
   private async getStoredEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
     const db = this.db
-    const projection = await prepareHistoryImageProjection(db, 'pi_session_entries', 'entry_json',
-      sql`topic_id=${this.topicId}`, 'entry_id', this.workspacePath, this.restoredEntryJson())
+    const projectionStartedAt = Date.now()
+    let projection: Awaited<ReturnType<typeof prepareHistoryImageProjection>>
+    let projectionStatus = 'error'
+    let projectionStats: HistoryImageProjectionStats | undefined
+    try {
+      projection = await prepareHistoryImageProjection(db, 'pi_session_entries', 'entry_json',
+        sql`topic_id=${this.topicId}`, 'entry_id', this.workspacePath, this.restoredEntryJson(), stats => { projectionStats = stats })
+      projectionStatus = 'success'
+    } finally {
+      logger.info('[PiSessionStorage] stored entries timing', {
+        topicId: this.topicId, stage: 'projection', status: projectionStatus, elapsedMs: Date.now() - projectionStartedAt,
+        ...projectionStats
+      })
+    }
+    const readStartedAt = Date.now()
+    const metadata: EntryMetadata[] = []
+    let total = 0
+    let status = 'error'
     try {
       const projectedJson = projection.expression
       const limit = options?.limit ?? PI_HISTORY_LIMITS.entries + 1
       if (!Number.isSafeInteger(limit) || limit < 0) throw historyLimitError()
-      const metadata: EntryMetadata[] = []
       let sequence = (options?.afterEntrySeq ?? 0) - 1
-      let total = 0
       while (metadata.length < limit) {
         const count = Math.min(PI_HISTORY_LIMITS.metadataBatch, limit - metadata.length)
         const rows = await db.all<EntryMetadata & { sequence: number }>(sql`
@@ -973,8 +1324,14 @@ export class SqlitePiSessionStorage implements SessionStorage<DurablePiSessionMe
         }
         if (rows.length < count) break
       }
-      return await this.readBoundedEntries(db, metadata, projectedJson)
+      const entries = await this.readBoundedEntries(db, metadata, projectedJson)
+      status = 'success'
+      return entries
     } finally {
+      logger.info('[PiSessionStorage] stored entries timing', {
+        topicId: this.topicId, stage: 'entry_reads', status, elapsedMs: Date.now() - readStartedAt,
+        entryCount: metadata.length, projectedBytes: total
+      })
       await projection.dispose()
     }
   }

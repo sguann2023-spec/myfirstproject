@@ -27,7 +27,6 @@ import { IpcChannel } from '@shared/IpcChannel'
 import { normalizeWebviewRuntimeEnv } from '@shared/webview/runtimeEnv'
 import { extractPdfText } from '@shared/utils/pdf'
 import type {
-  AgentPersistedMessage,
   FileMetadata,
   LocalMcpDetectedAgent,
   Notification,
@@ -90,6 +89,7 @@ import { registerShortcuts, unregisterAllShortcuts } from './services/ShortcutSe
 import { loggerService as mainLoggerService } from './services/LoggerService'
 import { agentRuntimeAuthService } from './services/agents/services/AgentRuntimeAuthService'
 import { seedWorkspaceTemplates } from './services/agents/services/cherryclaw/seedWorkspace'
+import { createHistoryOpenHandler } from './services/agents/services/historyOpenHandler'
 import {
   addEndMessage,
   addStreamMessage,
@@ -923,17 +923,27 @@ export async function registerIpc(mainWindow: BrowserWindow, app: Electron.App) 
     }
   })
 
-  ipcMain.handle(
-    IpcChannel.AgentMessage_GetHistory,
-    async (_event, { sessionId }: { sessionId: string }): Promise<AgentPersistedMessage[]> => {
-      try {
-        return (await agentHistoryService.getHistory(sessionId)).messages
-      } catch (error) {
-        logger.error('Failed to get agent session history', error as Error)
-        throw error
-      }
+  const getSelectedHistory = createHistoryOpenHandler({
+    mainWindow,
+    getHistory: (sessionId) => agentHistoryService.getHistory(sessionId),
+    getSession: async (agentId, sessionId) => {
+      const { sessionService } = await import('./services/agents/services/SessionService')
+      return sessionService.getSession(agentId, sessionId)
+    },
+    prewarmSessionContext: async (session, isCurrentOpen) => {
+      const { sessionMessageService } = await import('./services/agents/services/SessionMessageService')
+      if (isCurrentOpen()) await sessionMessageService.prewarmSessionContext(session, isCurrentOpen)
+    },
+    warn: (message) => logger.warn(message)
+  })
+  ipcMain.handle(IpcChannel.AgentMessage_GetHistory, async (event, payload: { sessionId: string; warmContext?: boolean }) => {
+    try {
+      return await getSelectedHistory(event, payload)
+    } catch (error) {
+      logger.error('Failed to get agent session history', error as Error)
+      throw error
     }
-  )
+  })
 
   //only for mac
   if (isMac) {

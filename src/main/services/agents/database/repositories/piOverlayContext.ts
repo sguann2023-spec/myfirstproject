@@ -1,4 +1,5 @@
 import { sql, type SQL } from 'drizzle-orm'
+import { loggerService } from '@logger'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import type { SessionTreeEntry } from '@earendil-works/pi-agent-core'
 
@@ -8,6 +9,8 @@ import { resolveMessageProjectionTables } from '../messageEventStore'
 import type { AgentMessageWithParts } from './agentTranscript.types'
 import { canonicalMessageToPi, PI_HISTORY_LIMITS } from './piSessionStorage'
 import { prepareHistoryImageProjection } from './piHistoryImages'
+
+const logger = loggerService.withContext('PiOverlayContext')
 
 type Database = LibSQLDatabase<typeof schema>
 export interface OverlayContextBoundary {
@@ -54,7 +57,9 @@ export async function readOverlayPrefix(
     const projections = new Map<string, Awaited<ReturnType<typeof prepareHistoryImageProjection>>>()
     try {
       for (const { name } of projectedColumns) {
-        projections.set(name, await prepareHistoryImageProjection(database, table, name, predicate, 'id', workspacePath))
+        const startedAt = Date.now()
+        projections.set(name, await prepareHistoryImageProjection(database, table, name, predicate, 'id', workspacePath, undefined,
+          stats => logger.info('[PiOverlay] projection', { topicId, table, column: name, elapsedMs: Date.now() - startedAt, ...stats })))
       }
       const fields = sql.join(columns.flatMap(({ name }) => [sql`${name}`, projections.get(name)?.expression ?? sql.identifier(name)]), sql`, `)
       const json = sql`json_object(${fields})`

@@ -744,7 +744,7 @@ describe('AgentTranscriptRepository', () => {
     expect(second.messages.map(item => item.blocks[0])).toMatchObject([{ content: 'text-3' }, { content: 'text-4' }])
     expect(second).toMatchObject({ sequences: [3, 4], hasMore: false, nextAfterSequence: 4 })
     expect(await service.getHistory('session-a', { afterSequence: second.nextAfterSequence, limit: 2 })).toEqual({
-      messages: [], sequences: [], hasMore: false, nextAfterSequence: undefined
+      messages: [], sequences: [], hasMore: false, historyComplete: true, nextAfterSequence: undefined
     })
     expect((await repository.getMessage('session-a', 'page-1'))?.semantics?.tombstone).toBe(true)
     expect(await repository.listMessageParts('session-a', 'page-2')).toEqual([])

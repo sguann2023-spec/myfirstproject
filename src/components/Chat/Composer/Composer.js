@@ -2488,6 +2488,7 @@ const Composer = ({
   ), [isDefaultAttachmentMode, uploadedFileMeta]);
   const [activeAttachmentPurposeGroup, setActiveAttachmentPurposeGroup] = React.useState('');
   const showAttachmentUploadCards = uploadCardsEligible && isDefaultAttachmentMode && !attachmentPurposeGroups
+    && uploadFileList.length === 0 && uploadedFileMeta.length === 0
     && !templatePickerOpen && !partSplitDialogOpen;
   const inputEditorHidden = ['text-add', 'recognize-subtitle', 'audio-add', 'image-add', 'voice-conversion'].includes(activeTool);
   const showVoiceSquareTextTemplates = activeTool === 'voice-square' && !String(input || '').trim();

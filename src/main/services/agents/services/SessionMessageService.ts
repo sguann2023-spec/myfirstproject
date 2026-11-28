@@ -1,4 +1,5 @@
 import { readMessageProjection } from '../database/messageEventStore'
+import { beginHistoryActivity, observeIdleHistory, withHistoryActivity } from '../database/historyActivity'
 import type { SessionMessageRow } from '../database/schema'
 import { randomUUID } from 'node:crypto'
 import { getWorkspaceActivityPaths, workspaceActivity } from './workspaceRename'
@@ -95,14 +96,120 @@ function serializeError(error: unknown): { message: string; name?: string; stack
   }
 }
 
+async function waitForContextPreparation<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw signal.reason ?? new DOMException('Request was aborted', 'AbortError')
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort)
+      reject(signal.reason ?? new DOMException('Request was aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    pending.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+  })
+}
+
+type ContextPreparation = {
+  promise: Promise<void>
+  expiresAt: number
+  isCurrent: () => boolean
+  release: () => void
+  promote?: () => () => void
+  releaseForeground?: () => void
+  foreground: boolean
+}
+
 export class SessionMessageService extends BaseService {
   private static instance: SessionMessageService | null = null
+  private readonly activeSessions = new Map<string, number>()
+  private readonly contextPreparations = new Map<string, ContextPreparation>()
 
   static getInstance(): SessionMessageService {
     if (!SessionMessageService.instance) {
       SessionMessageService.instance = new SessionMessageService()
     }
     return SessionMessageService.instance
+  }
+
+  prewarmSessionContext(session: GetAgentSessionResponse, isCurrentOpen: () => boolean = () => true): Promise<void> {
+    if (!isCurrentOpen() || workspaceActivity.renaming || this.activeSessions.has(session.id)) return Promise.resolve()
+    for (const [id, preparation] of this.contextPreparations) {
+      if (preparation.expiresAt <= Date.now() || !preparation.isCurrent()) {
+        preparation.release()
+        this.contextPreparations.delete(id)
+      }
+    }
+    const existing = this.contextPreparations.get(session.id)
+    if (existing) return existing.promise
+    if (this.contextPreparations.size >= 2) return Promise.resolve()
+    const idle = observeIdleHistory(session.id)
+    if (!idle) return Promise.resolve()
+    const run = Symbol(`prewarm:${session.id}`)
+    workspaceActivity.runPaths.set(run, getWorkspaceActivityPaths(session))
+    workspaceActivity.runs++
+    const preparation: ContextPreparation = {
+      promise: Promise.resolve(), expiresAt: Date.now() + 60_000,
+      isCurrent: () => isCurrentOpen() && idle.isCurrent() && preparation.expiresAt > Date.now()
+        && this.contextPreparations.get(session.id) === preparation,
+      release: idle.release,
+      foreground: false
+    }
+    this.contextPreparations.set(session.id, preparation)
+    preparation.promise = Promise.resolve().then(async () => {
+      const { SqlitePiSessionStorage } = await import('../database/repositories/piSessionStorage')
+      const identity = await this.contextPreparationIdentity(session)
+      if (!preparation.isCurrent()) return
+      await SqlitePiSessionStorage.prepareContext({ ...identity, isCurrent: preparation.isCurrent, onQueued: (promote) => {
+        preparation.promote = promote
+        if (preparation.foreground && preparation.isCurrent()) preparation.releaseForeground ??= promote()
+      } })
+    }).catch(() => {
+      logger.warn('Background context preparation failed; using on-demand recovery', { sessionId: session.id })
+      preparation.release()
+      if (this.contextPreparations.get(session.id) === preparation) this.contextPreparations.delete(session.id)
+    }).finally(() => {
+      workspaceActivity.runPaths.delete(run)
+      workspaceActivity.runs--
+    })
+    return preparation.promise
+  }
+
+  private async contextPreparationIdentity(session: GetAgentSessionResponse) {
+    const [{ conversationSegmentService }, { resolveWorkspaceCwd }] = await Promise.all([
+      import('./claudecode/session-architecture/ConversationSegmentService'),
+      import('./claudecode/runtime/build-runtime')
+    ])
+    const [segment, lastSessionId] = await Promise.all([
+      conversationSegmentService.getActiveSegment(session.id), this.getLastAgentSessionId(session.id)
+    ])
+    return {
+      topicId: session.id,
+      requestedSessionId: segment?.sdkSessionId || lastSessionId || session.id,
+      metadata: { agentId: session.agent_id, workspacePath: resolveWorkspaceCwd(session) }
+    }
+  }
+
+  private async adoptContextPreparation(session: GetAgentSessionResponse, signal: AbortSignal): Promise<void> {
+    const preparation = this.contextPreparations.get(session.id)
+    if (!preparation) return
+    try {
+      preparation.foreground = true
+      preparation.releaseForeground ??= preparation.promote?.()
+      await waitForContextPreparation(preparation.promise, signal)
+      if (!preparation.isCurrent() || this.activeSessions.get(session.id) !== 1) return
+      const { SqlitePiSessionStorage } = await import('../database/repositories/piSessionStorage')
+      const identity = await waitForContextPreparation(this.contextPreparationIdentity(session), signal)
+      const adopted = await SqlitePiSessionStorage.adoptPreparedContext({ ...identity, signal, isCurrent: preparation.isCurrent })
+      logger.info('Context preparation lookup', { sessionId: session.id, adopted })
+    } catch (error) {
+      if (signal.aborted) throw signal.reason ?? new DOMException('Request was aborted', 'AbortError')
+      logger.warn('Context preparation was not adopted; using on-demand recovery', { sessionId: session.id })
+    } finally {
+      preparation.foreground = false
+      preparation.releaseForeground?.()
+      preparation.releaseForeground = undefined
+      preparation.release()
+      if (this.contextPreparations.get(session.id) === preparation) this.contextPreparations.delete(session.id)
+    }
   }
 
   async sessionMessageExists(id: number): Promise<boolean> {
@@ -132,6 +239,10 @@ export class SessionMessageService extends BaseService {
   }
 
   async deleteSessionMessage(sessionId: string, messageId: string | number): Promise<boolean> {
+    return withHistoryActivity(sessionId, () => this.deleteSessionMessageWithActivity(sessionId, messageId))
+  }
+
+  private async deleteSessionMessageWithActivity(sessionId: string, messageId: string | number): Promise<boolean> {
     const logicalMessageId = String(messageId)
     const canonicalDeleted = await agentTranscriptRepository.tombstoneMessage(sessionId, logicalMessageId)
 
@@ -199,11 +310,20 @@ export class SessionMessageService extends BaseService {
     const run = Symbol(session.id)
     workspaceActivity.runPaths.set(run, getWorkspaceActivityPaths(session))
     workspaceActivity.runs++
+    this.activeSessions.set(session.id, (this.activeSessions.get(session.id) ?? 0) + 1)
+    let releaseHistory: (() => void) | undefined
     const release = () => {
+      releaseHistory?.()
+      const remaining = (this.activeSessions.get(session.id) ?? 1) - 1
+      if (remaining) this.activeSessions.set(session.id, remaining)
+      else this.activeSessions.delete(session.id)
       workspaceActivity.runPaths.delete(run)
       workspaceActivity.runs--
     }
     try {
+      await this.adoptContextPreparation(session, abortController.signal)
+      abortController.signal.throwIfAborted()
+      releaseHistory = beginHistoryActivity(session.id)
       const result = await this.startSessionMessageStream(session, messageData, abortController, options)
       void Promise.allSettled([result.streamFinished, result.completion, result.runtimeFinished]).then(
         release)
@@ -243,7 +363,7 @@ export class SessionMessageService extends BaseService {
     let acceptingEvents = true
 
     const queuePersistence = <T>(operation: () => Promise<T>, failureMessage: string): Promise<T | undefined> =>
-      persistenceQueue.run(operation).catch((error) => {
+      persistenceQueue.run(() => withHistoryActivity(session.id, operation)).catch((error) => {
         logger.error(failureMessage, error as Error)
         return undefined
       })

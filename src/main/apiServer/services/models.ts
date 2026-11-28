@@ -117,7 +117,13 @@ export class ModelsService {
         expiresAt: Date.now() + ModelsService.BACKEND_LIST_CACHE_TTL_MS
       }
       return parsed
-    })()
+    })().catch((error) => {
+      if (this.backendListCache) {
+        logger.warn('Failed to refresh model_list; using stale cache', { error })
+        return this.backendListCache.data
+      }
+      throw error
+    })
 
     try {
       return await this.backendListInflight

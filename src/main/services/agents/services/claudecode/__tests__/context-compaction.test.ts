@@ -1,6 +1,6 @@
 import * as agentCore from '@earendil-works/pi-agent-core'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import type { AssistantMessage, Context, Model, Models, Usage } from '@earendil-works/pi-ai'
+import { isRetryableAssistantError, type AssistantMessage, type Context, type Model, type Models, type Usage } from '@earendil-works/pi-ai'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createContextCompactor, estimateContextText, resolveContextBudget } from '../harness/context-compaction'
@@ -48,7 +48,7 @@ async function setup(messages: AgentMessage[] = [], overrides: Partial<Compactor
   const log = vi.fn<CompactorOptions['log']>()
   const onProgress = vi.fn<NonNullable<CompactorOptions['onProgress']>>()
   const compactor = createContextCompactor({
-    core: agentCore, models: { completeSimple } as unknown as Models,
+    core: agentCore, models: { completeSimple } as unknown as Models, isRetryableAssistantError,
     model, session, systemPrompt: '', tools: [], log, onProgress, ...overrides
   })
   return { storage, session, completeSimple, log, onProgress, compactor }
@@ -442,6 +442,167 @@ describe('pre-request context compaction with real Pi Session', () => {
     expect(await fixture.storage.findEntries('compaction')).toHaveLength(1)
     expect(fixture.compactor.getFailure()).toBeUndefined()
     expect(fixture.onProgress.mock.calls.at(-1)?.[0].phase).toBe('complete')
+  })
+})
+
+describe('summary transport retries stay within the current chunk', () => {
+  it.each([
+    ['result', 'terminated'], ['result', 'Request timed out.'], ['result', 'OTHER SIDE CLOSED'],
+    ['rejection', 'fetch failed'], ['throw', 'socket hang up']
+  ])('recovers a transient %s (%s) without accepting partial content', async (kind, message) => {
+    vi.useFakeTimers()
+    const fixture = await setup(history())
+    fixture.completeSimple.mockResolvedValue(assistant('recovered checkpoint'))
+    if (kind === 'result') fixture.completeSimple.mockResolvedValueOnce(assistant('REJECTED PARTIAL', { stopReason: 'error', errorMessage: message }))
+    else if (kind === 'rejection') fixture.completeSimple.mockRejectedValueOnce(new Error(message))
+    else fixture.completeSimple.mockImplementationOnce(() => { throw new Error(message) })
+    const pending = projectSession(fixture)
+    await vi.runAllTimersAsync()
+    const projected = await pending
+    const calls = fixture.completeSimple.mock.calls
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    expect(calls[1][1]).toEqual(calls[0][1])
+    expect(calls.every(([, , options]) => options?.maxRetries === 0)).toBe(true)
+    expect(calls.map(([, context]) => summaryRequestText(context)).join('\n')).not.toContain('REJECTED PARTIAL')
+    expect(projected[0]).toMatchObject({ role: 'compactionSummary', summary: 'recovered checkpoint' })
+    expect(await fixture.storage.findEntries('compaction')).toHaveLength(1)
+    expect(fixture.compactor.getFailure()).toBeUndefined()
+    expect(fixture.log).toHaveBeenCalledWith('summary-retry', expect.objectContaining({ chunk: 1, attempt: 1, retry: 1, delayMs: 1000, error: message }))
+    expect(fixture.onProgress.mock.calls.filter(([event]) => event.phase === 'chunk')).toHaveLength(calls.length - 1)
+    expect(fixture.onProgress.mock.calls.at(-1)?.[0].phase).toBe('complete')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('recovers after two interruptions with bounded exponential backoff', async () => {
+    vi.useFakeTimers()
+    const fixture = await setup(history())
+    fixture.completeSimple.mockResolvedValue(assistant('recovered after two drops'))
+      .mockResolvedValueOnce(assistant('partial one', { stopReason: 'error', errorMessage: 'terminated' }))
+      .mockRejectedValueOnce(new Error('Request timed out.'))
+    const pending = projectSession(fixture)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    await pending
+    const contexts = fixture.completeSimple.mock.calls.slice(0, 3).map(([, context]) => context)
+    expect(contexts[1]).toEqual(contexts[0])
+    expect(contexts[2]).toEqual(contexts[0])
+    expect(fixture.log.mock.calls.filter(([event]) => event === 'summary-retry').map(([, fields]) => fields.delayMs)).toEqual([1000, 2000])
+    expect(await fixture.storage.findEntries('compaction')).toHaveLength(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps transport retries separate from the one output repair without resetting either budget', async () => {
+    vi.useFakeTimers()
+    const fixture = await setup(history())
+    fixture.completeSimple.mockResolvedValue(assistant('valid checkpoint'))
+      .mockResolvedValueOnce(assistant('partial transport', { stopReason: 'error', errorMessage: 'terminated' }))
+      .mockResolvedValueOnce(assistant('truncated output', { stopReason: 'length' }))
+      .mockRejectedValueOnce(new Error('socket hang up'))
+    const pending = projectSession(fixture)
+    await vi.runAllTimersAsync()
+    await pending
+    const contexts = fixture.completeSimple.mock.calls.slice(0, 4).map(([, context]) => context)
+    expect(contexts[1]).toEqual(contexts[0])
+    expect(summaryRequestText(contexts[2])).toContain('Return a shorter, complete checkpoint')
+    expect(contexts[3]).toEqual(contexts[2])
+    for (const context of contexts) {
+      expect(transcriptText(context)).toBe(transcriptText(contexts[0]))
+      expect(previousCheckpoint(context)).toBe('')
+    }
+    expect(fixture.log.mock.calls.filter(([event]) => event === 'summary-retry').map(([, fields]) => fields.retry)).toEqual([1, 2])
+    expect(await fixture.storage.findEntries('compaction')).toHaveLength(1)
+  })
+
+  it.each(['result', 'rejection'] as const)('stops after two transport retries of a %s and remembers the failure', async kind => {
+    vi.useFakeTimers()
+    const fixture = await setup(history())
+    const entries = await fixture.storage.getEntries()
+    if (kind === 'result') fixture.completeSimple.mockResolvedValue(assistant('PARTIAL', { stopReason: 'error', errorMessage: 'terminated' }))
+    else fixture.completeSimple.mockRejectedValue(new Error('terminated'))
+    const pending = projectSession(fixture)
+    const rejected = expect(pending).rejects.toThrow(/summary did not complete.*terminated/)
+    await vi.runAllTimersAsync()
+    await rejected
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(3)
+    const contexts = fixture.completeSimple.mock.calls.map(([, context]) => context)
+    expect(contexts[1]).toEqual(contexts[0])
+    expect(contexts[2]).toEqual(contexts[0])
+    expect(await fixture.storage.getEntries()).toEqual(entries)
+    await expect(projectSession(fixture)).rejects.toBe(fixture.compactor.getFailure())
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(3)
+    expect(fixture.onProgress.mock.calls.map(([event]) => event.phase)).toEqual(['start', 'chunk', 'error'])
+    expect(fixture.compactor.isCompacting()).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each([
+    '401 Unauthorized: terminated', '403 forbidden: timed out', '400 invalid request: terminated',
+    'insufficient_quota: terminated', 'billing: timeout', 'context length exceeded: terminated',
+    'authentication failed: terminated', 'permission denied: timeout', 'safety: terminated'
+  ])('does not retry a deterministic error: %s', async errorMessage => {
+    const fixture = await setup(history())
+    fixture.completeSimple.mockResolvedValue(assistant('', { stopReason: 'error', errorMessage }))
+    await expect(projectSession(fixture)).rejects.toThrow(errorMessage)
+    expect(fixture.completeSimple).toHaveBeenCalledOnce()
+    expect(await fixture.storage.findEntries('compaction')).toHaveLength(0)
+    expect(fixture.log.mock.calls.some(([event]) => event === 'summary-retry')).toBe(false)
+  })
+
+  it('does not retry a thrown adapter abort even when its message mentions a transient failure', async () => {
+    const fixture = await setup(history())
+    fixture.completeSimple.mockRejectedValue(new DOMException('terminated', 'AbortError'))
+    await expect(projectSession(fixture)).rejects.toThrow(/summary did not complete \(aborted\)/)
+    expect(fixture.completeSimple).toHaveBeenCalledOnce()
+    expect(await fixture.storage.findEntries('compaction')).toHaveLength(0)
+    expect(fixture.log.mock.calls.some(([event]) => event === 'summary-retry')).toBe(false)
+  })
+
+  it.each(['cancel', 'deadline'] as const)('stops during backoff on %s and removes timers without committing', async interruption => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const reason = new DOMException('cancel retry backoff', 'AbortError')
+    const fixture = await setup(history(), { signal: controller.signal, deadlineMs: 500 })
+    const entries = await fixture.storage.getEntries()
+    fixture.completeSimple.mockResolvedValue(assistant('partial', { stopReason: 'error', errorMessage: 'terminated' }))
+    const pending = projectSession(fixture)
+    const rejected = interruption === 'cancel' ? expect(pending).rejects.toBe(reason) : expect(pending).rejects.toThrow(/deadline/)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fixture.log).toHaveBeenCalledWith('summary-retry', expect.any(Object))
+    if (interruption === 'cancel') controller.abort(reason)
+    else await vi.advanceTimersByTimeAsync(500)
+    await rejected
+    expect(fixture.completeSimple).toHaveBeenCalledOnce()
+    expect(await fixture.storage.getEntries()).toEqual(entries)
+    expect(fixture.compactor.isCompacting()).toBe(false)
+    expect(fixture.onProgress.mock.calls.at(-1)?.[0].phase).toBe(interruption === 'cancel' ? 'cancelled' : 'error')
+    if (interruption === 'cancel') expect(fixture.compactor.getFailure()).toBeUndefined()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not commit earlier successful chunks when a later transport error exhausts retries', async () => {
+    vi.useFakeTimers()
+    const fixture = await setup(history())
+    const entries = await fixture.storage.getEntries()
+    fixture.completeSimple.mockResolvedValue(assistant('partial later chunk', { stopReason: 'error', errorMessage: 'terminated' }))
+      .mockResolvedValueOnce(assistant('first accepted checkpoint'))
+    const pending = projectSession(fixture)
+    const rejected = expect(pending).rejects.toThrow(/chunk 2 summary did not complete.*terminated/)
+    await vi.runAllTimersAsync()
+    await rejected
+    expect(fixture.completeSimple).toHaveBeenCalledTimes(4)
+    const contexts = fixture.completeSimple.mock.calls.slice(1).map(([, context]) => context)
+    expect(contexts[1]).toEqual(contexts[0])
+    expect(contexts[2]).toEqual(contexts[0])
+    expect(previousCheckpoint(contexts[0])).toBe('first accepted checkpoint')
+    expect(await fixture.storage.getEntries()).toEqual(entries)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
 

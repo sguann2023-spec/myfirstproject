@@ -64,7 +64,7 @@ describe('PromptBuilder', () => {
 
     const result = await builder.buildSystemPrompt('/workspace')
 
-    expect(result).toContain('You are VectCutClaw')
+    expect(result).toContain('You are VectCut’s assistant for generating, understanding, and editing media.')
     expect(result).toContain('# Rules')
     expect(result).toContain('# Execution')
     expect(result).toContain('never print pseudo tool-call markup')
@@ -114,7 +114,8 @@ describe('PromptBuilder', () => {
     const result = await builder.buildSystemPrompt('/workspace', undefined, {})
 
     expect(result).toContain('# Editing')
-    expect(result).toContain('Prefer available MCP tools to incrementally build and adjust editable drafts')
+    expect(result).toContain('MUST use VectCut MCP to create/edit/export drafts')
+    expect(result).not.toContain('Prefer available MCP tools')
     expect(result).toContain('only when the user requests a finished video')
     expect(result).toContain('otherwise prefer Jianying draft export')
     expect(result).toContain('use source speech and transcript timestamps as the timeline')
@@ -122,6 +123,21 @@ describe('PromptBuilder', () => {
     expect(result).toContain('actual speech timestamps and meaning, not estimated text duration')
     expect(result).toContain('Keep intermediate work editable')
     expect(result.length).toBeLessThan(2000)
+  })
+
+  it.each([
+    {},
+    { hasWorkspaceTools: true, hasWriteTools: true, hasAgenticTools: true }
+  ])('enforces MCP-only drafts regardless of file and scripting capabilities: %j', async (guidance) => {
+    setupFiles({})
+
+    const result = await builder.buildSystemPrompt('/workspace', undefined, guidance)
+
+    expect(result).toContain('MUST use VectCut MCP to create/edit/export drafts')
+    expect(result).toContain('use draft-elements for timeline edits')
+    expect(result).toContain('NEVER write draft files via scripts or file tools, even if MCP fails: they are unusable')
+    const editing = result.split('# Editing\n')[1].split('\n\n# Environment')[0]
+    expect(editing.length).toBeLessThan(650)
   })
 
   it('loads capped workspace instruction files instead of Soul memory files', async () => {

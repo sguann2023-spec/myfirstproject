@@ -11,6 +11,7 @@ import { and, eq, sql } from 'drizzle-orm'
 
 import { offloadPersistedMedia, resolvePersistedMedia } from './repositories/persistedMedia'
 import { readMessageProjection } from './messageEventStore'
+import { withHistoryActivity } from './historyActivity'
 import { BaseService } from '../BaseService'
 import { persistedToCanonicalInputs } from './agentHistoryMapper'
 import { agentTranscriptRepository } from './repositories/agentTranscriptRepository'
@@ -198,20 +199,28 @@ class AgentMessageRepository extends BaseService {
   }
 
   async persistUserMessage(params: PersistUserMessageParams): Promise<AgentSessionMessageEntity> {
-    const prepared = await offloadPersistedMedia(params)
-    const saved = await this.upsertMessage({ ...prepared, agentSessionId: prepared.agentSessionId ?? '' })
-    await this.dualWriteCanonical(prepared.sessionId, prepared.payload, prepared.metadata)
-    return saved
+    return withHistoryActivity(params.sessionId, async () => {
+      const prepared = await offloadPersistedMedia(params)
+      const saved = await this.upsertMessage({ ...prepared, agentSessionId: prepared.agentSessionId ?? '' })
+      await this.dualWriteCanonical(prepared.sessionId, prepared.payload, prepared.metadata)
+      return saved
+    })
   }
 
   async persistAssistantMessage(params: PersistAssistantMessageParams): Promise<AgentSessionMessageEntity> {
-    const prepared = await offloadPersistedMedia(params)
-    const saved = await this.upsertMessage(prepared)
-    await this.dualWriteCanonical(prepared.sessionId, prepared.payload, prepared.metadata)
-    return saved
+    return withHistoryActivity(params.sessionId, async () => {
+      const prepared = await offloadPersistedMedia(params)
+      const saved = await this.upsertMessage(prepared)
+      await this.dualWriteCanonical(prepared.sessionId, prepared.payload, prepared.metadata)
+      return saved
+    })
   }
 
   async persistExchange(params: AgentMessagePersistExchangePayload): Promise<AgentMessagePersistExchangeResult> {
+    return withHistoryActivity(params.sessionId, () => this.persistExchangeWithActivity(params))
+  }
+
+  private async persistExchangeWithActivity(params: AgentMessagePersistExchangePayload): Promise<AgentMessagePersistExchangeResult> {
     const { sessionId, agentSessionId, user, assistant } = params
 
     const exchangeResult: AgentMessagePersistExchangeResult = {}

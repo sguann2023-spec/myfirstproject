@@ -155,6 +155,18 @@ interface Leaf {
   nested: number
 }
 
+/** Payload-free preparation metrics; excludes caller reads and later disposal. */
+export interface HistoryImageProjectionStats {
+  queryCount: number
+  candidateCount: number
+  nestedDocuments: number
+  leafPages: number
+  sourceBytes: number
+  rows: number
+  nodes: number
+  visits: number
+}
+
 /** Snapshot and project entirely in TEMP. The expression is correlated by idColumn.
  * Callers must keep the same SQLite connection until dispose, and must supply a
  * unique, non-null id within predicate. Successful files outlive dispose.
@@ -168,10 +180,36 @@ export async function prepareHistoryImageProjection(
   predicate: SQL,
   idColumn: string,
   workspacePath?: string | null,
-  sourceExpression?: SQL
+  sourceExpression?: SQL,
+  onStats?: (stats: HistoryImageProjectionStats) => void
 ): Promise<{ expression: SQL; dispose: () => Promise<void> }> {
   const source = sourceExpression ?? sql`${sql.identifier(table)}.${sql.identifier(column)}`
-  if (!workspacePath?.trim()) return { expression: source, dispose: async () => {} }
+  const stats: HistoryImageProjectionStats = {
+    queryCount: 0, candidateCount: 0, nestedDocuments: 0, leafPages: 0,
+    sourceBytes: 0, rows: 0, nodes: 0, visits: 0
+  }
+  // Instrument only preparation, not subsequent reads or disposal. Diagnostics
+  // must never turn an otherwise successful projection into a failure.
+  let collecting = true
+  const report = () => {
+    collecting = false
+    try { onStats?.({ ...stats }) } catch { /* Observers cannot affect history. */ }
+  }
+  const database = db
+  db = {
+    all<T>(query: SQL) {
+      if (collecting) stats.queryCount++
+      return database.all<T>(query)
+    },
+    run(query: SQL) {
+      if (collecting) stats.queryCount++
+      return database.run(query)
+    }
+  }
+  if (!workspacePath?.trim()) {
+    report()
+    return { expression: source, dispose: async () => {} }
+  }
 
   const name = `pi_history_images_${randomUUID().replaceAll('-', '')}`
   const docs = sql.identifier(name)
@@ -255,15 +293,124 @@ export async function prepareHistoryImageProjection(
     }
   }
 
-  const projectDocument = async (doc: number, depth: number, canonical: boolean): Promise<void> => {
-    if (++documentCount > PI_HISTORY_IMAGE_LIMITS.nodes) throw limitError()
-    const [size] = await db.all<{ count: number; largestPath: number }>(sql`
-      SELECT count(*) AS count, coalesce(max(octet_length(fullkey)),0) AS largestPath
-      FROM ${tempDocs}, json_tree(CASE WHEN json_valid(body) THEN body ELSE 'null' END)
-      WHERE doc=${doc}
+  type DocumentSize = { doc: number; canonical: number; count: number; largestPath: number; textCount: number }
+  type Classification = { doc: number; direct: number; duplicates: number }
+  // These predicates deliberately over-classify media keys/prefixes. They are
+  // shared by root batches, individual children, and the one-level proof below;
+  // only the checked projector decides whether a candidate is actually media.
+  const directCandidate = (leaf: SQL) => sql`${leaf}.key IN ('data','base64','image_base64')
+    OR lower(substr(${leaf}.prefix,1,5))='data:'`
+  const nestedCandidate = (depth: number) => sql`CASE WHEN ${depth}<${PI_HISTORY_IMAGE_LIMITS.nestedJsonDepth}
+    AND (j.key IN (${sql.join([...resultFields, 'text'].map(field => sql`${field}`), sql`, `)})
+      OR (${depth}>0 AND j.fullkey='$')) THEN CASE WHEN json_valid(j.value)
+      THEN json_type(j.value) IN ('object','array','text') ELSE 0 END ELSE 0 END`
+  const preflight = async (first: number, last: number, depth: number) => {
+    const manifest = await db.all<DocumentSize>(sql`
+      SELECT d.doc,d.canonical,count(*) AS count,
+        coalesce(max(octet_length(j.fullkey)),0) AS largestPath,
+        sum(CASE WHEN j.type='text' THEN 1 ELSE 0 END) AS textCount
+      FROM ${tempDocs} d,json_tree(CASE WHEN json_valid(d.body) THEN d.body ELSE 'null' END) j
+      WHERE d.doc BETWEEN ${first} AND ${last} GROUP BY d.doc ORDER BY d.doc
     `)
+    // Bound paths and nodes before scanning any decoded child trees.
+    if (nodes + manifest.reduce((sum, row) => sum + Number(row.count), 0) > PI_HISTORY_IMAGE_LIMITS.nodes ||
+      manifest.some(row => Number(row.largestPath) > PI_HISTORY_IMAGE_LIMITS.pathBytes)) throw limitError()
+    const candidates = await db.all<Classification>(sql`
+      WITH leaves AS MATERIALIZED (
+        SELECT d.doc,j.parent,substr(CAST(j.key AS TEXT),1,128) AS key,
+          substr(j.value,1,128) AS prefix,${nestedCandidate(depth)} AS nested
+        FROM ${tempDocs} d,json_tree(CASE WHEN json_valid(d.body) THEN d.body ELSE 'null' END) j
+        WHERE d.doc BETWEEN ${first} AND ${last} AND j.type='text'
+      ), duplicates AS (
+        SELECT doc FROM leaves WHERE key IN ('type','mimeType','mediaType','media_type')
+        GROUP BY doc,parent,key HAVING count(*)>1
+      ), candidates AS (
+        SELECT l.doc,max(CASE WHEN ${directCandidate(sql`l`)} THEN 1 ELSE 0 END) AS direct,
+          max(l.nested) AS nested FROM leaves l GROUP BY l.doc
+      )
+      SELECT c.doc,c.direct,
+        EXISTS(SELECT 1 FROM duplicates d WHERE d.doc=c.doc) AS duplicates
+      FROM candidates c WHERE c.direct OR c.nested OR EXISTS(SELECT 1 FROM duplicates d WHERE d.doc=c.doc)
+    `)
+    return { manifest, candidates: new Map(candidates.map(row => [Number(row.doc), row])) }
+  }
+  const chargeDocument = (size: DocumentSize) => {
+    if (++documentCount > PI_HISTORY_IMAGE_LIMITS.nodes) throw limitError()
     nodes += Number(size.count)
     if (nodes > PI_HISTORY_IMAGE_LIMITS.nodes || Number(size.largestPath) > PI_HISTORY_IMAGE_LIMITS.pathBytes) throw limitError()
+  }
+  const chargeVisits = (count: number) => {
+    visits += count
+    if (visits > PI_HISTORY_IMAGE_LIMITS.nodes) throw limitError()
+  }
+  // No recursive parser: prove just one level of eligible result strings has
+  // no media, wrappers or further eligible JSON. Uncertain roots keep the full
+  // checked path. Values stay in SQLite and unchanged snapshot bytes are reused.
+  const provePlainChildren = async (documents: number[]) => {
+    if (!documents.length) return new Map<number, { documents: number; count: number; largestPath: number; textCount: number }>()
+    const remaining = PI_HISTORY_IMAGE_LIMITS.nodes - nodes
+    const rows = await db.all<{ doc: number; documents: number; count: number; largestPath: number; textCount: number }>(sql`
+      WITH roots AS MATERIALIZED (
+        SELECT d.doc,j.id AS node,j.parent,j.fullkey,substr(CAST(j.key AS TEXT),1,128) AS key,j.type,
+          CASE WHEN j.type='text' THEN j.value END AS value,
+          CASE WHEN j.type='text' THEN substr(j.value,1,128) END AS prefix,
+          CASE WHEN j.type='text' THEN ${nestedCandidate(0)} ELSE 0 END AS nested
+        FROM ${tempDocs} d,json_tree(CASE WHEN json_valid(d.body) THEN d.body ELSE 'null' END) j
+        WHERE d.doc IN (${sql.join(documents.map(doc => sql`${doc}`), sql`, `)})
+      ), eligible AS MATERIALIZED (
+        SELECT r.doc,r.node,r.fullkey,r.value FROM roots r
+        WHERE r.nested AND (r.key IN (${sql.join(resultFields.map(field => sql`${field}`), sql`, `)})
+          OR (r.key='text' AND EXISTS(SELECT 1 FROM roots t WHERE t.doc=r.doc AND t.parent=r.parent
+            AND t.key='type' AND t.type='text' AND t.prefix='text')))
+      ), children AS MATERIALIZED (
+        SELECT e.doc,e.node AS child,j.id AS node,j.parent,substr(CAST(j.key AS TEXT),1,128) AS key,
+          j.fullkey, j.type,CASE WHEN j.type='text' THEN substr(j.value,1,128) END AS prefix,
+          CASE WHEN j.type='text' THEN ${nestedCandidate(1)} ELSE 0 END AS nested
+        FROM eligible e,json_tree(e.value) j LIMIT ${remaining + 1}
+      ), unsafe AS (
+        SELECT DISTINCT c.doc FROM children c WHERE c.type='text'
+          AND (${directCandidate(sql`c`)} OR c.nested OR c.fullkey='$')
+        UNION
+        SELECT doc FROM children WHERE type='text' AND key IN ('type','mimeType','mediaType','media_type')
+          GROUP BY doc,child,parent,key HAVING count(*)>1
+        UNION
+        -- Duplicate ancestor/result keys can make json_extract choose a
+        -- different occurrence. Only unambiguous root paths admit this proof.
+        SELECT doc FROM roots GROUP BY doc,fullkey HAVING count(*)>1
+        UNION
+        -- Escaped duplicate keys may have distinct fullkeys but resolve to
+        -- the same first occurrence. Prove the exact value the checked path
+        -- would extract, rather than charging an independently decoded value.
+        SELECT e.doc FROM eligible e JOIN ${tempDocs} d ON d.doc=e.doc
+          WHERE json_extract(d.body,e.fullkey) IS NOT e.value
+      ), summary AS (
+        SELECT doc,count(DISTINCT child) AS documents,count(*) AS count,
+          max(octet_length(fullkey)) AS largestPath,sum(CASE WHEN type='text' THEN 1 ELSE 0 END) AS textCount
+        FROM children GROUP BY doc
+      )
+      SELECT r.doc,coalesce(s.documents,0) AS documents,coalesce(s.count,0) AS count,
+        coalesce(s.largestPath,0) AS largestPath,coalesce(s.textCount,0) AS textCount
+      FROM roots r LEFT JOIN summary s ON s.doc=r.doc
+      WHERE r.fullkey='$' AND r.type IN ('object','array')
+        -- A truncated proof is not evidence of no media. Fall back to the
+        -- document-ordered checked path if this batch cannot fit its budget.
+        AND (SELECT count(*) FROM children)<=${remaining}
+        AND NOT EXISTS(SELECT 1 FROM unsafe u WHERE u.doc=r.doc)
+    `)
+    return new Map(rows.map(row => [Number(row.doc), row]))
+  }
+
+  const projectDocument = async (doc: number, depth: number, canonical: boolean, checked?: { size: DocumentSize; classification?: Classification }): Promise<void> => {
+    const classified = checked ?? await preflight(doc, doc, depth).then(({ manifest, candidates }) =>
+      ({ size: manifest[0], classification: candidates.get(doc) }))
+    const { size, classification } = classified
+    chargeDocument(size)
+    if (depth > 0) stats.nestedDocuments++
+    if (!classification) {
+      chargeVisits(Number(size.textCount))
+      return
+    }
+    stats.candidateCount++
     // Materialize bounded scalar metadata once. Container values/base64 bodies
     // never enter this table or cross the worker boundary. Parent attributes
     // are indexed joins rather than repeated json_extract of the full body.
@@ -293,8 +440,9 @@ export async function prepareHistoryImageProjection(
         WHERE j.doc=${doc} AND j.kind='text' AND j.node>${cursor} ORDER BY j.node LIMIT ${metadataPageSize}
       `)
       if (!page.length) break
+      stats.leafPages++
       for (const leaf of page) {
-        if (++visits > PI_HISTORY_IMAGE_LIMITS.nodes) throw limitError()
+        chargeVisits(1)
         if (!leaf.location || !leaf.parentPath) throw limitError()
         cursor = Number(leaf.node)
         // Audio/video are supported only as explicit data URLs in URL/source
@@ -354,19 +502,17 @@ export async function prepareHistoryImageProjection(
         coalesce(max(octet_length(${sql.identifier(idColumn)})),0) AS idBytes
       FROM ${sql.identifier(table)} WHERE ${predicate}
     `)
+    stats.rows = Number(size.count)
+    stats.sourceBytes = Number(size.bytes)
     if (Number(size.count) > PI_HISTORY_IMAGE_LIMITS.rows || Number(size.bytes) > PI_HISTORY_IMAGE_LIMITS.sourceBytes ||
       Number(size.idBytes) > PI_HISTORY_IMAGE_LIMITS.pathBytes) throw limitError()
     if (Number(size.ids) !== Number(size.count) || Number(size.nonnull) !== Number(size.count)) {
       throw new Error('History image projection requires unique non-null ids')
     }
     await db.run(sql`CREATE TEMP TABLE ${docs}(doc INTEGER PRIMARY KEY, source_id UNIQUE, body, canonical INTEGER, payload BLOB)`)
-    await db.run(sql`CREATE TEMP TABLE ${metadata}(
-      doc INTEGER, node INTEGER, parent INTEGER, location TEXT, parentPath TEXT,
-      key TEXT, kind TEXT, chars INTEGER, prefix TEXT, nested INTEGER, PRIMARY KEY(doc,node))`)
-    await db.run(sql`CREATE INDEX ${sql.identifier(`${name}_parents`)} ON ${metadata}(doc,parent,key,kind)`)
-    const columns = await db.all<{ name: string }>(sql`PRAGMA table_info(${sql.identifier(table)})`)
-    const canonical = column === 'data_json' && columns.some(field => field.name === 'type')
-      ? sql`${sql.identifier('type')}='image'` : sql`0`
+    const columns = column === 'data_json' && Number(size.count) > 0
+      ? await db.all<{ name: string }>(sql`PRAGMA table_info(${sql.identifier(table)})`) : []
+    const canonical = columns.some(field => field.name === 'type') ? sql`${sql.identifier('type')}='image'` : sql`0`
     await db.run(sql`INSERT INTO ${tempDocs}(source_id,body,canonical)
       SELECT ${sql.identifier(idColumn)},${source},${canonical}
       FROM ${sql.identifier(table)} WHERE ${predicate}`)
@@ -375,11 +521,42 @@ export async function prepareHistoryImageProjection(
       SELECT count(*) AS count, coalesce(sum(octet_length(body)),0) AS bytes, coalesce(max(doc),0) AS maximum,
         coalesce(max(octet_length(source_id)),0) AS idBytes FROM ${tempDocs}
     `)
+    stats.rows = Number(snapshot.count)
+    stats.sourceBytes = Number(snapshot.bytes)
     if (Number(snapshot.count) !== Number(size.count) || Number(snapshot.bytes) > PI_HISTORY_IMAGE_LIMITS.sourceBytes ||
       Number(snapshot.idBytes) > PI_HISTORY_IMAGE_LIMITS.pathBytes) throw limitError()
-    for (let doc = 1; doc <= Number(snapshot.maximum); doc++) {
-      const [row] = await db.all<{ canonical: number }>(sql`SELECT canonical FROM ${tempDocs} WHERE doc=${doc}`)
-      await projectDocument(doc, 0, Boolean(row.canonical))
+    // Even an initially empty source is snapshotted and rechecked. In particular,
+    // concurrent insertion cannot bypass budgets or return unchecked raw values.
+    if (Number(snapshot.count) > 0) {
+      await db.run(sql`CREATE TEMP TABLE ${metadata}(
+        doc INTEGER, node INTEGER, parent INTEGER, location TEXT, parentPath TEXT,
+        key TEXT, kind TEXT, chars INTEGER, prefix TEXT, nested INTEGER, PRIMARY KEY(doc,node))`)
+      await db.run(sql`CREATE INDEX ${sql.identifier(`${name}_parents`)} ON ${metadata}(doc,parent,key,kind)`)
+    }
+    for (let first = 1; first <= Number(snapshot.maximum); first += metadataPageSize) {
+      const last = first + metadataPageSize - 1
+      const { manifest, candidates } = await preflight(first, last, 0)
+      const plainChildren = await provePlainChildren([...candidates].filter(([, row]) => !row.direct && !row.duplicates).map(([doc]) => doc))
+      for (const row of manifest) {
+        const doc = Number(row.doc)
+        const classification = candidates.get(doc)
+        const children = plainChildren.get(doc)
+        if (classification && !children) {
+          await projectDocument(doc, 0, Boolean(row.canonical), { size: row, classification })
+        } else {
+          chargeDocument(row)
+          chargeVisits(Number(row.textCount))
+          if (children) {
+            stats.candidateCount++
+            stats.nestedDocuments += Number(children.documents)
+            documentCount += Number(children.documents)
+            nodes += Number(children.count)
+            chargeVisits(Number(children.textCount))
+            if (documentCount > PI_HISTORY_IMAGE_LIMITS.nodes || nodes > PI_HISTORY_IMAGE_LIMITS.nodes ||
+              Number(children.largestPath) > PI_HISTORY_IMAGE_LIMITS.pathBytes) throw limitError()
+          }
+        }
+      }
     }
     return {
       expression: sql`coalesce((SELECT body FROM ${tempDocs} WHERE source_id=${sql.identifier(table)}.${sql.identifier(idColumn)}),${source})`,
@@ -388,5 +565,9 @@ export async function prepareHistoryImageProjection(
   } catch (error) {
     await dispose()
     throw error
+  } finally {
+    stats.nodes = nodes
+    stats.visits = visits
+    report()
   }
 }

@@ -276,6 +276,7 @@ describe('production Pi bridge pre-request context compaction', () => {
     maxInputTokens?: number
     summaryText?: string
     summaryUsage?: { input: number; output: number }
+    summaryDrops?: number
   } = {}) {
     const api = input.api ?? 'openai-completions'
     const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-bridge-compaction-'))
@@ -294,6 +295,7 @@ describe('production Pi bridge pre-request context compaction', () => {
     const progress: any[] = []
     const order: string[] = []
     let taskCalls = 0
+    let summaryCalls = 0
     const server = createServer(async (req, res) => {
       const chunks: Buffer[] = []
       for await (const chunk of req) chunks.push(Buffer.from(chunk))
@@ -321,6 +323,12 @@ describe('production Pi bridge pre-request context compaction', () => {
       const chunk = (delta: unknown, finish_reason: string | null = null) =>
         `data: ${JSON.stringify({ id: 'local-compaction', object: 'chat.completion.chunk', created: 1, model: 'deepseek-local', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
       if (kind === 'summary') {
+        summaryCalls += 1
+        if (summaryCalls <= (input.summaryDrops ?? 0)) {
+          res.write(chunk({ role: 'assistant', content: 'REJECTED_PARTIAL_CHECKPOINT' }))
+          setTimeout(() => res.destroy(), 10)
+          return
+        }
         // Keep usage absent by default: existing OpenAI fixtures must remain valid.
         const usageChunk = usage ? `data: ${JSON.stringify({ id: 'local-compaction', object: 'chat.completion.chunk', created: 1, model: 'deepseek-local', choices: [], usage: { prompt_tokens: usage.input, completion_tokens: usage.output, total_tokens: usage.input + usage.output } })}\n\n` : ''
         res.end(chunk({ role: 'assistant', content: summaryText }) + chunk({}, 'stop') + usageChunk + 'data: [DONE]\n\n')
@@ -440,6 +448,28 @@ describe('production Pi bridge pre-request context compaction', () => {
       expect(telemetry!.context!.runtimeSessionId).toBe('compaction-session')
       expect(JSON.stringify(telemetry)).not.toContain('old-segment-sdk-id')
       unsubscribeTelemetry()
+    } finally { await local.cleanup() }
+  })
+
+  it('recovers two partial summary stream disconnects through the real Pi adapter before continuing the task', async () => {
+    const local = await fixture({ summaryDrops: 2 })
+    try {
+      const result = await local.bridge.harness.prompt(currentRequest)
+      expect(result.stopReason).toBe('stop')
+      const summaries = local.requests.filter(request => request.kind === 'summary')
+      expect(summaries.length).toBeGreaterThanOrEqual(3)
+      expect(summaries[1].body).toEqual(summaries[0].body)
+      expect(summaries[2].body).toEqual(summaries[0].body)
+      expect(summaries.every(request => request.checkpoints === 0 && request.options.maxRetries === 0)).toBe(true)
+      expect(JSON.stringify(summaries.map(request => request.body.messages))).not.toContain('REJECTED_PARTIAL_CHECKPOINT')
+      const tasks = local.requests.filter(request => request.kind === 'task')
+      expect(tasks).toHaveLength(1)
+      expect(tasks[0].checkpoints).toBe(1)
+      expect(JSON.stringify(tasks[0].body.messages)).toContain(checkpointText)
+      expect(JSON.stringify(tasks[0].body.messages)).not.toContain('REJECTED_PARTIAL_CHECKPOINT')
+      expect(await local.storage.findEntries('compaction')).toHaveLength(1)
+      expect(local.progress.at(-1)).toMatchObject({ phase: 'complete', summary: checkpointText })
+      expect(local.bridge.contextCompaction!.getFailure()).toBeUndefined()
     } finally { await local.cleanup() }
   })
 

@@ -14,7 +14,9 @@ const {
   upsertCanonicalMessagesMock,
   upsertCanonicalPartsMock,
   getTurnMock,
-  updateTurnMock
+  updateTurnMock,
+  prepareContextMock,
+  adoptPreparedContextMock
 } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   persistExchangeMock: vi.fn(),
@@ -23,7 +25,9 @@ const {
   upsertCanonicalMessagesMock: vi.fn(),
   upsertCanonicalPartsMock: vi.fn(),
   getTurnMock: vi.fn(),
-  updateTurnMock: vi.fn()
+  updateTurnMock: vi.fn(),
+  prepareContextMock: vi.fn(),
+  adoptPreparedContextMock: vi.fn()
 }))
 
 vi.mock('@logger', () => ({
@@ -75,6 +79,10 @@ vi.mock('../../database/sessionMessageRepository', () => ({
     persistExchange: persistExchangeMock,
     persistUserMessage: persistUserMessageMock
   }
+}))
+
+vi.mock('../../database/repositories/piSessionStorage', () => ({
+  SqlitePiSessionStorage: { prepareContext: prepareContextMock, adoptPreparedContext: adoptPreparedContextMock }
 }))
 
 vi.mock('../claudecode', () => ({
@@ -150,6 +158,113 @@ describe('SessionMessageService cancelled persistence', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('deduplicates background preparation and adopts before current-turn persistence', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const session = { id: 'prewarm-adopt', accessible_paths: ['/work/prewarm'] } as any
+    const identity = { topicId: session.id, requestedSessionId: 'pi-prewarm', metadata: { workspacePath: '/work/prewarm' } }
+    vi.spyOn(service as any, 'contextPreparationIdentity').mockResolvedValue(identity)
+    const preparing = deferred()
+    const releaseForeground = vi.fn()
+    const promote = vi.fn(() => releaseForeground)
+    prepareContextMock.mockImplementation((input) => {
+      input.onQueued(promote)
+      return preparing.promise
+    })
+    adoptPreparedContextMock.mockResolvedValue(true)
+    const finished = Promise.resolve()
+    const result = { streamFinished: finished, completion: finished, runtimeFinished: finished }
+    const start = vi.spyOn(service as any, 'startSessionMessageStream').mockImplementation(async () => {
+      expect(adoptPreparedContextMock).toHaveBeenCalledOnce()
+      return result
+    })
+    const initialRuns = workspaceActivity.runs
+    const warm = service.prewarmSessionContext(session)
+    expect(service.prewarmSessionContext(session)).toBe(warm)
+    await flushMicrotasks(16)
+    expect(prepareContextMock).toHaveBeenCalledOnce()
+    const controller = new AbortController()
+    const pending = service.createSessionMessage(session, { content: 'current' } as any, controller)
+    await flushMicrotasks(16)
+    expect(promote).toHaveBeenCalledOnce()
+    expect(start).not.toHaveBeenCalled()
+    expect(upsertCanonicalMessagesMock).not.toHaveBeenCalled()
+    preparing.resolve()
+    await warm
+    expect(await pending).toBe(result)
+    expect(adoptPreparedContextMock).toHaveBeenCalledWith(expect.objectContaining(identity))
+    expect(releaseForeground).toHaveBeenCalledOnce()
+    await flushMicrotasks(16)
+    expect(workspaceActivity.runs).toBe(initialRuns)
+    expect(isWorkspaceRunning('/work/prewarm')).toBe(false)
+  })
+
+  it('cancels waiting for preparation without publishing or starting the current turn', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const session = { id: 'prewarm-cancel', accessible_paths: ['/work/prewarm-cancel'] } as any
+    vi.spyOn(service as any, 'contextPreparationIdentity').mockResolvedValue({ topicId: session.id })
+    const preparing = deferred()
+    prepareContextMock.mockReturnValue(preparing.promise)
+    const start = vi.spyOn(service as any, 'startSessionMessageStream')
+    const initialRuns = workspaceActivity.runs
+    const warm = service.prewarmSessionContext(session)
+    await flushMicrotasks(16)
+    const controller = new AbortController()
+    const pending = service.createSessionMessage(session, { content: 'current' } as any, controller)
+    const reason = new DOMException('cancel while preparing', 'AbortError')
+    const rejected = expect(pending).rejects.toBe(reason)
+    controller.abort(reason)
+    await rejected
+    expect(adoptPreparedContextMock).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
+    expect(upsertCanonicalMessagesMock).not.toHaveBeenCalled()
+    // The shared background job still owns its workspace until it exits.
+    expect(workspaceActivity.runs).toBe(initialRuns + 1)
+    preparing.resolve()
+    await warm
+    expect(workspaceActivity.runs).toBe(initialRuns)
+  })
+
+  it('falls back after failed preparation and skips warming an active session', async () => {
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const session = { id: 'prewarm-failure', accessible_paths: ['/work/prewarm-failure'] } as any
+    vi.spyOn(service as any, 'contextPreparationIdentity').mockResolvedValue({ topicId: session.id })
+    prepareContextMock.mockRejectedValue(new Error('recovery unavailable'))
+    await service.prewarmSessionContext(session)
+    expect((service as any).contextPreparations.size).toBe(0)
+    const runtime = deferred()
+    const start = vi.spyOn(service as any, 'startSessionMessageStream').mockResolvedValue({
+      streamFinished: runtime.promise, completion: runtime.promise, runtimeFinished: runtime.promise
+    })
+    await service.createSessionMessage(session, { content: 'current' } as any, new AbortController())
+    expect(start).toHaveBeenCalledOnce()
+    expect(adoptPreparedContextMock).not.toHaveBeenCalled()
+    await service.prewarmSessionContext(session)
+    expect(prepareContextMock).toHaveBeenCalledOnce()
+    runtime.resolve()
+    await flushMicrotasks(16)
+  })
+
+  it('rejects prepared state invalidated by an intervening history writer', async () => {
+    const { beginHistoryActivity } = await import('../../database/historyActivity')
+    const { SessionMessageService } = await import('../SessionMessageService')
+    const service = new SessionMessageService()
+    const session = { id: 'prewarm-mutated', accessible_paths: ['/work/prewarm-mutated'] } as any
+    vi.spyOn(service as any, 'contextPreparationIdentity').mockResolvedValue({ topicId: session.id })
+    prepareContextMock.mockResolvedValue(undefined)
+    await service.prewarmSessionContext(session)
+    const release = beginHistoryActivity(session.id)
+    release()
+    vi.spyOn(service as any, 'startSessionMessageStream').mockResolvedValue({
+      streamFinished: Promise.resolve(), completion: Promise.resolve(), runtimeFinished: Promise.resolve()
+    })
+    await service.createSessionMessage(session, { content: 'current' } as any, new AbortController())
+    expect(adoptPreparedContextMock).not.toHaveBeenCalled()
+    await flushMicrotasks(16)
   })
 
   it('does not dispatch an already aborted attempt', async () => {

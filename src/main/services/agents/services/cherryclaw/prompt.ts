@@ -253,7 +253,9 @@ function getExecutionSection(): string {
 function getEditingSection(): string {
   return [
     '# Editing',
-    '- Prefer available MCP tools to incrementally build and adjust editable drafts. Render or merge a final video only when the user requests a finished video; otherwise prefer Jianying draft export.',
+    '- MUST use VectCut MCP to create/edit/export drafts; use draft-elements for timeline edits.',
+    '- NEVER write draft files via scripts or file tools, even if MCP fails: they are unusable.',
+    '- Render or merge a final video only when the user requests a finished video; otherwise prefer Jianying draft export.',
     '- For talking-head edits, use source speech and transcript timestamps as the timeline. For narration-led montages, finalize the script and voiceover first, then align visuals to actual speech timestamps and meaning, not estimated text duration.',
     '- Keep intermediate work editable for further adjustments.'
   ].join('\n')

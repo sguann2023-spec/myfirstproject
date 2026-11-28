@@ -2,10 +2,15 @@ import type { AgentMessagePersistExchangePayload } from '@types'
 
 import { SqlitePiSessionStorage } from '../../database/repositories/piSessionStorage'
 import { agentMessageRepository } from '../../database/sessionMessageRepository'
+import { withHistoryActivity } from '../../database/historyActivity'
 
 export async function persistDirectRequestExchange(
   input: AgentMessagePersistExchangePayload & { turnId: string }
 ) {
+  return withHistoryActivity(input.sessionId, () => persistExchangeWithActivity(input))
+}
+
+async function persistExchangeWithActivity(input: AgentMessagePersistExchangePayload & { turnId: string }) {
   const { turnId, user, assistant, ...exchange } = input
   if (!user?.payload?.message?.id || !assistant?.payload?.message?.id) {
     throw new Error('Direct request requires a complete user/assistant exchange')

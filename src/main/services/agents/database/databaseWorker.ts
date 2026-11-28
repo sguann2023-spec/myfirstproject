@@ -58,13 +58,15 @@ async function drain(): Promise<void> {
               throw new Error('Database broker storage configuration mismatch')
             }
             configuredSockets.add(socket)
-            value = { owner: args[0] === ownerToken }
+            value = { owner: args[0] === ownerToken, historyRevision: true, topicHistoryRevision: true }
             break
           case 'execute': value = store!.execute(args[0], args[1]); break
           case 'executeMultiple': store!.executeMultiple(args[0]); break
           case 'batch': case 'migrate': value = store!.batch(args[0]); break
           case 'applyMigration': store!.applyMigration(args[0], args[1], args[2]); break
           case 'finalizeSchema': store!.finalizeSchema(); break
+          case 'historyRevision': value = store!.historyRevision(); break
+          case 'topicHistoryRevision': value = store!.topicHistoryRevision(args[0], args[1]); break
           case 'backup':
             if (args[0] !== ownerToken) throw new Error('Only the broker owner can export storage')
             await store!.backup(args[1])
@@ -87,7 +89,7 @@ async function drain(): Promise<void> {
         }
         reply(socket, id, value)
       } catch (error) {
-        const requestOnly = ['execute', 'executeMultiple', 'batch', 'migrate'].includes(method)
+        const requestOnly = ['execute', 'executeMultiple', 'batch', 'migrate', 'historyRevision', 'topicHistoryRevision'].includes(method)
           && !startupFailure && !stopping && !maintenance && configuredSockets.has(socket)
           && request.database === database && store && !store.isStopped
         reply(socket, id, undefined, error, !requestOnly)

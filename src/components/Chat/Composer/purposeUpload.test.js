@@ -57,6 +57,34 @@ describe('purpose upload batch integration', () => {
     expect(sourceText).not.toMatch(/pendingTemplateSlotAutoReferenceRef\.current\s*=\s*purpose/);
   });
 
+  const uploadCardsCondition = find((node) => ts.isVariableDeclaration(node) && node.name.getText(source) === 'showAttachmentUploadCards').initializer.getText(source);
+  const showUploadCards = (overrides = {}) => runInNewContext(uploadCardsCondition, {
+    uploadCardsEligible: true,
+    isDefaultAttachmentMode: true,
+    attachmentPurposeGroups: null,
+    uploadFileList: [],
+    uploadedFileMeta: [],
+    templatePickerOpen: false,
+    partSplitDialogOpen: false,
+    ...overrides,
+  });
+
+  it.each(['image/png', 'video/mp4', 'audio/mpeg', 'application/pdf', 'text/plain'])('hides upload cards for an ordinary %s attachment without a purpose', (fileType) => {
+    expect(showUploadCards({ uploadedFileMeta: [{ uid: 'ordinary', fileType }] })).toBe(false);
+  });
+
+  it('hides upload cards as soon as a local upload item exists', () => {
+    expect(showUploadCards({ uploadFileList: [{ uid: 'pending', status: 'uploading' }] })).toBe(false);
+  });
+
+  it('restores upload cards after removing all attachments only while still eligible', () => {
+    const attachments = { uploadedFileMeta: [{ uid: 'ordinary', fileType: 'image/png' }] };
+    expect(showUploadCards()).toBe(true);
+    expect(showUploadCards(attachments)).toBe(false);
+    expect(showUploadCards()).toBe(true);
+    expect(showUploadCards({ uploadCardsEligible: false })).toBe(false);
+  });
+
   it('keeps purpose in reference nodes, multimodal previews and deferred uploads', () => {
     expect(sourceText).toContain('purpose: normalizeAttachmentPurpose(overrides.purpose ?? file.purpose)');
     expect(sourceText).toContain("purpose: { default: '' }");

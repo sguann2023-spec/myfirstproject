@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentMessage, Session } from '@earendil-works/pi-agent-core'
 import type * as AgentCore from '@earendil-works/pi-agent-core'
-import type { Model, Models } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Model, Models } from '@earendil-works/pi-ai'
 import type { ContextCompactionEvent } from '@shared/agents/claudecode/types'
 
 export type ContextCompactionProgress = Omit<ContextCompactionEvent, 'type'>
@@ -57,6 +57,7 @@ function messageText(message: AgentMessage): string {
 export function createContextCompactor(input: {
   core: typeof AgentCore
   models: Models
+  isRetryableAssistantError: typeof import('@earendil-works/pi-ai').isRetryableAssistantError
   model: Model<any>
   session: Session
   systemPrompt: string
@@ -189,6 +190,31 @@ export function createContextCompactor(input: {
       input.signal?.addEventListener('abort', onAbort, { once: true })
       const deadline = setTimeout(() => controller.abort(new PiContextBudgetError('summarization deadline exceeded')), deadlineMs)
       const signal = controller.signal
+      const waitForRetry = (delayMs: number) => new Promise<void>((resolve, reject) => {
+        assertActive(signal)
+        const onRetryAbort = () => {
+          clearTimeout(timer)
+          signal.removeEventListener('abort', onRetryAbort)
+          reject(signal.reason)
+        }
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onRetryAbort)
+          resolve()
+        }, delayMs)
+        signal.addEventListener('abort', onRetryAbort, { once: true })
+      })
+      const isRetryable = (result: AssistantMessage) => {
+        // Never repair deterministic failures by repeating a summary request.
+        if (/\b(400|401|403|404|422)\b|unauthorized|forbidden|invalid.?api.?key|authentication.?failed|permission.?denied|quota|billing|context.?length|maximum.?context|token.?limit|content.?policy|content_filter|safety/i.test(result.errorMessage ?? '')) return false
+        return input.isRetryableAssistantError(result)
+      }
+      const errorResult = (error: unknown): AssistantMessage => ({
+        role: 'assistant', content: [], api: model.api, provider: model.provider, model: model.id,
+        stopReason: error instanceof Error && error.name === 'AbortError' ? 'aborted' : 'error',
+        errorMessage: error instanceof Error ? error.message : String(error), timestamp: Date.now(),
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+      })
       notify({ operationId, phase: 'start', tokensBefore: before.tokens })
       try {
         assertActive(input.signal)
@@ -211,26 +237,38 @@ export function createContextCompactor(input: {
           assertActive(signal)
           chunk += 1
           notify({ operationId, phase: 'chunk', chunk, tokensBefore: before.tokens })
-          for (let attempt = 1; attempt <= 2; attempt++) {
+          const summaryTimestamp = Date.now()
+          // Transport retries and the single empty/truncated-output repair have
+          // separate budgets. Neither may advance the rolling checkpoint.
+          for (let attempt = 1, transportRetries = 0, outputRepairs = 0; ; attempt++) {
             assertActive(signal)
-            const text = `${instructions}${attempt > 1 ? retryInstructions : ''}\n\n<previous-checkpoint>\n${summary}\n</previous-checkpoint>\n\n<transcript>\n${pending}\n</transcript>`
+            const text = `${instructions}${outputRepairs > 0 ? retryInstructions : ''}\n\n<previous-checkpoint>\n${summary}\n</previous-checkpoint>\n\n<transcript>\n${pending}\n</transcript>`
             const estimatedInputTokens = estimateContextText(summarySystem + text) + 64
             if (estimatedInputTokens > summaryInputBudget) throw new PiContextBudgetError('summary request exceeds its bounded input budget')
             const remainingMs = deadlineMs - (Date.now() - startedAt)
             if (remainingMs <= 0) throw new PiContextBudgetError('summarization deadline exceeded')
             const requestStartedAt = Date.now()
-            const request = input.models.completeSimple(model, {
-              systemPrompt: summarySystem,
-              messages: [{ role: 'user', content: text, timestamp: Date.now() }]
-            }, { signal, maxTokens: summaryOutput, maxRetries: 0, timeoutMs: Math.min(120_000, remainingMs), metadata: { context_compaction: 'true' } })
-            // Signal reaches the transport. Also stop waiting if an adapter ignores
-            // abort; no continuation of this request can write a checkpoint.
-            const result = await new Promise<Awaited<typeof request>>((resolve, reject) => {
-              const onRequestAbort = () => reject(signal.reason)
-              signal.addEventListener('abort', onRequestAbort, { once: true })
-              if (signal.aborted) onRequestAbort()
-              request.then(resolve, reject).finally(() => signal.removeEventListener('abort', onRequestAbort))
-            })
+            let result: AssistantMessage
+            try {
+              const request = Promise.resolve().then(() => {
+                assertActive(signal)
+                return input.models.completeSimple(model, {
+                  systemPrompt: summarySystem,
+                  messages: [{ role: 'user', content: text, timestamp: summaryTimestamp }]
+                }, { signal, maxTokens: summaryOutput, maxRetries: 0, timeoutMs: Math.min(120_000, remainingMs), metadata: { context_compaction: 'true' } })
+              })
+              // Signal reaches the transport. Also stop waiting if an adapter ignores
+              // abort; no continuation of this request can write a checkpoint.
+              result = await new Promise<AssistantMessage>((resolve, reject) => {
+                const onRequestAbort = () => reject(signal.reason)
+                signal.addEventListener('abort', onRequestAbort, { once: true })
+                if (signal.aborted) onRequestAbort()
+                request.then(resolve, reject).finally(() => signal.removeEventListener('abort', onRequestAbort))
+              })
+            } catch (error) {
+              assertActive(signal)
+              result = errorResult(error)
+            }
             assertActive(signal)
             const candidate = result.content.filter((part): part is { type: 'text'; text: string } => part.type === 'text').map(part => part.text).join('\n').trim()
             input.log('summary-result', {
@@ -239,9 +277,19 @@ export function createContextCompactor(input: {
               reasoningTokens: result.usage?.reasoning ?? null, summaryTokens: estimateContextText(candidate),
               empty: !candidate, elapsedMs: Date.now() - requestStartedAt
             })
+            if (result.stopReason === 'error' && transportRetries < 2 && isRetryable(result)) {
+              const delayMs = 1000 * 2 ** transportRetries
+              transportRetries += 1
+              input.log('summary-retry', { chunk, attempt, retry: transportRetries, maxRetries: 2, delayMs, error: result.errorMessage })
+              await waitForRetry(delayMs)
+              continue
+            }
             const empty = result.stopReason === 'stop' && !candidate
             const truncated = result.stopReason === 'length'
-            if (attempt === 1 && (empty || truncated)) continue
+            if (outputRepairs === 0 && (empty || truncated)) {
+              outputRepairs += 1
+              continue
+            }
             if (truncated) throw new PiContextBudgetError(`chunk ${chunk} summary output truncated after ${attempt} attempts`)
             if (empty) throw new PiContextBudgetError(`chunk ${chunk} returned an empty summary after ${attempt} attempts`)
             if (result.stopReason !== 'stop') throw new PiContextBudgetError(`chunk ${chunk} summary did not complete (${result.stopReason}): ${result.errorMessage ?? 'incomplete output'}`)

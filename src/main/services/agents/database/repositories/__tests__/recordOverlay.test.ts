@@ -218,8 +218,13 @@ describe('record overlay', () => {
     const f = fixture(), store = await open(f), dialect = new SQLiteSyncDialect()
     const body = JSON.stringify({ content: [{ type: 'image', mimeType: 'image/png', data: Buffer.from('image bytes').toString('base64') }] })
     store.execute('UPDATE parents SET name=? WHERE id=?', [body, 'p'])
+    for (let index = 0; index < 260; index++) {
+      store.execute('INSERT INTO parents(id,name) VALUES(?,?)', [`plain-${index}`, JSON.stringify({ content: `plain history ${index}` })])
+    }
     const facts = store.execute('SELECT * FROM entity_records').rows
+    let calls = 0
     const execute = (query: SQL) => {
+      calls++
       const compiled = dialect.sqlToQuery(query)
       return store.execute(compiled.sql, compiled.params)
     }
@@ -230,7 +235,10 @@ describe('record overlay', () => {
           typeof row[index] === 'bigint' ? Number(row[index]) : row[index]]))) as T[]
       },
       run: execute
-    }, 'parents', 'name', sql`id='p'`, 'id', f.directory)
+    }, 'parents', 'name', sql`id IS NOT NULL`, 'id', f.directory)
+    expect(calls).toBeLessThan(50)
+    expect(JSON.parse(execute(sql`SELECT ${projection.expression} FROM parents WHERE id='plain-259'`).rows[0][0] as string))
+      .toEqual({ content: 'plain history 259' })
     const objects = store.execute("SELECT type,name FROM sqlite_temp_master WHERE name LIKE 'pi_history_images_%' AND type IN ('table','index')").rows
     expect(objects.filter(row => row[0] === 'table')).toHaveLength(2)
     expect(objects.filter(row => row[0] === 'index').map(row => row[1])).toEqual([expect.stringMatching(/_parents$/)])

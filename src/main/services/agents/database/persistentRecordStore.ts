@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
+import { createHash, randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { configureDatabase, finalizeRecords, importLegacyLog, prepareDatabase } from './legacyRecordMigration'
-import { initializeRecords } from './recordSchema'
+import { initializeRecords, quote } from './recordSchema'
 import { checkpoint, RECORD_CONSTRAINT_REVISION, upgradeRecordConstraints } from './recordConstraintUpgrade'
 import { markRecordIndexesComplete, upgradeRecordIndexes } from './recordIndexUpgrade'
 import { splitSqlStatements } from './sqlStatements'
@@ -35,6 +36,14 @@ export class PersistentRecordStore {
   private written: Array<{ entity: string; position: bigint }> = []
   private pending?: string
   private identity?: string
+  private readonly revisionIdentity = randomUUID()
+  private readonly topicRevisions = new Map<string, bigint>()
+  private topicGeneration = 0n
+  private topicAppendPosition?: bigint
+  private topicSourceIdentity?: string
+  private readonly topicObserverName = `topic_history_${randomUUID().replaceAll('-', '')}`
+  private topicObserverSql?: string
+  private topicObserved?: bigint[]
   private progress: (phase: string, count?: number, total?: number, detail?: string) => void = () => undefined
   readonly startup: { migrated: boolean; warnings: OverlayWarning[] } = { migrated: false, warnings: [] }
   private overlay?: { sources: OverlaySource[]; entities: Set<string> }
@@ -148,6 +157,164 @@ export class PersistentRecordStore {
     return Buffer.isBuffer(value) ? value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) : value
   }
 
+  /** An optimistic, connection-scoped stamp; TEMP history-image work is excluded. */
+  historyRevision(): string | undefined {
+    this.assertOpen()
+    try {
+      if ((this.db.prepare('SELECT phase FROM main.storage_upgrade WHERE version=2').get() as { phase: string } | undefined)?.phase !== 'complete') return undefined
+      const position = (this.db.prepare("PRAGMA main.table_info('entity_records')").all() as Array<{ name: string; type: string; pk: bigint }>)
+        .find(column => column.name === 'position')
+      if (position?.type.toUpperCase() !== 'INTEGER' || position.pk !== 1n) return undefined
+      const maxPosition = (this.db.prepare('SELECT CAST(coalesce(max(position),0) AS TEXT) AS position FROM main.entity_records').get() as { position: string }).position
+      if (!/^\d+$/.test(maxPosition)) return undefined
+      const schemas = (this.db.pragma('database_list') as Array<{ name: string }>).filter(schema => schema.name !== 'temp')
+      const versions = schemas.map(({ name }) => {
+        const data = this.db.pragma(`${quote(name)}.data_version`, { simple: true })
+        const schema = this.db.pragma(`${quote(name)}.schema_version`, { simple: true })
+        if (typeof data !== 'bigint' || typeof schema !== 'bigint') throw new Error('Unavailable database revision')
+        return [name, data.toString(), schema.toString()]
+      })
+      return JSON.stringify([this.revisionIdentity, maxPosition, versions])
+    } catch { return undefined } // Optional prewarming must not stop the writer.
+  }
+
+  /** Optional topic-scoped stamp. Registrations are lazy, bounded, and never reused after eviction. */
+  topicHistoryRevision(topicId: string, requestedSessionId?: string): string | undefined {
+    this.assertOpen()
+    if (typeof topicId !== 'string' || (requestedSessionId !== undefined && typeof requestedSessionId !== 'string')) return undefined
+    try {
+      if ((this.db.prepare('SELECT phase FROM main.storage_upgrade WHERE version=2').get() as { phase: string } | undefined)?.phase !== 'complete') throw new Error('Unavailable record schema')
+      const position = (this.db.prepare("PRAGMA main.table_info('entity_records')").all() as Array<{ name: string; type: string; pk: bigint }>).find(column => column.name === 'position')
+      const index = this.db.prepare("PRAGMA main.index_info('entity_records_latest')").all() as Array<{ name: string }>
+      if (position?.type.toUpperCase() !== 'INTEGER' || position.pk !== 1n || index.map(column => column.name).join(',') !== 'entity_type,entity_key,position') throw new Error('Unavailable record identity index')
+      if (this.overlay?.sources.some(source => source.warning || !source.attached)) throw new Error('Unavailable overlay source')
+      this.ensureTopicObserver()
+      const schemas = (this.db.pragma('database_list') as Array<{ name: string; file: string }>).filter(schema => schema.name !== 'temp')
+      const versions = schemas.map(({ name }) => {
+        const data = this.db.pragma(`${quote(name)}.data_version`, { simple: true })
+        const schema = this.db.pragma(`${quote(name)}.schema_version`, { simple: true })
+        if (typeof data !== 'bigint' || typeof schema !== 'bigint') throw new Error('Unavailable database revision')
+        return [name, data.toString(), schema.toString()]
+      })
+      // Read ownership in the same serialized accessor as the epoch; a separate
+      // client query could race a different topic claiming this requested ID.
+      const owner = requestedSessionId === undefined ? undefined : this.db.prepare('SELECT topic_id,pi_session_id FROM pi_sessions WHERE pi_session_id=? LIMIT 1').get(requestedSessionId) as { topic_id: string; pi_session_id: string } | undefined
+      if (owner && (typeof owner.topic_id !== 'string' || typeof owner.pi_session_id !== 'string')) throw new Error('Unavailable session owner')
+      // Source identities are part of the stamp without exposing filesystem paths.
+      this.topicSourceIdentity ??= createHash('sha256').update(JSON.stringify([schemas.map(({ name, file }) => [name, file]), this.overlay?.sources.map(source => [source.alias, source.filename, source.records])])).digest('hex')
+      const highWater = this.appendHighWater()
+      if (this.topicAppendPosition !== undefined && this.topicAppendPosition !== highWater) this.invalidateTopicRevisions()
+      this.topicAppendPosition = highWater
+      let epoch = this.topicRevisions.get(topicId)
+      if (epoch === undefined) {
+        if (this.topicRevisions.size >= 64) this.topicRevisions.delete(this.topicRevisions.keys().next().value!)
+        epoch = ++this.topicGeneration
+      }
+      this.topicRevisions.delete(topicId)
+      this.topicRevisions.set(topicId, epoch)
+      return JSON.stringify([this.revisionIdentity, epoch.toString(), this.topicSourceIdentity, versions,
+        ...(requestedSessionId === undefined ? [] : [[requestedSessionId, owner ? [owner.topic_id, owner.pi_session_id] : null]])])
+    } catch {
+      this.invalidateTopicRevisions()
+      return undefined // Optional prewarming must never stop the writer.
+    }
+  }
+
+  private ensureTopicObserver(): void {
+    if (this.topicObserverSql) {
+      if (this.topicObserverDefinition() !== this.topicObserverSql) { this.invalidateTopicRevisions(); throw new Error('Unavailable record observer') }
+      return
+    }
+    // Private TEMP instrumentation is installed only when topic tracking starts.
+    // Observe every insertion position, including explicit lower gaps, separately
+    // from the command callbacks used by RETURNING and topic classification.
+    this.db.function(this.topicObserverName, (position: bigint | number) => {
+      this.topicObserved?.push(BigInt(position))
+      return null
+    })
+    this.db.exec(`CREATE TEMP TRIGGER ${quote(this.topicObserverName)} AFTER INSERT ON main.entity_records
+      BEGIN SELECT ${quote(this.topicObserverName)}(NEW.position); END`)
+    this.topicObserverSql = this.topicObserverDefinition()
+    if (!this.topicObserverSql) throw new Error('Unavailable record observer')
+  }
+  private topicObserverDefinition(): string | undefined {
+    return (this.db.prepare("SELECT sql FROM temp.sqlite_master WHERE type='trigger' AND name=?").get(this.topicObserverName) as { sql: string } | undefined)?.sql
+  }
+  private appendHighWater(): bigint {
+    const position = (this.db.prepare('SELECT coalesce(max(position),0) AS position FROM main.entity_records').get() as { position: bigint }).position
+    if (typeof position !== 'bigint' || position < 0n) throw new Error('Unavailable append position')
+    return position
+  }
+  private invalidateTopicRevisions(): void {
+    this.topicRevisions.clear()
+    this.topicAppendPosition = undefined
+    this.topicObserved = undefined
+  }
+  private beginTopicStatement(): bigint | undefined {
+    if (!this.topicRevisions.size) return undefined
+    try {
+      const before = this.appendHighWater()
+      if (before !== this.topicAppendPosition || this.topicObserverDefinition() !== this.topicObserverSql) { this.invalidateTopicRevisions(); return undefined }
+      this.topicObserved = []
+      return before
+    } catch { this.invalidateTopicRevisions(); return undefined }
+  }
+  private finishTopicStatement(before: bigint | undefined, succeeded: boolean): void {
+    if (before === undefined || !this.topicRevisions.size) return
+    try {
+      if (!succeeded) throw new Error('Statement or callback was unaccounted')
+      const after = this.appendHighWater()
+      const positions = new Set(this.written.map(write => write.position))
+      if (after < before || positions.size !== this.written.length || this.written.some(write => write.position <= before || write.position > after)) throw new Error('Unaccounted record callbacks')
+      // Compare all observed insertion positions, not just the range above max:
+      // a statement can mix an accounted append with a direct lower-gap insert.
+      if (this.topicObserverDefinition() !== this.topicObserverSql || !this.topicObserved || this.topicObserved.length !== positions.size || new Set(this.topicObserved).size !== positions.size || this.topicObserved.some(position => !positions.has(position))) throw new Error('Unaccounted record append')
+      const changed = new Set<string>()
+      for (const write of this.written) {
+        const row = this.db.prepare(`SELECT entity_type,operation,
+          CASE WHEN entity_type='session_messages' THEN entity_key END AS entity_key,
+          CASE WHEN entity_type IN ('agent_messages','agent_message_parts','session_messages') THEN json_extract(payload,'$.session_id')
+            WHEN entity_type IN ('pi_sessions','pi_session_entries','pi_invocation_entries') THEN json_extract(payload,'$.topic_id')
+            WHEN entity_type='sessions' AND operation='delete' THEN json_extract(payload,'$.id') END AS topic
+          FROM main.entity_records WHERE position=?`).get(write.position) as { entity_type: string; operation: string; entity_key: string | null; topic: unknown } | undefined
+        if (!row || row.entity_type !== write.entity) throw new Error('Unavailable written record')
+        const relevant = ['agent_messages', 'agent_message_parts', 'session_messages', 'pi_sessions', 'pi_session_entries', 'pi_invocation_entries'].includes(row.entity_type) || (row.entity_type === 'sessions' && row.operation === 'delete')
+        if (!relevant) continue // Session model/telemetry puts do not change history.
+        if (typeof row.topic !== 'string') throw new Error('Unavailable record topic')
+        changed.add(row.topic)
+        if (row.entity_type === 'session_messages') {
+          const previous = this.previousSessionMessageTopic(row.entity_key!, write.position)
+          if (previous !== undefined) changed.add(previous)
+        }
+      }
+      for (const topic of changed) if (this.topicRevisions.has(topic)) this.topicRevisions.set(topic, ++this.topicGeneration)
+      this.topicAppendPosition = after
+    } catch { this.invalidateTopicRevisions() }
+    finally { this.topicObserved = undefined }
+  }
+  private previousSessionMessageTopic(key: string, position: bigint): string | undefined {
+    type Previous = { topic: unknown }
+    // The command view has already advanced. Resolve its predecessor by stable
+    // identity and position, including a first override of a legacy overlay row.
+    let previous = this.db.prepare(`SELECT json_extract(payload,'$.session_id') AS topic FROM main.entity_records INDEXED BY entity_records_latest
+      WHERE entity_type='session_messages' AND entity_key=? AND position<? ORDER BY position DESC LIMIT 1`).get(key, position) as Previous | undefined
+    if (!previous) for (const source of this.overlay?.sources ?? []) {
+      const entity = source.entities.find(entity => entity.name === 'session_messages')
+      if (!entity) continue
+      if (!source.attached || source.warning) throw new Error('Unavailable legacy message source')
+      if (source.records) {
+        previous = this.db.prepare(`SELECT json_extract(payload,'$.session_id') AS topic FROM ${quote(source.alias)}.entity_records INDEXED BY entity_records_latest
+          WHERE entity_type='session_messages' AND entity_key=? ORDER BY position DESC LIMIT 1`).get(key) as Previous | undefined
+      } else {
+        if (entity.keys.join(',') !== 'id' || !entity.columns.some(column => column.name === 'id' && column.pk)) throw new Error('Unavailable legacy message identity')
+        previous = this.db.prepare(`SELECT session_id AS topic FROM ${quote(source.alias)}.session_messages WHERE id=json_extract(?,'$[0]') LIMIT 1`).get(key) as Previous | undefined
+      }
+      if (previous) break
+    }
+    if (previous && typeof previous.topic !== 'string') throw new Error('Unavailable previous message topic')
+    return previous?.topic as string | undefined
+  }
+
   execute(input: string | { sql: string; args?: any }, positionalArgs?: any): WireResult {
     this.assertOpen()
     const sql = typeof input === 'string' ? input : input.sql
@@ -156,6 +323,8 @@ export class PersistentRecordStore {
     guard(sql)
     if (this.overlay) guardOverlaySql(sql, this.overlay.entities)
     if (splitSqlStatements(sql).length !== 1) throw new Error('execute requires exactly one SQL statement')
+    const before = this.beginTopicStatement()
+    let succeeded = false
     try {
       const statement = this.db.prepare(sql)
       const values = Array.isArray(args) ? args.map(binding) : [Object.fromEntries(Object.entries(args).map(([key, value]) => [key.replace(/^[:@$]/, ''), binding(value)]))]
@@ -179,17 +348,21 @@ export class PersistentRecordStore {
             return this.db.prepare(`SELECT ${select} FROM entity_records WHERE position=?`).raw().get(write.position) as any[]
           })
         }
-        return { columns: columns.map(column => column.name), columnTypes: columns.map(column => column.type ?? ''), rows: rows.map(row => row.map(value => this.wire(value))), rowsAffected: writes.length }
+        const result = { columns: columns.map(column => column.name), columnTypes: columns.map(column => column.type ?? ''), rows: rows.map(row => row.map(value => this.wire(value))), rowsAffected: writes.length }
+        succeeded = true
+        return result
       }
       const info = statement.run(...values)
-      return { columns: [], columnTypes: [], rows: [], rowsAffected: this.written.length || info.changes, lastInsertRowid: BigInt(info.lastInsertRowid) }
+      const result = { columns: [], columnTypes: [], rows: [], rowsAffected: this.written.length || info.changes, lastInsertRowid: BigInt(info.lastInsertRowid) }
+      succeeded = true
+      return result
     } catch (error) {
       // SQLite aborts these statements without invalidating the connection.
       // Storage/IO failures remain fail-closed; no submitted statement is retried.
       const code = (error as { code?: string })?.code ?? ''
       if (/^SQLITE_(?:ERROR|CONSTRAINT|RANGE|MISMATCH|TOOBIG)(?:_|$)/.test(code) || error instanceof RangeError) throw error
       return this.stop(error)
-    }
+    } finally { this.finishTopicStatement(before, succeeded) }
   }
   executeMultiple(sql: string): void { for (const statement of splitSqlStatements(sql)) this.execute(statement) }
   batch(statements: Array<string | { sql: string; args?: any }>): WireResult[] { return statements.map(statement => this.execute(statement)) }
@@ -201,7 +374,7 @@ export class PersistentRecordStore {
       if (this.db.prepare("SELECT 1 FROM sqlite_master WHERE name='migrations'").get() && this.db.prepare('SELECT 1 FROM migrations WHERE version=?').get(version)) return
       for (const statement of splitSqlStatements(sql)) {
         guard(statement)
-        this.db.exec(statement)
+        this.execute(statement)
       }
       this.db.prepare('INSERT INTO migrations(version,tag,executed_at) VALUES (?,?,?)').run(version, tag, Date.now())
     } catch (error) { this.stop(error) }

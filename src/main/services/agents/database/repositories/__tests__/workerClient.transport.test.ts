@@ -34,6 +34,8 @@ class Broker {
   readonly sockets = new Set<Socket>()
   readonly requests: Request[] = []
   connections = 0
+  historyRevision = true
+  topicHistoryRevision = true
   worker?: EventEmitter
   handler?: Handler
   shutdownHandler?: Handler
@@ -49,7 +51,7 @@ class Broker {
         if (request.database !== this.database) {
           this.reply(socket, request, undefined, { message: 'Database identity mismatch' })
         } else if (request.method === 'hello') {
-          this.reply(socket, request, { owner: !!this.token && request.args[0] === this.token })
+          this.reply(socket, request, { owner: !!this.token && request.args[0] === this.token, ...(this.historyRevision ? { historyRevision: true } : {}), ...(this.topicHistoryRevision ? { topicHistoryRevision: true } : {}) })
         } else if (request.method === 'shutdown') {
           if (request.args[0] !== this.token) {
             this.reply(socket, request, undefined, { message: 'Shutdown is owner-only' })
@@ -161,6 +163,74 @@ it('passes overlay storage to the Worker and authenticates directory backup RPC'
   expect(await client.backupStorage('/backup')).toEqual(manifest)
   expect(brokers[0].requests[0].args[1]).toBe(storageConfiguration(overlayStorage))
   expect(brokers[0].requests[1]).toMatchObject({ method: 'backupStorage', args: [brokers[0].token, '/backup'] })
+})
+
+it('uses the explicit history revision RPC only when the broker advertises support', async () => {
+  const { broker, client } = await listening()
+  broker.handler = (request, socket) => broker.reply(socket, request, 'opaque-revision')
+  expect(await client.historyRevision()).toBe('opaque-revision')
+  expect(broker.requests.map(({ method, args }) => ({ method, args })).slice(1)).toEqual([{ method: 'historyRevision', args: [] }])
+  broker.handler = (request, socket) => broker.reply(socket, request, null)
+  expect(await client.historyRevision()).toBeUndefined()
+})
+
+it('skips history revisions on older brokers without sending an unsupported request', async () => {
+  const databaseUrl = url()
+  const broker = new Broker(databaseIdentity(databaseUrl))
+  broker.historyRevision = false
+  await broker.listen()
+  const client = open(databaseUrl)
+  expect(await client.historyRevision()).toBeUndefined()
+  expect(broker.requests.map(request => request.method)).toEqual(['hello'])
+  expect(client.closed).toBe(false)
+  await expect(client.execute('SELECT 1')).resolves.toMatchObject({ rowsAffected: 1 })
+})
+
+it('keeps request-only history revision errors from closing the connection', async () => {
+  const { broker, client } = await listening()
+  broker.handler = (request, socket) => socket.write(encodeFrame({ id: request.id, error: { message: 'revision unavailable' }, fatal: false }))
+  await expect(client.historyRevision()).rejects.toThrow('revision unavailable')
+  expect(client.closed).toBe(false)
+  broker.handler = undefined
+  await expect(client.execute('SELECT 1')).resolves.toMatchObject({ rowsAffected: 1 })
+})
+
+it('uses the distinct topic revision capability and sends the topic only to its explicit RPC', async () => {
+  const databaseUrl = url()
+  const broker = new Broker(databaseIdentity(databaseUrl))
+  broker.historyRevision = false
+  await broker.listen()
+  const client = open(databaseUrl)
+  broker.handler = (request, socket) => broker.reply(socket, request, 'topic-revision')
+  expect(await client.topicHistoryRevision('topic-a')).toBe('topic-revision')
+  expect(await client.historyRevision()).toBeUndefined()
+  expect(broker.requests.slice(1).map(({ method, args }) => ({ method, args }))).toEqual([{ method: 'topicHistoryRevision', args: ['topic-a'] }])
+  expect(await client.topicHistoryRevision('topic-a', 'requested-id')).toBe('topic-revision')
+  expect(broker.requests.at(-1)).toMatchObject({ method: 'topicHistoryRevision', args: ['topic-a', 'requested-id'] })
+  broker.handler = (request, socket) => broker.reply(socket, request, 123)
+  expect(await client.topicHistoryRevision('topic-a')).toBeUndefined()
+})
+
+it('does not infer topic revisions from an old broker global revision capability', async () => {
+  const databaseUrl = url()
+  const broker = new Broker(databaseIdentity(databaseUrl))
+  broker.topicHistoryRevision = false
+  await broker.listen()
+  const client = open(databaseUrl)
+  expect(await client.topicHistoryRevision('topic-a')).toBeUndefined()
+  expect(broker.requests.map(request => request.method)).toEqual(['hello'])
+  expect(client.closed).toBe(false)
+  broker.handler = (request, socket) => broker.reply(socket, request, 'global-revision')
+  expect(await client.historyRevision()).toBe('global-revision')
+})
+
+it('keeps request-only topic revision errors from closing the connection', async () => {
+  const { broker, client } = await listening()
+  broker.handler = (request, socket) => socket.write(encodeFrame({ id: request.id, error: { message: 'topic revision unavailable' }, fatal: false }))
+  await expect(client.topicHistoryRevision('topic-a')).rejects.toThrow('topic revision unavailable')
+  expect(client.closed).toBe(false)
+  broker.handler = undefined
+  await expect(client.execute('SELECT 1')).resolves.toMatchObject({ rowsAffected: 1 })
 })
 
 it('keeps the default Worker storage mode for legacy callers', async () => {
