@@ -20,6 +20,7 @@ export function isMediaGenerationBillingToolName(toolName?: string, serverName?:
     server === 'scrapt' ||
     server === 'douyin-shop-search' ||
     server === 'audio-understand' ||
+    server === 'aigc-detect' ||
     isKouboTemplateToolName(name) ||
     isMediaGenerationToolName(name) ||
     isSubtitleRecognitionToolName(name) ||

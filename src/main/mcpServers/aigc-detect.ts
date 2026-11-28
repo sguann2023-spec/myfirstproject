@@ -37,6 +37,16 @@ const VIDEO_DETECT_IMAGE_TIMEOUT_MS = 30_000
 const VIDEO_DETECT_BASE64_TIMEOUT_MS = 45_000
 const AUTH_EXPIRED_MESSAGE = '登录已过期，请重新登录后再试'
 
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif'
+}
+
 const isHttpLikeUrl = (value: string) => /^https?:\/\//i.test(value)
 const toErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -52,9 +62,9 @@ const DETECT_AIGC_IMAGE_TOOL: Tool = {
   name: 'detect_aigc_image',
   description: [
     'Detect whether an image is AI-generated / AI-synthesized / AI-edited / AI-faked (AIGC verification).',
-    'Accepts either a public image URL or a local image as base64 (data:image/*;base64,... or plain base64).',
+    'Accepts a public image URL, a local absolute file path, a file:// URL, or base64 (data:image/*;base64,... or plain base64).',
     'Consumes 3 points per call. Detection failure (e.g. upstream timeout) may still incur charges; do not auto-retry.',
-    'Use THIS tool instead of image-understand/inspect_image when the user asks about AI origin, authenticity, forgery, or AIGC traces of an image. image-understand answers "what is in the image"; THIS tool answers "was this image made by AI".',
+    'Use THIS tool instead of image-understand/inspect_image when the user asks about AI origin, authenticity, forgery, or AIGC traces of an image. image-understand answers "what is in the image"; THIS tool answers "was this image made by AI". Even if you can see the image yourself, AI-authenticity questions must be answered from this tool result, not from your own visual guess.',
     'This tool MUST be triggered when the user asks any of the following (Chinese or English):',
     '  Chinese: "这张图是不是 AI 生成的" / "是不是 AI 画的" / "AI 生成的吗" / "AI 合成的吗" / "帮我看看这张图是 AI 画的还是实拍" / "有没有 AI 痕迹" / "检测/鉴别这张图片是否 AI 生成" / "判断真伪" / "鉴定真伪" / "这张图有没有 AI 生成标识/水印元数据"',
     '  Chinese keywords to watch for: AI生成 | AI合成 | AI做的 | AI痕迹 | 实拍还是AI | 鉴别 | 鉴定真伪 | AI标识 | AI生成标识',
@@ -67,11 +77,13 @@ const DETECT_AIGC_IMAGE_TOOL: Tool = {
     properties: {
       image_url: {
         type: 'string',
-        description: '公网可访问的图片地址，http/https，长度不超过 2048'
+        description:
+          '公网可访问的图片地址，仅支持 http:// 或 https://，长度不超过 2048。本地图片请用 image 传路径。'
       },
       image: {
         type: 'string',
-        description: '本地图片 base64。支持 data:image/png;base64,... 或纯 base64；解码后不超过 20MB。与 image_url 二选一。'
+        description:
+          '本地图片。推荐直接传本地绝对路径、file:// URL 或相对工作区路径（工具内部读取并转 base64 后再请求服务端）；也可传 base64（data:image/png;base64,... 或纯 base64）。图片不超过 20MB。与 image_url 二选一。'
       }
     },
     additionalProperties: true
@@ -361,27 +373,103 @@ export default class AigcDetectServer {
 
   // ==================== 图片检测 ====================
 
+  /**
+   * 本地图片（file:// / 绝对路径 / 相对 workspace 的路径）转 base64 data URL。
+   * 非本地路径（公网 URL / 纯 base64）返回 null，交由原有逻辑处理。
+   * 注意：TFS 接口只接受公网 image_url 或 base64 image，本地路径必须在本地转码后才会发出去。
+   */
+  private async resolveLocalImageToDataUrl(raw: string): Promise<{ dataUrl: string; filePath: string } | null> {
+    const candidates: string[] = []
+    if (raw.startsWith('file://')) {
+      try {
+        candidates.push(fileURLToPath(raw))
+      } catch {
+        return null
+      }
+    } else if (raw.startsWith('~/')) {
+      candidates.push(path.join(os.homedir(), raw.slice(2)))
+    } else if (path.isAbsolute(raw)) {
+      candidates.push(raw)
+    } else if (this.workspacePath) {
+      candidates.push(path.resolve(this.workspacePath, raw))
+    }
+
+    for (const candidate of candidates) {
+      let stat: Awaited<ReturnType<typeof fsPromises.stat>>
+      try {
+        stat = await fsPromises.stat(candidate)
+      } catch {
+        continue
+      }
+      if (!stat.isFile()) continue
+      if (stat.size > MAX_IMAGE_BYTES) {
+        throw new McpError(ErrorCode.InvalidParams, `Local image exceeds 20MB: ${candidate}`)
+      }
+      const mime = IMAGE_MIME_BY_EXT[path.extname(candidate).toLowerCase()] ?? 'image/jpeg'
+      const buffer = await fsPromises.readFile(candidate)
+      return { dataUrl: `data:${mime};base64,${buffer.toString('base64')}`, filePath: candidate }
+    }
+    return null
+  }
+
   private async detectAigcImage(args: Record<string, unknown>) {
-    const imageUrl = typeof args.image_url === 'string' ? args.image_url.trim() : ''
-    const image = typeof args.image === 'string' ? args.image.trim() : ''
+    let imageUrl = typeof args.image_url === 'string' ? args.image_url.trim() : ''
+    let image = typeof args.image === 'string' ? args.image.trim() : ''
 
     if (!imageUrl && !image) {
-      throw new McpError(ErrorCode.InvalidParams, 'Missing required param: image_url or image (base64)')
+      throw new McpError(ErrorCode.InvalidParams, 'Missing required param: image_url or image (public URL, local path, or base64)')
     }
     if (imageUrl && image) {
       logger.info('Both image_url and image supplied; preferring image_url per TFS API contract')
     }
+    // 模型有时把公网 URL 塞进 image，这里纠正回 image_url
+    if (!imageUrl && isHttpLikeUrl(image)) {
+      imageUrl = image
+      image = ''
+    }
+
+    // 模型常把本地路径/file:// 塞进 image_url（接口只收公网 URL），这里统一兜底成本地 base64
+    let localImagePath: string | undefined
+    for (const field of ['image_url', 'image'] as const) {
+      const value = field === 'image_url' ? imageUrl : image
+      if (!value) continue
+      if (field === 'image_url' && isHttpLikeUrl(value)) continue
+      const resolved = await this.resolveLocalImageToDataUrl(value)
+      if (!resolved) continue
+      image = resolved.dataUrl
+      localImagePath = resolved.filePath
+      if (field === 'image_url') imageUrl = ''
+      break
+    }
+
     if (imageUrl) {
       if (imageUrl.length > 2048) {
         throw new McpError(ErrorCode.InvalidParams, 'image_url length must not exceed 2048')
       }
       if (!isHttpLikeUrl(imageUrl)) {
-        throw new McpError(ErrorCode.InvalidParams, 'image_url must be a public HTTP(S) URL')
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `image_url must be a public HTTP(S) URL (length <= 2048). For local images pass the file path in "image" instead: ${imageUrl.slice(0, 120)}`
+        )
+      }
+    } else {
+      // 硬保证：TFS 只接受 base64，本地路径绝不能透传出去。
+      // base64 字符集不含 "." 和 "\"，出现即说明是路径而非编码内容。
+      const isDataUrl = /^data:image\/[a-z0-9.+-]+;base64,/i.test(image)
+      const isPlainBase64 = !image.includes('.') && !image.includes('\\') && /^[A-Za-z0-9+/\s]*={0,2}$/.test(image)
+      if (!isDataUrl && !isPlainBase64) {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `"image" must be base64 (optionally data:image/...;base64,<data>) — local paths are never forwarded to the API. Pass an existing local file path (it is encoded locally) or pre-encoded base64: ${image.slice(0, 120)}`
+        )
       }
     }
 
-    const inputKind = imageUrl ? 'url' : 'base64'
-    logger.info('detect_aigc_image: start', { inputKind, urlPreview: imageUrl ? imageUrl.slice(0, 80) : undefined })
+    const inputKind = imageUrl ? 'url' : localImagePath ? 'local_file' : 'base64'
+    logger.info('detect_aigc_image: start', {
+      inputKind,
+      urlPreview: imageUrl ? imageUrl.slice(0, 80) : localImagePath ?? undefined
+    })
 
     const t0 = Date.now()
     const payload: Record<string, unknown> = imageUrl ? { image_url: imageUrl } : { image }
@@ -765,10 +853,16 @@ export default class AigcDetectServer {
         try {
           const result = await this.detectImageWithAuth({ image: `data:image/jpeg;base64,${dataUrl}` }, VIDEO_DETECT_BASE64_TIMEOUT_MS)
           if (result.code !== 0) {
+            const reason = this.tfsErrorCodeHint(result.code) || result.message
+            logger.warn('detect_aigc_video: frame detect rejected', {
+              timestamp: frame.timestamp,
+              code: result.code,
+              reason
+            })
             records[idx] = {
               timestamp: frame.timestamp,
               is_ai: false,
-              error: this.tfsErrorCodeHint(result.code) || result.message,
+              error: reason,
               consume: 0
             }
           } else {
@@ -785,6 +879,10 @@ export default class AigcDetectServer {
             }
           }
         } catch (err) {
+          logger.warn('detect_aigc_video: frame detect failed', {
+            timestamp: frame.timestamp,
+            error: toErrorMessage(err)
+          })
           records[idx] = {
             timestamp: frame.timestamp,
             is_ai: false,
