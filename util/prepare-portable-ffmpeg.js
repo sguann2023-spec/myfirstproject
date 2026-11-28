@@ -18,8 +18,8 @@ const DOWNLOADS = {
       binaryRelativePath: 'ffmpeg'
     },
     arm64: {
-      url: 'https://www.osxexperts.net/ffmpeg711arm.zip',
-      archiveSha256: '59e39a5cec2e5d2307ed079c53227a9181e64b87454ed4de998349e044bfdc70',
+      url: 'https://github.com/rse/ffmpeg/releases/download/1.4.2/ffmpeg-mac-a64',
+      format: 'binary',
       binarySha256: '011221d75eae36943b5a6a28f70e25928cfb5602fe616d06da0a3b9b55ff6b75',
       binaryRelativePath: 'ffmpeg'
     }
@@ -75,7 +75,7 @@ function download(url, destination, redirects = 0) {
 
       if (response.statusCode !== 200) {
         response.resume()
-        reject(new Error(`Download failed with status ${response.statusCode}`))
+        reject(new Error(`Download failed with status ${response.statusCode}: ${url}`))
         return
       }
 
@@ -153,6 +153,17 @@ function validateNative(binary, platform, arch) {
   for (const name of ['libvpx', 'libvpx-vp9']) if (!new RegExp(`\\b${name}\\s`).test(dec)) throw new Error(`Missing decoder ${name}`)
   for (const name of ['prores_ks', 'aac']) if (!new RegExp(`\\b${name}\\s`).test(enc)) throw new Error(`Missing encoder ${name}`)
 }
+async function fetchTarget(config, downloadPath, stagedBinary, fetch = download) {
+  const isBinary = config.format === 'binary'
+  const expectedSha256 = isBinary ? config.binarySha256 : config.archiveSha256
+  if (!fs.existsSync(downloadPath) || sha256(downloadPath) !== expectedSha256) {
+    console.log(`[prepare-portable-ffmpeg] Downloading ${config.url}`)
+    await fetch(config.url, downloadPath)
+  }
+  if (sha256(downloadPath) !== expectedSha256) throw new Error(`FFmpeg ${isBinary ? 'binary' : 'archive'} SHA256 mismatch`)
+  if (isBinary) fs.copyFileSync(downloadPath, stagedBinary)
+  return config.url
+}
 async function prepareTarget(platform, arch, config) {
   const destination = path.join(ffmpegRoot, platform, arch)
   const binaryPath = path.join(destination, platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
@@ -164,17 +175,13 @@ async function prepareTarget(platform, arch, config) {
     console.log(`[prepare-portable-ffmpeg] Verified 7.1.1: ${binaryPath}`)
     return
   }
-  if (!fs.existsSync(archivePath) || sha256(archivePath) !== config.archiveSha256) {
-    console.log(`[prepare-portable-ffmpeg] Downloading ${config.url}`)
-    await download(config.url, archivePath)
-  }
-  if (sha256(archivePath) !== config.archiveSha256) throw new Error('FFmpeg archive SHA256 mismatch')
   const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'vectcut-ffmpeg711-'))
   try {
+    const stagedBinary = path.join(stage, config.binaryRelativePath)
+    const sourceUrl = await fetchTarget(config, archivePath, stagedBinary)
     // Extract into an isolated staging dir, never erase resources/ffmpeg/<target>
     // because independently managed ffprobe may be installed there too.
-    extractZip(archivePath, stage)
-    const stagedBinary = path.join(stage, config.binaryRelativePath)
+    if (config.format !== 'binary') extractZip(archivePath, stage)
     if (!fs.existsSync(stagedBinary) || sha256(stagedBinary) !== config.binarySha256) throw new Error('FFmpeg binary SHA256 mismatch')
     if (platform !== 'win32') fs.chmodSync(stagedBinary, 0o755)
     validateNative(stagedBinary, platform, arch)
@@ -188,7 +195,7 @@ async function prepareTarget(platform, arch, config) {
     fs.renameSync(next, binaryPath)
     const license = path.join(stage, 'ffmpeg-7.1.1-essentials_build', 'LICENSE')
     if (fs.existsSync(license)) fs.copyFileSync(license, path.join(destination, 'ffmpeg.LICENSE'))
-    fs.writeFileSync(path.join(destination, 'ffmpeg.build.json'), JSON.stringify({ version: '7.1.1', platform, arch, url: config.url, archiveSha256: config.archiveSha256, binarySha256: config.binarySha256 }, null, 2))
+    fs.writeFileSync(path.join(destination, 'ffmpeg.build.json'), JSON.stringify({ version: '7.1.1', platform, arch, url: sourceUrl, ...(config.format !== 'binary' ? { archiveSha256: config.archiveSha256 } : {}), binarySha256: config.binarySha256 }, null, 2))
     console.log(`[prepare-portable-ffmpeg] Installed verified 7.1.1: ${binaryPath}`)
   } finally { fs.rmSync(stage, { recursive: true, force: true }) }
 }
@@ -216,4 +223,4 @@ if (require.main === module) main().catch((error) => {
   process.exit(1)
 })
 
-module.exports = { DOWNLOADS, collectTargets, sha256, validateNative, prepareTarget }
+module.exports = { DOWNLOADS, collectTargets, sha256, validateNative, prepareTarget, fetchTarget }
