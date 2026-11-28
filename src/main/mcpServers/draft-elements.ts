@@ -99,6 +99,10 @@ const TEXT_ANIMATION_PREVIEW_GUIDANCE = 'HIGH-PRIORITY ANIMATION PREVIEW BEFORE 
 
 const TEXT_VERIFICATION_GUIDANCE = 'Verification is recommended for pixel position offsets transform_x_px/transform_y_px beyond -2000 or 2000, or guessed generic font names such as 系统, 思源, 鸿蒙/HarmonyOS Sans, Source Han, or system default fonts. For these checks and ordinary in-range font sizes, prefer lightweight previews first; use render_draft (预渲染 / Pre-render) when they cannot verify subtitles, animation timing, track layering, audio effects or volume, font effects, transitions, or combined compositions. This fallback does not waive mandatory pre-rendering for out-of-range font sizes. If the working draft exceeds render limits, or verification must happen before modifying it, create a separate cloud test draft <=5 seconds that reproduces the relevant layers, timing, styles and audio, then render that test draft without changing the working draft. Use cloud-accessible assets with full video/audio sources <=20 seconds and images <=20 MiB; trimming a long source on the timeline alone does not satisfy the source limit. These limits guide test-draft preparation, not abandoning render verification.'
 
+const MEDIA_TRIM_GUIDANCE = 'Reference the original media URL or local file path, even when using multiple excerpts from the same source. Trim non-destructively in the draft; do not pre-cut, re-encode, or create intermediate files just to select a time range.'
+const SINGLE_MEDIA_TIMING_GUIDANCE = 'Pass start and end as source timestamps in seconds and target_start as the draft timeline start in seconds. At normal speed, start=12, end=18, target_start=4 places source seconds 12–18 at draft seconds 4–10.'
+const BATCH_MEDIA_TIMING_GUIDANCE = 'For each entry, starts/ends select source timestamps and target_starts/target_ends specify the destination range on the draft timeline, all in seconds.'
+
 const TOOLS: Tool[] = [
   toolWithArgs(
     'add_text',
@@ -684,7 +688,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_video',
-    'Add a single video layer into a VectCut draft.',
+    `Add a single video layer into a VectCut draft. ${MEDIA_TRIM_GUIDANCE} ${SINGLE_MEDIA_TIMING_GUIDANCE}`,
     {
       videoUrl: { type: 'string', description: 'Required video URL or local file path alias of video_url.' },
       video_url: { type: 'string', description: 'Required video URL or local file path.' },
@@ -731,7 +735,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_video',
-    'Add multiple video layers into a VectCut draft in one request. REQUIRED: video_urls, starts, ends, durations, target_starts and target_ends must ALL be provided as arrays with one entry per video; never omit any of these required arrays.',
+    `Add multiple video layers into a VectCut draft in one request. ${MEDIA_TRIM_GUIDANCE} ${BATCH_MEDIA_TIMING_GUIDANCE} REQUIRED: video_urls, starts, ends, durations, target_starts and target_ends must ALL be provided as arrays with one entry per video; never omit any of these required arrays.`,
     {
       videoUrls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs or absolute local file paths alias of video_urls.' },
       video_urls: { type: 'array', items: { type: 'string' }, description: 'Required video URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },
@@ -839,7 +843,7 @@ const TOOLS: Tool[] = [
   readonlyTool('get_transition_types', 'List supported transition types for visual tracks such as image and video.'),
   toolWithArgs(
     'add_audio',
-    'Add a single audio layer into a VectCut draft.',
+    `Add a single audio layer into a VectCut draft. ${MEDIA_TRIM_GUIDANCE} ${SINGLE_MEDIA_TIMING_GUIDANCE}`,
     {
       audioUrl: { type: 'string', description: 'Optional audio URL or local file path alias of audio_url. Required when music_id is not provided.' },
       audio_url: { type: 'string', description: 'Optional audio URL or local file path. Required when music_id is not provided.' },
@@ -874,7 +878,7 @@ const TOOLS: Tool[] = [
   ),
   toolWithArgs(
     'add_batch_audio',
-    'Add multiple audio layers into a VectCut draft in one request. REQUIRED: audio_urls, starts, ends, durations, target_starts and target_ends must ALL be provided as arrays with one entry per audio; never omit any of these required arrays.',
+    `Add multiple audio layers into a VectCut draft in one request. ${MEDIA_TRIM_GUIDANCE} ${BATCH_MEDIA_TIMING_GUIDANCE} REQUIRED: audio_urls, starts, ends, durations, target_starts and target_ends must ALL be provided as arrays with one entry per audio; never omit any of these required arrays.`,
     {
       audioUrls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs or absolute local file paths alias of audio_urls.' },
       audio_urls: { type: 'array', items: { type: 'string' }, description: 'Required audio URLs or absolute local file paths. Local paths are accepted directly; do not pre-upload them with upload_file_to_oss.' },

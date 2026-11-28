@@ -313,6 +313,25 @@ describe('DraftElementsServer', () => {
     expect(toolsByName.get('modify_filter').inputSchema.required).toEqual(['material_id'])
   })
 
+  it('should guide audio/video adds to trim original media on the draft timeline', async () => {
+    const server = createServer()
+    const result = await listTools(server)
+    const toolsByName = new Map<string, ListedTool>(result.tools.map((tool: ListedTool) => [tool.name, tool]))
+
+    for (const kind of ['video', 'audio']) {
+      const single = toolsByName.get(`add_${kind}`).description
+      const batch = toolsByName.get(`add_batch_${kind}`).description
+      for (const description of [single, batch]) {
+        expect(description).toContain('Reference the original media URL or local file path')
+        expect(description).toContain('do not pre-cut, re-encode, or create intermediate files')
+      }
+      expect(single).toContain('start and end as source timestamps')
+      expect(single).toContain('target_start as the draft timeline start')
+      expect(batch).toContain('starts/ends select source timestamps')
+      expect(batch).toContain('target_starts/target_ends specify the destination range')
+    }
+  })
+
   it('should require all timing arrays on batch video/audio tools in both description and schema', async () => {
     const server = createServer()
     const result = await listTools(server)
